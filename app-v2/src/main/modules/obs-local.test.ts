@@ -109,6 +109,20 @@ function runningFeedUrl(status: ObsLocalStatus): string {
   return url
 }
 
+async function settleWithin<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} did not settle.`)), 2_000)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 async function reserveLoopbackPort(): Promise<number> {
   return await new Promise<number>((resolveResult, rejectResult) => {
     const server = createServer()
@@ -190,5 +204,27 @@ describe('obs-local module Browser Source feed', () => {
     await expect(
       invoke(ctx, OBS_LOCAL_CHANNELS.startFeed, { layoutId: 'race', port: 0 })
     ).rejects.toThrow(/port override must be an integer from 1 to 65535/i)
+  })
+
+  it('cancels a pending OBS feed start when stop is requested concurrently', async () => {
+    const ctx = fakeContext()
+    register(ctx)
+
+    const starting = invoke<ObsLocalStatus>(ctx, OBS_LOCAL_CHANNELS.startFeed, { layoutId: 'race' })
+    const stopping = invoke<ObsLocalStatus>(ctx, OBS_LOCAL_CHANNELS.stopFeed)
+    const [startResult, stopResult] = await settleWithin(
+      Promise.allSettled([starting, stopping]),
+      'OBS feed start/stop race'
+    )
+
+    expect(startResult.status).toBe('rejected')
+    if (startResult.status === 'rejected') {
+      expect(startResult.reason).toEqual(expect.objectContaining({
+        message: expect.stringMatching(/startup was cancelled/i)
+      }))
+    }
+    expect(stopResult.status).toBe('fulfilled')
+    if (stopResult.status === 'fulfilled') expect(stopResult.value.feed.running).toBe(false)
+    expect((await invoke<ObsLocalStatus>(ctx, OBS_LOCAL_CHANNELS.status)).feed.running).toBe(false)
   })
 })

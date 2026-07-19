@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ultimate Sim Receiver">
+  <rect width="512" height="512" rx="112" fill="#07111d"/>
+  <path d="M92 326h64l38-140 54 214 48-164 34 90h90" fill="none" stroke="#76f7bd" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="92" cy="326" r="18" fill="#ff6a00"/>
+  <circle cx="420" cy="326" r="18" fill="#ff6a00"/>
+</svg>

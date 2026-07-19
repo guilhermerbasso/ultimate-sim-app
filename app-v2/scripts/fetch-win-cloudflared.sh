@@ -12,6 +12,7 @@ CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/download/${C
 DEST="resources/cloudflared"
 BIN="cloudflared.exe"
 TARGET="$DEST/$BIN"
+CONFIG="$DEST/quick-tunnel.yml"
 
 hash_file() {
   node -e 'const fs=require("node:fs"),crypto=require("node:crypto");console.log(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$1"
@@ -40,11 +41,27 @@ verify_nonempty() {
   fi
 }
 
+verify_quick_tunnel_config() {
+  local file="$1"
+  node -e '
+    const fs = require("node:fs");
+    const entries = fs.readFileSync(process.argv[1], "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.replace(/#.*$/, "").trim())
+      .filter(Boolean);
+    if (entries.length !== 1 || entries[0] !== "no-autoupdate: true") {
+      console.error(`[fetch-win-cloudflared] ERROR: invalid isolated quick-tunnel config: ${process.argv[1]}`);
+      process.exit(1);
+    }
+  ' "$file"
+}
+
 verify_package() {
   local version stem latest_version admin_required artifact
   version="$(node -p "require('./package.json').version")"
   stem="dist-win/Ultimate-Sim-App-${version}-x64"
   verify_file "dist-win/win-unpacked/resources/cloudflared/$BIN"
+  verify_quick_tunnel_config "dist-win/win-unpacked/resources/cloudflared/quick-tunnel.yml"
   for artifact in \
     "dist-win/win-unpacked/Ultimate Sim App.exe" \
     "dist-win/win-unpacked/icudtl.dat" \
@@ -84,6 +101,7 @@ case "${1:-}" in
   --verify)
     [ "$#" -le 2 ] || { echo "usage: $0 --verify [path]" >&2; exit 2; }
     verify_file "${2:-$TARGET}"
+    verify_quick_tunnel_config "$CONFIG"
     exit
     ;;
   --verify-package)
@@ -99,6 +117,7 @@ case "${1:-}" in
     ;;
 esac
 
+verify_quick_tunnel_config "$CONFIG"
 mkdir -p "$DEST"
 if [ -e "$TARGET" ] && verify_file "$TARGET"; then
   exit 0

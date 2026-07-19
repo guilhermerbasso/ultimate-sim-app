@@ -3,7 +3,7 @@ import type { ResolvedLanguage } from '../i18n'
 const en = {
   'obsLocal.title': 'OBS local certification target',
   'obsLocal.summary': 'Loopback-first Browser Source feed plus allowlisted OBS WebSocket v5 control, health, timeline, and reliability checks.',
-  'obsLocal.readOnly': 'The Browser Source is read-only. OBS control uses a separate authenticated and allowlisted connection.',
+  'obsLocal.readOnly': 'The Browser Source is read-only. OBS control requires password authentication; servers without an authentication challenge are rejected.',
   'obsLocal.error': 'OBS local operation failed.',
   'obsLocal.feed.online': 'feed online',
   'obsLocal.feed.offline': 'feed offline',
@@ -51,7 +51,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
   'pt-BR': {
     ...en,
     'obsLocal.title': 'Target de certificação OBS local',
-    'obsLocal.readOnly': 'A Browser Source é somente leitura. O controle do OBS usa conexão autenticada e allowlist separadas.',
+    'obsLocal.readOnly': 'A Browser Source é somente leitura. O controle exige autenticação por senha; servidores sem desafio de autenticação são rejeitados.',
     'obsLocal.feed.title': 'Browser Source somente leitura',
     'obsLocal.feed.start': 'Iniciar feed OBS',
     'obsLocal.feed.stop': 'Parar feed',

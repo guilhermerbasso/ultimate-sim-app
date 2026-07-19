@@ -1,5 +1,207 @@
 # Ultimate Sim App — Release Notes
 
+## v2.54.0 — Smarter streaming, local integrations & offline race preparation
+
+Version 2.54.0 adds safer local integrations, exact phone/tablet stream presentations, editor-only
+trigger previews, evidence-safe setup experiments, an experimental pre-race Context-Debt audit, and
+offline race-operation rehearsal.
+
+### Loopback-only MQTT integration
+- 🔌 **A hardened MQTT certification target connects local tools without cloud credentials.** It is
+  disabled by default and binds only to loopback (`127.0.0.1` / `::1`).
+- 🔐 Authenticated publisher, reader, and command roles use narrow topic permissions and preserve
+  retained availability, health, and session state through reconnects.
+- ⛔ Command execution remains disabled unless explicitly enabled, and the target does not enable
+  gameplay commands by default.
+
+### Streaming targets you control
+- 📺 **A dedicated Streaming area** stores the dashboard and Touch Controls targets you choose
+  instead of making you rediscover them for each session.
+- ✏️ **Edited dashboard copies stay streamable** after migration and restart, while exact built-in
+  presets remain distinguishable from your customized versions.
+- 🔒 Streaming remains read-only; this release does not add remote control of the app or simulator.
+
+### Secure Internet sharing
+- 🌐 **Internet mode can open its secure public HTTPS viewer automatically** through the bundled,
+  checksum-verified Cloudflare quick tunnel, including password/token bootstrap and authenticated
+  receiver readiness.
+- 🩺 **Clear health diagnostics and supervised recovery** prevent stale public URLs, clean up old
+  tunnel processes, and reconnect with bounded retries.
+- 🏠 Local and LAN streaming continue to work independently of the Internet tunnel.
+
+### Reliable local PWA reconnects
+- 🔁 **Duplicate close and online events no longer queue overlapping receiver WebSockets or
+  double-count reconnect attempts and reliability metrics.**
+- ⏱️ The first pending reconnect keeps its original 250 ms deadline instead of being cancelled and
+  rescheduled by a duplicate trigger.
+- 📴 Pending reconnects are still cancelled while offline and on unmount, while legitimate later
+  exponential backoff remains intact.
+
+### Mobile presentations without changing the source
+- 📱 **Save presentation profiles for exact iPhone, iPad, and Android viewports**, including
+  orientation, safe areas, fit/fill behavior, and minimum touch sizing.
+- 🧷 Profiles are bound to a source revision and keep presentation-only changes separate from the
+  saved dashboard or Touch Controls panel.
+- ▶️ Saved profiles can start streaming directly, while dirty-draft conflict protection prevents
+  accidental overwrites. Interactive preview remains local and adds no remote command capability.
+
+### Secure interactive Touch Controls
+- 🎛️ **Authenticated phones and tablets can operate saved Touch Controls** for allowlisted pit
+  actions, radio holds, toggles, selectors, rotaries, and simulator actions, while ordinary
+  dashboard telemetry remains read-only.
+- 🔐 Server-issued target-bound capabilities require CSRF protection, one-time nonces, origin
+  binding, rate limits, and a live receiver lease before an interactive action is admitted.
+- 💓 Profile and standard Touch rendering share abortable, timeout-bounded heartbeat requests with
+  generation-fenced offline and authentication recovery.
+- 🛑 Disconnect and stop paths fail closed: admission is revoked synchronously, listeners and
+  sessions drain, holds and mixed latches release in the correct order, configured OFF executes
+  exactly once, and repeated cleanup remains idempotent.
+
+### Safe trigger-only editor previews
+- 👁️ **An editor-only toggle reveals inactive trigger-only overlays and dashboard widgets** so they
+  can be positioned without waiting for their race condition to occur.
+- 🧷 Preview state is immutable and isolated: saved rules, live visibility, compositor output, and
+  streaming behavior remain unchanged.
+- 🧹 Preview ownership is released on hide, reload, or renderer loss and restored after a tray
+  reopen. HiFi preview cards remain inert and do not subscribe to live Coach, Engineer, or Alerts
+  IPC.
+
+### Evidence-safe Setup Experiment Twin
+- 🧰 **Compare exactly one setup-variable change through a declared A-B-A or B-A-B protocol** with
+  manual setup confirmation; the app never applies a setup automatically.
+- 📊 Matched-block contrasts, moving-block bootstrap uncertainty, rollback/drift checks, outlier
+  sensitivity, and direction agreement keep exploratory evidence separate from confirmation.
+- 🛑 The Twin abstains when evidence is incomplete or conflicting, retains unsaved laps through
+  persistence failures, and exposes paused/recovered state instead of overstating causality.
+
+### Signed offline collaboration
+- 🤝 **Players can share deterministic local setup workspaces without enabling network transport.**
+  The runtime remains local-only and uses the in-memory collaboration transport.
+- ✍️ Ed25519 actor signatures cover canonical payloads, while deterministic CRDT ordering,
+  serialization, checksums, and bounded Lamport/causal validation keep replicas reproducible.
+- ↩️ Mutation, synchronization, export, and persistence failures roll back atomically instead of
+  leaving partial state.
+- 🧱 Canonical imports enforce an exact 8 MiB limit with bounded single-handle reads and reject
+  prototype-sensitive paths or JSON keys before parsing can affect the workspace.
+
+### Zero-egress Social Connector simulations
+- 💬 **Exercise Twitch, YouTube, and Discord workflows deterministically without contacting platform
+  services**, including chat, events, polls, moderation, markers, clips, broadcasts, commands, and
+  room policies.
+- 🚫 These are local mock/conformance connectors only: they accept no live credentials, make zero
+  live network requests, claim no platform certification, and are not production network adapters.
+- 🔐 Capability-specific payload allowlists, provider-aware credential key/value scans, approval and
+  room-policy gates, monotonic consent epochs, replay protection, cross-capability deduplication,
+  and sanitized audit receipts keep simulated workflows fail closed and reproducible.
+- 📦 Fixture bodies, signatures, sanitized JSON depth/count/size, policy allowlists, and exported
+  status snapshots are bounded and validated before simulation.
+
+### Fail-closed Rig Preflight certification
+- ✅ **See a clear pre-session readiness decision from desired-versus-observed hardware and runtime
+  evidence**, with actionable remediation, governed waivers, known-good drift, and expiring
+  certificates instead of an assumed-safe rig.
+- ⏱️ Certification is bounded by the earliest required evidence deadline, while a main-process
+  watchdog can revoke readiness even when renderer evidence collection is blocked or stale.
+- 🔌 Hardware certification requires stable observed USB VID/PID/serial identity; mutable COM paths
+  and runtime IDs cannot certify a device. Audited Arduino replacement invalidates active
+  certification before rebinding, and ESP32 identities are canonicalized collision-safely.
+- 💾 State transactions serialize through an explicit durable commit point. Interrupted
+  `.previous`/`.next` replacement files recover or quarantine fail closed, distinguishing
+  pre-commit rollback from post-commit cleanup warnings.
+- 🧹 **Generated drift exclusion:** pre-existing generated touch-panel snapshots and visual-audit
+  working-tree drift are explicitly outside the Rig Preflight change set and this release-doc
+  update.
+
+### Durable replay, recording, and debrief persistence
+- 💾 **Completed recordings and final `session.json` metadata are written atomically**, with bounded
+  retryable finalization retained after transient storage failures instead of being silently lost.
+- 🔁 Cancellable exponential-backoff retries cover recorder metadata, track sidecars, and pace-model
+  persistence across live, suspended, disconnected, context-transition, and shutdown paths.
+- 📉 Repeated sample-write failures are capped, appends pause safely, and dropped-sample counts remain
+  visible; newer learned pace payloads drain after earlier in-flight writes finish.
+- 🗣️ Persisted Stint Debriefs validate, migrate, reload, and speak in their recorded language, while
+  Coach/Engineer evidence stays scoped to the ended car, track, layout, session type, canonical
+  identity, and track condition.
+
+### Evidence-safe Steward Desk
+- ⚖️ **League incident review remains explicitly human-owned** through versioned rules, verdicts,
+  dissent, appeals, and authoritative local re-adjudication; the app never assigns penalties
+  automatically.
+- 🔗 Cases preserve a canonical verified event chain, while incident clips are bound to debounced
+  provider session epochs and stored atomically with fail-closed corruption, decryption, and hash
+  quarantine.
+- 🛡️ Stable main-process actor identities remain authoritative; renderer labels are untrusted notes,
+  and imported or legacy-unconfirmed verdicts stay non-authoritative until trusted local review.
+- 🔏 Export/import uses schema-allowlisted anonymization, canonical provenance, and explicit
+  redistribution-rights gates. Windows `safeStorage` is treated as local-user sealing, not
+  same-user process authentication.
+
+### Experimental Context-Debt audit
+- 🧪 **The local pre-race meter highlights competing cues, invalid routes, and unavailable devices**
+  before they become cockpit confusion.
+- 🛑 Malformed profiles and incomplete audio or serial inventories fail closed, while suggestions
+  respect per-cue route and modality limits.
+- **Experimental status:** this remains an N=0, local-only experiment—not evidence of validated
+  player demand or predictive accuracy.
+
+### Offline Mission Rehearsal
+- 🏁 **Build and run branching race-operation scenarios offline** with assigned roles, checkpoints,
+  deterministic decisions, resumable runs, and archive recovery.
+- 📊 **Compare repeat attempts and review scored, blameless debriefs** without needing a simulator
+  session or a cloud service.
+- 🧱 Synthetic rehearsal events never enter real telemetry or session history, and rehearsal
+  decisions cannot actuate live race controls.
+
+### Validation
+- Full test suite: **4,314 tests passing across 335 files. Typecheck clean.**
+- Merged-feature suite: **296 tests passing across 36 files**, including the Electron browser
+  lifecycle regression; updater/package release gate: **5 tests passing**.
+- Production build: **364 main-process modules, 8 preload modules, and 2,376 renderer modules**;
+  the **56-file streaming resource graph** passes with 29 JavaScript and 6 CSS files.
+- The final `npm run dist:win` and `npm run verify:win-package` runs passed. Packaging used the
+  documented fallback for the optional ViGEm module because the host has no Visual Studio Build
+  Tools.
+- The verifier accepted the unpacked Electron runtime, elevated NSIS helper, packaged SerialPort,
+  Cloudflare tunnel, Whisper runtime, and the exact four updater artifacts. `latest.yml` contains the
+  installer size and SHA-512, and its EXE entry sets the `isAdminRightsRequired: true` metadata flag.
+
+_Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.zip` + blockmap +
+`latest.yml`._
+
+### What's Changed
+- [#70](https://github.com/guilhermerbasso/ultimate-sim-app/pull/70) — add the disabled-by-default,
+  loopback-only MQTT certification target.
+- [#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71) — add persistent,
+  user-managed dashboard and Touch Controls streaming targets.
+- [#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72) — restore and harden secure
+  Internet auto-tunnel streaming.
+- [#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73) — add offline Mission
+  Rehearsal with isolated synthetic events and recovery-safe runs.
+- [#74](https://github.com/guilhermerbasso/ultimate-sim-app/pull/74) — add revision-bound mobile
+  presentation profiles for saved dashboards and Touch Controls.
+- [#75](https://github.com/guilhermerbasso/ultimate-sim-app/pull/75) — add safe editor-only
+  positioning previews for trigger-based overlays and dashboard widgets.
+- [#76](https://github.com/guilhermerbasso/ultimate-sim-app/pull/76) — add the experimental local
+  Context-Debt pre-race meter.
+- [#88](https://github.com/guilhermerbasso/ultimate-sim-app/pull/88) — add the local, evidence-safe
+  Setup Experiment Twin for controlled one-variable comparisons.
+- [#90](https://github.com/guilhermerbasso/ultimate-sim-app/pull/90) — debounce PWA receiver
+  reconnects without changing the first pending deadline or legitimate backoff.
+- [#91](https://github.com/guilhermerbasso/ultimate-sim-app/pull/91) — add signed, deterministic
+  offline workspace collaboration with transactional and import-boundary safeguards.
+- [#93](https://github.com/guilhermerbasso/ultimate-sim-app/pull/93) — add deterministic,
+  zero-egress Social Connector simulations that are explicitly not production platform adapters.
+- [#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94) — add authenticated,
+  lease-bound interactive Touch Controls with fail-closed ownership and teardown.
+- [#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95) — add the local, evidence-safe
+  Steward Desk with human-owned verdicts, appeals, privacy, and rights gates.
+- [#96](https://github.com/guilhermerbasso/ultimate-sim-app/pull/96) — add fail-closed Rig Preflight
+  certification with evidence freshness, stable hardware identity, and atomic persistence.
+- [#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97) — make recording, sidecar,
+  pace-model, and language-aware debrief persistence retryable and shutdown-safe.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
+
 ## v2.53.1 — SerialPort startup hotfix
 
 Version 2.53.1 fixes the JavaScript error shown immediately after installing v2.53.0:

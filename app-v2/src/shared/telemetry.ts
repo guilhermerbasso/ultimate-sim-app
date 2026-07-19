@@ -544,8 +544,8 @@ export interface TelemetrySnapshot {
   // Este campo opcional fica reservado para providers que exponham um sinal real de
   // ignição/motor — quando presente, tem prioridade sobre o proxy de rpm.
   engineRunning?: boolean
-  shiftIndicatorPct?: number // 0..1 ao longo da BANDA de shift-lights do carro (DriverCarSLFirstRPM→SLLastRPM); ShiftIndicatorPct do iRacing como fallback, nunca rpm/maxRpm
-  shiftRpm?: number // RPM de upshift optimal do sim (iRacing PlayerCarSLShiftRPM), quando dispolevel
+  shiftIndicatorPct?: number // 0..1 ao longo da BANDA de shift-lights do carro (DriverCarSLFirstRPM→DriverCarSLShiftRPM); ShiftIndicatorPct do iRacing como fallback, nunca rpm/maxRpm
+  shiftRpm?: number // RPM de upshift do sim (iRacing DriverCarSLShiftRPM), quando disponível
   revLights?: {
     firstRpm?: number
     shiftRpm?: number
@@ -683,6 +683,8 @@ export interface TelemetrySnapshot {
   fuelPerLapKg?: number
   fuelCapacityLiters?: number
   fuelLevelPct?: number // FuelLevelPct — fuel in tank as a 0..1 fraction of capacity
+  /** Current fuel mass when a provider exposes it; setup experiments may otherwise use an explicit litres-to-mass estimate. */
+  fuelMassKg?: number
 
   // Tires / brakes
   tyres?: Corners<TyreInfo>
@@ -706,6 +708,8 @@ export interface TelemetrySnapshot {
   repairTimeSec?: number
   optionalRepairTimeSec?: number
   pitStopActive?: boolean
+  /** Explicit refuel-service state when the provider can distinguish it from a generic pit stop. */
+  refuelServiceActive?: boolean
   // Status de pit (iRacing): pits abertos, carro no box, status do serviço e reparos.
   // repairNeeded/optRepairNeeded são DERIVADOS de PitRepairLeft/PitOptRepairLeft > 0.
   pit?: PitStatus
@@ -731,6 +735,13 @@ export interface TelemetrySnapshot {
   airPressureHg?: number
   weatherType?: number
   trackLengthKm?: number
+  /** Normalized experiment context signals. Missing values remain unknown and fail closed. */
+  tyreStatePct?: number
+  trafficDensity?: number
+  flagStateIndex?: number
+  damagePct?: number
+  lapValidity?: 'valid' | 'invalid' | 'unknown'
+  towReset?: boolean
   // Extra environment telemetry (iRacing): fog + relative humidity (0..1), wind speed (m/s)
   // + direction (rad), solar altitude/azimuth (rad), and the Skies enum (0=clear..3=overcast).
   fogPct?: number

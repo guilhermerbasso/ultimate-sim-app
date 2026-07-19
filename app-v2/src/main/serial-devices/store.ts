@@ -57,7 +57,8 @@ export class SerialDevicesStore {
   // SIM-X box: a device's STABLE USB identity (vendorId/productId/serialNumber)
   // wins, so the same physical box that re-enumerated on a different COM port
   // updates its record (and its `path`) instead of being saved as a duplicate.
-  // Falls back to the hub id, then the COM path for identity-less adapters.
+  // Falls back to the hub id, then the COM path only to migrate the saved record;
+  // Rig Preflight never treats those mutable selectors as certified identity.
   // Returns the persisted entry (with normalized timestamps).
   async upsert(
     entry: Omit<GenericSerialDeviceConfig, 'createdAt' | 'updatedAt'> & {
@@ -146,4 +147,3 @@ export function getSerialDevicesStore(app: App): SerialDevicesStore {
   if (!sharedStore) sharedStore = new SerialDevicesStore(app)
   return sharedStore
 }
-

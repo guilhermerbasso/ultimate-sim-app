@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest'
+import { navSections } from './navModel'
+import { viewRegistry } from '../views/registry'
+
+describe('SP-07 navigation', () => {
+  it('registers the context-debt screen exactly once with a unique shortcut', () => {
+    const routeCount = navSections.flatMap((section) => section.viewIds)
+      .filter((viewId) => viewId === 'context-debt')
+      .length
+    const views = viewRegistry.filter((view) => view.id === 'context-debt')
+
+    expect(routeCount).toBe(1)
+    expect(views).toHaveLength(1)
+    expect(viewRegistry.filter((view) => view.shortcut === views[0].shortcut)).toHaveLength(1)
+  })
+})
+
+describe('rig preflight navigation', () => {
+  it('places the evidence-backed preflight at the front of Hardware', () => {
+    const hardware = navSections.find((section) => section.title === 'Hardware')
+    expect(hardware?.viewIds[0]).toBe('rig-preflight')
+    expect(hardware?.viewIds).toContain('devices')
+  })
+})
+
+describe('Story Engine navigation', () => {
+  it('preserves Story Engine beside the current Race Hub products', () => {
+    const raceHub = navSections.find((section) => section.title === 'Race Hub')
+    expect(raceHub?.viewIds).toContain('context-debt')
+    expect(raceHub?.viewIds).toContain('story-engine')
+    expect(viewRegistry.filter((view) => view.id === 'story-engine')).toHaveLength(1)
+  })
+})
+
+describe('Streaming navigation', () => {
+  it('exposes Streaming as its own top-level Drive view beside Dashboards', () => {
+    const drive = navSections.find((section) => section.title === 'Drive')
+    expect(drive?.viewIds).toContain('dashboards')
+    expect(drive?.viewIds).toContain('streaming')
+    expect(drive?.viewIds.indexOf('streaming')).toBe((drive?.viewIds.indexOf('dashboards') ?? -2) + 1)
+  })
+})
+
+describe('Garage and League Ops merge preservation', () => {
+  it('keeps Setup Experiment in Garage and Steward Desk in League Ops', () => {
+    expect(navSections.find((section) => section.title === 'Garage')?.viewIds).toContain('setup-experiment')
+    expect(navSections.find((section) => section.title === 'League Ops')?.viewIds).toContain('steward-desk')
+    expect(viewRegistry.filter((view) => view.id === 'setup-experiment')).toHaveLength(1)
+    expect(viewRegistry.filter((view) => view.id === 'steward-desk')).toHaveLength(1)
+  })
+})

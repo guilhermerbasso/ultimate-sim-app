@@ -134,6 +134,8 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast, on
   const [percent, setPercent] = useState(0)
   const [result, setResult] = useState<FlashResult | null>(null)
   const [showCommand, setShowCommand] = useState(false)
+  const [replaceSerialIdentity, setReplaceSerialIdentity] = useState(false)
+  const [replacementReason, setReplacementReason] = useState('')
 
   const logEndRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef(true)
@@ -210,6 +212,8 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast, on
   // 'arduino' programmer. We only auto-switch to a board the module supports.
   function pickPort(path: string): void {
     setPort(path)
+    setReplaceSerialIdentity(false)
+    setReplacementReason('')
     const guess = ports.find((info) => info.path === path)?.identify?.boardGuess
     if (!guess) return
     const guessedBoard = availableBoards.find((board) => board.id === guess.boardId)
@@ -237,7 +241,9 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast, on
       moduleId: selectedModule.id,
       board: selectedBoard.id,
       port,
-      baudId
+      baudId,
+      replaceSerialIdentity,
+      replacementReason: replaceSerialIdentity ? replacementReason.trim() : undefined
     }
     try {
       const res = await window.ipc.invoke<FlashResult>(SETUP_CHANNELS.flash, request)
@@ -398,7 +404,11 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast, on
               log={log}
               percent={percent}
               result={result}
-              canFlash={canFlash}
+              canFlash={canFlash && (!replaceSerialIdentity || replacementReason.trim().length >= 10)}
+              replaceSerialIdentity={replaceSerialIdentity}
+              replacementReason={replacementReason}
+              onReplaceSerialIdentity={setReplaceSerialIdentity}
+              onReplacementReason={setReplacementReason}
               logEndRef={logEndRef}
               onFlash={() => void startFlash()}
               onDumpHex={() => void startDumpHex()}
@@ -796,6 +806,10 @@ function FlashStep({
   percent,
   result,
   canFlash,
+  replaceSerialIdentity,
+  replacementReason,
+  onReplaceSerialIdentity,
+  onReplacementReason,
   logEndRef,
   onFlash,
   onDumpHex,
@@ -817,6 +831,10 @@ function FlashStep({
   percent: number
   result: FlashResult | null
   canFlash: boolean
+  replaceSerialIdentity: boolean
+  replacementReason: string
+  onReplaceSerialIdentity: (value: boolean) => void
+  onReplacementReason: (value: string) => void
   logEndRef: RefObject<HTMLDivElement | null>
   onFlash: () => void
   onDumpHex: () => void
@@ -843,6 +861,42 @@ function FlashStep({
       </div>
 
       <WiringPanel module={module} board={board} compact />
+
+      <div style={{ ...card, marginTop: 12, borderColor: replaceSerialIdentity ? 'rgba(209,52,56,0.65)' : 'rgba(255,255,255,0.14)' }}>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={replaceSerialIdentity}
+            disabled={busy}
+            onChange={(event) => onReplaceSerialIdentity(event.target.checked)}
+          />
+          <span>
+            <strong>Explicitly replace an existing saved hardware identity</strong>
+            <small style={{ ...helper, display: 'block', marginTop: 4 }}>
+              Normal Setup never overwrites known VID/PID/serial descriptors. Enable this only for an intentional board replacement; Rig Preflight certification will be invalidated and the reason audited.
+            </small>
+          </span>
+        </label>
+        {replaceSerialIdentity && (
+          <input
+            type="text"
+            value={replacementReason}
+            disabled={busy}
+            onChange={(event) => onReplacementReason(event.target.value)}
+            placeholder="Required audit reason (minimum 10 characters)"
+            style={{
+              width: '100%',
+              marginTop: 10,
+              boxSizing: 'border-box',
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.16)',
+              background: 'rgba(0,0,0,0.24)',
+              color: 'inherit',
+              padding: '9px 10px'
+            }}
+          />
+        )}
+      </div>
 
       <div style={{ ...card, marginTop: 12, background: 'rgba(255,255,255,0.04)' }}>
         <strong>Current firmware backup</strong>

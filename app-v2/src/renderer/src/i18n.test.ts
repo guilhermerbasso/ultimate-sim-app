@@ -34,11 +34,22 @@ describe('i18n text helpers', () => {
     expect(tt('en', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
     expect(tt('pt-BR', 'fuel.untilLap', { lap: 12 })).toBe('até volta 12')
     expect(tt('es', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
+    expect(tt('en', 'rigPreflight.title')).toBe('Rig Twin & Preflight')
+    expect(tt('pt-BR', 'rigPreflight.title')).toBe('Gêmeo do Rig e Preflight')
+    expect(tt('ja', 'rigPreflight.title')).toBe('Rig Twin & Preflight')
+    expect(tt('en', 'contextDebt.title')).toBe('Context-Debt Meter')
+    expect(tt('pt-BR', 'contextDebt.title')).toBe('Medidor de dívida de contexto')
   })
 
   it('translates known navigation section titles', () => {
     expect(translateNavTitle('IA & Coaching', 'en')).toBe('AI & Coaching')
     expect(translateNavTitle('Strategy', 'es')).toBe('Estrategia')
+    expect(translateNavTitle('League Ops', 'pt-BR')).toBe('Operações da liga')
+  })
+
+  it('loads Steward Desk translations from the per-zone catalog', () => {
+    expect(tt('en', 'steward.owner.title')).toBe('Human decision owner')
+    expect(tt('pt-BR', 'steward.owner.title')).toBe('Decisão sob responsabilidade humana')
   })
 })
 
@@ -66,7 +77,9 @@ describe('migrated view i18n coverage', () => {
       'AlertsView.tsx',
       'DevicesView.tsx',
       'CommunityView.tsx',
+      'StewardDeskView.tsx',
       'ControlsView.tsx',
+      'ContextDebtView.tsx',
       'CoachView.tsx',
       '../components/SavedConfigsPanel.tsx',
       '../components/WakeWordIndicator.tsx',

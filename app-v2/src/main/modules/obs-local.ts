@@ -52,8 +52,7 @@ export function register(ctx: ModuleContext): void {
     return status()
   })
   ctx.ipcMain.handle(OBS_LOCAL_CHANNELS.stopFeed, async () => {
-    const stream = await streamingStatus(false)
-    if (stream.running && stream.profile === 'obs-local') await stopStreaming()
+    await stopStreaming('obs-local')
     return status()
   })
   ctx.ipcMain.handle(OBS_LOCAL_CHANNELS.connect, async (_event, args: ObsLocalConnectArgs) => {
@@ -79,7 +78,6 @@ export function register(ctx: ModuleContext): void {
 
   ctx.registerGracefulTeardown(async () => {
     await controller.shutdown()
-    const stream = await streamingStatus(false)
-    if (stream.running && stream.profile === 'obs-local') await stopStreaming()
+    await stopStreaming('obs-local')
   }, 'quiesce')
 }

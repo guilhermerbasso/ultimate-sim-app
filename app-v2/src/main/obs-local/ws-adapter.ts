@@ -43,6 +43,7 @@ export class ObsWebSocketV5Adapter implements ObsWebSocketAdapter {
   private readonly opcodeWaiters = new Map<number, OpcodeWaiter>()
 
   async connect(options: ObsAdapterConnectOptions): Promise<ObsCapabilityHandshake> {
+    if (!options.password.trim()) throw new Error('OBS WebSocket password is required.')
     await this.disconnect()
     const socket = new WebSocket(options.endpoint, {
       maxPayload: MAX_OBS_MESSAGE_BYTES,
@@ -64,14 +65,19 @@ export class ObsWebSocketV5Adapter implements ObsWebSocketAdapter {
       if (serverRpcVersion < 1) throw wireError(`unsupported RPC version ${serverRpcVersion}`)
       const rpcVersion = 1
       const authentication = hello.authentication
-      let authenticationValue: string | undefined
-      if (authentication && typeof authentication === 'object') {
-        const auth = authentication as Record<string, unknown>
-        if (typeof auth.salt !== 'string' || typeof auth.challenge !== 'string') {
-          throw wireError('invalid authentication challenge')
-        }
-        authenticationValue = createObsAuthentication(options.password, auth.salt, auth.challenge)
+      if (!authentication || typeof authentication !== 'object' || Array.isArray(authentication)) {
+        throw wireError('password authentication challenge required')
       }
+      const auth = authentication as Record<string, unknown>
+      if (
+        typeof auth.salt !== 'string' ||
+        auth.salt.length === 0 ||
+        typeof auth.challenge !== 'string' ||
+        auth.challenge.length === 0
+      ) {
+        throw wireError('invalid authentication challenge')
+      }
+      const authenticationValue = createObsAuthentication(options.password, auth.salt, auth.challenge)
 
       identifiedPromise = this.waitForOpcode(2, options.timeoutMs)
       this.send({
@@ -79,7 +85,7 @@ export class ObsWebSocketV5Adapter implements ObsWebSocketAdapter {
         d: {
           rpcVersion,
           eventSubscriptions: 0,
-          ...(authenticationValue ? { authentication: authenticationValue } : {})
+          authentication: authenticationValue
         }
       })
       await identifiedPromise

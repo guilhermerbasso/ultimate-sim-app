@@ -707,6 +707,8 @@ export interface FlashRequest {
   port: string
   // Optional baud variant id (e.g. Nano "old" bootloader). Defaults per board.
   baudId?: string
+  replaceSerialIdentity?: boolean
+  replacementReason?: string
 }
 
 export type FlashPhase =

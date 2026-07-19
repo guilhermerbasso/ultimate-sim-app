@@ -21,6 +21,12 @@
 // UI (HapticsView) reads the same singleton engine for its live meters + tests.
 
 import { useEffect, useRef } from 'react'
+import {
+  ACCESSIBILITY_CUE_CAPABILITY_HEARTBEAT_MS,
+  isActuatingHapticIntensity,
+  type CueCapabilityLeaseAck,
+  type CueHapticPattern
+} from '../../../shared/accessibility-cues'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   DEFAULT_HAPTICS_CONFIG,
@@ -34,6 +40,7 @@ import {
   type HapticsEffectId,
   type HapticsFrame
 } from '../../../shared/haptics'
+import { CueCapabilityLeasePublisher } from './accessibility-cue-capability-client'
 
 type SinkCapableContext = AudioContext & { setSinkId?(sinkId: string): Promise<void> }
 type SinkCapableAudio = HTMLAudioElement & { setSinkId?(sinkId: string): Promise<void> }
@@ -113,6 +120,9 @@ class HapticsEngine {
     tcCut: 0, suspension: 0, gearGrind: 0
   }
   private restoreMasterTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly accessibilityTimers = new Set<
+    ReturnType<typeof setTimeout>
+  >()
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -172,6 +182,17 @@ class HapticsEngine {
 
   isAvailable(): boolean {
     return Boolean(window.AudioContext ?? (window as AudioContextWindow).webkitAudioContext)
+  }
+
+  isAccessibilityAvailable(): boolean {
+    return (
+      this.config.enabled &&
+      !this.config.muted &&
+      isActuatingHapticIntensity(this.config.masterGain) &&
+      this.isAvailable() &&
+      this.ctx !== null &&
+      this.master !== null
+    )
   }
 
   resume(): void {
@@ -302,6 +323,7 @@ class HapticsEngine {
 
   // Release everything (telemetry lost). Continuous/pulsed ramp to silence.
   release(): void {
+    this.stopAccessibilityCue()
     for (const id of HAPTICS_EFFECT_IDS) {
       const kind = EFFECT_KIND[id]
       if (kind !== 'transient') this.silenceVoice(id)
@@ -369,6 +391,45 @@ class HapticsEngine {
 
   // ─── Test / preview (driven by a user gesture from the View) ─────────────────
 
+  playAccessibilityCue(pattern: CueHapticPattern, intensity: number): boolean {
+    if (!isActuatingHapticIntensity(intensity)) return false
+    if (!this.config.enabled || this.config.muted || !this.isAvailable()) return false
+    const ctx = this.ensureContext()
+    const voice = this.voices.get('impact')
+    if (!ctx || !voice) return false
+    this.resume()
+    this.applyMaster()
+
+    const peak = Math.max(0.2, clamp01(intensity))
+    voice.osc.frequency.setTargetAtTime(
+      this.config.effects.impact.frequencyHz,
+      ctx.currentTime,
+      0.02
+    )
+    if (pattern === 'long') {
+      this.burstEffect('roadTexture', peak, 500, this.accessibilityTimers)
+      return true
+    }
+    const pulseCount = pattern === 'triple' ? 3 : pattern === 'double' ? 2 : 1
+    const spacingMs = 220
+    for (let index = 0; index < pulseCount; index += 1) {
+      const timer = setTimeout(() => {
+        this.accessibilityTimers.delete(timer)
+        this.transientLastMs.impact = 0
+        this.triggerTransient('impact', peak)
+      }, index * spacingMs)
+      this.accessibilityTimers.add(timer)
+    }
+    return true
+  }
+
+  stopAccessibilityCue(): void {
+    for (const timer of this.accessibilityTimers) clearTimeout(timer)
+    this.accessibilityTimers.clear()
+    this.silenceVoice('impact')
+    this.silenceVoice('roadTexture')
+  }
+
   testEffect(id: HapticsEffectId, config: HapticsConfig): void {
     this.applyConfig(config)
     const ctx = this.ctx
@@ -395,7 +456,12 @@ class HapticsEngine {
     this.burstEffect(id, peak, 650)
   }
 
-  private burstEffect(id: HapticsEffectId, level: number, durationMs: number): void {
+  private burstEffect(
+    id: HapticsEffectId,
+    level: number,
+    durationMs: number,
+    timers?: Set<ReturnType<typeof setTimeout>>
+  ): void {
     const ctx = this.ctx
     const voice = this.voices.get(id)
     if (!ctx || !voice) return
@@ -408,7 +474,11 @@ class HapticsEngine {
       voice.vca.gain.setTargetAtTime(level, now, 0.01)
     }
     this.levels[id] = level
-    setTimeout(() => this.silenceVoice(id), durationMs)
+    const timer = setTimeout(() => {
+      timers?.delete(timer)
+      this.silenceVoice(id)
+    }, durationMs)
+    timers?.add(timer)
   }
 
   // ─── Meters (read by the UI via requestAnimationFrame) ───────────────────────
@@ -455,6 +525,25 @@ export function testHapticsEffect(id: HapticsEffectId, config: HapticsConfig): v
   }
 }
 
+export function playAccessibilityHaptic(
+  pattern: CueHapticPattern,
+  intensity: number
+): boolean {
+  try {
+    return getHapticsEngine().playAccessibilityCue(pattern, intensity)
+  } catch {
+    return false
+  }
+}
+
+export function stopAccessibilityHaptic(): void {
+  engineSingleton?.stopAccessibilityCue()
+}
+
+export function isAccessibilityHapticRendererAvailable(): boolean {
+  return engineSingleton?.isAccessibilityAvailable() ?? false
+}
+
 export function setHapticsOutputDevice(deviceId: string): void {
   try {
     getHapticsEngine().setOutputDevice(deviceId)
@@ -479,17 +568,33 @@ export function useHapticsRuntime(): void {
   useEffect(() => {
     let disposed = false
     const engine = getHapticsEngine()
+    const publisher = new CueCapabilityLeasePublisher(
+      'haptic',
+      (channel, request) =>
+        window.ipc.invoke<CueCapabilityLeaseAck>(channel, request)
+    )
+    const refreshCapability = (): void => {
+      void publisher.refresh(() => engine.isAccessibilityAvailable())
+    }
 
     window.ipc
       .invoke<HapticsConfig>(HAPTICS_CHANNELS.getConfig)
       .then((config) => {
-        if (!disposed) engine.applyConfig(config)
+        if (!disposed) {
+          engine.applyConfig(config)
+          refreshCapability()
+        }
       })
       .catch(() => undefined)
 
     const offConfig = window.ipc.subscribe<HapticsConfig>(HAPTICS_CHANNELS.configEvent, (config) => {
       engine.applyConfig(config)
+      refreshCapability()
     })
+    const heartbeat = setInterval(
+      refreshCapability,
+      ACCESSIBILITY_CUE_CAPABILITY_HEARTBEAT_MS
+    )
 
     const offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snapshot) => {
       if (!snapshot || !snapshot.connected) {
@@ -504,8 +609,10 @@ export function useHapticsRuntime(): void {
 
     return () => {
       disposed = true
+      clearInterval(heartbeat)
       offConfig()
       offTelemetry()
+      publisher.dispose()
     }
   }, [])
 }

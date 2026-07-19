@@ -1,5 +1,6 @@
 import {
   ALERT_TYPE_DEFAULTS,
+  maxAlertSeverity,
   type AlertEvent,
   type AlertEventContext,
   type AlertRuleConfig,
@@ -7,6 +8,7 @@ import {
   type AlertSeverity,
   type AlertType
 } from '../../shared/alerts'
+import { resolveShiftNow } from '../../shared/revlights'
 import {
   fuelLapsRemainingOf,
   type Corners,
@@ -44,6 +46,7 @@ interface DetectorState {
   shiftActive?: boolean
   incidentRemaining?: number
   incidentCount?: number
+  incidentSeverity?: AlertSeverity
   drsAvailable?: boolean
   blueFlagActive?: boolean
   flags: Partial<Record<keyof Flags, boolean>>
@@ -152,7 +155,8 @@ export class AlertsDetector {
           key,
           snapshot.timestamp,
           events,
-          defaultSeverity
+          defaultSeverity,
+          { flag: flag as NonNullable<AlertEventContext['flag']> }
         )
       }
       this.state.flags[flag] = active
@@ -184,7 +188,12 @@ export class AlertsDetector {
         snapshot.timestamp,
         events,
         'critical',
-        { value: fuelLaps, threshold: rule.lapsThreshold, unit: 'laps' }
+        {
+          value: fuelLaps,
+          threshold: rule.lapsThreshold,
+          remaining: fuelLaps,
+          unit: 'laps'
+        }
       )
     }
     this.state.fuelLaps = fuelLaps
@@ -194,7 +203,10 @@ export class AlertsDetector {
     const rule = this.config.shiftPoint
     const shiftPct = snapshot.shiftIndicatorPct ?? 0
     const rpmPct = snapshot.maxRpm && snapshot.maxRpm > 0 ? snapshot.rpm / snapshot.maxRpm : 0
-    const active = shiftPct >= rule.shiftIndicatorPct || rpmPct >= rule.rpmPct
+    const active = resolveShiftNow(
+      snapshot.revLights?.blink,
+      shiftPct >= rule.shiftIndicatorPct || rpmPct >= rule.rpmPct
+    )
     const key = 'shiftPoint'
     this.state.activeNow.set(key, rule.enabled && active)
     if (rule.enabled && active && this.state.shiftActive !== true) {
@@ -209,6 +221,7 @@ export class AlertsDetector {
     if (snapshot.incidentCount === undefined || snapshot.incidentLimit === undefined) {
       this.state.incidentRemaining = undefined
       this.state.incidentCount = undefined
+      this.state.incidentSeverity = undefined
       this.state.activeNow.set(key, false)
       return
     }
@@ -222,7 +235,10 @@ export class AlertsDetector {
     this.state.activeNow.set(key, rule.enabled && within)
     if (rule.enabled && within && (crossedThreshold || countChanged)) {
       const severity: AlertSeverity = remaining <= 1 ? 'critical' : 'warning'
-      this.fire(
+      const severityEscalated =
+        severity === 'critical' &&
+        this.state.incidentSeverity !== 'critical'
+      const emitted = this.fire(
         rule,
         'incidentLimit',
         `Incidentes perto do limite: ${snapshot.incidentCount}/${snapshot.incidentLimit}x`,
@@ -230,12 +246,28 @@ export class AlertsDetector {
         snapshot.timestamp,
         events,
         severity,
-        { value: snapshot.incidentCount, threshold: snapshot.incidentLimit, unit: 'incidents' }
+        {
+          value: snapshot.incidentCount,
+          threshold: snapshot.incidentLimit,
+          count: snapshot.incidentCount,
+          limit: snapshot.incidentLimit,
+          remaining,
+          unit: 'incidents'
+        },
+        false,
+        severityEscalated
       )
+      if (emitted) {
+        this.state.incidentRemaining = remaining
+        this.state.incidentCount = snapshot.incidentCount
+        this.state.incidentSeverity = emitted.severity
+      }
+      return
     }
 
     this.state.incidentRemaining = remaining
     this.state.incidentCount = snapshot.incidentCount
+    if (!within) this.state.incidentSeverity = undefined
   }
 
   private detectTyrePressure(snapshot: TelemetrySnapshot, events: AlertEvent[]): void {
@@ -257,17 +289,19 @@ export class AlertsDetector {
       const key = `tyrePressure:${corner}`
       this.state.activeNow.set(key, rule.enabled && out)
       if (rule.enabled && out && this.state.tyrePressureOut[corner] !== true) {
-        const direction = pressure < minKpa ? 'baixa' : 'high'
+        const direction: NonNullable<AlertEventContext['direction']> =
+          pressure < minKpa ? 'low' : 'high'
+        const directionLabel = direction === 'low' ? 'baixa' : 'high'
         const threshold = pressure < minKpa ? minKpa : maxKpa
         this.fire(
           rule,
           'tyrePressure',
-          `Pressure ${direction} on ${CORNER_LABELS[corner]}: ${formatMeasurement(pressure, 'pressure-kpa', this.unitSystem, { decimals: this.unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display}`,
+          `Pressure ${directionLabel} on ${CORNER_LABELS[corner]}: ${formatMeasurement(pressure, 'pressure-kpa', this.unitSystem, { decimals: this.unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display}`,
           key,
           snapshot.timestamp,
           events,
           undefined,
-          { corner, value: pressure, threshold, unit: 'kPa' }
+          { corner, direction, value: pressure, threshold, unit: 'kPa' }
         )
       }
       this.state.tyrePressureOut[corner] = out
@@ -374,7 +408,16 @@ export class AlertsDetector {
     // detectFlags() (run earlier in process()) already overwrote this tick, so
     // reading it here would make the guard permanently false.
     if (rule.enabled && active && this.state.blueFlagActive !== true) {
-      this.fire(rule, 'blueFlag', 'Faster car approaching (blue flag)', key, snapshot.timestamp, events)
+      this.fire(
+        rule,
+        'blueFlag',
+        'Faster car approaching (blue flag)',
+        key,
+        snapshot.timestamp,
+        events,
+        undefined,
+        { flag: 'blue' }
+      )
     }
     this.state.blueFlagActive = active
   }
@@ -399,7 +442,7 @@ export class AlertsDetector {
         key,
         now,
         events,
-        undefined,
+        ruleInfo.lastSeverity,
         ruleInfo.lastContext,
         true
       )
@@ -410,12 +453,26 @@ export class AlertsDetector {
   // shows the same message/context as the original event.
   private lastByKey = new Map<
     string,
-    { rule: AlertRuleConfig; type: AlertType; lastMessage: string; lastContext?: AlertEventContext; repeatMessage?: string }
+    {
+      rule: AlertRuleConfig
+      type: AlertType
+      lastMessage: string
+      lastSeverity: AlertSeverity
+      lastContext?: AlertEventContext
+      repeatMessage?: string
+    }
   >()
 
   private lookupRuleByKey(
     key: string
-  ): { rule: AlertRuleConfig; type: AlertType; lastMessage?: string; lastContext?: AlertEventContext; repeatMessage?: string } | undefined {
+  ): {
+    rule: AlertRuleConfig
+    type: AlertType
+    lastMessage?: string
+    lastSeverity: AlertSeverity
+    lastContext?: AlertEventContext
+    repeatMessage?: string
+  } | undefined {
     return this.lastByKey.get(key)
   }
 
@@ -428,14 +485,25 @@ export class AlertsDetector {
     events: AlertEvent[],
     defaultSeverity?: AlertSeverity,
     context?: AlertEventContext,
-    isRepeat = false
-  ): void {
+    isRepeat = false,
+    bypassCooldown = false
+  ): AlertEvent | null {
     const defaults = ALERT_TYPE_DEFAULTS[type]
     const cooldownMs = rule.cooldownMs ?? defaults.cooldownMs
     const lastAt = this.state.lastFiredAt.get(key)
-    if (lastAt !== undefined && timestamp - lastAt < cooldownMs) return
+    if (
+      !bypassCooldown &&
+      lastAt !== undefined &&
+      timestamp - lastAt < cooldownMs
+    ) {
+      return null
+    }
 
-    const severity = rule.severity ?? defaultSeverity ?? defaults.severity
+    const severity = maxAlertSeverity(
+      rule.severity,
+      defaultSeverity,
+      defaults.severity
+    )
     const event: AlertEvent = {
       id: `${timestamp}-${type}-${Math.random().toString(36).slice(2, 8)}`,
       type,
@@ -447,10 +515,24 @@ export class AlertsDetector {
     events.push(event)
     this.state.lastFiredAt.set(key, timestamp)
     if (!isRepeat) {
-      this.lastByKey.set(key, { rule, type, lastMessage: message, lastContext: context })
+      this.lastByKey.set(key, {
+        rule,
+        type,
+        lastMessage: message,
+        lastSeverity: severity,
+        lastContext: context
+      })
     } else {
       const cached = this.lastByKey.get(key)
-      if (cached) this.lastByKey.set(key, { ...cached, lastMessage: message, lastContext: context })
+      if (cached) {
+        this.lastByKey.set(key, {
+          ...cached,
+          lastMessage: message,
+          lastSeverity: severity,
+          lastContext: context
+        })
+      }
     }
+    return event
   }
 }
