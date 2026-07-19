@@ -743,6 +743,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       meaningPatterns: [
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)defina (?:o )?(?:termo |conceito )?(.+)$/,
         /^(?:por favor )?(?:(?:a |o )?(?:definicao|significado|explicacao)(?: de)?|me de (?:a |o )?(?:definicao|significado|explicacao) de) (.+)$/,
+        /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)(?:me )?(?:explique|explicar) (?:o )?(?:(?:termo|conceito|significado de) )?(.+)$/,
+        /^(?:(?:por favor )?voce (?:pode|poderia) )(?:me )?(?:explicar|explique) (?:o )?(.+)$/,
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)(?:me )?(?:explique|explicar) (?:o )?(?:termo|conceito|significado de) (.+)$/,
         /^(?:qual e o )?(?:significado|conceito|definicao|explicacao) de (.+)$/
       ]
@@ -778,6 +780,10 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       meaningPatterns: [
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)define (?:el )?(?:termino |concepto )?(.+)$/,
         /^(?:podria|puede|puedes|podrias) definirme (?:el )?(.+)$/,
+        /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)(?:me )?(?:explica|explicar|explicame|explicarme) (?:el )?(?:(?:termino|concepto|significado de) )?(.+)$/,
+        /^(?:(?:por favor )?me (?:puedes|podrias) )(?:explicar|explica) (?:el )?(.+)$/,
+        /^(?:(?:por favor )?(?:puede|puedes|podria|podrias) )(?:explicarme|explicar) (?:el )?(.+)$/,
+        /^(?:me )?(?:explicas|expliqueme) (?:el )?(.+)$/,
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)(?:me )?(?:explica|explicar|explicame|explicarme) (?:el )?(?:termino|concepto|significado de) (.+)$/,
         /^(?:por favor )?(?:(?:la |el )?(?:definicion|significado|explicacion)(?: de)?|dame (?:la |el )?(?:definicion|significado|explicacion) de) (.+)$/
       ]
@@ -808,6 +814,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)definis (?:le )?(?:terme |concept )?(.+)$/,
         /^(?:(?:pouvez vous|pourriez vous) )definir (?:le )?(.+)$/,
         /^definissez (?:le )?(.+)$/,
+        /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu|pouvez vous) )?)(?:m )?(?:explique|expliquer) (?:le )?(?:(?:terme|concept|sens de) )?(.+)$/,
+        /^(?:(?:s il vous plait )?pouvez vous )(?:m )?expliquer (?:le )?(.+)$/,
+        /^(?:expliquez moi|explique moi) (?:le )?(.+)$/,
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu|pouvez vous) )?)(?:m )?(?:explique|expliquer) (?:le )?(?:terme|concept|sens de) (.+)$/,
         /^(?:s il vous plait )?(?:(?:la |le )?(?:definition|signification|explication)(?: de)?|donne moi (?:la |le )?(?:definition|signification|explication) de) (.+)$/
       ]
@@ -836,6 +845,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       meaningPatterns: [
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)definiere (?:den )?(?:begriff |konzept )?(.+)$/,
         /^(?:(?:bitte )?(?:konnen sie|kannst du) )(.+) definieren$/,
+        /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erklare (?:den )?(?:(?:begriff|konzept|bedeutung von) )?(.+)$/,
+        /^(?:(?:bitte )?(?:(?:kannst|konntest) du ))(?:mir )?(.+) erklaren$/,
+        /^(?:(?:bitte )?konnen sie )(.+) erklaren$/,
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erklare (?:den )?(?:begriff|konzept|bedeutung von) (.+)$/,
         /^(?:bitte )?(?:(?:die |der |das )?(?:definition|bedeutung|erklarung)(?: von)?|gib mir (?:die |der |das )?(?:definition|bedeutung|erklarung) von) (.+)$/
       ]
