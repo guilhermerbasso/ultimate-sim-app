@@ -165,7 +165,6 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
   trafficDensity: true,
   flagStateIndex: true,
   damagePct: true,
-  lapValidity: true,
   towReset: true,
   playerCarIdx: true,
   drivers: true,

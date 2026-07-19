@@ -815,7 +815,6 @@ export interface TelemetrySnapshot {
   trafficDensity?: number
   flagStateIndex?: number
   damagePct?: number
-  lapValidity?: 'valid' | 'invalid' | 'unknown'
   towReset?: boolean
   // Extra environment telemetry (iRacing): fog + relative humidity (0..1), wind speed (m/s)
   // + direction (rad), solar altitude/azimuth (rad), and the Skies enum (0=clear..3=overcast).
