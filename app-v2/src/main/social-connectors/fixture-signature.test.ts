@@ -81,4 +81,27 @@ describe('mock webhook signature framing', () => {
 
     expect(verifyMockWebhookFixtureSignature(nonFinite, KEY_ID, KEY_MATERIAL)).toBe(false)
   })
+
+  it('rejects oversized attacker-controlled signatures before allocating their buffer', () => {
+    const fixture = createSignedMockWebhookFixture(
+      {
+        provider: 'twitch',
+        capabilityId: 'twitch.eventsub.ingest',
+        deliveryId: 'delivery:oversized-signature',
+        eventId: 'event:oversized-signature',
+        occurredAtMs: NOW,
+        body: JSON.stringify({ eventId: 'event:oversized-signature', source: 'twitch' })
+      },
+      KEY_ID,
+      KEY_MATERIAL
+    )
+
+    expect(
+      verifyMockWebhookFixtureSignature(
+        { ...fixture, signature: 'x'.repeat(1_000_000) },
+        KEY_ID,
+        KEY_MATERIAL
+      )
+    ).toBe(false)
+  })
 })

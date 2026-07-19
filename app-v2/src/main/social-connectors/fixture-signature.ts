@@ -87,7 +87,9 @@ export function verifyMockWebhookFixtureSignature(
     return false
   }
 
-  const expected = Buffer.from(fixtureSignature(fixture, fixtureKeyMaterial))
+  const expectedSignature = fixtureSignature(fixture, fixtureKeyMaterial)
+  if (fixture.signature.length !== expectedSignature.length) return false
+  const expected = Buffer.from(expectedSignature)
   const actual = Buffer.from(fixture.signature)
-  return expected.length === actual.length && timingSafeEqual(expected, actual)
+  return timingSafeEqual(expected, actual)
 }
