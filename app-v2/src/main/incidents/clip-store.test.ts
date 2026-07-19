@@ -93,7 +93,7 @@ function rewritePlainKeepingSeal(path: string, mutate: (value: Record<string, un
 }
 
 describe('IncidentClipStore', () => {
-  it('atomically persists and re-verifies the complete clip before use', () => {
+  it('atomically persists and re-verifies existing timestamp/type-only clip ids', () => {
     const test = harness('atomic')
     const verified = test.store.save(clip())
 

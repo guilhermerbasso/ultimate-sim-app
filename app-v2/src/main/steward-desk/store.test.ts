@@ -10,6 +10,10 @@ import type {
   StewardRuleCitation,
   StewardHumanVerdict
 } from '../../shared/steward-desk'
+import {
+  STEWARD_EVIDENCE_MAX_BYTES,
+  STEWARD_PACKAGE_MAX_BYTES
+} from '../../shared/steward-desk'
 import type { IncidentClip } from '../../shared/incidents'
 import {
   IncidentClipStore,
@@ -22,7 +26,12 @@ import {
   serializeStewardExportBundle
 } from './store'
 import { normalizeThirdPartyImportMetadata } from '../../shared/third-party-dashboard-catalog'
-import { PACKAGE_MAX_CANONICAL_BYTES, canonicalStringify, sha256Canonical } from './canonical'
+import {
+  EVIDENCE_MAX_CANONICAL_BYTES,
+  PACKAGE_MAX_CANONICAL_BYTES,
+  canonicalStringify,
+  sha256Canonical
+} from './canonical'
 
 const roots: string[] = []
 const storeRoots = new WeakMap<StewardCaseStore, string>()
@@ -971,8 +980,10 @@ describe('StewardCaseStore', () => {
       })
     }
     const raw = serializeStewardExportBundle(test.store.exportCase(current.caseId, 'full-local'))
-    expect(Buffer.byteLength(raw, 'utf8')).toBeGreaterThan(4 * 1024 * 1024)
-    expect(Buffer.byteLength(raw, 'utf8')).toBeLessThan(16 * 1024 * 1024)
+    expect(EVIDENCE_MAX_CANONICAL_BYTES).toBe(STEWARD_EVIDENCE_MAX_BYTES)
+    expect(PACKAGE_MAX_CANONICAL_BYTES).toBe(STEWARD_PACKAGE_MAX_BYTES)
+    expect(Buffer.byteLength(raw, 'utf8')).toBeGreaterThan(STEWARD_EVIDENCE_MAX_BYTES)
+    expect(Buffer.byteLength(raw, 'utf8')).toBeLessThan(STEWARD_PACKAGE_MAX_BYTES)
     expect(parseStewardExportBundle(raw).evidence).toHaveLength(5)
 
     expect(() => test.store.lockEvidence({
@@ -984,15 +995,15 @@ describe('StewardCaseStore', () => {
         sourceKind: 'document',
         sourceRef: 'too-large'
       },
-      content: { payload: 'x'.repeat(4 * 1024 * 1024) }
+      content: { payload: 'x'.repeat(STEWARD_EVIDENCE_MAX_BYTES) }
     })).toThrow(/4 MiB limit/i)
 
     expect(() => canonicalStringify(
-      { payload: 'x'.repeat(15 * 1024 * 1024) },
+      { payload: 'x'.repeat(STEWARD_PACKAGE_MAX_BYTES - 1024) },
       PACKAGE_MAX_CANONICAL_BYTES
     )).not.toThrow()
     expect(() => canonicalStringify(
-      { payload: 'x'.repeat(16 * 1024 * 1024) },
+      { payload: 'x'.repeat(STEWARD_PACKAGE_MAX_BYTES) },
       PACKAGE_MAX_CANONICAL_BYTES
     )).toThrow(/16 MiB limit/i)
   })

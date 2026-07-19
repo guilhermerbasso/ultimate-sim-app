@@ -10,6 +10,7 @@
 // works without any model — the LLM is NEVER loaded or run from the telemetry loop.
 
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { formatMeasurement, type UnitSystem } from '../../shared/units'
@@ -55,6 +56,17 @@ interface PendingCapture {
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+export function incidentClipId(
+  captureSession: IncidentCaptureSessionIdentity,
+  event: Pick<IncidentEvent, 'at' | 'type'>
+): string {
+  const sessionToken = createHash('sha256')
+    .update(captureSession.captureSessionId, 'utf8')
+    .digest('hex')
+    .slice(0, 24)
+  return `inc-${sessionToken}-${Math.trunc(event.at)}-${event.type}`
 }
 
 // ─── optional LLM analysis (deterministic fallback always works) ─────────────────
@@ -141,7 +153,7 @@ export function register(ctx: ModuleContext, options: IncidentRecorderOptions = 
       const { window, triggerIndex } = buildIncidentWindow(ring, capture.event.at, PRE_MS, POST_MS)
       const clip: IncidentClip = {
         ...capture.event,
-        id: `inc-${capture.event.at}-${capture.event.type}`,
+        id: incidentClipId(capture.captureSession, capture.event),
         window,
         triggerIndex,
         createdAt: Date.now(),
