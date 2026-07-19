@@ -79,6 +79,7 @@ export type StreamingSelfTestStage =
   | 'ping'
   | 'authentication'
   | 'target'
+  | 'receiver'
   | 'sse'
   | 'complete'
 

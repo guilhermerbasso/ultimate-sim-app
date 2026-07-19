@@ -93,6 +93,15 @@ const iconMap: Record<string, () => ReactElement> = {
       <circle cx="18" cy="5" r="1.2" fill="currentColor" stroke="none" />
     </Svg>
   ),
+  'mission-rehearsal': () => (
+    <Svg>
+      {/* branching checkpoint route with a training flag */}
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="17" cy="5" r="2" />
+      <circle cx="11" cy="17" r="2" />
+      <path d="M7 5h4a4 4 0 0 1 4 4v1M15 10l2-2 2 2M11 15V9a4 4 0 0 0-4-4" />
+    </Svg>
+  ),
   engineer: () => (
     <Svg>
       {/* radio headset (race engineer) */}

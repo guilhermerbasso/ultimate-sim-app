@@ -37,6 +37,7 @@ const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
 const StreamingMobileEditorView = lazy(() => import('./StreamingMobileEditorView'))
+const MissionRehearsalView = lazy(() => import('./MissionRehearsalView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
 export interface ViewDef {
@@ -71,6 +72,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'engineer', group: 'Sim Racing', label: 'AI Engineer', eyebrow: 'LLM local', description: 'Race engineer with local AI (text): ask about fuel, tires, gaps, and strategy. Includes Voice Spotter (spoken alerts).', shortcut: 'TG', Component: EngineerView },
   { id: 'haptics', group: 'Sim Racing', label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style haptic feedback: bass shaker (audio) + haptics.', shortcut: 'TF', Component: HapticsView },
   { id: 'coach', group: 'Sim Racing', label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach + lap analysis: corner findings, track map, and suggested setup adjustments.', shortcut: 'T6', Component: CoachView },
+  { id: 'mission-rehearsal', group: 'Sim Racing', label: 'Mission Rehearsal', eyebrow: 'Offline training', description: 'Author and run deterministic branching scenarios with synthetic events and blameless debriefs.', shortcut: 'TR', Component: MissionRehearsalView },
   { id: 'strategy', group: 'Sim Racing', label: 'Strategy', eyebrow: 'Predictive', description: 'Pit window, fuel margin, undercut, and incident clips.', shortcut: 'TH', Component: StrategyView },
   { id: 'dashboard-builder', group: 'Sim Racing', label: 'AI Dashboard', eyebrow: 'LLM local', description: 'Build dashboards by describing them in text; adaptive mode by session phase.', shortcut: 'TI', Component: DashboardBuilderView },
   { id: 'dashboard-adaptive', group: 'Sim Racing', label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'Single panel that reorganizes itself by session phase and lap moment.', shortcut: 'TN', Component: AdaptiveDashboardView },

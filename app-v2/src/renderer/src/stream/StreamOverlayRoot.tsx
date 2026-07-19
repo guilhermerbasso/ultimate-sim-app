@@ -42,6 +42,17 @@ function sseUrl(): string {
   return streamEndpoint('sse').toString()
 }
 
+function webSocketUrl(): string {
+  const url = streamEndpoint('ws')
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
+export function streamTelemetryTransport(href: string): 'sse' | 'websocket' {
+  // TryCloudflare Quick Tunnels do not support SSE, but do proxy WebSocket upgrades.
+  return new URL(href).protocol === 'https:' ? 'websocket' : 'sse'
+}
+
 function pingUrl(): string {
   return streamEndpoint('ping').toString()
 }
@@ -150,26 +161,117 @@ export function StreamOverlayRoot() {
 
   useEffect(() => {
     if (passwordRequired !== false || sessionError) return
-    const source = new EventSource(sseUrl())
-    source.onopen = () => {
-      setConnected(true)
-      setPasswordError(null)
-    }
-    source.onerror = () => {
-      setConnected(false)
-    }
-    source.addEventListener('telemetry', (event) => {
+    const applyFrame = (raw: string): boolean => {
       try {
-        const frame = JSON.parse((event as MessageEvent).data) as StreamingTelemetryFrame
+        const frame = JSON.parse(raw) as StreamingTelemetryFrame
         setSnapshot(frame.snapshot)
         setStreamSafe(frame.streamSafe)
         setConnected(true)
         setPasswordError(null)
+        return true
       } catch {
         setConnected(false)
+        return false
       }
-    })
-    return () => source.close()
+    }
+    if (streamTelemetryTransport(window.location.href) === 'sse') {
+      const source = new EventSource(sseUrl())
+      source.onopen = () => {
+        setConnected(true)
+        setPasswordError(null)
+      }
+      source.onerror = () => {
+        setConnected(false)
+      }
+      source.addEventListener('telemetry', (event) => {
+        applyFrame((event as MessageEvent).data)
+      })
+      return () => source.close()
+    }
+
+    let disposed = false
+    let retryAttempt = 0
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+    let socket: WebSocket | null = null
+    let source: EventSource | null = null
+    const scheduleWebSocket = (): void => {
+      if (disposed || retryTimer) return
+      const delayMs = Math.min(1_000 * (2 ** retryAttempt), 10_000)
+      retryAttempt += 1
+      retryTimer = setTimeout(() => {
+        retryTimer = null
+        connectWebSocket()
+      }, delayMs)
+    }
+    const connectSseFallback = (): void => {
+      if (disposed) return
+      const candidate = new EventSource(sseUrl())
+      source = candidate
+      let receivedFrame = false
+      fallbackTimer = setTimeout(() => {
+        if (source !== candidate || receivedFrame) return
+        candidate.close()
+        source = null
+        scheduleWebSocket()
+      }, 3_000)
+      candidate.onopen = () => {
+        setConnected(true)
+        setPasswordError(null)
+      }
+      candidate.addEventListener('telemetry', (event) => {
+        receivedFrame = applyFrame((event as MessageEvent).data)
+        if (receivedFrame) {
+          retryAttempt = 0
+          if (fallbackTimer) clearTimeout(fallbackTimer)
+          fallbackTimer = null
+        }
+      })
+      candidate.onerror = () => {
+        setConnected(false)
+        if (receivedFrame || source !== candidate) return
+        candidate.close()
+        source = null
+        if (fallbackTimer) clearTimeout(fallbackTimer)
+        fallbackTimer = null
+        scheduleWebSocket()
+      }
+    }
+    const connectWebSocket = (): void => {
+      if (disposed) return
+      source?.close()
+      source = null
+      const candidate = new WebSocket(webSocketUrl())
+      socket = candidate
+      let receivedFrame = false
+      candidate.onopen = () => {
+        setConnected(true)
+        setPasswordError(null)
+      }
+      candidate.onmessage = (event) => {
+        receivedFrame = applyFrame(String(event.data))
+        if (receivedFrame) retryAttempt = 0
+      }
+      candidate.onerror = () => {
+        setConnected(false)
+        candidate.close()
+      }
+      candidate.onclose = () => {
+        if (socket === candidate) socket = null
+        setConnected(false)
+        if (disposed) return
+        if (receivedFrame) scheduleWebSocket()
+        else connectSseFallback()
+      }
+    }
+    connectWebSocket()
+    return () => {
+      disposed = true
+      if (retryTimer) clearTimeout(retryTimer)
+      if (fallbackTimer) clearTimeout(fallbackTimer)
+      socket?.close()
+      source?.close()
+    }
   }, [passwordRequired, sessionError])
 
   useEffect(() => {
