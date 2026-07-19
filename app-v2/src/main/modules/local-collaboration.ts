@@ -1,5 +1,5 @@
 import { dialog, type OpenDialogOptions } from 'electron'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -100,7 +100,7 @@ export function register(ctx: ModuleContext, options: LocalCollaborationModuleOp
     if (result.canceled || !result.filePath) return { canceled: true }
     const service = await requireService()
     const bundle = await service.exportBundle()
-    await writeFile(result.filePath, `${bundle}\n`, 'utf8')
+    await writeFile(result.filePath, bundle, 'utf8')
     return {
       canceled: false,
       filePath: result.filePath,
@@ -121,11 +121,13 @@ export function register(ctx: ModuleContext, options: LocalCollaborationModuleOp
       : await dialog.showOpenDialog(options)
     const filePath = result.filePaths[0]
     if (result.canceled || !filePath) return { canceled: true }
-    const metadata = await stat(filePath)
-    if (metadata.size > MAX_IMPORT_BYTES) throw new Error(`Collaboration import exceeds ${MAX_IMPORT_BYTES} bytes.`)
+    const payload = await readFile(filePath)
+    if (payload.byteLength > MAX_IMPORT_BYTES) {
+      throw new Error(`Collaboration import exceeds ${MAX_IMPORT_BYTES} bytes.`)
+    }
     const service = await requireService()
     try {
-      const state = await service.importBundle(await readFile(filePath, 'utf8'))
+      const state = await service.importBundle(payload.toString('utf8'))
       changed(state)
       return { canceled: false, filePath, documentCount: state.documents.length }
     } catch (error) {
