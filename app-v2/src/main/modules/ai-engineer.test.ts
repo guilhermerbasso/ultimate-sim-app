@@ -541,9 +541,7 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it('returns a controlled response for an unmatched French definition envelope', async () => {
-    const harness = makeHarness({
-      runtimeAnswer: 'Unsafe injected model output.'
-    })
+    const harness = makeHarness()
 
     const answer = await createEngineerOrchestrator(harness.deps).ask(
       'Comment expliquer le bump steer?'
