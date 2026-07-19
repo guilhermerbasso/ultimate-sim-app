@@ -9,13 +9,14 @@
 import type { ReactElement } from 'react'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { formatDelta, formatGear, formatTime, numberOrDash, pct } from './format'
+import { formatDelta, formatGear, formatTime, numberOrDash } from './format'
 import { fuelLaps, fuelLevelPct, GT3_STREAM_SAFE } from './gt3Telemetry'
 import { overlayDesignFamily, type OverlayDesignFamily } from '../../../../shared/overlays'
 import { resolveSkin, FitText, zoneColor } from '../../skins'
 import { RevLedBar, AnalogDial, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const GT3_CLUSTER_STREAM_SAFE = GT3_STREAM_SAFE
 
@@ -62,12 +63,12 @@ interface ClusterModel {
 }
 
 function buildModel(snapshot: TelemetrySnapshot | null): ClusterModel {
-  const shiftPct = pct(snapshot?.shiftIndicatorPct ?? (snapshot?.rpm ?? 0) / (snapshot?.maxRpm ?? 9000))
+  const shiftPct = resolveRevLightPct(snapshot)
   const delta = snapshot?.deltaToBestSec ?? snapshot?.deltaToSessionBestSec
   const speedRaw = snapshot?.speedKmh
   return {
     shiftPct,
-    redline: shiftPct >= 0.95,
+    redline: atShiftPoint(shiftPct, snapshot?.revLights?.blink, 0.95),
     gear: formatGear(snapshot?.gear),
     speed: speedRaw !== undefined && Number.isFinite(speedRaw) ? Math.round(speedRaw) : undefined,
     fuelLiters: snapshot?.fuelLiters,
@@ -129,7 +130,7 @@ export function GT3ClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
         <rect x={0} y={0} width={W} height={H} rx={skin.material.radius} fill={palette.bg} />
 
-        <RevLedBar pct={m.shiftPct} profile={skin.led} x={P} y={ledY} width={innerW} height={ledH} flashOn={m.redline} />
+        <RevLedBar pct={m.shiftPct} profile={skin.led} x={P} y={ledY} width={innerW} height={ledH} shiftActive={m.redline} />
 
         {/* Left: fuel + laps */}
         {df(P, bodyY, leftW, leftH, 'FUEL', fuel.display, 'normal', fuel.unit)}

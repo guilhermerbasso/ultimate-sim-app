@@ -9,6 +9,13 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { convertMeasurement, formatMeasurement, type UnitSystem } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
+import {
+  SHIFT_STROBE_BLUE,
+  ShiftStrobe,
+  resolveRevLightPct,
+  resolveRevLightState,
+  resolveRpmGaugePct
+} from '../lib/rev-lights'
 
 const W = 1024
 const H = 600
@@ -121,9 +128,10 @@ function BatteryIcon({ x, y, c }: { x: number; y: number; c: string }): ReactEle
   )
 }
 
-function ShiftArc({ pct }: { pct: number }): ReactElement {
+function ShiftArc({ pct, blink }: { pct: number; blink?: boolean }): ReactElement {
   const count = 15
-  const lit = Math.round(clamp01(pct) * count)
+  const state = resolveRevLightState(pct, blink)
+  const lit = state.atShiftPoint ? count : Math.round(state.pct * count)
   const x0 = 60
   const x1 = W - 60
   const step = (x1 - x0) / (count - 1)
@@ -133,16 +141,19 @@ function ShiftArc({ pct }: { pct: number }): ReactElement {
     const t = (cx - W / 2) / (W / 2)
     const cy = 44 - (1 - t * t) * 16
     const zone = i / (count - 1)
-    const color = zone < 0.33 ? COL.blue : zone < 0.53 ? COL.green : zone < 0.75 ? COL.amber : COL.red
+    const color = state.atShiftPoint
+      ? SHIFT_STROBE_BLUE
+      : zone < 0.33 ? COL.blue : zone < 0.53 ? COL.green : zone < 0.75 ? COL.amber : COL.red
     const on = i < lit
     leds.push(<circle key={i} cx={cx} cy={cy} r={on ? 9 : 7.5} fill={on ? color : '#15181c'} stroke={on ? color : 'rgba(255,255,255,0.08)'} strokeWidth={1} opacity={on ? 1 : 0.55} />)
   }
-  return <g>{leds}</g>
+  return <g><ShiftStrobe active={state.atShiftPoint} />{leds}</g>
 }
 
 function RpmStepBar({ frac, x, y, w, h }: { frac: number; x: number; y: number; w: number; h: number }): ReactElement {
   const steps = 10
-  const lit = Math.round(clamp01(frac) * steps)
+  const rpmPct = clamp01(frac)
+  const lit = Math.round(rpmPct * steps)
   const bars: ReactElement[] = []
   for (let i = 0; i < steps; i++) {
     const level = i / (steps - 1)
@@ -152,7 +163,7 @@ function RpmStepBar({ frac, x, y, w, h }: { frac: number; x: number; y: number; 
     bars.push(<rect key={i} x={x} y={rowY} width={rowW} height={h / steps - 3} rx={2} fill={i < lit ? color : '#15181c'} opacity={i < lit ? 1 : 0.5} />)
   }
   return (
-    <g>
+    <g data-rpm-gauge="ddu-step-bar" data-rpm-pct={rpmPct.toFixed(4)} data-rpm-lit={lit}>
       {bars}
       <text x={x + w + 8} y={y + 6} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">10</text>
       <text x={x + w + 8} y={y + h} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">0</text>
@@ -201,9 +212,8 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
   const unitSystem = useUnitSystem()
   const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const rpm = n(s.rpm)
-  const maxRpm = n(s.maxRpm) ?? 8500
-  const shiftPct = n(s.shiftIndicatorPct) ?? (rpm != null ? rpm / maxRpm : 0)
-  const rpmFrac = rpm != null ? clamp01(rpm / maxRpm) : 0
+  const rpmPct = resolveRpmGaugePct(s)
+  const shiftPct = resolveRevLightPct(s)
   const delta = n(s.deltaToBestSec)
   const fuel = n(s.fuelLiters)
   const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
@@ -224,7 +234,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img" aria-label="GT3 DDU cluster">
       <rect x={0} y={0} width={W} height={H} fill={COL.bg} />
-      <ShiftArc pct={shiftPct} />
+      <ShiftArc pct={shiftPct} blink={s.revLights?.blink} />
 
       <Panel x={16} y={70} w={232} h={112}>
         {label('Fuel', 32, 96)}
@@ -258,7 +268,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
 
         <text x={724} y={168} textAnchor="end" fill={COL.cyan} fontSize={18} fontWeight={700} fontFamily="'Rajdhani',sans-serif">RPM</text>
         <text x={724} y={214} textAnchor="end" fill={COL.text} fontSize={44} fontWeight={800} fontFamily="'Chakra Petch',monospace">{rpm != null ? String(Math.round(rpm)) : '—'}</text>
-        <RpmStepBar frac={rpmFrac} x={648} y={236} w={52} h={140} />
+        <RpmStepBar frac={rpmPct} x={648} y={236} w={52} h={140} />
 
         <rect x={286} y={412} width={430} height={38} rx={8} fill="#0a0c0e" stroke={COL.panelStroke} />
         <rect x={286} y={412} width={215} height={38} rx={8} fill="rgba(34,224,106,0.14)" />

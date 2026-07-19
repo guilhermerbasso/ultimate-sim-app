@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultOverlaysConfig } from '../../../../shared/overlays'
 import type { OverlayWidgetConfig } from '../../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../lib/rev-lights'
 import { Bosch296DashWidget } from './Bosch296DashWidget'
 
 // The widget renders one fixed Bosch-DDU design and reads only telemetry, so any
@@ -65,5 +66,32 @@ describe('Bosch296DashWidget — overflow-safe SVG DDU', () => {
     assertClean(m, 'null')
     expect(m).toContain('—')
     expect(m).toContain('data-widget="bosch296Dash"')
+  })
+
+  it('keeps the x1000 RPM bar calibrated while provider blink controls only its strobe', () => {
+    const providerOff = render({
+      ...POP,
+      rpm: 4500,
+      maxRpm: 9000,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot)
+    const providerOn = render({
+      ...POP,
+      rpm: 4500,
+      maxRpm: 9000,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot)
+
+    for (const markup of [providerOff, providerOn]) {
+      expect(markup).toContain('data-rpm-gauge="bosch296-x1000-bar"')
+      expect(markup).toContain('data-rpm-pct="0.5000"')
+    }
+    expect(providerOff).toContain('data-rev-shift="normal"')
+    expect(providerOff).not.toContain('dur="0.14s"')
+    expect(providerOn).toContain('data-rev-shift="strobe"')
+    expect(providerOn).toContain(SHIFT_STROBE_BLUE)
+    expect(providerOn).toContain('dur="0.14s"')
   })
 })
