@@ -37,6 +37,13 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M7 12V9M11 12V7M15 12V10" />
     </Svg>
   ),
+  streaming: () => (
+    <Svg>
+      <rect x="3" y="5" width="12" height="10" rx="2" />
+      <path d="M7 18h4M9 15v3" />
+      <path d="M17 8a4 4 0 0 1 0 4M19 6a7 7 0 0 1 0 8" />
+    </Svg>
+  ),
   'touch-controls': () => (
     <Svg>
       {/* button-box grid of keys + a finger tap */}
@@ -44,6 +51,13 @@ const iconMap: Record<string, () => ReactElement> = {
       <rect x="12" y="3" width="7" height="7" rx="1.6" />
       <rect x="3" y="12" width="7" height="7" rx="1.6" />
       <path d="M13 13l4 1.5-1.7.8 1.4 2.4-1.4.8-1.4-2.4-1.2 1.4z" fill="currentColor" stroke="none" />
+    </Svg>
+  ),
+  'streaming-mobile-editor': () => (
+    <Svg>
+      <rect x="6" y="2.5" width="10" height="17" rx="2.2" />
+      <path d="M8.5 6h5M8.5 9h5M8.5 12h3" />
+      <path d="M3 7.5v-3h3M19 14.5v3h-3" />
     </Svg>
   ),
   'oled-dash': () => (
@@ -79,6 +93,15 @@ const iconMap: Record<string, () => ReactElement> = {
       <circle cx="18" cy="5" r="1.2" fill="currentColor" stroke="none" />
     </Svg>
   ),
+  'mission-rehearsal': () => (
+    <Svg>
+      {/* branching checkpoint route with a training flag */}
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="17" cy="5" r="2" />
+      <circle cx="11" cy="17" r="2" />
+      <path d="M7 5h4a4 4 0 0 1 4 4v1M15 10l2-2 2 2M11 15V9a4 4 0 0 0-4-4" />
+    </Svg>
+  ),
   engineer: () => (
     <Svg>
       {/* radio headset (race engineer) */}
@@ -93,6 +116,23 @@ const iconMap: Record<string, () => ReactElement> = {
       {/* bell body + clapper dome */}
       <path d="M4 17v-7a7 7 0 0 1 14 0v7H4z" />
       <path d="M9 17v1a2 2 0 0 0 4 0v-1" />
+    </Svg>
+  ),
+  'story-engine': () => (
+    <Svg>
+      <rect x="3" y="4" width="16" height="14" rx="2" />
+      <path d="M7 8h8M7 11h6M7 14h4" />
+      <path d="M16 13l1 1 2-3" />
+    </Svg>
+  ),
+  'context-debt': () => (
+    <Svg>
+      {/* signal loom: shared source rail feeding three cue modalities */}
+      <path d="M3 11h7M10 5v12M10 6h5M10 11h7M10 16h4" />
+      <circle cx="16.5" cy="6" r="1.5" />
+      <circle cx="18.5" cy="11" r="1.5" />
+      <circle cx="15.5" cy="16" r="1.5" />
+      <circle cx="3" cy="11" r="1.5" />
     </Svg>
   ),
   expr: () => (
@@ -163,6 +203,21 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="m16.4 16.5.8.8 1.5-1.7" />
     </Svg>
   ),
+  'social-connectors': () => (
+    <Svg>
+      <circle cx="5" cy="11" r="2.5" />
+      <circle cx="17" cy="6" r="2.5" />
+      <circle cx="17" cy="16" r="2.5" />
+      <path d="M7.5 10l7-3M7.5 12l7 3" />
+    </Svg>
+  ),
+  'steward-desk': () => (
+    <Svg>
+      <path d="M6 3h10v16H6z" />
+      <path d="M9 7h4M9 11h4M9 15h2" />
+      <path d="M4 6H2v11h4M16 6h4v11h-4" />
+    </Svg>
+  ),
   haptics: () => (
     <Svg>
       {/* shaker body + vibration waves */}
@@ -205,6 +260,13 @@ const iconMap: Record<string, () => ReactElement> = {
   ),
 
   // ── ButtonBox ────────────────────────────────────────────────
+  'rig-preflight': () => (
+    <Svg>
+      <path d="M5 3h12v16H5z" />
+      <path d="M8 7h6M8 11h3" />
+      <path d="m12 15 2 2 4-5" />
+    </Svg>
+  ),
   devices: () => (
     <Svg>
       {/* USB plug: two prongs, connector body, cable, socket */}
@@ -266,6 +328,14 @@ const iconMap: Record<string, () => ReactElement> = {
       <circle cx="17" cy="13" r="1.6" fill="currentColor" stroke="none" />
     </Svg>
   ),
+  'setup-experiment': () => (
+    <Svg>
+      <path d="M3 17h16M5 14V8M11 14V4M17 14V8" />
+      <circle cx="5" cy="7" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="3" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="7" r="1.5" fill="currentColor" stroke="none" />
+    </Svg>
+  ),
   tire: () => (
     <Svg>
       {/* tyre: outer + inner ring + tread ticks */}
@@ -297,6 +367,13 @@ const iconMap: Record<string, () => ReactElement> = {
   ),
 
   // ── App ──────────────────────────────────────────────────────
+  'accessibility-cues': () => (
+    <Svg>
+      <path d="M3 11s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z" />
+      <circle cx="11" cy="11" r="2.2" />
+      <path d="M17.5 4.5v3M19 6h-3M4.5 17.5v-3M3 16h3" />
+    </Svg>
+  ),
   settings: () => (
     <Svg>
       {/* gear: hub circle + 8 teeth (4 cardinal + 4 diagonal) */}

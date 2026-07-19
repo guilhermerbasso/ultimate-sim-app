@@ -6,6 +6,79 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.54.0 — managed streaming, local integrations, and offline race preparation
+
+### Added
+- **Loopback-only MQTT certification target**, disabled by default, with authenticated publisher,
+  reader, and command roles, narrow topic permissions, retained health/session state, and commands
+  disabled unless explicitly enabled.
+- **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and
+  Touch Controls profiles. Edited dashboard copies remain selectable after migration and restart.
+- **Mobile presentation editor** for saved dashboards and Touch Controls, with phone/tablet presets,
+  orientation, safe areas, fit/fill rules, minimum touch sizing, and revision-bound profiles that do
+  not modify the source layout.
+- **Secure interactive Touch Controls receivers** for allowlisted pit actions, radio holds, toggles,
+  selectors, rotaries, and simulator actions, using authenticated target-bound capabilities, CSRF protection,
+  one-time nonces, origin binding, rate limits, and a live receiver lease.
+- **Editor-only trigger previews** that reveal inactive trigger-only overlays and dashboard widgets
+  for positioning without changing their live visibility rules.
+- **Experimental local Context-Debt meter** for auditing competing cues, invalid routes, and
+  unavailable devices before a race. It remains an N=0 experiment, not a validated demand or
+  predictive-accuracy claim.
+- **Local Setup Experiment Twin** for controlled one-variable A-B-A/B-A-B setup comparisons, with
+  manual setup confirmation, matched-block evidence, uncertainty reporting, persistence recovery,
+  and honest abstention instead of automatic setup application or causal claims.
+- **Signed offline workspace collaboration** for deterministic local setup sharing without network
+  transport, using Ed25519 actor signatures, canonical CRDT ordering/checksums, and bounded import
+  and causal-validation rules.
+- **Deterministic local Social Connector simulations** for Twitch, YouTube, and Discord workflow
+  testing, covering chat, events, polls, moderation, markers, clips, broadcasts, commands, and room
+  policies with zero live network egress.
+- **Fail-closed Rig Preflight certification** for pre-session desired-vs-observed checks,
+  remediation, governed waivers, known-good drift, expiring certificates, and continuous
+  evidence-freshness monitoring.
+- **Local-first Steward Desk** for evidence-backed league incident review, versioned rules, human
+  verdicts, dissent, appeals, and rights-gated case exchange. Penalties and final decisions remain
+  explicitly human-owned.
+- **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
+  runs, repeat comparisons, and scored blameless debriefs.
+
+### Changed
+- Internet streaming can start the bundled, checksum-verified Cloudflare quick tunnel automatically,
+  establish the authenticated viewer session, report receiver health, and recover with bounded
+  retries without changing local or LAN streaming.
+- Trigger preview ownership is released on hide, reload, or renderer loss and restored after a tray
+  reopen, while compositor, streaming, saved rules, and live Coach/Engineer/Alerts IPC stay isolated.
+- Context-Debt audits fail closed on malformed profiles and incomplete audio/serial inventories, and
+  suggestions respect per-cue route and modality limits.
+- PWA receiver reconnects preserve the first pending 250 ms deadline, deduplicate overlapping
+  close/online triggers and metrics, and cancel pending reconnects while offline or unmounted.
+- Interactive Touch ownership drains safely on disconnect or stop: holds and mixed latches release
+  in order, configured OFF runs exactly once, cleanup is idempotent, admission is revoked
+  synchronously, and auth, target, connectivity, or teardown changes fail closed.
+- Steward evidence uses a canonical verified event chain, session-bound atomic clip storage,
+  fail-closed corruption/decryption/hash quarantine, allowlisted anonymization, provenance and
+  redistribution-rights gates, and trusted local re-review before imported verdicts become
+  authoritative.
+- Collaboration mutations, synchronization, export, and persistence roll back atomically on
+  failure; imports enforce the exact 8 MiB boundary and reject prototype-sensitive paths or JSON
+  keys before state can change.
+- Social Connector simulations accept no live credentials and are not production platform
+  adapters. Capability allowlists, credential-shaped key/value scans, monotonic consent epochs,
+  approval/policy gates, replay protection, event deduplication, bounded fixtures, and sanitized
+  receipts fail closed on malformed or unauthorized input.
+- Recording finalization, track sidecars, and learned pace data now use atomic writes and bounded,
+  cancellable retries across live, suspended, disconnected, context-transition, and shutdown paths.
+  Persistent sample failures are capped and surfaced, newer pace payloads drain after in-flight
+  writes, and saved debriefs retain and speak their recorded language.
+- Rig certification uses the earliest required evidence deadline plus a main-process watchdog,
+  stable USB VID/PID/serial identity, audited replacement that invalidates active certification,
+  serialized atomic persistence, and fail-closed recovery/quarantine for interrupted replacements.
+- Pre-existing generated touch-panel snapshot and visual-audit working-tree drift remain explicitly
+  excluded from the Rig Preflight change set and release documentation update.
+- Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
+  rehearsal decisions cannot actuate live race controls.
+
 ## 2.53.1 — SerialPort startup hotfix
 
 ### Fixed

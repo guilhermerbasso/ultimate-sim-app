@@ -5,21 +5,30 @@ import { readFile as readFileAsync, rename as renameAsync } from 'node:fs/promis
 import { join } from 'node:path'
 import type { Dashboard, DashboardElement, DashboardPlaylistItem } from '../../shared/dashboards'
 import { BUILTIN_PRESETS, DASHBOARD_ELEMENT_TYPES, dashboardStorageValidationResult } from '../../shared/dashboards'
+import { listUserAddedStreamTargetSources } from '../../shared/stream-targets'
 import { buttonPanelPlaylistItem } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import {
+  applyThirdPartyImportMetadata,
+  dashboardBuiltinFingerprint,
   DashboardManager,
+  inferBuiltInDashboardIds,
   openablePlaylistItems,
   resolveCycleStep,
   sameCockpitTarget,
   type DashboardStorageIo,
   touchPanelIdOf
 } from './manager'
+import {
+  THIRD_PARTY_CATALOG_ALLOWED_URLS,
+  THIRD_PARTY_CATALOG_OPEN_CHANNEL
+} from '../../shared/third-party-dashboard-catalog'
 
 const electronMocks = vi.hoisted(() => ({
   createBrowserWindow: vi.fn(),
   getAllDisplays: vi.fn(),
-  getPrimaryDisplay: vi.fn()
+  getPrimaryDisplay: vi.fn(),
+  openExternal: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -35,7 +44,7 @@ vi.mock('electron', () => ({
     getAllDisplays: electronMocks.getAllDisplays,
     getPrimaryDisplay: electronMocks.getPrimaryDisplay
   },
-  shell: { openExternal: vi.fn() }
+  shell: { openExternal: electronMocks.openExternal }
 }))
 
 vi.mock('../modules/logger', () => ({
@@ -62,6 +71,8 @@ beforeEach(() => {
   electronMocks.createBrowserWindow.mockReset()
   electronMocks.getAllDisplays.mockReset()
   electronMocks.getPrimaryDisplay.mockReset()
+  electronMocks.openExternal.mockReset()
+  electronMocks.openExternal.mockResolvedValue(undefined)
   electronMocks.getAllDisplays.mockReturnValue([primaryDisplay, secondaryDisplay])
   electronMocks.getPrimaryDisplay.mockReturnValue(primaryDisplay)
   vi.stubEnv('ELECTRON_RENDERER_URL', 'http://127.0.0.1:5174/')
@@ -205,6 +216,30 @@ describe('resolveCycleStep', () => {
     expect(step!.next).toEqual(items[0])
   })
 
+  describe('third-party dashboard catalog external actions', () => {
+    it('does not open anything before IPC and shells only the allowlisted URL after invocation', async () => {
+      const handlers = new Map<string, IpcHandler>()
+      const manager = makeHeadlessManager(process.cwd(), handlers)
+      manager.registerIpc()
+      const open = handlers.get(THIRD_PARTY_CATALOG_OPEN_CHANNEL)
+      expect(open).toBeDefined()
+      expect(electronMocks.openExternal).not.toHaveBeenCalled()
+
+      await expect(open!({}, 'lovely-dashboard', 'license')).resolves.toEqual({ opened: true })
+      expect(electronMocks.openExternal).toHaveBeenCalledWith(THIRD_PARTY_CATALOG_ALLOWED_URLS.lovelyLicense)
+    })
+
+    it('rejects forged/deep actions without calling the external shell', async () => {
+      const handlers = new Map<string, IpcHandler>()
+      const manager = makeHeadlessManager(process.cwd(), handlers)
+      manager.registerIpc()
+      const open = handlers.get(THIRD_PARTY_CATALOG_OPEN_CHANNEL)!
+
+      await expect(open({}, 'overtake-iracing', 'attachment')).rejects.toThrow(/not allowlisted/)
+      expect(electronMocks.openExternal).not.toHaveBeenCalled()
+    })
+  })
+
   it('advances to the next item — including a touch panel — and reports the one to close', () => {
     const step = resolveCycleStep(items, 0, (i) => i.dashboardId === 'd1', 'next')
     expect(step!.currentIndex).toBe(0)
@@ -301,6 +336,47 @@ function storageIoError(code: string, message: string): NodeJS.ErrnoException {
   return Object.assign(new Error(message), { code })
 }
 
+describe('dashboard origin classification', () => {
+  it('prefers exact fingerprints and only falls back to identity when no exact candidate exists', () => {
+    const seeded: Dashboard = {
+      id: 'seeded',
+      name: 'Built-in',
+      width: 1024,
+      height: 600,
+      bg: '#000000',
+      elements: [],
+      createdAt: 10,
+      updatedAt: 10
+    }
+    const duplicated: Dashboard = {
+      ...structuredClone(seeded),
+      id: 'duplicated',
+      createdAt: 20,
+      updatedAt: 20
+    }
+    const edited: Dashboard = {
+      ...structuredClone(seeded),
+      id: 'edited-user-copy',
+      bg: '#111111',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const original = structuredClone([seeded, duplicated])
+    const preset = {
+      id: 'preset',
+      name: 'Built-in',
+      build: () => ({ ...structuredClone(seeded), id: 'fresh', createdAt: 30, updatedAt: 30 })
+    }
+
+    expect(dashboardBuiltinFingerprint(seeded)).toBe(dashboardBuiltinFingerprint(preset.build()))
+    expect(inferBuiltInDashboardIds([seeded, duplicated], [preset])).toEqual(new Set(['seeded']))
+    expect(inferBuiltInDashboardIds([edited, seeded], [preset])).toEqual(new Set(['seeded']))
+    expect(inferBuiltInDashboardIds([seeded, edited], [preset])).toEqual(new Set(['seeded']))
+    expect(inferBuiltInDashboardIds([edited], [preset])).toEqual(new Set(['edited-user-copy']))
+    expect([seeded, duplicated]).toEqual(original)
+  })
+})
+
 describe('DashboardManager restart restoration', () => {
   let userData: string
 
@@ -310,6 +386,78 @@ describe('DashboardManager restart restoration', () => {
 
   afterEach(() => {
     rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('persists built-in origin separately and treats an explicit save as user-added', async () => {
+    const dashboard = raceTrafficAttack()
+    persistDashboard(userData, dashboard)
+    const originsDir = join(userData, 'dashboards', '.dashboard-metadata')
+    mkdirSync(originsDir, { recursive: true })
+    writeFileSync(join(originsDir, 'dashboard-origins.json'), JSON.stringify({
+      schemaVersion: 1,
+      builtInIds: [dashboard.id]
+    }), 'utf8')
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+    expect(manager.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(true)
+
+    await manager.save({ ...dashboard, name: `${dashboard.name} saved` })
+    expect(manager.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(false)
+    const persistedDashboard = JSON.parse(readFileSync(join(userData, 'dashboards', `${dashboard.id}.json`), 'utf8')) as Dashboard
+    expect(persistedDashboard).not.toHaveProperty('builtIn')
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(false)
+  })
+
+  it('persists exact origin migration while keeping an edited identity copy streamable', async () => {
+    const exact = {
+      ...raceTrafficAttack(),
+      createdAt: 20,
+      updatedAt: 20
+    }
+    const edited = structuredClone(exact)
+    edited.id = 'race-traffic-attack-user-copy'
+    edited.bg = exact.bg === '#010203' ? '#020304' : '#010203'
+    edited.createdAt = 10
+    edited.updatedAt = 10
+    delete edited.previewPng
+    delete edited.thirdParty
+
+    const exactStored = persistDashboard(userData, exact)
+    const editedStored = persistDashboard(userData, edited)
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.list().find((item) => item.id === exact.id)?.builtIn).toBe(true)
+    expect(manager.list().find((item) => item.id === edited.id)?.builtIn).toBe(false)
+    expect(listUserAddedStreamTargetSources(manager.list(), [])).toContainEqual({
+      kind: 'dashboard',
+      id: edited.id,
+      label: edited.name
+    })
+    expect(JSON.parse(readFileSync(
+      join(userData, 'dashboards', '.dashboard-metadata', 'dashboard-origins.json'),
+      'utf8'
+    ))).toEqual({
+      schemaVersion: 1,
+      builtInIds: [exact.id]
+    })
+    expect(readFileSync(exactStored.path, 'utf8')).toBe(exactStored.raw)
+    expect(readFileSync(editedStored.path, 'utf8')).toBe(editedStored.raw)
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.list().find((item) => item.id === exact.id)?.builtIn).toBe(true)
+    expect(restarted.list().find((item) => item.id === edited.id)?.builtIn).toBe(false)
+    expect(listUserAddedStreamTargetSources(restarted.list(), [])).toContainEqual({
+      kind: 'dashboard',
+      id: edited.id,
+      label: edited.name
+    })
+    expect(readFileSync(editedStored.path, 'utf8')).toBe(editedStored.raw)
   })
 
   it('restores Race Traffic Attack overlay widgets without rewriting persisted data', async () => {
@@ -337,6 +485,36 @@ describe('DashboardManager restart restoration', () => {
     const restarted = makeHeadlessManager(userData)
     await restarted.load()
     expect(restarted.getDashboard(dashboard.id)?.elements).toHaveLength(18)
+  })
+
+  it('persists third-party provenance and restrictive rights across save and restart', async () => {
+    const baseline = raceTrafficAttack()
+    persistDashboard(userData, baseline)
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    const imported = applyThirdPartyImportMetadata(
+      { ...baseline, id: 'third-party-persisted', name: 'Third-party persisted' },
+      { catalogEntryId: 'lovely-dashboard' },
+      123
+    )
+    await manager.save(imported)
+
+    const stored = JSON.parse(
+      readFileSync(join(userData, 'dashboards', 'third-party-persisted.json'), 'utf8')
+    ) as Dashboard
+    expect(stored.thirdParty).toMatchObject({
+      catalogEntryId: 'lovely-dashboard',
+      rights: { classification: 'proprietary-restricted' },
+      acquisition: { mode: 'manual-local-file', recordedAt: 123 }
+    })
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.getDashboard(imported.id)?.thirdParty).toEqual(stored.thirdParty)
+    await expect(restarted.exportSimhub(imported.id, join(userData, 'blocked.simhubdash')))
+      .rejects.toThrow(/re-export blocked/i)
+    expect(existsSync(join(userData, 'blocked.simhubdash'))).toBe(false)
   })
 
   it('accepts every element type from the shared dashboard schema after a JSON restart', async () => {

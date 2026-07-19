@@ -33,6 +33,15 @@ export function panelFileName(id: string): string {
   return collapsed.length > 0 ? collapsed : '_'
 }
 
+export function nextTouchPanelRevision(previous: number | undefined, now = Date.now()): number {
+  if (previous === undefined) return now
+  const safe = Math.trunc(previous)
+  if (safe >= Number.MAX_SAFE_INTEGER) {
+    throw new Error(`Touch panel revision cannot advance beyond ${String(previous)}.`)
+  }
+  return Math.max(now, safe + 1)
+}
+
 export function bindTouchActionWindowLifecycle(
   win: BrowserWindow,
   release: (webContentsId: number) => Promise<void> = releaseTouchActionsForWebContents
@@ -194,7 +203,7 @@ export class TouchPanelManager {
     if (!parsed.panel) throw new Error(`Invalid touch panel: ${parsed.errors.join(' ')}`)
     const panel = parsed.panel
     const previous = this.panels.get(panel.id) ?? null
-    panel.updatedAt = Date.now()
+    panel.updatedAt = nextTouchPanelRevision(previous?.updatedAt ?? previous?.createdAt)
     this.panels.set(panel.id, panel)
     await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')
     this.ctx.broadcast('app:touchpanel:list', this.list())
@@ -234,7 +243,7 @@ export class TouchPanelManager {
     const panel = this.panels.get(id)
     if (!panel) throw new Error(`Touch panel not found: ${id}`)
     panel.hidden = Boolean(hidden)
-    panel.updatedAt = Date.now()
+    panel.updatedAt = nextTouchPanelRevision(panel.updatedAt ?? panel.createdAt)
     this.panels.set(id, panel)
     await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')
     const list = this.list()

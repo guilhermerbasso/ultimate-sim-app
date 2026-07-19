@@ -59,6 +59,8 @@ extraResources:
   # Exact source is intentional: packaging must fail if the verified binary is absent.
   - from: resources/cloudflared/cloudflared.exe
     to: cloudflared/cloudflared.exe
+  - from: resources/cloudflared/quick-tunnel.yml
+    to: cloudflared/quick-tunnel.yml
 
 asarUnpack:
   - "**/node_modules/@serialport/**"

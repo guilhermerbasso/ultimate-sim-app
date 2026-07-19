@@ -107,6 +107,16 @@ async function run() {
   }
   root.render(null); await settle()
 
+  activity = []
+  root.render(h(WidgetGallery, { onAdd: () => {}, showTriggerOnlyActive: true }))
+  await waitFor(() => host.querySelectorAll('[data-widget-preview="true"]').length >= 423, 'forced-active widget gallery')
+  const forcedSearch = host.querySelector('input[aria-label="Search widget"]')
+  inputValue(forcedSearch, 'hifi-alert2WaterTempCritical')
+  await waitFor(() => host.textContent.includes('WATER'), 'forced-active alert widget')
+  const forcedGalleryVisible = host.textContent.includes('WATER')
+  const forcedGalleryActivity = activity.slice()
+  root.render(null); await settle()
+
   root.render(h(UnitSystemProvider, { initialUnitSystem: 'imperial' }, renderDashboardElement({ element: elementFor('hifi-speed'), snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })))
   await waitFor(() => /147/.test(host.textContent) && /mph/i.test(host.textContent), 'imperial inert hi-fi preview')
   const imperial = host.textContent
@@ -138,6 +148,25 @@ async function run() {
   const inertListeners = listenerSnapshot()
 
   activity = []
+  const forcedPresetDashboard = {
+    id: 'forced-alert-preview',
+    name: 'Forced alert preview',
+    width: 400,
+    height: 220,
+    bg: '#05070a',
+    elements: [{ ...elementFor('hifi-alert2WaterTempCritical'), w: 360, h: 190 }]
+  }
+  root.render(h(PresetGallery, {
+    presets: [{ id: 'forced-alert', name: 'Forced alert', tags: ['GT3'], build: () => forcedPresetDashboard }],
+    onPick: () => {},
+    showTriggerOnlyActive: true
+  }))
+  await waitFor(() => host.textContent.includes('WATER'), 'forced-active preset alert')
+  const forcedPresetVisible = host.textContent.includes('WATER')
+  const forcedPresetActivity = activity.slice()
+  root.render(null); await settle()
+
+  activity = []
   const releaseBindingIpc = retainBindingIpc()
   root.render(liveWidgets({ ...PREVIEW_SNAPSHOT, speedKmh: 111 }))
   await waitFor(() => (listeners.get('coach:report')?.size || 0) === 3, 'live subscriptions')
@@ -159,7 +188,7 @@ async function run() {
     await waitFor(() => (listeners.get('coach:report')?.size || 0) === 1, 'cycle subscription')
     root.render(null); await settle(); restored.push(JSON.stringify(listenerSnapshot()) === baseline)
   }
-  return { frameworkCount: framework.length, catalogFrameworkCount: catalogFrameworkIds.length, oneToOne, lastCatalogId, added, importActivity, inertStable: inertStable && presetStable, inertActivity, inertListeners, imperial, semantic, liveBindingChannels, telemetryUpdated, restored }
+  return { frameworkCount: framework.length, catalogFrameworkCount: catalogFrameworkIds.length, oneToOne, lastCatalogId, added, importActivity, inertStable: inertStable && presetStable, inertActivity, inertListeners, forcedGalleryVisible, forcedGalleryActivity, forcedPresetVisible, forcedPresetActivity, imperial, semantic, liveBindingChannels, telemetryUpdated, restored }
 }
 window.__inertPreviewApi = { run }
 `
@@ -202,6 +231,10 @@ describe('inert gallery previews (Electron Chromium)', () => {
       expect(result.inertActivity).toEqual([])
       expect(result.inertListeners).toEqual({})
       expect(result.inertStable).toBe(true)
+      expect(result.forcedGalleryVisible).toBe(true)
+      expect(result.forcedGalleryActivity).toEqual([])
+      expect(result.forcedPresetVisible).toBe(true)
+      expect(result.forcedPresetActivity).toEqual([])
       expect(result.imperial).toMatch(/147.*mph/i)
       expect(result.semantic['fuel-margin']).toContain('-2.1 LAPS')
       expect(result.semantic['tyre-wear']).toContain('78% LIFE')
@@ -216,5 +249,5 @@ describe('inert gallery previews (Electron Chromium)', () => {
       await server.close()
       if (tempDirectory) await rm(tempDirectory, { recursive: true, force: true })
     }
-  }, 120_000)
+  }, 180_000)
 })

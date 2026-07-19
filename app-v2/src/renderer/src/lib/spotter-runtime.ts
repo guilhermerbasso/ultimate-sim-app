@@ -30,6 +30,7 @@ import {
 } from '../../../shared/tts-voice'
 import { logClient } from './log-client'
 import { notifyExternalSpeaking } from './tts-runtime'
+import { getSharedWebSpeechScheduler } from './web-speech-scheduler'
 
 // Voice Spotter runtime engine.
 //
@@ -505,12 +506,20 @@ function applyVoiceAndSpeak(utterance: SpeechSynthesisUtterance, line: QueuedLin
     lang: utterance.lang
   })
   pushLog({ id: line.id, text: line.text, priority: line.priority, at: Date.now() })
-  setSpotterAudible(true)
-  try {
-    window.speechSynthesis.speak(utterance)
-  } catch {
+  const scheduler = getSharedWebSpeechScheduler()
+  if (!scheduler) {
     onUtteranceDone(utterance)
+    return
   }
+  void scheduler
+    .enqueue({
+      channel: 'spotter-live',
+      generation: state.piperGen,
+      semanticKey: line.id,
+      priority: 500 + line.priority,
+      utterance
+    })
+    .then(() => onUtteranceDone(utterance))
 }
 
 function speakWithOS(line: QueuedLine): void {
@@ -525,13 +534,16 @@ function speakWithOS(line: QueuedLine): void {
   utterance.rate = line.rate
   utterance.pitch = line.pitch
   utterance.volume = line.volume
-  utterance.onend = () => onUtteranceDone(utterance)
-  utterance.onerror = () => onUtteranceDone(utterance)
+  utterance.onstart = () => {
+    if (state.activeUtterance !== utterance) return
+    setSpotterAudible(true)
+    if (state.watchdog) clearTimeout(state.watchdog)
+    state.watchdog = setTimeout(
+      () => onUtteranceDone(utterance),
+      Math.max(6000, line.text.length * 140)
+    )
+  }
   state.activeUtterance = utterance
-  // Chromium occasionally drops onend/onerror (backgrounded window, long text);
-  // watchdog so a stuck utterance can't wedge the queue indefinitely.
-  if (state.watchdog) clearTimeout(state.watchdog)
-  state.watchdog = setTimeout(() => onUtteranceDone(utterance), Math.max(6000, line.text.length * 140))
   // If the async voice list hasn't loaded yet, wait for it so the FIRST callout
   // honors the chosen voice instead of falling through to the engine default.
   if (voiceCache.length === 0 && !voicesSettled) {
@@ -677,11 +689,7 @@ function enqueue(line: QueuedLine): void {
     state.activeUtterance = null
     state.speaking = false
     state.currentPriority = 0
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
+    getSharedWebSpeechScheduler()?.cancelChannel('spotter-live')
     cancelPiperAudio()
     speakNext()
   }
@@ -986,11 +994,13 @@ function speakOSImmediate(
       resolvedVoiceName: voice?.name ?? null,
       lang: utterance.lang
     })
-    try {
-      window.speechSynthesis.speak(utterance)
-    } catch {
-      // ignore
-    }
+    void getSharedWebSpeechScheduler()?.enqueue({
+      channel: 'spotter-preview',
+      generation: gen,
+      semanticKey: 'spotter-voice-test',
+      priority: 0,
+      utterance
+    })
   }
   if (voiceCache.length === 0 && !voicesSettled) void ensureVoicesLoaded().then(go)
   else go()
@@ -1014,11 +1024,8 @@ function speakImmediate(
   state.speaking = false
   state.currentPriority = 0
   cancelPiperAudio()
-  try {
-    if (synthAvailable()) window.speechSynthesis.cancel()
-  } catch {
-    // ignore
-  }
+  getSharedWebSpeechScheduler()?.cancelChannel('spotter-live')
+  getSharedWebSpeechScheduler()?.cancelChannel('spotter-preview')
   pushLog({ id: 'test', text, priority: 0, at: Date.now() })
   // cancelPiperAudio() above bumped piperGen — capture AFTER it so a second
   // speakImmediate (OS or Piper) invalidates this one's deferred work.
@@ -1135,13 +1142,8 @@ export function stopSpotterSpeech(): void {
   state.speaking = false
   state.currentPriority = 0
   cancelPiperAudio()
-  if (synthAvailable()) {
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+  getSharedWebSpeechScheduler()?.cancelChannel('spotter-live')
+  getSharedWebSpeechScheduler()?.cancelChannel('spotter-preview')
 }
 
 // ─── Ref-counted runtime hook ────────────────────────────────────────────────

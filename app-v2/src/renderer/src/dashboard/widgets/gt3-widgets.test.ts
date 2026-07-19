@@ -6,6 +6,7 @@ import { WIDGET_SLOTS, type DashboardElement, type DashboardElementStyle, type D
 import { createElement } from 'react'
 import { MotorsportGlyph, type MotorsportIconId } from '../../icons/motorsport'
 import { computeFit } from '../../skins/FitText'
+import { SHIFT_STROBE_BLUE } from '../../lib/rev-lights'
 
 function el(type: DashboardElementType, style: DashboardElementStyle, binding?: string, w = 220, h = 160): DashboardElement {
   return { id: `e-${type}`, type, x: 0, y: 0, w, h, binding, style }
@@ -13,6 +14,16 @@ function el(type: DashboardElementType, style: DashboardElementStyle, binding?: 
 
 function markup(type: DashboardElementType, style: DashboardElementStyle, binding?: string, w = 220, h = 160): string {
   const node = renderGt3Widget({ element: el(type, style, binding, w, h), snapshot: PREVIEW_SNAPSHOT })
+  return node ? renderToStaticMarkup(node) : ''
+}
+
+function markupWithSnapshot(
+  type: DashboardElementType,
+  style: DashboardElementStyle,
+  binding: string | undefined,
+  snapshot: typeof PREVIEW_SNAPSHOT | null
+): string {
+  const node = renderGt3Widget({ element: el(type, style, binding), snapshot })
   return node ? renderToStaticMarkup(node) : ''
 }
 
@@ -276,6 +287,28 @@ describe('GT3 cluster widgets route through the instrument primitives', () => {
   it('shiftbar honours instrument.glow=false (LEDs but no bloom)', () => {
     const out = markup('shiftbar', { instrument: { glow: false } }, 'shiftPct')
     expect(out).not.toContain('feGaussianBlur')
+  })
+
+  it('uses provider blink for shiftbar and gearcluster shift strips', () => {
+    const providerOff = {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as typeof PREVIEW_SNAPSHOT
+    const providerOn = {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as typeof PREVIEW_SNAPSHOT
+
+    for (const type of ['shiftbar', 'gearcluster'] as DashboardElementType[]) {
+      const normal = markupWithSnapshot(type, {}, type === 'shiftbar' ? 'shiftPct' : undefined, providerOff)
+      const shifted = markupWithSnapshot(type, {}, type === 'shiftbar' ? 'shiftPct' : undefined, providerOn)
+      expect(normal, type).not.toContain(SHIFT_STROBE_BLUE)
+      expect(normal, type).not.toContain('repeatCount="indefinite"')
+      expect(shifted, type).toContain(SHIFT_STROBE_BLUE)
+      expect(shifted, type).toContain('repeatCount="indefinite"')
+    }
   })
 
   it('gearcluster (clean) renders DSEG gear + speed via SegmentReadout', () => {

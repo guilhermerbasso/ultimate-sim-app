@@ -1,5 +1,15 @@
 import { dialog, type OpenDialogOptions, type SaveDialogOptions } from 'electron'
-import { lstat, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile
+} from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import {
@@ -26,6 +36,12 @@ import {
   type SavedSectionInfo
 } from '../../shared/config-io'
 import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
+import { dashboardDistributionRestrictionReason } from '../../shared/third-party-dashboard-catalog'
+import {
+  importAccessibilityCueConfig,
+  resetAccessibilityCueConfig
+} from './accessibility-cues'
+import { validateAccessibilityCueStoreImport } from '../../shared/accessibility-cues'
 
 export const FULL_IMPORT_DISABLED = 'FULL_IMPORT_DISABLED' as const
 
@@ -74,6 +90,41 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
 }
 
+const configFileLocks = new Map<string, Promise<void>>()
+
+async function withConfigFileLock<T>(
+  path: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = configFileLocks.get(path) ?? Promise.resolve()
+  const ready = previous.catch(() => undefined)
+  let release!: () => void
+  const current = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const tail = ready.then(() => current)
+  configFileLocks.set(path, tail)
+  await ready
+  try {
+    return await operation()
+  } finally {
+    release()
+    if (configFileLocks.get(path) === tail) {
+      configFileLocks.delete(path)
+    }
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (isMissing(error)) return false
+    throw error
+  }
+}
+
 // Serialized on-disk footprint of a value, matching writeFileJson's exact format
 // (pretty JSON + trailing newline). Used by the in-memory storage to report a
 // size that mirrors what the file store would write.
@@ -112,17 +163,81 @@ export function createFileStorage(baseDir: string): ConfigStorage {
 
   return {
     async readFileJson(relPath) {
-      try {
-        return JSON.parse(await readFile(resolveSafe(relPath), 'utf8')) as unknown
-      } catch (error) {
-        if (isMissing(error)) return undefined
-        throw error
-      }
+      const full = resolveSafe(relPath)
+      return withConfigFileLock(full, async () => {
+        const staging = `${full}.staging`
+        const previous = `${full}.previous`
+        let liveError: unknown
+        try {
+          const parsed = JSON.parse(await readFile(full, 'utf8')) as unknown
+          await rm(staging, { force: true }).catch(() => undefined)
+          await rm(previous, { force: true }).catch(() => undefined)
+          return parsed
+        } catch (error) {
+          liveError = error
+        }
+
+        try {
+          const rawPrevious = await readFile(previous, 'utf8')
+          const parsedPrevious = JSON.parse(rawPrevious) as unknown
+          if (await pathExists(full)) {
+            await rm(full, { force: true })
+          }
+          await rename(previous, full)
+          await rm(staging, { force: true }).catch(() => undefined)
+          return parsedPrevious
+        } catch (recoveryError) {
+          if (isMissing(liveError) && isMissing(recoveryError)) return undefined
+          throw liveError
+        }
+      })
     },
     async writeFileJson(relPath, data) {
       const full = resolveSafe(relPath)
-      await mkdir(dirname(full), { recursive: true })
-      await writeFile(full, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+      await withConfigFileLock(full, async () => {
+        const staging = `${full}.staging`
+        const previous = `${full}.previous`
+        const payload = `${JSON.stringify(data, null, 2)}\n`
+        let previousMoved = false
+        let committed = false
+        await mkdir(dirname(full), { recursive: true })
+        try {
+          await rm(staging, { force: true })
+          await writeFile(staging, payload, 'utf8')
+          const handle = await open(staging, 'r+')
+          try {
+            await handle.sync()
+          } finally {
+            await handle.close()
+          }
+          const stagedPayload = await readFile(staging, 'utf8')
+          JSON.parse(stagedPayload)
+          if (stagedPayload !== payload) {
+            throw new Error(`Atomic configuration staging verification failed: ${relPath}`)
+          }
+          if (await pathExists(full)) {
+            await rm(previous, { force: true })
+            await rename(full, previous)
+            previousMoved = true
+          }
+          await rename(staging, full)
+          committed = true
+          if (previousMoved) {
+            await rm(previous, { force: true }).catch(() => undefined)
+          }
+        } catch (error) {
+          await rm(staging, { force: true }).catch(() => undefined)
+          if (
+            !committed &&
+            previousMoved &&
+            (await pathExists(previous)) &&
+            !(await pathExists(full))
+          ) {
+            await rename(previous, full).catch(() => undefined)
+          }
+          throw error
+        }
+      })
     },
     async readDirJson(relDir) {
       const dir = resolveSafe(relDir)
@@ -216,13 +331,14 @@ export function createFileStorage(baseDir: string): ConfigStorage {
     },
     async removeFile(relPath) {
       const full = resolveSafe(relPath)
-      try {
-        await unlink(full)
-        return true
-      } catch (error) {
-        if (isMissing(error)) return false
-        throw error
-      }
+      return withConfigFileLock(full, async () => {
+        const paths = [full, `${full}.staging`, `${full}.previous`]
+        const existed = await Promise.all(paths.map(pathExists))
+        for (const path of paths) {
+          await rm(path, { force: true })
+        }
+        return existed.some(Boolean)
+      })
     },
     async removeDirJson(relDir) {
       const dir = resolveSafe(relDir)
@@ -305,13 +421,88 @@ interface PreparedSectionData {
   detail?: ConfigSectionImportDetail
 }
 
+function assertSectionDistributionAllowed(sectionId: string, data: unknown): void {
+  if (sectionId !== 'dashboards' || !isPlainObject(data)) return
+  for (const [file, dashboard] of Object.entries(data)) {
+    if (file === 'dashboard-playlist.json') continue
+    const restriction = dashboardDistributionRestrictionReason(dashboard, 'share')
+    if (restriction) throw new Error(`Dashboard configuration sharing blocked for "${file}". ${restriction}`)
+  }
+}
+
 function prepareSectionData(sectionId: string, data: unknown): PreparedSectionData {
+  if (sectionId === 'accessibility-cues') {
+    return { data: validateAccessibilityCueStoreImport(data) }
+  }
   if (sectionId !== 'rgb-matrix') return { data }
   const parsed = parseRgbMatrixProfilesPayload(data)
   return {
     data: parsed.payload,
     detail: { itemCount: parsed.profileCount }
   }
+}
+
+function assertExactContainerKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  label: string
+): void {
+  const allowedKeys = new Set(allowed)
+  const unexpected = Object.keys(value).filter((key) => !allowedKeys.has(key))
+  if (unexpected.length > 0) {
+    throw new Error(
+      `Invalid accessibility cue import ${label}: unsupported field "${unexpected[0]}".`
+    )
+  }
+}
+
+export function validateAccessibilityImportContainer(payload: unknown): unknown {
+  if (isPlainObject(payload) && ('sectionId' in payload || 'data' in payload)) {
+    assertExactContainerKeys(
+      payload,
+      ['app', 'version', 'exportedAt', 'sectionId', 'data'],
+      'section wrapper'
+    )
+    if (
+      payload.app !== CONFIG_BUNDLE_APP_ID ||
+      payload.version !== CONFIG_BUNDLE_VERSION ||
+      typeof payload.exportedAt !== 'string' ||
+      payload.sectionId !== 'accessibility-cues' ||
+      !('data' in payload)
+    ) {
+      throw new Error('Invalid accessibility cue import section wrapper.')
+    }
+    return {
+      ...payload,
+      data: validateAccessibilityCueStoreImport(payload.data)
+    }
+  }
+  if (isPlainObject(payload) && ('sections' in payload || 'app' in payload)) {
+    assertExactContainerKeys(
+      payload,
+      ['app', 'version', 'exportedAt', 'sections'],
+      'bundle wrapper'
+    )
+    if (
+      payload.app !== CONFIG_BUNDLE_APP_ID ||
+      payload.version !== CONFIG_BUNDLE_VERSION ||
+      typeof payload.exportedAt !== 'string' ||
+      !isPlainObject(payload.sections)
+    ) {
+      throw new Error('Invalid accessibility cue import bundle wrapper.')
+    }
+    if (!('accessibility-cues' in payload.sections)) return payload
+    return {
+      ...payload,
+      sections: {
+        ...payload.sections,
+        'accessibility-cues': validateAccessibilityCueStoreImport(
+          payload.sections['accessibility-cues']
+        )
+      }
+    }
+  }
+  return validateAccessibilityCueStoreImport(payload)
 }
 
 export function buildRegistry(storage: ConfigStorage): Record<string, SectionAccessor> {
@@ -361,7 +552,10 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
       const accessor = registry[section.id]
       if (!accessor) continue
       const data = await accessor.read()
-      if (data !== undefined) sections[section.id] = prepareSectionData(section.id, data).data
+      if (data !== undefined) {
+        assertSectionDistributionAllowed(section.id, data)
+        sections[section.id] = prepareSectionData(section.id, data).data
+      }
     }
     return {
       app: CONFIG_BUNDLE_APP_ID,
@@ -420,6 +614,7 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
     const accessor = registry[sectionId]
     if (!section || !accessor) throw new Error(`Unknown configuration section: ${sectionId}`)
     const stored = (await accessor.read()) ?? null
+    assertSectionDistributionAllowed(sectionId, stored)
     const data = prepareSectionData(sectionId, stored).data
     return {
       app: CONFIG_BUNDLE_APP_ID,
@@ -651,6 +846,7 @@ export function register(ctx: ModuleContext): void {
 
   const emitReload = async (summary: ConfigImportSummary): Promise<void> => {
     for (const sectionId of summary.applied) {
+      if (sectionId === 'accessibility-cues') continue
       if (sectionId !== 'rgb-matrix') {
         ctx.ipcMain.emit(CONFIG_SECTION_RELOAD_SIGNAL, { source: 'config-export' }, sectionId)
         continue
@@ -714,7 +910,16 @@ export function register(ctx: ModuleContext): void {
       const result = await showOpen(importDialogOpts())
       if (result.canceled || result.filePaths.length === 0) return { canceled: true }
       const raw = await readImportPayload(result.filePaths[0])
-      const summary = await engine.importSection(sectionId, raw)
+      const validated =
+        sectionId === 'accessibility-cues'
+          ? validateAccessibilityImportContainer(raw)
+          : raw
+      const summary =
+        sectionId === 'accessibility-cues'
+          ? await importAccessibilityCueConfig(() =>
+              engine.importSection(sectionId, validated)
+            )
+          : await engine.importSection(sectionId, validated)
       await emitReload(summary)
       ctx.broadcast(CONFIG_IO_CHANNELS.imported, summary)
       return { canceled: false, summary }
@@ -731,12 +936,19 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     CONFIG_IO_CHANNELS.deleteSection,
     async (_event, sectionId: string): Promise<ConfigDeleteResult> => {
-      const result = await engine.deleteSection(sectionId)
+      const result =
+        sectionId === 'accessibility-cues'
+          ? await resetAccessibilityCueConfig(() =>
+              engine.deleteSection(sectionId)
+            )
+          : await engine.deleteSection(sectionId)
       // Main-process-internal: let the module that OWNS this section drop its
       // in-memory copy, so a before-quit flush can't resurrect the deleted store
       // (the overlays manager debounce-saves on quit). Fired before the renderer
       // broadcast so the live module is neutralized first.
-      ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      if (sectionId !== 'accessibility-cues') {
+        ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      }
       // Tell every window to re-read the on-disk metadata so the panel refreshes.
       ctx.broadcast(CONFIG_IO_CHANNELS.changed, { id: sectionId, action: 'delete', removed: result.removed })
       return result
@@ -746,8 +958,15 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     CONFIG_IO_CHANNELS.resetSection,
     async (_event, sectionId: string): Promise<ConfigDeleteResult> => {
-      const result = await engine.resetSection(sectionId)
-      ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      const result =
+        sectionId === 'accessibility-cues'
+          ? await resetAccessibilityCueConfig(() =>
+              engine.resetSection(sectionId)
+            )
+          : await engine.resetSection(sectionId)
+      if (sectionId !== 'accessibility-cues') {
+        ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      }
       ctx.broadcast(CONFIG_IO_CHANNELS.changed, { id: sectionId, action: 'reset', removed: result.removed })
       return result
     }

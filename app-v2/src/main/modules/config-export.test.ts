@@ -41,7 +41,8 @@ import {
   createFileStorage,
   createMemoryStorage,
   readImportPayload,
-  register
+  register,
+  validateAccessibilityImportContainer
 } from './config-export'
 import {
   CONFIG_BUNDLE_APP_ID,
@@ -66,6 +67,8 @@ import { ALL_VARIANTS, variantToElement } from '../../renderer/src/views/dashboa
 import type { ModuleContext } from '../module-context'
 import { RgbMatrixModule } from './rgb-matrix'
 import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
+import { normalizeThirdPartyImportMetadata } from '../../shared/third-party-dashboard-catalog'
+import { DEFAULT_ACCESSIBILITY_CUE_STORE } from '../../shared/accessibility-cues'
 
 const SEEDED_RGB_PAYLOAD = parseRgbMatrixProfilesPayload({
   version: RGB_MATRIX_PROFILE_VERSION,
@@ -172,6 +175,42 @@ describe('config-io bundle shape', () => {
     const engine = createConfigEngine(createMemoryStorage())
     await expect(engine.exportSection('rgb-matrix')).rejects.toThrow(/No iFlag profiles/)
   })
+
+  it('blocks dashboard section and full-profile sharing when third-party rights deny it', async () => {
+    const thirdParty = normalizeThirdPartyImportMetadata({ catalogEntryId: 'lovely-dashboard' }, 123)
+    const engine = createConfigEngine(createMemoryStorage({
+      dashboards: {
+        'restricted.json': {
+          id: 'restricted',
+          name: 'Restricted third-party dashboard',
+          thirdParty
+        }
+      }
+    }))
+
+    await expect(engine.exportSection('dashboards')).rejects.toThrow(/sharing blocked.*restricted\.json/i)
+    await expect(engine.exportAll()).rejects.toThrow(/sharing blocked.*restricted\.json/i)
+  })
+
+  it('fails closed when a third-party dashboard omits rights metadata', async () => {
+    const engine = createConfigEngine(createMemoryStorage({
+      dashboards: {
+        'unknown.json': {
+          id: 'unknown',
+          thirdParty: {
+            schemaVersion: 1,
+            provenance: {
+              schemaVersion: 1,
+              publisher: 'Unknown',
+              sourceType: 'user-supplied'
+            }
+          }
+        }
+      }
+    }))
+
+    await expect(engine.exportSection('dashboards')).rejects.toThrow(/rights are missing or invalid/i)
+  })
 })
 
 describe('section registry round-trip (export -> import)', () => {
@@ -277,6 +316,84 @@ describe('section registry round-trip (export -> import)', () => {
 // fresh `createConfigEngine` over the SAME storage models the live module
 // re-reading its file after the import-reload signal fires.
 describe('import hot-apply round-trip (a fresh read returns the imported data, not stale)', () => {
+  it('rejects unsupported accessibility wrapper versions and unknown wrapper fields', () => {
+    const exportedAt = new Date().toISOString()
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION + 1,
+        exportedAt,
+        sectionId: 'accessibility-cues',
+        data: DEFAULT_ACCESSIBILITY_CUE_STORE
+      })
+    ).toThrow(/section wrapper/)
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION,
+        exportedAt,
+        sectionId: 'accessibility-cues',
+        data: DEFAULT_ACCESSIBILITY_CUE_STORE,
+        unexpected: true
+      })
+    ).toThrow(/unsupported field/)
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION + 1,
+        exportedAt,
+        sections: {
+          'accessibility-cues': DEFAULT_ACCESSIBILITY_CUE_STORE
+        }
+      })
+    ).toThrow(/bundle wrapper/)
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION,
+        exportedAt,
+        sections: {
+          'accessibility-cues': DEFAULT_ACCESSIBILITY_CUE_STORE
+        },
+        extra: 'refused'
+      })
+    ).toThrow(/unsupported field/)
+  })
+
+  it('strictly validates and preserves a supported accessibility section wrapper', () => {
+    const payload = {
+      app: CONFIG_BUNDLE_APP_ID,
+      version: CONFIG_BUNDLE_VERSION,
+      exportedAt: new Date().toISOString(),
+      sectionId: 'accessibility-cues',
+      data: DEFAULT_ACCESSIBILITY_CUE_STORE
+    }
+    expect(validateAccessibilityImportContainer(payload)).toEqual(payload)
+  })
+
+  it.each([
+    {},
+    { version: 2, activeProfileId: 'standard', profiles: [], unknown: true },
+    {
+      version: 2,
+      activeProfileId: 'standard',
+      profiles: [{ version: 2, id: 'standard', modalities: {} }]
+    }
+  ])('rejects invalid accessibility data atomically before storage write', async (invalid) => {
+    const storage = createMemoryStorage({
+      'accessibility-cues.json': DEFAULT_ACCESSIBILITY_CUE_STORE
+    })
+    const engine = createConfigEngine(storage)
+    const before = await engine.exportSection('accessibility-cues')
+
+    await expect(
+      engine.importSection('accessibility-cues', invalid)
+    ).rejects.toThrow(/Invalid accessibility cue import/)
+    const after = await engine.exportSection('accessibility-cues')
+
+    expect(after.data).toEqual(before.data)
+  })
+
   it('file section: a fresh read after importSection returns the imported FULL payload object, not the stale one', async () => {
     // Destination already holds STALE rgb-matrix data on disk.
     const stalePayload = parseRgbMatrixProfilesPayload({
@@ -942,6 +1059,65 @@ describe('saved-config deletion on real files (file storage)', () => {
     const serialized = JSON.stringify(await engine.listSavedSections())
     expect(serialized).not.toContain('TOPSECRET')
     expect(serialized).not.toContain('iracing-oauth')
+  })
+
+  it('atomically replaces a file section and removes staging residue', async () => {
+    const storage = createFileStorage(root)
+    await storage.writeFileJson('accessibility-cues.json', {
+      ...DEFAULT_ACCESSIBILITY_CUE_STORE,
+      revision: 2
+    })
+    await storage.writeFileJson('accessibility-cues.json', {
+      ...DEFAULT_ACCESSIBILITY_CUE_STORE,
+      revision: 3
+    })
+
+    await expect(
+      storage.readFileJson('accessibility-cues.json')
+    ).resolves.toMatchObject({ revision: 3 })
+    expect(existsSync(join(root, 'accessibility-cues.json.staging'))).toBe(false)
+    expect(existsSync(join(root, 'accessibility-cues.json.previous'))).toBe(false)
+  })
+
+  it('recovers the previous valid file after an interrupted replacement', async () => {
+    const storage = createFileStorage(root)
+    const previous = {
+      ...DEFAULT_ACCESSIBILITY_CUE_STORE,
+      revision: 7
+    }
+    writeFileSync(
+      join(root, 'accessibility-cues.json.previous'),
+      `${JSON.stringify(previous, null, 2)}\n`
+    )
+    writeFileSync(join(root, 'accessibility-cues.json'), '{broken')
+    writeFileSync(join(root, 'accessibility-cues.json.staging'), '{"partial":true}')
+
+    await expect(
+      storage.readFileJson('accessibility-cues.json')
+    ).resolves.toMatchObject({ revision: 7 })
+    expect(
+      JSON.parse(readFileSync(join(root, 'accessibility-cues.json'), 'utf8'))
+    ).toMatchObject({ revision: 7 })
+    expect(existsSync(join(root, 'accessibility-cues.json.previous'))).toBe(false)
+    expect(existsSync(join(root, 'accessibility-cues.json.staging'))).toBe(false)
+  })
+
+  it('deletes live, staging, and previous files under the atomic file lock', async () => {
+    const storage = createFileStorage(root)
+    const live = join(root, 'accessibility-cues.json')
+    writeFileSync(live, JSON.stringify(DEFAULT_ACCESSIBILITY_CUE_STORE))
+    writeFileSync(`${live}.staging`, '{"partial":true}')
+    writeFileSync(`${live}.previous`, JSON.stringify(DEFAULT_ACCESSIBILITY_CUE_STORE))
+
+    await expect(
+      storage.removeFile('accessibility-cues.json')
+    ).resolves.toBe(true)
+    expect(existsSync(live)).toBe(false)
+    expect(existsSync(`${live}.staging`)).toBe(false)
+    expect(existsSync(`${live}.previous`)).toBe(false)
+    await expect(
+      storage.readFileJson('accessibility-cues.json')
+    ).resolves.toBeUndefined()
   })
 })
 

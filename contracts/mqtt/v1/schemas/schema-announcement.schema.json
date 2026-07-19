@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ultimate-sim:mqtt:v1:schema-announcement",
+  "title": "Ultimate Sim MQTT Schema Announcement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "observedAt", "expiresAt", "topicVersion", "schemas"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "observedAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "topicVersion": { "const": "v1" },
+    "schemas": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "allOf": [
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "availability" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "telemetry" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "session" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "event" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "health" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "announcement" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "command" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "result" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "fingerprint"],
+        "properties": {
+          "kind": {
+            "enum": ["availability", "telemetry", "session", "event", "health", "announcement", "command", "result"]
+          },
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    }
+  }
+}
