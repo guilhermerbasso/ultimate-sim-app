@@ -124,6 +124,7 @@ const ALLOWED_PREFIXES = [
   'spotter3d:',
   'stt:',
   'streaming:',
+  'obs-local:',
   'rigPreflight:',
   'mqtt:',
   'simhub:',

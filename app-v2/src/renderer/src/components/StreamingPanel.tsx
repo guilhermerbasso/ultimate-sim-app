@@ -104,6 +104,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
 
   function applyStatus(nextStatus: StreamingStatus): void {
     setStatus(nextStatus)
+    if (nextStatus.profile !== 'general') return
     setStreamSafe(nextStatus.streamSafe)
     setAccessMode(statusAccessMode(nextStatus))
     setPublicBaseUrl(nextStatus.publicBaseUrl ?? '')
@@ -128,11 +129,12 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       setTouchPanels(touchList)
       if (nextStatus) applyStatus(nextStatus)
       const sources = listUserAddedStreamTargetSources(dashList, touchList)
+      const activeGeneralStatus = nextStatus?.profile === 'general' ? nextStatus : null
       const migrated = migrateStreamTargetSettings(
         appSettings.streamTargets,
         sources,
-        nextStatus?.layoutId
-          ? { kind: nextStatus.layoutKind ?? 'dashboard', sourceId: nextStatus.layoutId }
+        activeGeneralStatus?.layoutId
+          ? { kind: activeGeneralStatus.layoutKind ?? 'dashboard', sourceId: activeGeneralStatus.layoutId }
           : null
       )
       setTargetSettings(migrated)
@@ -289,7 +291,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }
 
   async function testActiveEndpoint(): Promise<void> {
-    if (!status?.running) return
+    if (!status?.running || status.profile !== 'general') return
     setTestResult(tt(language, 'streaming.test.running'))
     try {
       const result = await window.ipc.invoke<StreamingSelfTestResult>(STREAMING_CHANNELS.selfTest)
@@ -300,7 +302,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }
 
   async function changeAutoTunnel(enabled: boolean): Promise<void> {
-    if (!status?.running) {
+    if (!status?.running || status.profile !== 'general') {
       setAutoTunnel(enabled)
       return
     }
@@ -322,7 +324,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }
 
   async function rotateReceiverPairing(): Promise<void> {
-    if (!status?.running) return
+    if (!status?.running || status.profile !== 'general') return
     setBusy(true)
     setError(null)
     setCopied(null)
@@ -370,8 +372,10 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     setNewTargetLabel(fallback?.label ?? '')
   }, [createOpen, newSourceId, newSourceOptions])
 
-  const running = Boolean(status?.running)
-  const accessDisabled = busy || running
+  const sharedServerRunning = Boolean(status?.running)
+  const running = sharedServerRunning && status?.profile === 'general'
+  const foreignServerRunning = sharedServerRunning && !running
+  const accessDisabled = busy || sharedServerRunning
   const requiresPassword = accessMode !== 'local'
   const missingPassword = requiresPassword && !password.trim()
   const autoTunnelAvailable = status?.autoTunnelAvailable ?? false
@@ -386,15 +390,24 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>{tt(language, 'streaming.title')}</h4>
         <span className={running ? 'status-pill on' : 'status-pill'}>
-          {running ? tt(language, 'streaming.status.online', { count: status?.clients ?? 0 }) : tt(language, 'streaming.status.offline')}
+          {running
+            ? tt(language, 'streaming.status.online', { count: status?.clients ?? 0 })
+            : foreignServerRunning
+              ? tt(language, 'streaming.status.obsLocalActive')
+              : tt(language, 'streaming.status.offline')}
         </span>
       </div>
       <p className="overlay-help">{tt(language, 'streaming.summary')}</p>
       <p className="overlay-help" style={{ color: interactiveTarget ? '#fbbf24' : '#76f7bd', fontWeight: 800 }}>
         {interactiveTarget ? tt(language, 'streaming.interactiveTouch') : tt(language, 'streaming.readOnly')}
       </p>
+      {foreignServerRunning ? (
+        <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>
+          {tt(language, 'streaming.obsLocalActive')}
+        </p>
+      ) : null}
       {error ? <p className="overlay-help" style={{ color: 'var(--accent-danger, #fb7185)' }}>? {error}</p> : null}
-      {status?.warning ? <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>? {status.warning}</p> : null}
+      {status?.profile === 'general' && status.warning ? <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>? {status.warning}</p> : null}
       <section aria-labelledby="stream-targets-heading" aria-busy={targetLoading || targetSaving} style={targetManagerStyle}>
         <div style={targetManagerHeaderStyle}>
           <div>
@@ -721,11 +734,11 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
         />
       </label>
       <div className="overlay-actions">
-        <button className="primary-action" disabled={busy || running || targetLoading || targetSaving || missingPassword || missingInternetUrl || missingTarget} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
+        <button className="primary-action" disabled={busy || sharedServerRunning || targetLoading || targetSaving || missingPassword || missingInternetUrl || missingTarget} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
         <button className="ghost-action danger" disabled={busy || !running} onClick={() => void stopStreaming()}>{tt(language, 'streaming.stop')}</button>
         <button className="ghost-action" disabled={busy} onClick={() => void refreshStatus()}>{tt(language, 'streaming.refresh')}</button>
       </div>
-      {status?.url ? (
+      {running && status?.url ? (
         <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
           <p className="overlay-help">{tt(language, 'streaming.mode')}: <strong>{ACCESS_LABELS[statusAccessMode(status)]}</strong></p>
           <p className="overlay-help" style={{ color: status.interactive ? '#fbbf24' : '#76f7bd', fontWeight: 800 }}>
@@ -764,7 +777,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
             {status.lanUrl && status.lanUrl !== status.url ? (
               <button className="ghost-action" onClick={() => void copyUrl('lan', status.lanUrl)}>{copied === 'lan' ? tt(language, 'streaming.copied') : tt(language, 'streaming.copyLan')}</button>
             ) : null}
-            <button className="ghost-action" disabled={!status.running} onClick={() => void testActiveEndpoint()}>{tt(language, 'streaming.test.button')}</button>
+            <button className="ghost-action" disabled={!running} onClick={() => void testActiveEndpoint()}>{tt(language, 'streaming.test.button')}</button>
           </div>
           {testResult ? <p className="overlay-help" style={{ margin: 0 }}>{testResult}</p> : null}
           <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
