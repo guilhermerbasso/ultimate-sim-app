@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "providerContract": "usa.relay.provider/v1",
+  "mode": "foundation-only",
+  "localPrimary": true,
+  "liveNetworkConfigured": false,
+  "credentialsConfigured": false,
+  "allowedDocumentKinds": [
+    "dashboard-layout",
+    "race-note",
+    "accessibility-profile",
+    "raceops-blueprint",
+    "shared-preferences"
+  ],
+  "allowedEventKinds": [
+    "document-change",
+    "document-snapshot",
+    "membership-record",
+    "key-status-record",
+    "rotation-certificate",
+    "resync-marker"
+  ],
+  "eventCapabilities": {
+    "document-change": "document:append",
+    "document-snapshot": "document:snapshot",
+    "membership-record": "membership:admin",
+    "key-status-record": "keys:rotate",
+    "rotation-certificate": "keys:rotate",
+    "resync-marker": "document:append"
+  },
+  "documentHeadMutationEvents": [
+    "document-change",
+    "document-snapshot"
+  ],
+  "allowedDataClasses": {
+    "D0": "allowed by document policy",
+    "D1": "allowed by document policy",
+    "D2": "allowed by document policy and capability",
+    "D3": "explicit current consent, retention, role, and capability required",
+    "D4": "blocked",
+    "D5": "blocked"
+  },
+  "alwaysProhibited": [
+    "raw telemetry",
+    "authoritative RaceOpsEvent",
+    "EvidenceLedger",
+    "driving commands",
+    "OAuth tokens",
+    "stream keys",
+    "webhook URLs",
+    "private keys",
+    "serial ports",
+    "display IDs",
+    "machine-specific settings",
+    "raw biometrics",
+    "raw voice or video"
+  ],
+  "identityEnvelope": {
+    "required": [
+      "tenantId",
+      "subjectId",
+      "deviceId",
+      "identityEpoch",
+      "signingKeyId",
+      "signingPublicKey",
+      "encryptionKeyId",
+      "encryptionPublicKey",
+      "issuedAt",
+      "expiresAt",
+      "status",
+      "issuerKeyId",
+      "signature"
+    ]
+  },
+  "capabilityEnvelope": {
+    "required": [
+      "grantId",
+      "tenantId",
+      "subjectId",
+      "deviceId",
+      "documentIds",
+      "documentKinds",
+      "eventKinds",
+      "capabilities",
+      "maxDataClass",
+      "consentEpoch",
+      "membershipEpoch",
+      "issuedAt",
+      "expiresAt",
+      "issuerKeyId",
+      "signature"
+    ]
+  },
+  "memberKeyEnvelopes": {
+    "coverage": "exactly one current document-key envelope per active member encryption key",
+    "privateKeysIncluded": false
+  },
+  "consentPolicy": {
+    "D3": "grant must equal the current document consent epoch and consent must remain granted at submission or queue flush",
+    "withdrawal": "increments the epoch and rejects queued or newly submitted stale grants"
+  },
+  "revocationPolicy": {
+    "documentMember": "removes access and rotates only the selected document",
+    "device": "revokes the signing identity and removes the device from every document",
+    "history": "previously admitted signed history remains verifiable"
+  },
+  "storedRecordAdmission": {
+    "required": true,
+    "issuer": "authenticated relay gateway admission authority",
+    "binding": [
+      "exact full-envelope digest",
+      "envelope ID",
+      "tenant ID",
+      "document ID",
+      "sender device ID",
+      "sender signing key ID",
+      "admission timestamp"
+    ],
+    "policyMetadata": [
+      "identity epoch and active status",
+      "capability grant and digest",
+      "required operation capability",
+      "accepted replay counter and prior authenticated replay watermark",
+      "membership epoch and membership authorization",
+      "document key epoch",
+      "document and capability consent epochs",
+      "consent state at admission"
+    ],
+    "quotaMetadata": [
+      "signed quota limits and limits digest",
+      "tenant/device/document usage before admission",
+      "tenant/device/document usage after admission",
+      "full serialized envelope bytes",
+      "causal reference count",
+      "causal reference bytes"
+    ],
+    "failure": "missing, malformed, mismatched, forged, quota-inconsistent, or cross-tenant admission proof is quarantined",
+    "tenantIsolation": "envelope tenant and admission tenant must both exactly equal the tenant requested from provider list",
+    "import": "snapshots preserve admission receipts; structurally unbound records are rejected before import and cryptographic proof is verified before merge/resync"
+  },
+  "replayPolicy": {
+    "watermarkSource": "unique records with valid envelope signatures and authenticated admission receipts only",
+    "duplicates": "same envelope ID or non-increasing signer/document counter is quarantined"
+  },
+  "quotaDimensions": [
+    "tenant objects",
+    "device objects",
+    "document objects",
+    "full serialized stored envelope bytes",
+    "single-envelope bytes",
+    "causal reference count",
+    "causal reference bytes",
+    "offline queue items",
+    "full serialized offline queue bytes"
+  ],
+  "canonicalSignedTuple": [
+    "schemaVersion",
+    "providerContract",
+    "tenantId",
+    "documentId",
+    "documentKind",
+    "eventKind",
+    "dataClass",
+    "membershipEpoch",
+    "keyEpoch",
+    "senderDeviceId",
+    "senderSigningKeyId",
+    "replayCounter",
+    "parentRefs",
+    "headRefs",
+    "ciphertextHash",
+    "keyEnvelopesHash",
+    "cryptoProfile",
+    "createdAt",
+    "expiresAt"
+  ],
+  "productionCryptoTarget": "xchacha20-poly1305+ed25519+x25519-hkdf-sha256",
+  "implementedCryptoProfile": "deterministic-test-only"
+}
