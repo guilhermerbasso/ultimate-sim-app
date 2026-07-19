@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   RIG_PREFLIGHT_CHECK_IDS,
+  canonicalRigEsp32Identity,
   createRigPreflightProfile,
   evaluateRigPreflightChecks,
   normalizeEvidenceTimestamp,
@@ -44,6 +45,9 @@ function readyObservation(): RigPreflightObservation {
       simxIdentity: 'COM3',
       configuredIdentities: ['serial:iflag-001'],
       connectedConfiguredIdentities: ['serial:iflag-001'],
+      observedConfiguredIdentities: [
+        'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-001'
+      ],
       esp32RequiredIdentities: ['profile:esp32-s3'],
       esp32ConnectedIdentities: ['profile:esp32-s3']
     },
@@ -122,6 +126,74 @@ describe('rig preflight evidence evaluation', () => {
     expect(check?.state).toBe('fail')
     expect(check?.observed).toContain('serial:iflag-001')
     expect(check?.remediation.join(' ')).toContain('COM-port')
+  })
+
+  it('canonicalizes profile and Wi-Fi ESP32 identities onto the same physical device', () => {
+    const observation = readyObservation()
+    observation.serial!.esp32RequiredIdentities = ['profile:ESP32-S3']
+    observation.serial!.esp32ConnectedIdentities = ['wifi:esp32-s3']
+    const check = evaluateRigPreflightChecks(fullProfile(), observation, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.esp32)
+
+    expect(canonicalRigEsp32Identity('wifi:profile:ESP32-S3')).toBe('esp32:esp32-s3')
+    expect(check?.state).toBe('verified')
+    expect(check?.signatureMaterial).toContain('esp32:esp32-s3')
+  })
+
+  it('binds observed serial and haptics route identities into signature material', () => {
+    const profile = fullProfile()
+    const initial = readyObservation()
+    const initialChecks = evaluateRigPreflightChecks(profile, initial, [], NOW)
+    const initialSerial = initialChecks.find(
+      (candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial
+    )
+    const initialHaptics = initialChecks.find(
+      (candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.haptics
+    )
+
+    const replaced = readyObservation()
+    replaced.serial!.observedConfiguredIdentities = [
+      'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-replacement'
+    ]
+    replaced.haptics!.outputDeviceId = 'replacement-bass-shaker'
+    const replacedChecks = evaluateRigPreflightChecks(profile, replaced, [], NOW)
+    const replacedSerial = replacedChecks.find(
+      (candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial
+    )
+    const replacedHaptics = replacedChecks.find(
+      (candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.haptics
+    )
+
+    expect(replacedSerial?.state).toBe('verified')
+    expect(replacedSerial?.observed).toContain('iflag-replacement')
+    expect(replacedSerial?.signatureMaterial).not.toBe(initialSerial?.signatureMaterial)
+    expect(replacedHaptics?.state).toBe('verified')
+    expect(replacedHaptics?.observed).toContain('replacement-bass-shaker')
+    expect(replacedHaptics?.signatureMaterial).not.toBe(initialHaptics?.signatureMaterial)
+
+    const arduinoA = readyObservation()
+    arduinoA.haptics = {
+      ...arduinoA.haptics!,
+      audioRouteAvailable: false,
+      arduinoEnabled: true,
+      arduinoConnected: true,
+      arduinoDeviceId: 'iflag-left'
+    }
+    const arduinoB = readyObservation()
+    arduinoB.haptics = {
+      ...arduinoB.haptics!,
+      audioRouteAvailable: false,
+      arduinoEnabled: true,
+      arduinoConnected: true,
+      arduinoDeviceId: 'iflag-right'
+    }
+    const arduinoCheckA = evaluateRigPreflightChecks(profile, arduinoA, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.haptics)
+    const arduinoCheckB = evaluateRigPreflightChecks(profile, arduinoB, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.haptics)
+    expect(arduinoCheckA?.state).toBe('verified')
+    expect(arduinoCheckB?.state).toBe('verified')
+    expect(arduinoCheckA?.signatureMaterial).not.toBe(arduinoCheckB?.signatureMaterial)
   })
 
   it('downgrades otherwise-good stale evidence to unknown', () => {

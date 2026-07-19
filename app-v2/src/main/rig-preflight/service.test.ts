@@ -63,8 +63,11 @@ function observation(now: number): RigPreflightObservation {
       simxIdentity: 'serial:simx-001',
       configuredIdentities: ['serial:iflag-001'],
       connectedConfiguredIdentities: ['serial:iflag-001'],
+      observedConfiguredIdentities: [
+        'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-001'
+      ],
       esp32RequiredIdentities: ['profile:esp32-001'],
-      esp32ConnectedIdentities: ['profile:esp32-001']
+      esp32ConnectedIdentities: ['wifi:esp32-001']
     },
     audio: {
       meta,
@@ -349,9 +352,42 @@ describe('RigPreflightService persistence', () => {
     expect(state.activeCertificate?.lastValidatedAt).toBe(now)
   })
 
+  it('refreshes every successful heartbeat and fails closed when evidence ages out', async () => {
+    let now = 65_000
+    const service = new RigPreflightService({
+      persistence: new MemoryPersistence(),
+      now: () => now,
+      createId: () => `heartbeat-${now}`,
+      collectObservation: async () => observation(now)
+    })
+    await runBound(service)
+    let state = await service.getState()
+    const maxAgeMs = state.profile.evidenceMaxAgeMs
+    const issuedAt = state.activeCertificate?.lastValidatedAt
+
+    now += 1_000
+    const heartbeat = await service.revalidate({ profile: state.profile })
+    expect(heartbeat).toEqual({ changed: true, status: 'verified' })
+    state = await service.getState()
+    expect(state.activeCertificate?.lastValidatedAt).toBe(now)
+    expect(state.activeCertificate?.lastValidatedAt).not.toBe(issuedAt)
+
+    now += maxAgeMs
+    expect(await service.expireStaleEvidenceHeartbeat()).toBe(false)
+    now += 1
+    expect(await service.expireStaleEvidenceHeartbeat()).toBe(true)
+    state = await service.getState()
+    expect(state.activeCertificate?.invalidatedAt).toBe(now)
+    expect(state.activeCertificate?.invalidationReason).toContain('heartbeat exceeded')
+    expect(state.activeCertificate?.invalidationProvenance[0]?.source).toContain(
+      'main-process'
+    )
+  })
+
   it('invalidates on every required monitored subsystem and same-count identity drift', async () => {
     const cases: Array<{
       name: string
+      prepare?(value: RigPreflightObservation): void
       mutate(value: RigPreflightObservation): void
     }> = [
       {
@@ -361,6 +397,14 @@ describe('RigPreflightService persistence', () => {
       {
         name: 'ESP32 identity',
         mutate: (value) => { value.serial!.esp32ConnectedIdentities = ['profile:esp32-replacement'] }
+      },
+      {
+        name: 'observed serial identity',
+        mutate: (value) => {
+          value.serial!.observedConfiguredIdentities = [
+            'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-replacement'
+          ]
+        }
       },
       {
         name: 'streaming ownership',
@@ -383,6 +427,20 @@ describe('RigPreflightService persistence', () => {
         mutate: (value) => { value.haptics!.enabled = false }
       },
       {
+        name: 'haptics output identity',
+        mutate: (value) => { value.haptics!.outputDeviceId = 'replacement-output' }
+      },
+      {
+        name: 'haptics Arduino identity',
+        prepare: (value) => {
+          value.haptics!.audioRouteAvailable = false
+          value.haptics!.arduinoEnabled = true
+          value.haptics!.arduinoConnected = true
+          value.haptics!.arduinoDeviceId = 'iflag-left'
+        },
+        mutate: (value) => { value.haptics!.arduinoDeviceId = 'iflag-right' }
+      },
+      {
         name: 'controls same-count replacement',
         mutate: (value) => { value.controls!.gamepadIdentities = ['gamepad:replacement'] }
       },
@@ -395,6 +453,7 @@ describe('RigPreflightService persistence', () => {
     for (let index = 0; index < cases.length; index += 1) {
       let now = 70_000 + index * 1_000
       let current = observation(now)
+      cases[index].prepare?.(current)
       const service = new RigPreflightService({
         persistence: new MemoryPersistence(),
         now: () => now,

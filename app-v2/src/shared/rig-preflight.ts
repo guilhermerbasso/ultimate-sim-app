@@ -140,6 +140,7 @@ export interface RigSerialObservation {
   simxIdentity?: string
   configuredIdentities: string[]
   connectedConfiguredIdentities: string[]
+  observedConfiguredIdentities: string[]
   esp32RequiredIdentities: string[]
   esp32ConnectedIdentities: string[]
 }
@@ -487,6 +488,16 @@ export function stableSortedIdentities(values: readonly string[]): string[] {
   )].sort((a, b) => a.localeCompare(b, 'en'))
 }
 
+export function canonicalRigEsp32Identity(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  let identity = value.trim().toLowerCase()
+  if (!identity) return null
+  while (/^(?:profile|wifi|esp32):/.test(identity)) {
+    identity = identity.replace(/^(?:profile|wifi|esp32):/, '').trim()
+  }
+  return identity ? `esp32:${identity}` : null
+}
+
 function text(value: unknown, fallback: string, max = 120): string {
   if (typeof value !== 'string') return fallback
   const trimmed = value.trim()
@@ -761,6 +772,7 @@ export function evaluateRigPreflightChecks(
   })
   const configuredIdentities = stableSortedIdentities(serial?.configuredIdentities ?? [])
   const connectedConfiguredIdentities = stableSortedIdentities(serial?.connectedConfiguredIdentities ?? [])
+  const observedConfiguredIdentities = stableSortedIdentities(serial?.observedConfiguredIdentities ?? [])
   const connectedConfigured = new Set(connectedConfiguredIdentities)
   const disconnectedIdentities = configuredIdentities.filter((identity) => !connectedConfigured.has(identity))
   const configuredReady = configuredIdentities.length > 0 && disconnectedIdentities.length === 0
@@ -775,15 +787,23 @@ export function evaluateRigPreflightChecks(
       ? `${connectedConfiguredIdentities.length} configured serial device(s) connected by stable identity.`
       : 'One or more configured serial devices are absent.',
     expected: 'Every configured serial/Arduino device connected by stable identity',
-    observed: `desired=${listed(configuredIdentities)}; connected=${listed(connectedConfiguredIdentities)}; disconnected=${listed(disconnectedIdentities)}`,
-    signatureMaterial: `desired=${configuredIdentities.join('|')};connected=${connectedConfiguredIdentities.join('|')}`,
+    observed: `desired=${listed(configuredIdentities)}; connected=${listed(connectedConfiguredIdentities)}; observed=${listed(observedConfiguredIdentities)}; disconnected=${listed(disconnectedIdentities)}`,
+    signatureMaterial: `desired=${configuredIdentities.join('|')};connected=${connectedConfiguredIdentities.join('|')};observed=${observedConfiguredIdentities.join('|')}`,
     delta: configuredReady ? [] : configuredIdentities.length
       ? disconnectedIdentities.map((identity) => `${identity} disconnected`)
       : ['No serial device is configured'],
     remediation: ['Reconnect devices from Arduinos, resolve exclusive COM-port conflicts, and verify VID/PID/serial identity.']
   })
-  const esp32RequiredIdentities = stableSortedIdentities(serial?.esp32RequiredIdentities ?? [])
-  const esp32ConnectedIdentities = stableSortedIdentities(serial?.esp32ConnectedIdentities ?? [])
+  const esp32RequiredIdentities = stableSortedIdentities(
+    (serial?.esp32RequiredIdentities ?? [])
+      .map(canonicalRigEsp32Identity)
+      .filter((identity): identity is string => identity !== null)
+  )
+  const esp32ConnectedIdentities = stableSortedIdentities(
+    (serial?.esp32ConnectedIdentities ?? [])
+      .map(canonicalRigEsp32Identity)
+      .filter((identity): identity is string => identity !== null)
+  )
   const esp32Connected = new Set(esp32ConnectedIdentities)
   const missingEsp32 = esp32RequiredIdentities.filter((identity) => !esp32Connected.has(identity))
   const esp32Ready = esp32RequiredIdentities.length > 0
@@ -907,8 +927,11 @@ export function evaluateRigPreflightChecks(
     summary: hapticsRoute ? 'Haptics has an enabled effect and a live output route.' : 'Haptics is disabled, muted, or unrouted.',
     expected: 'Enabled, unmuted haptics with at least one effect and a live audio/Arduino route',
     observed: haptics
-      ? `enabled=${haptics.enabled}; muted=${haptics.muted}; effects=${haptics.enabledEffects}; audioRoute=${haptics.audioRouteAvailable}; arduino=${haptics.arduinoEnabled && haptics.arduinoConnected}`
+      ? `enabled=${haptics.enabled}; muted=${haptics.muted}; effects=${haptics.enabledEffects}; outputDeviceId=${haptics.outputDeviceId || 'system-default'}; audioRoute=${haptics.audioRouteAvailable}; arduinoEnabled=${haptics.arduinoEnabled}; arduinoDeviceId=${haptics.arduinoDeviceId || 'none'}; arduinoConnected=${haptics.arduinoConnected}`
       : 'No haptics config',
+    signatureMaterial: haptics
+      ? `enabled=${haptics.enabled};muted=${haptics.muted};effects=${haptics.enabledEffects};output=${haptics.outputDeviceId || 'system-default'};audioRoute=${haptics.audioRouteAvailable};arduinoEnabled=${haptics.arduinoEnabled};arduinoDevice=${haptics.arduinoDeviceId || 'none'};arduinoConnected=${haptics.arduinoConnected}`
+      : 'no-haptics',
     delta: hapticsRoute ? [] : ['Haptics output path incomplete'],
     remediation: ['Enable an effect, select the bass-shaker output or connected companion Arduino, unmute, and rerun preflight.']
   })
@@ -1166,6 +1189,7 @@ export function applyRigPreflightFault(
         simxConnected: false,
         configuredIdentities: ['serial:seeded-arduino'],
         connectedConfiguredIdentities: [],
+        observedConfiguredIdentities: ['serial:seeded-arduino=>unobserved'],
         esp32RequiredIdentities: [],
         esp32ConnectedIdentities: []
       }),

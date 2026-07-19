@@ -1,13 +1,13 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { screen } from 'electron'
 import type { ModuleContext } from '../module-context'
 import { getDeviceConfigStore } from '../devices/store'
-import { getSerialDevicesStore, serialIdentityMatches } from '../serial-devices/store'
+import { getSerialDevicesStore } from '../serial-devices/store'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
 import {
   RIG_PREFLIGHT_CHANNELS,
+  canonicalRigEsp32Identity,
   normalizeEvidenceTimestamp,
   stableSortedIdentities,
   type RigAudioObservation,
@@ -26,61 +26,17 @@ import {
   type RigSttObservation,
   type RigTtsObservation
 } from '../../shared/rig-preflight'
-import {
-  RigPreflightService,
-  type RigPreflightPersistence
-} from '../rig-preflight/service'
+import { RigPreflightService } from '../rig-preflight/service'
 import { probePortOwnership } from '../rig-preflight/port-owner'
 import { RigPreflightExpiryScheduler } from '../rig-preflight/expiry-scheduler'
+import { FileRigPreflightPersistence } from '../rig-preflight/file-persistence'
+import {
+  desiredSerialIdentity,
+  resolveConfiguredSerialEvidence
+} from '../rig-preflight/serial-evidence'
 
 const STORE_FILE = 'rig-preflight.json'
 const DRIFT_POLL_MS = 5_000
-
-class FileRigPreflightPersistence implements RigPreflightPersistence {
-  constructor(private readonly path: string) {}
-
-  async read(): Promise<string | null> {
-    try {
-      return await readFile(this.path, 'utf8')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-      throw error
-    }
-  }
-
-  async write(content: string): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true })
-    const nextPath = `${this.path}.next`
-    const backupPath = `${this.path}.previous`
-    await writeFile(nextPath, content, 'utf8')
-    try {
-      await rename(nextPath, this.path)
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (code !== 'EEXIST' && code !== 'EPERM') throw error
-      await rm(backupPath, { force: true })
-      await rename(this.path, backupPath)
-      try {
-        await rename(nextPath, this.path)
-        await rm(backupPath, { force: true })
-      } catch (replaceError) {
-        await rename(backupPath, this.path).catch(() => undefined)
-        throw replaceError
-      }
-    }
-  }
-
-  async quarantine(_reason: string): Promise<string | null> {
-    const quarantinePath = `${this.path}.corrupt-${Date.now()}.json`
-    try {
-      await rename(this.path, quarantinePath)
-      return quarantinePath
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-      throw error
-    }
-  }
-}
 
 function number(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -172,10 +128,10 @@ function normalizeHaptics(
     enabled: bool(value.enabled),
     muted: bool(value.muted),
     enabledEffects: Math.max(0, number(value.enabledEffects)),
-    outputDeviceId: typeof value.outputDeviceId === 'string' ? value.outputDeviceId.slice(0, 200) : '',
+    outputDeviceId: typeof value.outputDeviceId === 'string' ? value.outputDeviceId.trim().slice(0, 200) : '',
     audioRouteAvailable: bool(value.audioRouteAvailable),
     arduinoEnabled: bool(value.arduinoEnabled),
-    arduinoDeviceId: typeof value.arduinoDeviceId === 'string' ? value.arduinoDeviceId.slice(0, 160) : '',
+    arduinoDeviceId: typeof value.arduinoDeviceId === 'string' ? value.arduinoDeviceId.trim().slice(0, 160) : '',
     arduinoConnected: bool(value.arduinoConnected)
   }
 }
@@ -196,34 +152,6 @@ function normalizeControls(
   }
 }
 
-function serialConfigIdentity(config: {
-  id?: string
-  path: string
-  vendorId?: string
-  productId?: string
-  serialNumber?: string
-}): string {
-  if (config.serialNumber) return `serial:${config.serialNumber.trim().toLowerCase()}`
-  if (config.vendorId || config.productId) {
-    return `usb:${(config.vendorId || '?').toLowerCase()}:${(config.productId || '?').toLowerCase()}:${config.id || config.path}`
-  }
-  if (config.id) return `id:${config.id}`
-  return `path:${config.path.toLowerCase()}`
-}
-
-function genericConnected(
-  config: { id?: string; path: string; vendorId?: string; productId?: string; serialNumber?: string },
-  live: Array<{ id: string; path: string; connected: boolean }>,
-  ports: Array<{ path: string; vendorId?: string; productId?: string; serialNumber?: string }>
-): boolean {
-  return live.some((device) => {
-    if (!device.connected) return false
-    if ((config.id && device.id === config.id) || device.path === config.path) return true
-    const port = ports.find((candidate) => candidate.path === device.path)
-    return Boolean(port && serialIdentityMatches(config, port))
-  })
-}
-
 async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvidence | undefined, now: number): Promise<RigSerialObservation> {
   const serialStore = getSerialDevicesStore(ctx.app)
   const deviceStore = getDeviceConfigStore(ctx.app)
@@ -232,27 +160,41 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
   const ports = await ctx.serialHub.listPorts().catch(() => [])
   const configured = serialStore.list()
   const profiles = deviceStore.list()
+  const configuredEvidence = configured.map((entry) => {
+    const desired = desiredSerialIdentity(entry)
+    const evidence = resolveConfiguredSerialEvidence(entry, live, ports)
+    return { desired, ...evidence }
+  })
+  const profileEvidence = profiles
+    .filter((profile) => profile.deviceId !== 'simx' && (profile.deviceId || profile.port))
+    .map((profile) => {
+      const desired = `profile:${profile.id}`
+      const evidence = resolveConfiguredSerialEvidence(
+        {
+          id: profile.deviceId,
+          path: profile.port ?? ''
+        },
+        live,
+        ports
+      )
+      return { desired, ...evidence }
+    })
+  const activeConfiguredEvidence = configured.length > 0
+    ? configuredEvidence
+    : profileEvidence
   const configuredIdentities = configured.length > 0
-    ? configured.map(serialConfigIdentity)
-    : profiles
-        .filter((profile) => profile.deviceId !== 'simx' && (profile.deviceId || profile.port))
-        .map((profile) => `profile:${profile.id}`)
-  const connectedConfiguredIdentities = configured.length > 0
-    ? configured
-        .filter((entry) => genericConnected(entry, live, ports))
-        .map(serialConfigIdentity)
-    : profiles
-        .filter((profile) =>
-          profile.deviceId !== 'simx' &&
-          live.some((device) =>
-            device.connected &&
-            ((profile.deviceId && profile.deviceId === device.id) ||
-              (profile.port && profile.port === device.path))
-          )
-        )
-        .map((profile) => `profile:${profile.id}`)
+    ? configuredEvidence.map((entry) => entry.desired)
+    : profileEvidence.map((entry) => entry.desired)
+  const connectedConfiguredIdentities = activeConfiguredEvidence
+    .filter((entry) => entry.connected)
+    .map((entry) => entry.desired)
+  const observedConfiguredIdentities = activeConfiguredEvidence.map(
+    (entry) => `${entry.desired}=>${entry.observedIdentity}`
+  )
   const esp32Profiles = profiles.filter((profile) => profile.board === 'esp32' || profile.board === 'esp32s3')
-  const esp32RequiredIdentities = esp32Profiles.map((profile) => `profile:${profile.id}`)
+  const esp32RequiredIdentities = esp32Profiles
+    .map((profile) => canonicalRigEsp32Identity(`profile:${profile.id}`))
+    .filter((identity): identity is string => identity !== null)
   const esp32SerialConnectedIdentities = esp32Profiles
     .filter((profile) =>
       live.some((device) =>
@@ -260,10 +202,13 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
         ((profile.deviceId && profile.deviceId === device.id) || (profile.port && profile.port === device.path))
       )
     )
-    .map((profile) => `profile:${profile.id}`)
+    .map((profile) => canonicalRigEsp32Identity(`profile:${profile.id}`))
+    .filter((identity): identity is string => identity !== null)
   const esp32ConnectedIdentities = stableSortedIdentities([
     ...esp32SerialConnectedIdentities,
     ...strings(client?.esp32ConnectedIdentities)
+      .map(canonicalRigEsp32Identity)
+      .filter((identity): identity is string => identity !== null)
   ])
   const simx = ctx.serialManager.getDevice()
   const simxPort = ports.find((port) => port.path === simx?.path)
@@ -279,6 +224,7 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
     simxIdentity,
     configuredIdentities: stableSortedIdentities(configuredIdentities),
     connectedConfiguredIdentities: stableSortedIdentities(connectedConfiguredIdentities),
+    observedConfiguredIdentities: stableSortedIdentities(observedConfiguredIdentities),
     esp32RequiredIdentities: stableSortedIdentities(esp32RequiredIdentities),
     esp32ConnectedIdentities
   }
@@ -366,15 +312,21 @@ export function register(ctx: ModuleContext): void {
     collectObservation: (profile, client) => collectObservation(ctx, profile, client)
   })
   let expiryScheduler: RigPreflightExpiryScheduler
+  let evidenceWatchdog: RigPreflightExpiryScheduler
   const publishState = async (): Promise<void> => {
     const state = await service.getState()
     const active = state.activeCertificate
-    expiryScheduler.schedule(
+    const certificateActive =
       active &&
       active.invalidatedAt === null &&
       !state.activeCertificateExpired &&
       !state.storage.blocked
-        ? active.certificate.expiresAt
+        ? active
+        : null
+    expiryScheduler.schedule(certificateActive?.certificate.expiresAt ?? null)
+    evidenceWatchdog.schedule(
+      certificateActive
+        ? certificateActive.lastValidatedAt + state.profile.evidenceMaxAgeMs + 1
         : null
     )
     ctx.broadcast(RIG_PREFLIGHT_CHANNELS.changed, state)
@@ -385,6 +337,18 @@ export function register(ctx: ModuleContext): void {
         if (await service.expireActiveCertificate()) await publishState()
       } catch (error) {
         logger.warn('rig-preflight', 'certificate expiry failed closed', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+        await publishState()
+      }
+    }
+  })
+  evidenceWatchdog = new RigPreflightExpiryScheduler({
+    onExpire: async () => {
+      try {
+        if (await service.expireStaleEvidenceHeartbeat()) await publishState()
+      } catch (error) {
+        logger.warn('rig-preflight', 'evidence watchdog failed closed', {
           message: error instanceof Error ? error.message : String(error)
         })
         await publishState()
@@ -512,6 +476,7 @@ export function register(ctx: ModuleContext): void {
   ctx.app.once('before-quit', () => {
     clearInterval(driftPoll)
     expiryScheduler.dispose()
+    evidenceWatchdog.dispose()
     ctx.serialHub.off('device-removed', onSerialRemoved)
     screen.off('display-removed', onDisplayRemoved)
   })

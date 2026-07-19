@@ -788,7 +788,10 @@ export class RigPreflightService {
       return { changed, status: 'invalidated', reason }
     }
 
-    if (!active.revalidationRequired) {
+    if (
+      !active.revalidationRequired &&
+      active.lastValidatedAt === completedAt
+    ) {
       return { changed: false, status: 'verified' }
     }
     const previous = deepClone(this.state)
@@ -797,6 +800,28 @@ export class RigPreflightService {
     this.state.updatedAt = completedAt
     await this.commit(previous)
     return { changed: true, status: 'verified' }
+  }
+
+  async expireStaleEvidenceHeartbeat(): Promise<boolean> {
+    await this.ensureLoaded()
+    if (this.storage.blocked) return false
+    const active = this.state.activeCertificate
+    const now = this.now()
+    if (
+      !active ||
+      active.invalidatedAt !== null ||
+      active.certificate.decision === 'blocked' ||
+      active.certificate.expiresAt <= now ||
+      now - active.lastValidatedAt <= this.state.profile.evidenceMaxAgeMs
+    ) return false
+    const previous = deepClone(this.state)
+    const changed = this.invalidateActiveCertificateInMemory(
+      `Fresh rig evidence heartbeat exceeded ${this.state.profile.evidenceMaxAgeMs}ms.`,
+      [{ kind: 'runtime', source: 'main-process rig preflight evidence watchdog' }],
+      now
+    )
+    if (changed) await this.commit(previous)
+    return changed
   }
 
   async expireActiveCertificate(): Promise<boolean> {

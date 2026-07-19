@@ -3,6 +3,7 @@ import type { SerialDeviceSummary } from '../../../shared/arduino'
 import type { HapticsConfig } from '../../../shared/haptics'
 import {
   RIG_PREFLIGHT_CHANNELS,
+  canonicalRigEsp32Identity,
   stableSortedIdentities,
   type RigPreflightClientEvidence,
   type RigPreflightStateSnapshot
@@ -215,8 +216,10 @@ export async function collectRigPreflightClientEvidence(): Promise<RigPreflightC
       : undefined,
     esp32ConnectedIdentities: stableSortedIdentities(
       esp32Connected.map(
-        (status) => `wifi:${status.id || `${status.host || 'unknown'}:${status.port || 47650}`}`
-      )
+        (status) => canonicalRigEsp32Identity(
+          `wifi:${status.id || `${status.host || 'unknown'}:${status.port || 47650}`}`
+        )
+      ).filter((identity): identity is string => identity !== null)
     )
   }
 }
