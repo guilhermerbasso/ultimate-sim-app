@@ -35,6 +35,7 @@ import { register as diagnosticsLog } from './diagnostics-log'
 import { register as revlights } from './revlights'
 import { register as setups } from './setups'
 import { register as setupManager } from './setup-manager'
+import { register as setupExperiment } from './setup-experiment'
 import { register as simProviders } from './sim-providers'
 import { register as soundshift } from './soundshift'
 import { register as telemetry } from './telemetry'
@@ -110,6 +111,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   soundshift,
   setups,
   setupManager,
+  setupExperiment,
   customCatalog,
   pinoutFirmware,
   esp32Wifi,

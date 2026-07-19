@@ -93,6 +93,7 @@ const ALLOWED_PREFIXES = [
   'app:',
   'soundshift:',
   'setups:',
+  'setupExperiment:',
   'tire:',
   'pinout:',
   'rgbmatrix:',
