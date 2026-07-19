@@ -6,13 +6,22 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
-## 2.54.0 — managed streaming, safe trigger previews, and offline Mission Rehearsal
+## 2.54.0 — managed streaming, local integrations, and offline race preparation
 
 ### Added
+- **Local-only MQTT certification target**, disabled by default, with authenticated publisher,
+  reader, and command roles, narrow topic permissions, retained health/session state, and commands
+  disabled unless explicitly enabled.
 - **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and
   Touch Controls profiles. Edited dashboard copies remain selectable after migration and restart.
+- **Mobile presentation editor** for saved dashboards and Touch Controls, with phone/tablet presets,
+  orientation, safe areas, fit/fill rules, minimum touch sizing, and revision-bound profiles that do
+  not modify the source layout.
 - **Editor-only trigger previews** that reveal inactive trigger-only overlays and dashboard widgets
   for positioning without changing their live visibility rules.
+- **Experimental local Context-Debt meter** for auditing competing cues, invalid routes, and
+  unavailable devices before a race. It remains an N=0 experiment, not a validated demand or
+  predictive-accuracy claim.
 - **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
   runs, repeat comparisons, and scored blameless debriefs.
 
@@ -22,6 +31,8 @@
   retries without changing local or LAN streaming.
 - Trigger preview ownership is released on hide, reload, or renderer loss and restored after a tray
   reopen, while compositor, streaming, saved rules, and live Coach/Engineer/Alerts IPC stay isolated.
+- Context-Debt audits fail closed on malformed profiles and incomplete audio/serial inventories, and
+  suggestions respect per-cue route and modality limits.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 

@@ -1,10 +1,17 @@
 # Ultimate Sim App — Release Notes
 
-## v2.54.0 — Managed streaming, safe trigger previews & offline Mission Rehearsal
+## v2.54.0 — Smarter streaming, local integrations & offline race preparation
 
-Version 2.54.0 makes it easier to choose what spectators see, position trigger-based visuals before
-they fire, open a secure public viewer without manual tunnel setup, and rehearse race operations
-without touching a live session.
+Version 2.54.0 adds safer local integrations, exact phone/tablet stream presentations, editor-only
+trigger previews, an experimental pre-race Context-Debt audit, and offline race-operation rehearsal.
+
+### Local-only MQTT integration
+- 🔌 **A hardened MQTT certification target connects local tools without cloud credentials.** It is
+  disabled by default and constrained to local/loopback operation.
+- 🔐 Authenticated publisher, reader, and command roles use narrow topic permissions and preserve
+  retained availability, health, and session state through reconnects.
+- ⛔ Command execution remains disabled unless explicitly enabled, and the target does not enable
+  gameplay commands by default.
 
 ### Streaming targets you control
 - 📺 **A dedicated Streaming area** stores the dashboard and Touch Controls targets you choose
@@ -21,6 +28,14 @@ without touching a live session.
   tunnel processes, and reconnect with bounded retries.
 - 🏠 Local and LAN streaming continue to work independently of the Internet tunnel.
 
+### Mobile presentations without changing the source
+- 📱 **Save presentation profiles for exact iPhone, iPad, and Android viewports**, including
+  orientation, safe areas, fit/fill behavior, and minimum touch sizing.
+- 🧷 Profiles are bound to a source revision and keep presentation-only changes separate from the
+  saved dashboard or Touch Controls panel.
+- ▶️ Saved profiles can start streaming directly, while dirty-draft conflict protection prevents
+  accidental overwrites. Interactive preview remains local and adds no remote command capability.
+
 ### Safe trigger-only editor previews
 - 👁️ **An editor-only toggle reveals inactive trigger-only overlays and dashboard widgets** so they
   can be positioned without waiting for their race condition to occur.
@@ -29,6 +44,14 @@ without touching a live session.
 - 🧹 Preview ownership is released on hide, reload, or renderer loss and restored after a tray
   reopen. HiFi preview cards remain inert and do not subscribe to live Coach, Engineer, or Alerts
   IPC.
+
+### Experimental Context-Debt audit
+- 🧪 **The local pre-race meter highlights competing cues, invalid routes, and unavailable devices**
+  before they become cockpit confusion.
+- 🛑 Malformed profiles and incomplete audio or serial inventories fail closed, while suggestions
+  respect per-cue route and modality limits.
+- **Experimental status:** this remains an N=0, local-only experiment—not evidence of validated
+  player demand or predictive accuracy.
 
 ### Offline Mission Rehearsal
 - 🏁 **Build and run branching race-operation scenarios offline** with assigned roles, checkpoints,
@@ -40,7 +63,7 @@ without touching a live session.
 
 ### Validation
 - Full test suite: **4,139 tests passing across 331 files. Typecheck clean.**
-- Merged-feature suite: **200 tests passing across 19 files**, including the Electron browser
+- Merged-feature suite: **296 tests passing across 36 files**, including the Electron browser
   lifecycle regression; updater/package release gate: **5 tests passing**.
 - Production build: **362 main-process modules, 8 preload modules, and 2,373 renderer modules**;
   the **55-file streaming resource graph** passes with 28 JavaScript and 6 CSS files.
@@ -56,14 +79,20 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
 `latest.yml`._
 
 ### What's Changed
+- [#70](https://github.com/guilhermerbasso/ultimate-sim-app/pull/70) — add the disabled-by-default,
+  local-only MQTT certification target.
 - [#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71) — add persistent,
   user-managed dashboard and Touch Controls streaming targets.
 - [#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72) — restore and harden secure
   Internet auto-tunnel streaming.
 - [#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73) — add offline Mission
   Rehearsal with isolated synthetic events and recovery-safe runs.
+- [#74](https://github.com/guilhermerbasso/ultimate-sim-app/pull/74) — add revision-bound mobile
+  presentation profiles for saved dashboards and Touch Controls.
 - [#75](https://github.com/guilhermerbasso/ultimate-sim-app/pull/75) — add safe editor-only
   positioning previews for trigger-based overlays and dashboard widgets.
+- [#76](https://github.com/guilhermerbasso/ultimate-sim-app/pull/76) — add the experimental local
+  Context-Debt pre-race meter.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 
