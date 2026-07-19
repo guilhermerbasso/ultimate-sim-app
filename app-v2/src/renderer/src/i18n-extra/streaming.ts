@@ -101,7 +101,26 @@ const en = {
   'streaming.authToken': 'Auth: the private token link establishes a scoped browser session.',
   'streaming.connectedDevices': 'Connected devices',
   'streaming.noDevices': 'No devices connected yet.',
-  'streaming.afterStart': 'After starting, tokenized URLs and QR codes will appear here.'
+  'streaming.afterStart': 'After starting, tokenized URLs and QR codes will appear here.',
+  'streaming.receiver.title': 'PWA receiver v2 certification target',
+  'streaming.receiver.connected': '{count} PWA receiver(s)',
+  'streaming.receiver.waiting': 'waiting for receiver',
+  'streaming.receiver.dataDiode': 'Read-only data diode — browser commands and PC controls are disabled.',
+  'streaming.receiver.transport': 'Transport',
+  'streaming.receiver.bind': 'Listener bind',
+  'streaming.receiver.transportHelp': 'Local development is loopback-only. Phone/tablet access requires an accepted HTTPS/WSS reverse proxy on this PC; plaintext private-IP access is refused.',
+  'streaming.receiver.pairingUrl': 'One-use PWA pairing link',
+  'streaming.receiver.pairingConsumed': 'The one-use pairing link was consumed. Rotate it to pair another browser.',
+  'streaming.receiver.pairingUnavailable': 'The pairing link expired or is unavailable. Rotate it to create a new one.',
+  'streaming.receiver.secretHandling': 'The pairing secret is carried only in the URL fragment, removed before connection, and never cached or sent as a query parameter.',
+  'streaming.receiver.copy': 'Copy PWA pairing link',
+  'streaming.receiver.rotate': 'Rotate one-use link',
+  'streaming.receiver.rotateFailed': 'Failed to rotate the PWA receiver pairing link',
+  'streaming.receiver.setup': 'Setup time',
+  'streaming.receiver.latency': 'Ack latency p95',
+  'streaming.receiver.reliability': 'Delivery reliability',
+  'streaming.receiver.reconnects': 'Reconnects',
+  'streaming.receiver.resyncs': 'Resyncs'
 }
 
 const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
@@ -130,7 +149,12 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'streaming.start': 'Iniciar streaming',
     'streaming.stop': 'Parar',
     'streaming.refresh': 'Atualizar status',
-    'streaming.currentPassword': 'Senha para celular/tablet'
+    'streaming.currentPassword': 'Senha para celular/tablet',
+    'streaming.receiver.title': 'Target de certificação PWA receiver v2',
+    'streaming.receiver.dataDiode': 'Diodo de dados somente leitura — comandos do navegador e controles do PC estão desativados.',
+    'streaming.receiver.transportHelp': 'O desenvolvimento local aceita somente loopback. Celular/tablet exige proxy reverso HTTPS/WSS aceito neste PC; HTTP por IP privado é recusado.',
+    'streaming.receiver.copy': 'Copiar link de pareamento PWA',
+    'streaming.receiver.rotate': 'Gerar novo link de uso único'
   },
   es: { ...en, 'streaming.readOnly': 'Vista de solo lectura — esto no puede controlar tu PC.', 'streaming.title': 'Streaming del panel', 'streaming.start': 'Iniciar streaming', 'streaming.stop': 'Detener' },
   fr: { ...en, 'streaming.readOnly': 'Vue en lecture seule — ceci ne peut pas contrôler votre PC.', 'streaming.title': 'Streaming du tableau de bord', 'streaming.start': 'Démarrer le streaming', 'streaming.stop': 'Arrêter' },
