@@ -1,9 +1,18 @@
 # Ultimate Sim App — Release Notes
 
-## v2.54.0 — Managed streaming, secure Internet sharing & offline Mission Rehearsal
+## v2.54.0 — Smarter streaming, local integrations & offline race preparation
 
-Version 2.54.0 makes it easier to choose what spectators see, open a secure public viewer without
-manual tunnel setup, and rehearse race operations without touching a live session.
+Version 2.54.0 adds safer local integrations, exact phone/tablet stream presentations, editor-only
+trigger previews, evidence-safe setup experiments, an experimental pre-race Context-Debt audit, and
+offline race-operation rehearsal.
+
+### Loopback-only MQTT integration
+- 🔌 **A hardened MQTT certification target connects local tools without cloud credentials.** It is
+  disabled by default and binds only to loopback (`127.0.0.1` / `::1`).
+- 🔐 Authenticated publisher, reader, and command roles use narrow topic permissions and preserve
+  retained availability, health, and session state through reconnects.
+- ⛔ Command execution remains disabled unless explicitly enabled, and the target does not enable
+  gameplay commands by default.
 
 ### Streaming targets you control
 - 📺 **A dedicated Streaming area** stores the dashboard and Touch Controls targets you choose
@@ -20,6 +29,47 @@ manual tunnel setup, and rehearse race operations without touching a live sessio
   tunnel processes, and reconnect with bounded retries.
 - 🏠 Local and LAN streaming continue to work independently of the Internet tunnel.
 
+### Reliable local PWA reconnects
+- 🔁 **Duplicate close and online events no longer queue overlapping receiver WebSockets or
+  double-count reconnect attempts and reliability metrics.**
+- ⏱️ The first pending reconnect keeps its original 250 ms deadline instead of being cancelled and
+  rescheduled by a duplicate trigger.
+- 📴 Pending reconnects are still cancelled while offline and on unmount, while legitimate later
+  exponential backoff remains intact.
+
+### Mobile presentations without changing the source
+- 📱 **Save presentation profiles for exact iPhone, iPad, and Android viewports**, including
+  orientation, safe areas, fit/fill behavior, and minimum touch sizing.
+- 🧷 Profiles are bound to a source revision and keep presentation-only changes separate from the
+  saved dashboard or Touch Controls panel.
+- ▶️ Saved profiles can start streaming directly, while dirty-draft conflict protection prevents
+  accidental overwrites. Interactive preview remains local and adds no remote command capability.
+
+### Safe trigger-only editor previews
+- 👁️ **An editor-only toggle reveals inactive trigger-only overlays and dashboard widgets** so they
+  can be positioned without waiting for their race condition to occur.
+- 🧷 Preview state is immutable and isolated: saved rules, live visibility, compositor output, and
+  streaming behavior remain unchanged.
+- 🧹 Preview ownership is released on hide, reload, or renderer loss and restored after a tray
+  reopen. HiFi preview cards remain inert and do not subscribe to live Coach, Engineer, or Alerts
+  IPC.
+
+### Evidence-safe Setup Experiment Twin
+- 🧰 **Compare exactly one setup-variable change through a declared A-B-A or B-A-B protocol** with
+  manual setup confirmation; the app never applies a setup automatically.
+- 📊 Matched-block contrasts, moving-block bootstrap uncertainty, rollback/drift checks, outlier
+  sensitivity, and direction agreement keep exploratory evidence separate from confirmation.
+- 🛑 The Twin abstains when evidence is incomplete or conflicting, retains unsaved laps through
+  persistence failures, and exposes paused/recovered state instead of overstating causality.
+
+### Experimental Context-Debt audit
+- 🧪 **The local pre-race meter highlights competing cues, invalid routes, and unavailable devices**
+  before they become cockpit confusion.
+- 🛑 Malformed profiles and incomplete audio or serial inventories fail closed, while suggestions
+  respect per-cue route and modality limits.
+- **Experimental status:** this remains an N=0, local-only experiment—not evidence of validated
+  player demand or predictive accuracy.
+
 ### Offline Mission Rehearsal
 - 🏁 **Build and run branching race-operation scenarios offline** with assigned roles, checkpoints,
   deterministic decisions, resumable runs, and archive recovery.
@@ -29,29 +79,40 @@ manual tunnel setup, and rehearse race operations without touching a live sessio
   decisions cannot actuate live race controls.
 
 ### Validation
-- Full test suite: **3,945 tests passing across 308 files. Typecheck clean.**
-- Merged-feature suite: **142 tests passing across 11 files**; updater/package release gate:
-  **5 tests passing**.
-- Production build: **349 main-process modules, 8 preload modules, and 2,348 renderer modules**;
-  the **48-file streaming resource graph** passes with 22 JavaScript and 5 CSS files.
+- Full test suite: **4,314 tests passing across 335 files. Typecheck clean.**
+- Merged-feature suite: **296 tests passing across 36 files**, including the Electron browser
+  lifecycle regression; updater/package release gate: **5 tests passing**.
+- Production build: **364 main-process modules, 8 preload modules, and 2,376 renderer modules**;
+  the **56-file streaming resource graph** passes with 29 JavaScript and 6 CSS files.
 - The final `npm run dist:win` and `npm run verify:win-package` runs passed. Packaging used the
   documented fallback for the optional ViGEm module because the host has no Visual Studio Build
   Tools.
 - The verifier accepted the unpacked Electron runtime, elevated NSIS helper, packaged SerialPort,
-  Cloudflare tunnel, Whisper runtime, and the exact four updater artifacts. `latest.yml` identifies
-  `Ultimate-Sim-App-2.54.0-x64.exe` at **317,890,721 bytes** with its matching SHA-512 and
-  `isAdminRightsRequired: true`.
+  Cloudflare tunnel, Whisper runtime, and the exact four updater artifacts. `latest.yml` contains the
+  installer size and SHA-512, and its EXE entry sets the `isAdminRightsRequired: true` metadata flag.
 
 _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.zip` + blockmap +
 `latest.yml`._
 
 ### What's Changed
+- [#70](https://github.com/guilhermerbasso/ultimate-sim-app/pull/70) — add the disabled-by-default,
+  loopback-only MQTT certification target.
 - [#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71) — add persistent,
   user-managed dashboard and Touch Controls streaming targets.
 - [#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72) — restore and harden secure
   Internet auto-tunnel streaming.
 - [#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73) — add offline Mission
   Rehearsal with isolated synthetic events and recovery-safe runs.
+- [#74](https://github.com/guilhermerbasso/ultimate-sim-app/pull/74) — add revision-bound mobile
+  presentation profiles for saved dashboards and Touch Controls.
+- [#75](https://github.com/guilhermerbasso/ultimate-sim-app/pull/75) — add safe editor-only
+  positioning previews for trigger-based overlays and dashboard widgets.
+- [#76](https://github.com/guilhermerbasso/ultimate-sim-app/pull/76) — add the experimental local
+  Context-Debt pre-race meter.
+- [#88](https://github.com/guilhermerbasso/ultimate-sim-app/pull/88) — add the local, evidence-safe
+  Setup Experiment Twin for controlled one-variable comparisons.
+- [#90](https://github.com/guilhermerbasso/ultimate-sim-app/pull/90) — debounce PWA receiver
+  reconnects without changing the first pending deadline or legitimate backoff.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 
