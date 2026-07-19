@@ -12,7 +12,12 @@ import {
   type StreamingTouchActionResponse,
   type StreamingTouchPanelPayload
 } from '../../shared/streaming'
-import type { ButtonBoxPanel, TouchActionPhase, TouchSemanticActionRequest } from '../../shared/touch-panel'
+import type {
+  ButtonAction,
+  ButtonBoxPanel,
+  TouchActionPhase,
+  TouchSemanticActionRequest
+} from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import { registerTouchSemanticActionRuntime } from '../actions/touch-owner'
 
@@ -232,6 +237,14 @@ function httpRequest(url: string, options: RequestOptions = {}): Promise<Respons
   })
 }
 
+async function requestOutcome(requestPromise: Promise<ResponseData>): Promise<number | 'closed'> {
+  try {
+    return (await requestPromise).statusCode
+  } catch {
+    return 'closed'
+  }
+}
+
 function sessionCookie(response: ResponseData): string {
   const values = response.headers['set-cookie'] ?? []
   const raw = values.find((value) => value.startsWith('ultimate_sim_stream_session='))
@@ -437,6 +450,11 @@ describe('streaming authenticated server', () => {
     const radio = managerState.panel.buttons.find((button) => button.id === 'radio-hold')
     if (radio?.control.kind === 'momentary') {
       radio.control.action = { kind: 'keyboard', command: { mode: 'hold', keys: ['V'] } }
+    }
+    const lights = managerState.panel.buttons.find((button) => button.id === 'lights-toggle')
+    if (lights?.control.kind === 'latching-toggle') {
+      lights.control.onAction = { kind: 'keyboard', command: { mode: 'toggle', keys: ['H'] } }
+      lights.control.offAction = { kind: 'keyboard', command: { mode: 'toggle', keys: ['H'] } }
     }
     unregisterTouchRuntime = registerTouchSemanticActionRuntime({
       execute: async (request, ownerKey) => {
@@ -1095,6 +1113,70 @@ describe('streaming authenticated server', () => {
     ])
   })
 
+  it('tracks arbitrary latching ON/OFF actions and executes configured OFF exactly once', async () => {
+    const cases: Array<{ label: string; onAction: ButtonAction; offAction: ButtonAction }> = [
+      {
+        label: 'iRacing',
+        onAction: { kind: 'iracing', command: { group: 'blackBox', name: 'blackBox:next' } },
+        offAction: { kind: 'iracing', command: { group: 'blackBox', name: 'blackBox:previous' } }
+      },
+      {
+        label: 'keyboard press',
+        onAction: { kind: 'keyboard', command: { mode: 'press', keys: ['P'] } },
+        offAction: { kind: 'keyboard', command: { mode: 'press', keys: ['O'] } }
+      },
+      {
+        label: 'mixed',
+        onAction: { kind: 'iracing', command: { group: 'blackBox', name: 'blackBox:next' } },
+        offAction: { kind: 'keyboard', command: { mode: 'press', keys: ['O'] } }
+      }
+    ]
+
+    for (const testCase of cases) {
+      const lights = managerState.panel.buttons.find((button) => button.id === 'lights-toggle')
+      if (!lights || lights.control.kind !== 'latching-toggle') throw new Error('lights fixture missing')
+      lights.control.onAction = testCase.onAction
+      lights.control.offAction = testCase.offAction
+      ctx ??= fakeContext()
+      if (!ctx.handlers.has(STREAMING_CHANNELS.start)) register(ctx)
+      const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+        layoutKind: 'touch',
+        layoutId: 'pit'
+      })
+      managerState.semanticCalls.length = 0
+      const session = await openTouchSession(started)
+      const on = touchCapability(session, 'lights-toggle', 'on', 'trigger')
+      const off = touchCapability(session, 'lights-toggle', 'off', 'trigger')
+      const staleNonce = session.payload.interaction.nonce
+
+      const enabled = await postTouchAction(session, {
+        capabilityId: on.id,
+        phase: 'trigger',
+        nonce: staleNonce
+      })
+      expect(enabled.statusCode, testCase.label).toBe(200)
+      expect((JSON.parse(enabled.body) as StreamingTouchActionResponse).activeControls).toBe(1)
+      const disabled = await postTouchAction(session, {
+        capabilityId: off.id,
+        phase: 'trigger',
+        nonce: staleNonce
+      })
+      const repeated = await postTouchAction(session, {
+        capabilityId: off.id,
+        phase: 'trigger',
+        nonce: staleNonce
+      })
+
+      expect(disabled.statusCode, testCase.label).toBe(200)
+      expect(repeated.statusCode, testCase.label).toBe(200)
+      expect((JSON.parse(repeated.body) as StreamingTouchActionResponse).activeControls).toBe(0)
+      expect(managerState.semanticCalls.map(({ request }) => request.action)).toEqual([
+        testCase.onAction,
+        testCase.offAction
+      ])
+    }
+  })
+
   it('rate-limits a valid control flood without accepting receiver-supplied actions', async () => {
     ctx = fakeContext()
     register(ctx)
@@ -1349,6 +1431,83 @@ describe('streaming authenticated server', () => {
     expect((await action).statusCode).toBe(200)
     await stopping
     expect(managerState.releasedOwners).toHaveLength(1)
+  })
+
+  it('revokes admission synchronously and drains active plus heartbeat-only sessions before stop completes', async () => {
+    await unregisterTouchRuntime?.()
+    let finishExecution!: () => void
+    const executionGate = new Promise<void>((resolve) => { finishExecution = resolve })
+    const offAction: ButtonAction = {
+      kind: 'keyboard',
+      command: { mode: 'press', keys: ['O'] }
+    }
+    unregisterTouchRuntime = registerTouchSemanticActionRuntime({
+      execute: async (request, ownerKey) => {
+        managerState.semanticCalls.push({ request, ownerKey })
+        if (request.token === 'radio-hold:main' && request.phase === 'begin') {
+          await executionGate
+        }
+        return { ok: true, message: `${request.token} ${request.phase} executed.` }
+      },
+      releaseOwner: async (ownerKey) => {
+        managerState.releasedOwners.push(ownerKey)
+      }
+    })
+    const lights = managerState.panel.buttons.find((button) => button.id === 'lights-toggle')
+    if (!lights || lights.control.kind !== 'latching-toggle') throw new Error('lights fixture missing')
+    lights.control.onAction = {
+      kind: 'iracing',
+      command: { group: 'blackBox', name: 'blackBox:next' }
+    }
+    lights.control.offAction = offAction
+
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const activeSession = await openTouchSession(started)
+    const heartbeatOnlySession = await openTouchSession(started)
+    expect((await touchHealth(heartbeatOnlySession)).statusCode).toBe(200)
+
+    const on = touchCapability(activeSession, 'lights-toggle', 'on', 'trigger')
+    const enabled = await postTouchAction(activeSession, { capabilityId: on.id, phase: 'trigger' })
+    expect(enabled.statusCode).toBe(200)
+    activeSession.payload.interaction.nonce =
+      (JSON.parse(enabled.body) as StreamingTouchActionResponse).nextNonce
+    const hold = touchCapability(activeSession, 'radio-hold', 'main', 'begin')
+    const inFlightAction = postTouchAction(activeSession, { capabilityId: hold.id, phase: 'begin' })
+    await vi.waitFor(() => expect(managerState.semanticCalls.some(({ request }) =>
+      request.token === 'radio-hold:main' && request.phase === 'begin'
+    )).toBe(true))
+
+    let stopped = false
+    const stopping = Promise.resolve(ctx.teardownTasks[0].task()).then(() => {
+      stopped = true
+    })
+    const press = touchCapability(activeSession, 'pit-fuel', 'main', 'trigger')
+    const admissionAttempts = Promise.all([
+      requestOutcome(httpRequest(localDocumentUrl(started))),
+      requestOutcome(postTouchAction(activeSession, { capabilityId: press.id, phase: 'trigger' })),
+      requestOutcome(touchHealth(heartbeatOnlySession))
+    ])
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    expect(stopped).toBe(false)
+
+    finishExecution()
+    await requestOutcome(inFlightAction)
+    await stopping
+    expect((await admissionAttempts).every((outcome) => outcome === 503 || outcome === 'closed')).toBe(true)
+    const offCalls = managerState.semanticCalls.filter(({ request }) =>
+      JSON.stringify(request.action) === JSON.stringify(offAction)
+    )
+    expect(offCalls).toHaveLength(1)
+    expect(offCalls[0].request.phase).toBe('trigger')
+    expect(new Set(managerState.releasedOwners).size).toBe(2)
+    const stoppedStatus = await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)
+    expect(stoppedStatus.running).toBe(false)
+    expect(stoppedStatus.clients).toBe(0)
   })
 
   it('releases held controls when the receiver disconnects', async () => {

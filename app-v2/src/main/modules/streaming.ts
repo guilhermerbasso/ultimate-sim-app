@@ -38,6 +38,7 @@ import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
 import { getTouchPanelManager } from '../touchpanel/manager'
 import {
+  executeTouchSemanticCleanupAction,
   executeTouchSemanticAction,
   hasTouchSemanticActionRuntime,
   releaseTouchSemanticActionOwner
@@ -95,6 +96,7 @@ interface StreamingSession {
   csrfToken: string
   replayNonce: string
   activeTokens: Set<string>
+  activeLatches: Map<string, StreamingTouchCapabilityEntry>
   lastFeedback: string | null
   expiryTimer: ReturnType<typeof setTimeout> | null
   receiverLeaseExpiresAt: number
@@ -118,6 +120,7 @@ interface InteractionRateState {
 
 interface StreamingState {
   server: Server | null
+  stopping: boolean
   port: number | null
   token: string | null
   passwordHash: string | null
@@ -152,6 +155,7 @@ interface StreamingState {
 
 const state: StreamingState = {
   server: null,
+  stopping: false,
   port: null,
   token: null,
   passwordHash: null,
@@ -183,6 +187,8 @@ const state: StreamingState = {
   lastInteractionFeedback: null,
   nextClientId: 1
 }
+
+let stopPromise: Promise<StreamingStatus> | null = null
 
 function isValidLayoutId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,48}$/.test(value)
@@ -914,7 +920,7 @@ function scheduleReceiverLeaseExpiry(sessionId: string, session: StreamingSessio
 }
 
 function renewReceiverLease(sessionId: string, session: StreamingSession): boolean {
-  if (session.deleted || state.sessions.get(sessionId) !== session) return false
+  if (state.stopping || session.deleted || state.sessions.get(sessionId) !== session) return false
   session.receiverLeaseExpiresAt = Date.now() + configuredReceiverLeaseTtlMs()
   scheduleReceiverLeaseExpiry(sessionId, session)
   if (!session.releasePromise) session.ownershipClosing = false
@@ -945,17 +951,42 @@ async function releaseSessionInteraction(sessionId: string, session: StreamingSe
   let release!: Promise<void>
   release = (async () => {
     try {
-      const releaseOwner = session.targetKind === 'touch' && session.role === 'touch-controller'
+      const touchController = session.targetKind === 'touch' && session.role === 'touch-controller'
+      const releaseOwner = touchController
         ? releaseTouchSemanticActionOwner(streamSessionOwnerKey(sessionId))
         : Promise.resolve()
       const results = await Promise.allSettled([
         releaseOwner,
         ...session.tokenOperations.values()
       ])
+      const cleanupFailures: string[] = []
+      let executedLatchCleanup = false
+      for (const [token, offCapability] of [...session.activeLatches]) {
+        if (session.activeLatches.get(token) !== offCapability) continue
+        executedLatchCleanup = true
+        const result = await executeCapabilityOperation(
+          sessionId,
+          session,
+          offCapability,
+          'trigger',
+          offCapability.action,
+          true
+        )
+        if (!result.ok) cleanupFailures.push(result.message)
+      }
+      const finalOwnerRelease = touchController && executedLatchCleanup
+        ? await Promise.allSettled([
+            releaseTouchSemanticActionOwner(streamSessionOwnerKey(sessionId))
+          ])
+        : []
       session.activeTokens.clear()
-      if (session.targetKind === 'touch' && session.role === 'touch-controller') {
+      for (const token of session.activeLatches.keys()) session.activeTokens.add(token)
+      if (touchController) {
         const ownerRelease = results[0]
         if (ownerRelease.status === 'rejected') throw ownerRelease.reason
+        const finalRelease = finalOwnerRelease[0]
+        if (finalRelease?.status === 'rejected') throw finalRelease.reason
+        if (cleanupFailures.length > 0) throw new Error(cleanupFailures.join('; '))
         logger.info('streaming', 'interactive touch owner released', { reason })
       }
     } catch (error) {
@@ -1059,6 +1090,7 @@ function createSession(
   route: StreamingRequestRoute,
   access: StreamingSessionAccess
 ): { id: string; cookie: string } | null {
+  if (state.stopping) return null
   cleanupExpiredSessions()
   if (access === 'bootstrap') {
     while (sessionCount('bootstrap') >= MAX_BOOTSTRAP_SESSIONS) {
@@ -1083,6 +1115,7 @@ function createSession(
     csrfToken: generateSecret(CSRF_BYTES),
     replayNonce: generateSecret(NONCE_BYTES),
     activeTokens: new Set(),
+    activeLatches: new Map(),
     lastFeedback: null,
     expiryTimer: null,
     receiverLeaseExpiresAt: 0,
@@ -1353,6 +1386,10 @@ async function exchangePasswordSession(
     send(response, error instanceof SyntaxError ? 400 : 413, error instanceof SyntaxError ? 'Invalid JSON' : 'Request body is too large')
     return
   }
+  if (state.stopping) {
+    send(response, 503, 'Streaming server is stopping')
+    return
+  }
 
   if (state.passwordHash && !verifyPassword(password, state.passwordHash)) {
     recordAuthFailure(request, 'password')
@@ -1520,6 +1557,19 @@ function updateActiveInteraction(
   capability: StreamingTouchCapabilityEntry,
   phase: TouchActionPhase
 ): void {
+  if (capability.zone === 'on') {
+    const offCapability = [...state.touchCapabilities.values()].find((candidate) =>
+      candidate.token === capability.token && candidate.zone === 'off'
+    )
+    if (offCapability) session.activeLatches.set(capability.token, offCapability)
+    session.activeTokens.add(capability.token)
+    return
+  }
+  if (capability.zone === 'off' || capability.zone === 'teardown') {
+    session.activeLatches.delete(capability.token)
+    session.activeTokens.delete(capability.token)
+    return
+  }
   if (capability.action.kind !== 'keyboard') return
   const mode = capability.action.command.mode
   if (mode === 'hold') {
@@ -1528,12 +1578,9 @@ function updateActiveInteraction(
     return
   }
   if (mode !== 'toggle') return
-  if (phase === 'cancel' || capability.zone === 'off' || capability.zone === 'teardown') {
+  if (phase === 'cancel') {
+    session.activeLatches.delete(capability.token)
     session.activeTokens.delete(capability.token)
-    return
-  }
-  if (capability.zone === 'on') {
-    session.activeTokens.add(capability.token)
     return
   }
   if (session.activeTokens.has(capability.token)) session.activeTokens.delete(capability.token)
@@ -1574,7 +1621,8 @@ async function executeCapabilityOperation(
   session: StreamingSession,
   capability: StreamingTouchCapabilityEntry,
   phase: TouchActionPhase,
-  action: ButtonAction
+  action: ButtonAction,
+  cleanupDuringTeardown = false
 ): Promise<{ ok: boolean; message: string }> {
   let result = { ok: true, message: `${capability.controlId} ${phase} acknowledged.` }
   if (capability.executePhases.includes(phase)) {
@@ -1588,7 +1636,9 @@ async function executeCapabilityOperation(
       result = { ok: false, message: 'Touch capability failed semantic validation.' }
     } else {
       try {
-        result = await executeTouchSemanticAction(semanticRequest, streamSessionOwnerKey(sessionId))
+        result = cleanupDuringTeardown
+          ? await executeTouchSemanticCleanupAction(semanticRequest, streamSessionOwnerKey(sessionId))
+          : await executeTouchSemanticAction(semanticRequest, streamSessionOwnerKey(sessionId))
       } catch (error) {
         result = {
           ok: false,
@@ -1670,6 +1720,10 @@ async function executeTouchInteraction(
     send(response, 400, 'Invalid Touch capability request')
     return
   }
+  if (state.stopping) {
+    send(response, 503, 'Streaming server is stopping')
+    return
+  }
   const capability = state.touchCapabilities.get(body.capabilityId)
   if (!capability || !capability.phases.includes(body.phase)) {
     send(response, 403, 'Touch capability is not allowed')
@@ -1699,12 +1753,14 @@ async function executeTouchInteraction(
       if (session.deleted || session.ownershipClosing || !session.activeTokens.has(capability.token)) {
         return { ok: true, message: `${capability.controlId} is already released.` }
       }
+      const logicalOff = session.activeLatches.get(capability.token)
+      const cleanupCapability = logicalOff ?? capability
       return executeCapabilityOperation(
         active.id,
         session,
-        capability,
-        body.phase,
-        currentAction ?? capability.action
+        cleanupCapability,
+        logicalOff ? 'trigger' : body.phase,
+        logicalOff?.action ?? currentAction ?? capability.action
       )
     })
     const payload = touchActionPayload(active.id, session, result, capability, body.phase)
@@ -2536,6 +2592,10 @@ async function selfTest(): Promise<StreamingSelfTestResult> {
 async function handleRequest(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
   let requestPath = '/'
   try {
+    if (state.stopping) {
+      send(response, 503, 'Streaming server is stopping')
+      return
+    }
     const route = requestRoute(request)
     const { url, pathname } = route
     requestPath = pathname
@@ -2715,19 +2775,38 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
   }
 }
 
-async function stop(): Promise<StreamingStatus> {
-  await Promise.all(
-    [...state.sessions.keys()].map((id) =>
-      deleteStreamingSession(id, 'stream-stopped')
+async function drainStreamingSessions(reason: string): Promise<void> {
+  while (state.sessions.size > 0) {
+    await Promise.all(
+      [...state.sessions.keys()].map((id) => deleteStreamingSession(id, reason))
     )
-  )
-  await Promise.allSettled([...state.sessionCleanupPromises])
-  closeAllClients()
-  await stopAutoTunnelProcess()
+  }
+  while (state.sessionCleanupPromises.size > 0) {
+    await Promise.allSettled([...state.sessionCleanupPromises])
+    await Promise.resolve()
+  }
+}
+
+async function stopStreaming(): Promise<StreamingStatus> {
   const server = state.server
   const firewallPort = state.port
   const hadLanListener = state.accessMode !== 'local'
   state.server = null
+  const serverClosed = server
+    ? new Promise<void>((resolveClose) => {
+        try {
+          server.close(() => resolveClose())
+        } catch {
+          resolveClose()
+        }
+      })
+    : Promise.resolve()
+  const tunnelStopped = stopAutoTunnelProcess()
+  await drainStreamingSessions('stream-stopped')
+  closeAllClients()
+  server?.closeAllConnections()
+  await tunnelStopped
+  await serverClosed
   state.port = null
   state.token = null
   state.passwordHash = null
@@ -2748,18 +2827,25 @@ async function stop(): Promise<StreamingStatus> {
   state.autoTunnelMessage = null
   state.autoTunnelStopRequested = false
   state.authFailures.clear()
-  state.sessions.clear()
   state.touchCapabilities.clear()
   state.interactionRates.clear()
-  state.sessionCleanupPromises.clear()
   state.interactionHealth = 'read-only'
   state.lastInteractionFeedback = null
-  if (server) {
-    await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
-    logger.info('streaming', 'server stopped', {})
-  }
+  if (server) logger.info('streaming', 'server stopped', {})
   if (hadLanListener && firewallPort) await removeWindowsFirewallRule(firewallPort)
   return status()
+}
+
+function stop(): Promise<StreamingStatus> {
+  if (stopPromise) return stopPromise
+  state.stopping = true
+  let tracked!: Promise<StreamingStatus>
+  tracked = stopStreaming().finally(() => {
+    if (stopPromise === tracked) stopPromise = null
+    state.stopping = false
+  })
+  stopPromise = tracked
+  return tracked
 }
 
 const STABLE_FIREWALL_RULE_NAME = 'Ultimate Sim App Streaming'
@@ -2883,6 +2969,7 @@ async function removeWindowsFirewallRule(port: number): Promise<void> {
 }
 
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
+  if (stopPromise) await stopPromise
   if (state.server || state.autoTunnelProcess || state.sessions.size > 0) await stop()
   const target = resolveStreamTarget(args)
   state.layoutId = target.id

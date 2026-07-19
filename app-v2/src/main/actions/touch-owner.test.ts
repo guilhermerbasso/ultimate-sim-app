@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TouchSemanticActionRequest } from '../../shared/touch-panel'
 import {
+  executeTouchSemanticCleanupAction,
   executeTouchSemanticAction,
   hasTouchSemanticActionRuntime,
   registerTouchSemanticActionRuntime,
@@ -64,5 +65,24 @@ describe('Touch semantic runtime ownership', () => {
     finishRelease()
     await Promise.all([release, teardown])
     expect(releaseOwner).toHaveBeenCalledTimes(1)
+  })
+
+  it('admits internal cleanup during teardown and releases the owner it re-registers', async () => {
+    const execute = vi.fn().mockResolvedValue({ ok: true, message: 'sent' })
+    const releaseOwner = vi.fn().mockResolvedValue(undefined)
+    unregister = registerTouchSemanticActionRuntime({ execute, releaseOwner })
+
+    await executeTouchSemanticAction(request, 'stream-session-a')
+    const teardown = unregister()
+    await expect(
+      executeTouchSemanticCleanupAction(
+        { ...request, phase: 'cancel' },
+        'stream-session-a'
+      )
+    ).resolves.toEqual({ ok: true, message: 'sent' })
+    await teardown
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(releaseOwner).toHaveBeenCalledTimes(2)
   })
 })
