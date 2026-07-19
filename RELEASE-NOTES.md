@@ -1,5 +1,60 @@
 # Ultimate Sim App — Release Notes
 
+## v2.54.0 — Managed streaming, secure Internet sharing & offline Mission Rehearsal
+
+Version 2.54.0 makes it easier to choose what spectators see, open a secure public viewer without
+manual tunnel setup, and rehearse race operations without touching a live session.
+
+### Streaming targets you control
+- 📺 **A dedicated Streaming area** stores the dashboard and Touch Controls targets you choose
+  instead of making you rediscover them for each session.
+- ✏️ **Edited dashboard copies stay streamable** after migration and restart, while exact built-in
+  presets remain distinguishable from your customized versions.
+- 🔒 Streaming remains read-only; this release does not add remote control of the app or simulator.
+
+### Secure Internet sharing
+- 🌐 **Internet mode can open its secure public HTTPS viewer automatically** through the bundled,
+  checksum-verified Cloudflare quick tunnel, including password/token bootstrap and authenticated
+  receiver readiness.
+- 🩺 **Clear health diagnostics and supervised recovery** prevent stale public URLs, clean up old
+  tunnel processes, and reconnect with bounded retries.
+- 🏠 Local and LAN streaming continue to work independently of the Internet tunnel.
+
+### Offline Mission Rehearsal
+- 🏁 **Build and run branching race-operation scenarios offline** with assigned roles, checkpoints,
+  deterministic decisions, resumable runs, and archive recovery.
+- 📊 **Compare repeat attempts and review scored, blameless debriefs** without needing a simulator
+  session or a cloud service.
+- 🧱 Synthetic rehearsal events never enter real telemetry or session history, and rehearsal
+  decisions cannot actuate live race controls.
+
+### Validation
+- Full test suite: **3,945 tests passing across 308 files. Typecheck clean.**
+- Merged-feature suite: **142 tests passing across 11 files**; updater/package release gate:
+  **5 tests passing**.
+- Production build: **349 main-process modules, 8 preload modules, and 2,348 renderer modules**;
+  the **48-file streaming resource graph** passes with 22 JavaScript and 5 CSS files.
+- The final `npm run dist:win` and `npm run verify:win-package` runs passed. Packaging used the
+  documented fallback for the optional ViGEm module because the host has no Visual Studio Build
+  Tools.
+- The verifier accepted the unpacked Electron runtime, elevated NSIS helper, packaged SerialPort,
+  Cloudflare tunnel, Whisper runtime, and the exact four updater artifacts. `latest.yml` identifies
+  `Ultimate-Sim-App-2.54.0-x64.exe` at **317,890,721 bytes** with its matching SHA-512 and
+  `isAdminRightsRequired: true`.
+
+_Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.zip` + blockmap +
+`latest.yml`._
+
+### What's Changed
+- [#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71) — add persistent,
+  user-managed dashboard and Touch Controls streaming targets.
+- [#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72) — restore and harden secure
+  Internet auto-tunnel streaming.
+- [#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73) — add offline Mission
+  Rehearsal with isolated synthetic events and recovery-safe runs.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
+
 ## v2.53.1 — SerialPort startup hotfix
 
 Version 2.53.1 fixes the JavaScript error shown immediately after installing v2.53.0:
