@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { open as openFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -219,4 +219,151 @@ describe('local collaboration file boundaries', () => {
     ).rejects.toThrow(`Collaboration import exceeds ${MAX_BUNDLE_BYTES} bytes.`)
     expect(await target.exportBundle()).toBe(beforeRejectedImport)
   }, 60_000)
+
+  it('rejects a very large sparse file after reading only the bounded prefix', async () => {
+    const directory = mkdtempSync(join(process.cwd(), 'collaboration-module-test-'))
+    cleanup.push(directory)
+    const sparsePath = join(directory, 'sparse.simcollab')
+    const sparse = await openFile(sparsePath, 'w')
+    try {
+      await sparse.truncate(MAX_BUNDLE_BYTES * 128)
+    } finally {
+      await sparse.close()
+    }
+
+    let largestBuffer = 0
+    let totalBytesRead = 0
+    let closeHandle: ReturnType<typeof vi.fn> | undefined
+    const openImportFile = vi.fn(async (filePath: string) => {
+      const file = await openFile(filePath, 'r')
+      const close = vi.fn(async () => file.close())
+      closeHandle = close
+      return {
+        read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+          largestBuffer = Math.max(largestBuffer, buffer.byteLength)
+          const { bytesRead } = await file.read(buffer, offset, length, position)
+          totalBytesRead += bytesRead
+          return { bytesRead }
+        },
+        close
+      }
+    })
+    const target = await LocalCollaborationService.open(join(directory, 'sparse-target.json'))
+    const importBundle = vi.spyOn(target, 'importBundle')
+    const handlers = new Map<string, Handler>()
+    register(moduleContext(handlers, directory), {
+      openService: async () => target,
+      openImportFile
+    })
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: [sparsePath]
+    })
+
+    await expect(
+      handler(handlers, COLLABORATION_CHANNELS.importFile)()
+    ).rejects.toThrow(`Collaboration import exceeds ${MAX_BUNDLE_BYTES} bytes.`)
+    expect(openImportFile).toHaveBeenCalledTimes(1)
+    expect(largestBuffer).toBe(MAX_BUNDLE_BYTES + 1)
+    expect(totalBytesRead).toBe(MAX_BUNDLE_BYTES + 1)
+    expect(closeHandle!).toHaveBeenCalledTimes(1)
+    expect(importBundle).not.toHaveBeenCalled()
+  })
+
+  it('loops over partial reads and imports only the exact bytes returned', async () => {
+    const directory = mkdtempSync(join(process.cwd(), 'collaboration-module-test-'))
+    cleanup.push(directory)
+    const source = await LocalCollaborationService.open(join(directory, 'partial-source.json'))
+    await source.setOnline(false)
+    await source.create({ kind: 'race-notes', title: 'Partial read import' })
+    const bundle = await source.exportBundle()
+    const sourceBytes = Buffer.from(bundle, 'utf8')
+    const read = vi.fn(async (
+      buffer: Buffer,
+      offset: number,
+      length: number,
+      position: number
+    ) => {
+      const bytesRead = Math.min(31, length, sourceBytes.byteLength - position)
+      if (bytesRead > 0) sourceBytes.copy(buffer, offset, position, position + bytesRead)
+      return { bytesRead }
+    })
+    const close = vi.fn(async () => {})
+    const openImportFile = vi.fn(async () => ({ read, close }))
+    const target = await LocalCollaborationService.open(join(directory, 'partial-target.json'))
+    await target.setOnline(false)
+    const handlers = new Map<string, Handler>()
+    register(moduleContext(handlers, directory), {
+      openService: async () => target,
+      openImportFile
+    })
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['partial.simcollab']
+    })
+
+    await handler(handlers, COLLABORATION_CHANNELS.importFile)()
+
+    expect(openImportFile).toHaveBeenCalledTimes(1)
+    expect(read.mock.calls.length).toBeGreaterThan(2)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(await target.exportBundle()).toBe(bundle)
+  })
+
+  it('closes the file handle when a bounded read fails', async () => {
+    const directory = mkdtempSync(join(process.cwd(), 'collaboration-module-test-'))
+    cleanup.push(directory)
+    const readError = new Error('simulated bounded read failure')
+    const read = vi.fn(async () => {
+      throw readError
+    })
+    const close = vi.fn(async () => {})
+    const openImportFile = vi.fn(async () => ({ read, close }))
+    const target = await LocalCollaborationService.open(join(directory, 'read-error-target.json'))
+    const importBundle = vi.spyOn(target, 'importBundle')
+    const handlers = new Map<string, Handler>()
+    register(moduleContext(handlers, directory), {
+      openService: async () => target,
+      openImportFile
+    })
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['read-error.simcollab']
+    })
+
+    await expect(
+      handler(handlers, COLLABORATION_CHANNELS.importFile)()
+    ).rejects.toBe(readError)
+    expect(openImportFile).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(importBundle).not.toHaveBeenCalled()
+  })
+
+  it('surfaces file-handle close failures', async () => {
+    const directory = mkdtempSync(join(process.cwd(), 'collaboration-module-test-'))
+    cleanup.push(directory)
+    const closeError = new Error('simulated import close failure')
+    const read = vi.fn(async () => ({ bytesRead: 0 }))
+    const close = vi.fn(async () => {
+      throw closeError
+    })
+    const openImportFile = vi.fn(async () => ({ read, close }))
+    const target = await LocalCollaborationService.open(join(directory, 'close-error-target.json'))
+    const importBundle = vi.spyOn(target, 'importBundle')
+    const handlers = new Map<string, Handler>()
+    register(moduleContext(handlers, directory), {
+      openService: async () => target,
+      openImportFile
+    })
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['close-error.simcollab']
+    })
+
+    await expect(
+      handler(handlers, COLLABORATION_CHANNELS.importFile)()
+    ).rejects.toBe(closeError)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(importBundle).not.toHaveBeenCalled()
+  })
 })

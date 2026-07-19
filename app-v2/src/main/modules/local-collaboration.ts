@@ -1,5 +1,5 @@
 import { dialog, type OpenDialogOptions } from 'electron'
-import { readFile, writeFile } from 'node:fs/promises'
+import { open, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -22,11 +22,21 @@ const MAX_IMPORT_BYTES = 8 * 1024 * 1024
 
 export interface LocalCollaborationModuleOptions {
   openService?: (filePath: string) => Promise<LocalCollaborationService>
+  openImportFile?: (filePath: string) => Promise<{
+    read(
+      buffer: Buffer,
+      offset: number,
+      length: number,
+      position: number
+    ): Promise<{ bytesRead: number }>
+    close(): Promise<void>
+  }>
 }
 
 export function register(ctx: ModuleContext, options: LocalCollaborationModuleOptions = {}): void {
   let initializationError: string | undefined
   const openService = options.openService ?? ((filePath: string) => LocalCollaborationService.open(filePath))
+  const openImportFile = options.openImportFile ?? ((filePath: string) => open(filePath, 'r'))
   const servicePromise = Promise.resolve()
     .then(() => openService(join(ctx.app.getPath('userData'), STORE_FILE)))
     .catch((error: unknown) => {
@@ -121,10 +131,7 @@ export function register(ctx: ModuleContext, options: LocalCollaborationModuleOp
       : await dialog.showOpenDialog(options)
     const filePath = result.filePaths[0]
     if (result.canceled || !filePath) return { canceled: true }
-    const payload = await readFile(filePath)
-    if (payload.byteLength > MAX_IMPORT_BYTES) {
-      throw new Error(`Collaboration import exceeds ${MAX_IMPORT_BYTES} bytes.`)
-    }
+    const payload = await readBoundedImport(filePath, openImportFile)
     const service = await requireService()
     try {
       const state = await service.importBundle(payload.toString('utf8'))
@@ -140,6 +147,33 @@ export function register(ctx: ModuleContext, options: LocalCollaborationModuleOp
     const service = await servicePromise
     if (service) await service.flush()
   }, 'persistence')
+}
+
+async function readBoundedImport(
+  filePath: string,
+  openFile: NonNullable<LocalCollaborationModuleOptions['openImportFile']>
+): Promise<Buffer> {
+  const file = await openFile(filePath)
+  const payload = Buffer.allocUnsafe(MAX_IMPORT_BYTES + 1)
+  let totalBytes = 0
+  try {
+    while (totalBytes < payload.byteLength) {
+      const { bytesRead } = await file.read(
+        payload,
+        totalBytes,
+        payload.byteLength - totalBytes,
+        totalBytes
+      )
+      if (bytesRead === 0) break
+      totalBytes += bytesRead
+      if (totalBytes > MAX_IMPORT_BYTES) {
+        throw new Error(`Collaboration import exceeds ${MAX_IMPORT_BYTES} bytes.`)
+      }
+    }
+    return payload.subarray(0, totalBytes)
+  } finally {
+    await file.close()
+  }
 }
 
 const UNAVAILABLE_ACTOR: CollaborationActor = {
