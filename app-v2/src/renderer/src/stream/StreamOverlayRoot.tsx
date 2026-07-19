@@ -5,7 +5,12 @@ import type { OverlayWidgetConfig, OverlayWidgetId } from '../../../shared/overl
 import { createDefaultOverlaysConfig, createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET } from '../../../shared/overlays'
 import type { StreamingDashboardPayload, StreamingLayoutKind, StreamingTelemetryFrame } from '../../../shared/streaming'
 import { STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../../shared/streaming'
+import {
+  normalizeStreamPresentationProfile,
+  type StreamPresentationProfile
+} from '../../../shared/stream-presentation'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
 import { DashboardCanvas } from '../dashboard/DashboardRoot'
 import { CompactHudWidget, COMPACT_HUD_STREAM_SAFE } from '../overlay/widgets/CompactHudWidget'
 import { DeltaLapWidget } from '../overlay/widgets/DeltaLapWidget'
@@ -15,6 +20,8 @@ import { GT3ClusterWidget, GT3_CLUSTER_STREAM_SAFE } from '../overlay/widgets/GT
 import { RelativeWidget } from '../overlay/widgets/RelativeWidget'
 import type { WidgetProps } from '../overlay/widgets/types'
 import { TouchPanelWindowRoot } from '../touchpanel/TouchPanelWindowRoot'
+import { fetchStreamPanel } from '../touchpanel/runtime'
+import { StreamPresentationRenderer } from '../stream-presentation/StreamPresentationRenderer'
 import { streamEndpoint } from './urls'
 import '../dashboard/dashboard-runtime.css'
 import '../touchpanel/buttonbox.css'
@@ -54,20 +61,28 @@ function authSessionUrl(): string {
   return streamEndpoint('auth/session').toString()
 }
 
-function streamTarget(): { kind: StreamingLayoutKind; id: string | null } {
+function streamTarget(): { kind: StreamingLayoutKind; id: string | null; profileId: string | null } {
   try {
     const url = new URL(window.location.href)
     const kind = url.searchParams.get('kind') === 'touch' ? 'touch' : 'dashboard'
     const queryId = kind === 'touch' ? url.searchParams.get('panel') : url.searchParams.get('dash')
     const pathId = url.pathname.match(/\/obs\/([^/]+)$/)?.[1]
-    return { kind, id: queryId || (pathId ? decodeURIComponent(pathId) : null) }
+    return {
+      kind,
+      id: queryId || (pathId ? decodeURIComponent(pathId) : null),
+      profileId: url.searchParams.get('profile')
+    }
   } catch {
-    return { kind: 'dashboard', id: null }
+    return { kind: 'dashboard', id: null, profileId: null }
   }
 }
 
 function dashboardApiUrl(id: string): string {
   return streamEndpoint(`api/dashboard/${encodeURIComponent(id)}`).toString()
+}
+
+function presentationApiUrl(id: string): string {
+  return streamEndpoint(`api/presentation/${encodeURIComponent(id)}`).toString()
 }
 
 function widgetConfig(id: OverlayWidgetId): OverlayWidgetConfig {
@@ -111,6 +126,8 @@ export function StreamOverlayRoot() {
   const [authenticating, setAuthenticating] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+  const [touchPanel, setTouchPanel] = useState<ButtonBoxPanel | null>(null)
+  const [presentationProfile, setPresentationProfile] = useState<StreamPresentationProfile | null>(null)
   const [expressionNotice, setExpressionNotice] = useState(STREAMING_EXPRESSION_EXCLUSION_MESSAGE)
   const [targetError, setTargetError] = useState<string | null>(null)
   const target = useMemo(streamTarget, [])
@@ -285,6 +302,59 @@ export function StreamOverlayRoot() {
   }, [target])
 
   useEffect(() => {
+    if (!target.profileId) {
+      setPresentationProfile(null)
+      return
+    }
+    let alive = true
+    fetch(presentationApiUrl(target.profileId), { cache: 'no-store', credentials: 'same-origin' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<unknown>
+      })
+      .then((raw) => {
+        if (!alive) return
+        const profile = normalizeStreamPresentationProfile(raw)
+        if (
+          !profile ||
+          profile.id !== target.profileId ||
+          profile.target.kind !== target.kind ||
+          profile.target.id !== target.id
+        ) {
+          throw new Error('Invalid stream presentation profile.')
+        }
+        setPresentationProfile(profile)
+      })
+      .catch((err) => {
+        if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load stream presentation profile.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [target])
+
+  useEffect(() => {
+    if (target.kind !== 'touch' || !target.id || !target.profileId) {
+      setTouchPanel(null)
+      return
+    }
+    let alive = true
+    fetchStreamPanel(target.id)
+      .then((raw) => {
+        if (!alive) return
+        const panel = parseButtonBoxPanel(raw)
+        if (!panel) throw new Error('Invalid touch controls panel.')
+        setTouchPanel(panel)
+      })
+      .catch((err) => {
+        if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load touch controls.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [target])
+
+  useEffect(() => {
     const updateScale = (): void => {
       const next = Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT)
       setScale(Number.isFinite(next) && next > 0 ? next : 1)
@@ -372,13 +442,39 @@ export function StreamOverlayRoot() {
     )
   }
 
-  if (hasSelectedTarget && target.kind === 'touch') return <TouchPanelWindowRoot />
+  if (hasSelectedTarget && target.kind === 'touch') {
+    if (!target.profileId) return <TouchPanelWindowRoot />
+    if (presentationProfile && touchPanel) {
+      return (
+        <StreamPresentationRenderer
+          profile={presentationProfile}
+          touchPanel={touchPanel}
+          snapshot={snapshot}
+          mode="runtime"
+          interactiveTouch={false}
+          ariaLabel="Mobile touch controls stream"
+        />
+      )
+    }
+    return <LoadingState label="Loading touch presentation…" />
+  }
 
   if (hasSelectedTarget && target.kind === 'dashboard') {
     if (dashboard) {
+      if (target.profileId && !presentationProfile) return <LoadingState label="Loading stream presentation…" />
       return (
         <>
-          <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+          {presentationProfile ? (
+            <StreamPresentationRenderer
+              profile={presentationProfile}
+              dashboard={dashboard}
+              snapshot={snapshot}
+              mode="runtime"
+              ariaLabel="Mobile dashboard stream"
+            />
+          ) : (
+            <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+          )}
           <StreamExpressionNotice message={expressionNotice} />
         </>
       )
