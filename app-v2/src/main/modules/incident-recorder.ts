@@ -19,11 +19,14 @@ import {
   INCIDENT_CHANNELS,
   buildIncidentWindow,
   classifyIncident,
+  createIncidentCaptureSessionIdentity,
+  incidentCaptureSessionKey,
   summarizeIncident,
   toClipMeta,
   toIncidentSample,
   type IncidentAnalysis,
   type IncidentAnalyzeRequest,
+  type IncidentCaptureSessionIdentity,
   type IncidentClip,
   type IncidentClipMeta,
   type IncidentEvent,
@@ -48,6 +51,7 @@ const ANALYZE_MAX_TOKENS = 130
 interface PendingCapture {
   event: IncidentEvent
   finalizeAt: number
+  captureSession: IncidentCaptureSessionIdentity
 }
 
 function finite(value: unknown): value is number {
@@ -96,7 +100,8 @@ class ClipStore {
     const path = join(this.dir, safeFileName(id))
     try {
       if (!existsSync(path)) return null
-      return JSON.parse(readFileSync(path, 'utf8')) as IncidentClip
+      const clip = JSON.parse(readFileSync(path, 'utf8')) as IncidentClip
+      return clip?.id === id && Array.isArray(clip.window) ? clip : null
     } catch {
       return null
     }
@@ -139,6 +144,11 @@ class ClipStore {
       }
     }
   }
+}
+
+export function readIncidentClipFromUserData(userDataPath: string, id: string): IncidentClip | null {
+  if (!id || id.length > 300) return null
+  return new ClipStore(join(userDataPath, CLIPS_DIR)).get(id)
 }
 
 // ─── optional LLM analysis (deterministic fallback always works) ─────────────────
@@ -201,8 +211,10 @@ export function register(ctx: ModuleContext): void {
   const config = DEFAULT_INCIDENT_CONFIG
   let ring: IncidentSample[] = []
   let prevSnapshot: TelemetrySnapshot | null = null
-  const lastDetectedAt: Partial<Record<IncidentEvent['type'], number>> = {}
+  let lastDetectedAt: Partial<Record<IncidentEvent['type'], number>> = {}
   let pending: PendingCapture[] = []
+  let captureSession: IncidentCaptureSessionIdentity | null = null
+  let captureSessionKey = ''
 
   const finalizeReady = (nowMs: number): void => {
     if (pending.length === 0) return
@@ -216,7 +228,8 @@ export function register(ctx: ModuleContext): void {
         id: `inc-${capture.event.at}-${capture.event.type}`,
         window,
         triggerIndex,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        captureSession: capture.captureSession
       }
       const meta = store.save(clip)
       if (meta) {
@@ -234,7 +247,20 @@ export function register(ctx: ModuleContext): void {
       finalizeReady(Number.MAX_SAFE_INTEGER)
       ring = []
       prevSnapshot = null
+      lastDetectedAt = {}
+      captureSession = null
+      captureSessionKey = ''
       return
+    }
+
+    const nextCaptureSessionKey = incidentCaptureSessionKey(snapshot)
+    if (!captureSession || captureSessionKey !== nextCaptureSessionKey) {
+      if (captureSession) finalizeReady(Number.MAX_SAFE_INTEGER)
+      ring = []
+      prevSnapshot = null
+      lastDetectedAt = {}
+      captureSession = createIncidentCaptureSessionIdentity(snapshot)
+      captureSessionKey = nextCaptureSessionKey
     }
 
     const sample = toIncidentSample(snapshot)
@@ -251,7 +277,11 @@ export function register(ctx: ModuleContext): void {
       const last = lastDetectedAt[event.type]
       if (!finite(last) || event.at - (last as number) >= config.minGapMs) {
         lastDetectedAt[event.type] = event.at
-        pending.push({ event, finalizeAt: snapshot.timestamp + POST_MS })
+        pending.push({
+          event,
+          finalizeAt: snapshot.timestamp + POST_MS,
+          captureSession
+        })
       }
     }
 

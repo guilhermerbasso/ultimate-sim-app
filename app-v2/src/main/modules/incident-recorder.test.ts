@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcMain } from 'electron'
+import { readdirSync, writeFileSync } from 'node:fs'
 import type { ModuleContext } from '../module-context'
+import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { logger } from './logger'
 
 // Drive ClipStore.load() down its error branch (dir exists but readdir throws) so the
@@ -55,5 +57,48 @@ describe('incident-recorder log area', () => {
     for (const call of warn.mock.calls) {
       expect(call[0]).not.toBe('ai')
     }
+  })
+
+  it('persists the trigger session identity and does not relabel a pending clip after a session switch', () => {
+    vi.mocked(readdirSync).mockReturnValue([])
+    const ctx = makeCtx()
+    register(ctx)
+    const snapshotHandler = vi.mocked(ctx.telemetryHub.on).mock.calls.find(
+      ([event]) => event === 'snapshot'
+    )?.[1] as ((snapshot: TelemetrySnapshot | null) => void)
+    const snapshot = (partial: Partial<TelemetrySnapshot>): TelemetrySnapshot => ({
+      sim: 'iracing',
+      connected: true,
+      timestamp: 0,
+      speedKmh: 200,
+      rpm: 7_000,
+      gear: 4,
+      throttle: 1,
+      brake: 0,
+      clutch: 0,
+      sessionUniqueId: 111,
+      sessionNumber: 0,
+      sessionType: 'Race',
+      trackName: 'Spa',
+      ...partial
+    })
+
+    snapshotHandler(snapshot({ timestamp: 0, speedKmh: 200 }))
+    snapshotHandler(snapshot({ timestamp: 33, speedKmh: 160 }))
+    snapshotHandler(snapshot({
+      timestamp: 40,
+      sessionUniqueId: 222,
+      trackName: 'Monza',
+      speedKmh: 160
+    }))
+
+    const persisted = JSON.parse(vi.mocked(writeFileSync).mock.calls.at(-1)?.[1] as string)
+    expect(persisted.captureSession).toMatchObject({
+      schemaVersion: 1,
+      captureSessionId: 'capture-iracing:unique:111',
+      sim: 'iracing',
+      sessionUniqueId: 111,
+      trackName: 'Spa'
+    })
   })
 })

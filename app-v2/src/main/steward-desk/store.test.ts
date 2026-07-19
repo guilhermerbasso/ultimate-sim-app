@@ -6,6 +6,7 @@ import type {
   StewardCase,
   StewardCaseCreateInput,
   StewardEvidenceLockInput,
+  StewardExportBundle,
   StewardRuleCitation,
   StewardHumanVerdict
 } from '../../shared/steward-desk'
@@ -14,7 +15,8 @@ import {
   parseStewardExportBundle,
   serializeStewardExportBundle
 } from './store'
-import { PACKAGE_MAX_CANONICAL_BYTES, canonicalStringify } from './canonical'
+import { normalizeThirdPartyImportMetadata } from '../../shared/third-party-dashboard-catalog'
+import { PACKAGE_MAX_CANONICAL_BYTES, canonicalStringify, sha256Canonical } from './canonical'
 
 const roots: string[] = []
 
@@ -86,6 +88,7 @@ function caseInput(sourceId = 'inc-42'): StewardCaseCreateInput {
       lap: 1,
       lapDistPct: 0.03,
       replayFrame: 842,
+      captureSessionId: 'session-secret-2026-07-17',
       windowBeforeSec: 4,
       windowAfterSec: 3,
       notes: 'Alice Racer and Team Crimson made contact.'
@@ -98,19 +101,41 @@ function evidenceInput(caseId: string): StewardEvidenceLockInput {
     caseId,
     actor: steward,
     summary: 'Incident recorder clip for Alice Racer',
-    mediaType: 'application/json',
+    mediaType: 'application/vnd.ultimate-sim.incident+json',
     content: {
+      id: 'inc-42',
+      type: 'contact',
+      severity: 'moderate',
+      at: 900,
+      lap: 1,
+      lapDistPct: 0.03,
+      metrics: { speedKmh: 121, speedDropKmh: 49 },
+      summary: 'Alice Racer and Team Crimson contact',
+      window: [{ t: 900, speedKmh: 121 }, { t: 901, speedKmh: 72 }],
+      triggerIndex: 0,
+      createdAt: 900,
+      captureSession: {
+        schemaVersion: 1,
+        captureSessionId: 'session-secret-2026-07-17',
+        sim: 'iracing',
+        startedAt: 500,
+        sessionUniqueId: 4242,
+        sessionNumber: 0,
+        sessionType: 'Race',
+        trackName: 'Spa-Francorchamps'
+      },
       driverName: 'Alice Racer',
       teamName: 'Team Crimson',
       producer: 'Morgan Steward Recorder',
       sessionId: 'session-secret-2026-07-17',
       exactTimestamp: 1_752_000_000_123,
       samples: [{ t: 900, speedKmh: 121 }, { t: 901, speedKmh: 72 }],
+      opaqueComment: 'unlisted.person@example.test',
       note: 'Alice Racer was alongside Morgan Steward at 2026-07-17T12:34:56.789Z.'
     },
     provenance: {
       sourceKind: 'incident-recorder',
-      sourceRef: 'incident-clips/inc-42.json',
+      sourceRef: 'inc-42',
       producer: 'Morgan Steward Recorder',
       producerVersion: '2.53.1',
       capturedAt: 900,
@@ -151,6 +176,27 @@ function seedDecision(store: StewardCaseStore, current: StewardCase): {
     evidenceIds: [evidenceId]
   })
   return { current: next, evidenceId, rule, verdict: next.verdicts[0] }
+}
+
+function rehashPackage(bundle: StewardExportBundle): StewardExportBundle {
+  const clone = JSON.parse(JSON.stringify(bundle)) as StewardExportBundle
+  const { packageHash: _packageHash, ...unsigned } = clone
+  clone.packageHash = sha256Canonical(unsigned, PACKAGE_MAX_CANONICAL_BYTES)
+  return clone
+}
+
+function rehashEventChain(bundle: StewardExportBundle): StewardExportBundle {
+  const clone = JSON.parse(JSON.stringify(bundle)) as StewardExportBundle
+  let previousHash = '0'.repeat(64)
+  for (const event of clone.events) {
+    event.previousHash = previousHash
+    const { eventHash: _eventHash, ...unsigned } = event
+    event.eventHash = sha256Canonical(unsigned)
+    previousHash = event.eventHash
+  }
+  clone.source.eventCount = clone.events.length
+  clone.source.headHash = previousHash
+  return rehashPackage(clone)
 }
 
 describe('StewardCaseStore', () => {
@@ -207,6 +253,7 @@ describe('StewardCaseStore', () => {
     equivalent.identity.leagueId = ' LEAGUE-PRIVATE '
     equivalent.identity.eventId = 'ROUND-4'
     equivalent.identity.sessionId = 'SESSION-SECRET-2026-07-17'
+    equivalent.incident.captureSessionId = 'SESSION-SECRET-2026-07-17'
     equivalent.incident.occurredAt = 9_999_999
     equivalent.incident.sessionTimeSec = 125.44
     expect(() => test.store.createCase(equivalent)).toThrow(/duplicate incident/i)
@@ -239,7 +286,7 @@ describe('StewardCaseStore', () => {
       actor: participant,
       verdictId: seeded.verdict.verdictId,
       statement: 'Alice Racer disagrees with Morgan Steward.',
-      grounds: 'Team Crimson believes the private session clip was incomplete.'
+      grounds: 'Team Crimson believes the private session clip was incomplete; contact hidden.case@example.test.'
     })
     const appealed = test.store.fileAppeal({
       caseId: withDissent.caseId,
@@ -261,6 +308,8 @@ describe('StewardCaseStore', () => {
       'incident-clips/inc-42.json',
       'file:///league/private-rules.pdf',
       '2026-07-17T12:34:56.789Z',
+      'unlisted.person@example.test',
+      'hidden.case@example.test',
       String(exactNow)
     ]) {
       expect(serialized).not.toContain(secret)
@@ -279,15 +328,18 @@ describe('StewardCaseStore', () => {
     expect(bundle.exportedAt).toBe(0)
     expect(bundle.redactions.length).toBeGreaterThan(0)
     expect(bundle.evidence[0].content).toMatchObject({
-      driverName: '[redacted]',
-      teamName: '[redacted]',
-      sessionId: '[redacted]',
-      producer: '[redacted]'
+      schemaVersion: 1,
+      kind: 'incident-telemetry',
+      incidentType: 'contact',
+      severity: 'moderate',
+      occurredAt: 0,
+      samples: [{ t: 0 }, { t: 0 }],
+      captureSession: {
+        captureSessionId: bundle.case.identity.sessionId
+      }
     })
-    expect(bundle.evidence[0].content).toMatchObject({
-      exactTimestamp: 0,
-      samples: [{ t: 0 }, { t: 0 }]
-    })
+    expect(bundle.evidence[0].content).not.toHaveProperty('opaqueComment')
+    expect(bundle.evidence[0].content).not.toHaveProperty('summary')
     expect(bundle.case.evidence[0].provenance).toMatchObject({
       producer: 'producer-redacted',
       capturedAt: 0,
@@ -361,6 +413,8 @@ describe('StewardCaseStore', () => {
     })
     const bundle = source.store.exportCase(seeded.current.caseId, 'full-local')
     const raw = serializeStewardExportBundle(bundle)
+    expect(bundle.events).toHaveLength(bundle.source.eventCount)
+    expect(bundle.events.at(-1)?.eventHash).toBe(bundle.source.headHash)
 
     const target = harness('export-target', 10_000)
     const imported = target.store.importCase(raw)
@@ -388,6 +442,117 @@ describe('StewardCaseStore', () => {
     const tampered = JSON.parse(raw) as Record<string, unknown>
     ;(tampered.case as Record<string, unknown>).title = 'Changed after export'
     expect(() => parseStewardExportBundle(JSON.stringify(tampered))).toThrow(/hash mismatch/i)
+  })
+
+  it('rejects rehashed packages whose event chain or case state is not canonical', () => {
+    const source = harness('event-chain-source')
+    const seeded = seedDecision(source.store, source.store.createCase(caseInput()))
+    const original = source.store.exportCase(seeded.current.caseId, 'full-local')
+
+    const brokenHash = JSON.parse(JSON.stringify(original)) as StewardExportBundle
+    const verdictEvent = brokenHash.events.find((entry) => entry.type === 'human-verdict-recorded')!
+    ;(verdictEvent.payload as { verdict: { decisionText: string } }).verdict.decisionText = 'Rehashed package-only tamper'
+    const packageOnly = rehashPackage(brokenHash)
+    expect(() => harness('event-chain-target').store.importCase(
+      serializeStewardExportBundle(packageOnly)
+    )).toThrow(/event hash mismatch/i)
+
+    const inconsistent = JSON.parse(JSON.stringify(original)) as StewardExportBundle
+    const changedVerdictEvent = inconsistent.events.find((entry) => entry.type === 'human-verdict-recorded')!
+    ;(changedVerdictEvent.payload as { verdict: { decisionText: string } }).verdict.decisionText =
+      'Canonical chain differs from the exported case projection.'
+    const rehashed = rehashEventChain(inconsistent)
+    expect(() => harness('event-state-target').store.importCase(
+      serializeStewardExportBundle(rehashed)
+    )).toThrow(/does not match its verified canonical event chain/i)
+  })
+
+  it('applies local verdict invariants identically to imported packages', () => {
+    const source = harness('verdict-invariant-source')
+    const seeded = seedDecision(source.store, source.store.createCase(caseInput()))
+    const bundle = source.store.exportCase(seeded.current.caseId, 'full-local')
+    bundle.case.verdicts[0].evidenceIds = []
+    const verdictEvent = bundle.events.find((entry) => entry.type === 'human-verdict-recorded')!
+    ;(verdictEvent.payload as { verdict: StewardHumanVerdict }).verdict.evidenceIds = []
+
+    expect(() => harness('verdict-invariant-target').store.importCase(
+      serializeStewardExportBundle(rehashEventChain(bundle))
+    )).toThrow(/requires at least one locked evidence item/i)
+  })
+
+  it('rejects incident capture-session substitution and unverifiable incident cases', () => {
+    const test = harness('capture-session')
+    const mismatchedCreate = caseInput()
+    mismatchedCreate.incident.captureSessionId = 'capture-other-session'
+    expect(() => test.store.createCase(mismatchedCreate)).toThrow(/capture-session id/i)
+
+    const current = test.store.createCase(caseInput())
+    const mismatchedEvidence = evidenceInput(current.caseId)
+    const content = mismatchedEvidence.content as {
+      captureSession: { captureSessionId: string }
+    }
+    content.captureSession.captureSessionId = 'capture-other-session'
+    mismatchedEvidence.provenance.sessionRef = 'capture-other-session'
+    expect(() => test.store.lockEvidence(mismatchedEvidence)).toThrow(/does not match the immutable steward case session/i)
+  })
+
+  it('rejects undeclared free-form fields from anonymized evidence even after full rehashing', () => {
+    const source = harness('anonymized-schema-source')
+    const seeded = seedDecision(source.store, source.store.createCase(caseInput()))
+    const bundle = source.store.exportCase(seeded.current.caseId, 'anonymized')
+    const content = bundle.evidence[0].content as Record<string, unknown>
+    content.freeFormLeak = 'person.not-in-source@example.test'
+    const contentHash = sha256Canonical(content)
+    bundle.evidence[0].contentHash = contentHash
+    bundle.case.evidence[0].contentHash = contentHash
+    bundle.case.evidence[0].byteLength = Buffer.byteLength(canonicalStringify(content), 'utf8')
+    const evidenceEvent = bundle.events.find((entry) => entry.type === 'evidence-locked')!
+    const eventEvidence = (evidenceEvent.payload as { evidence: StewardCase['evidence'][number] }).evidence
+    eventEvidence.contentHash = contentHash
+    eventEvidence.byteLength = bundle.case.evidence[0].byteLength
+
+    expect(() => harness('anonymized-schema-target').store.importCase(
+      serializeStewardExportBundle(rehashEventChain(bundle))
+    )).toThrow(/undeclared field freeFormLeak/i)
+
+    const freeFormCase = source.store.exportCase(seeded.current.caseId, 'anonymized')
+    freeFormCase.case.verdicts[0].decisionText = 'person.not-in-source@example.test'
+    const verdictEvent = freeFormCase.events.find((entry) => entry.type === 'human-verdict-recorded')!
+    ;(verdictEvent.payload as { verdict: StewardHumanVerdict }).verdict.decisionText =
+      'person.not-in-source@example.test'
+    expect(() => harness('anonymized-case-schema-target').store.importCase(
+      serializeStewardExportBundle(rehashEventChain(freeFormCase))
+    )).toThrow(/anonymized verdict contains non-allowlisted free-form data/i)
+  })
+
+  it('blocks export of evidence whose third-party rights deny re-export', () => {
+    const test = harness('rights-guard')
+    let current = test.store.createCase(caseInput())
+    current = test.store.lockEvidence({
+      caseId: current.caseId,
+      actor: steward,
+      summary: 'Restricted third-party dashboard evidence',
+      mediaType: 'application/json',
+      content: {
+        dashboard: {
+          id: 'restricted-dashboard',
+          thirdParty: normalizeThirdPartyImportMetadata({
+            catalogEntryId: 'lovely-dashboard'
+          }, 1_000)
+        }
+      },
+      provenance: {
+        sourceKind: 'document',
+        sourceRef: 'local-dashboard-file',
+        producer: 'Local steward',
+        producerVersion: '1',
+        capturedAt: 1_000,
+        sessionRef: current.identity.sessionId
+      }
+    })
+
+    expect(() => test.store.exportCase(current.caseId, 'full-local')).toThrow(/re-export rights are denied/i)
+    expect(() => test.store.exportCase(current.caseId, 'anonymized')).toThrow(/re-export rights are denied/i)
   })
 
   it('keeps incomplete imports isolated and retries them atomically by package hash', () => {
@@ -457,9 +622,11 @@ describe('StewardCaseStore', () => {
         ...evidenceInput(current.caseId),
         evidenceId: `large-evidence-${index}`,
         summary: `Large evidence ${index}`,
+        mediaType: 'application/json',
         content: { payload: String(index).repeat(900_000) },
         provenance: {
           ...evidenceInput(current.caseId).provenance,
+          sourceKind: 'document',
           sourceRef: `large-${index}`
         }
       })
@@ -472,6 +639,12 @@ describe('StewardCaseStore', () => {
     expect(() => test.store.lockEvidence({
       ...evidenceInput(current.caseId),
       evidenceId: 'too-large',
+      mediaType: 'application/json',
+      provenance: {
+        ...evidenceInput(current.caseId).provenance,
+        sourceKind: 'document',
+        sourceRef: 'too-large'
+      },
       content: { payload: 'x'.repeat(4 * 1024 * 1024) }
     })).toThrow(/4 MiB limit/i)
 

@@ -41,6 +41,7 @@ import {
   type StewardEvidenceProvenance,
   type StewardExportBundle,
   type StewardExportEvidence,
+  type StewardExportEvent,
   type StewardExportProfile,
   type StewardHumanVerdict,
   type StewardImportProvenance,
@@ -53,6 +54,12 @@ import {
   type StewardVerdictFinding,
   type StewardVerdictInput
 } from '../../shared/steward-desk'
+import {
+  INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION,
+  type IncidentCaptureSessionIdentity,
+  type IncidentClip
+} from '../../shared/incidents'
+import { thirdPartyDistributionRestrictionReason } from '../../shared/third-party-dashboard-catalog'
 import {
   PACKAGE_MAX_CANONICAL_BYTES,
   canonicalStringify,
@@ -98,18 +105,7 @@ const FINDINGS = new Set<StewardVerdictFinding>([
 ])
 const RESOLUTIONS = new Set(['upheld', 'modified', 'remanded', 'dismissed'])
 
-interface StewardEventRecord {
-  schemaVersion: typeof STEWARD_CASE_SCHEMA_VERSION
-  caseId: string
-  eventId: string
-  sequence: number
-  type: StewardCaseEventType
-  occurredAt: number
-  actor: StewardActor
-  payload: unknown
-  previousHash: string
-  eventHash: string
-}
+type StewardEventRecord = StewardExportEvent
 
 interface CaseCreatedPayload {
   title: string
@@ -197,8 +193,15 @@ function array(value: unknown, label: string, maxLength = 5_000): unknown[] {
   return value
 }
 
+function onlyKeys(source: Record<string, unknown>, label: string, allowed: readonly string[]): void {
+  const allowedKeys = new Set(allowed)
+  const unexpected = Object.keys(source).filter((key) => !allowedKeys.has(key))
+  if (unexpected.length > 0) throw new Error(`${label} contains undeclared field ${unexpected[0]}.`)
+}
+
 function actor(value: unknown, label = 'actor'): StewardActor {
   const source = plain(value, label)
+  onlyKeys(source, label, ['id', 'displayName', 'role'])
   const role = text(source.role, `${label}.role`, 32) as StewardActorRole
   if (!ACTOR_ROLES.has(role)) throw new Error(`${label}.role is not supported.`)
   return {
@@ -216,8 +219,91 @@ function decisionActor(value: unknown, label = 'actor'): StewardActor {
   return normalized
 }
 
+function actorsMatch(left: StewardActor, right: StewardActor): boolean {
+  return left.id === right.id &&
+    left.displayName === right.displayName &&
+    left.role === right.role
+}
+
+function requireMatchingActor(eventActor: StewardActor, payloadActor: StewardActor, label: string): void {
+  if (!actorsMatch(eventActor, payloadActor)) throw new Error(`${label} actor does not match its payload actor.`)
+}
+
+function incidentCaptureSession(value: unknown): IncidentCaptureSessionIdentity {
+  const source = plain(value, 'incident.captureSession')
+  onlyKeys(source, 'incident.captureSession', [
+    'schemaVersion',
+    'captureSessionId',
+    'sim',
+    'startedAt',
+    'sessionUniqueId',
+    'sessionNumber',
+    'sessionType',
+    'trackName',
+    'trackConfigName'
+  ])
+  if (source.schemaVersion !== INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION) {
+    throw new Error('incident.captureSession schemaVersion is unsupported.')
+  }
+  const sessionUniqueId = optionalNumber(source.sessionUniqueId, 'incident.captureSession.sessionUniqueId')
+  const sessionNumber = optionalNumber(source.sessionNumber, 'incident.captureSession.sessionNumber')
+  const sessionType = optionalText(source.sessionType, 'incident.captureSession.sessionType', 80)
+  const trackName = optionalText(source.trackName, 'incident.captureSession.trackName', 200)
+  const trackConfigName = optionalText(source.trackConfigName, 'incident.captureSession.trackConfigName', 200)
+  return {
+    schemaVersion: INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION,
+    captureSessionId: text(source.captureSessionId, 'incident.captureSession.captureSessionId', 200),
+    sim: text(source.sim, 'incident.captureSession.sim', 80) as IncidentCaptureSessionIdentity['sim'],
+    startedAt: numberValue(source.startedAt, 'incident.captureSession.startedAt'),
+    ...(sessionUniqueId === undefined ? {} : { sessionUniqueId }),
+    ...(sessionNumber === undefined ? {} : { sessionNumber }),
+    ...(sessionType ? { sessionType } : {}),
+    ...(trackName ? { trackName } : {}),
+    ...(trackConfigName ? { trackConfigName } : {})
+  }
+}
+
+function incidentClipIdentity(value: unknown): { id: string; captureSession: IncidentCaptureSessionIdentity } {
+  const source = plain(value, 'incident clip')
+  return {
+    id: text(source.id, 'incident clip.id', 300),
+    captureSession: incidentCaptureSession(source.captureSession)
+  }
+}
+
+function normalizedIdentityText(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function assertIncidentCaptureSession(
+  caseIdentity: StewardRaceSessionIdentity,
+  captureSession: IncidentCaptureSessionIdentity
+): void {
+  if (
+    caseIdentity.sessionId !== captureSession.captureSessionId ||
+    normalizedIdentityText(caseIdentity.sim) !== normalizedIdentityText(captureSession.sim) ||
+    (captureSession.sessionType !== undefined &&
+      normalizedIdentityText(caseIdentity.sessionType) !== normalizedIdentityText(captureSession.sessionType)) ||
+    (captureSession.trackName !== undefined &&
+      normalizedIdentityText(caseIdentity.trackName) !== normalizedIdentityText(captureSession.trackName))
+  ) {
+    throw new Error('Incident clip capture-session identity does not match the immutable steward case session.')
+  }
+}
+
 function identity(value: unknown): StewardRaceSessionIdentity {
   const source = plain(value, 'identity')
+  onlyKeys(source, 'identity', [
+    'leagueId',
+    'leagueName',
+    'eventId',
+    'eventName',
+    'sessionId',
+    'sim',
+    'sessionType',
+    'trackName',
+    'startedAt'
+  ])
   const startedAt = optionalNumber(source.startedAt, 'identity.startedAt')
   return {
     leagueId: text(source.leagueId, 'identity.leagueId', 160),
@@ -242,6 +328,7 @@ function bookmarkInput(value: unknown): StewardIncidentBookmarkInput {
   const lap = optionalNumber(source.lap, 'bookmark.lap', 0, 1_000_000)
   const lapDistPct = optionalNumber(source.lapDistPct, 'bookmark.lapDistPct', 0, 1)
   const replayFrame = optionalNumber(source.replayFrame, 'bookmark.replayFrame', 0, Number.MAX_SAFE_INTEGER)
+  const captureSessionId = optionalText(source.captureSessionId, 'bookmark.captureSessionId', 200)
   const notes = optionalText(source.notes, 'bookmark.notes', 2_000)
   return {
     ...(bookmarkId ? { bookmarkId } : {}),
@@ -253,6 +340,7 @@ function bookmarkInput(value: unknown): StewardIncidentBookmarkInput {
     ...(lap === undefined ? {} : { lap }),
     ...(lapDistPct === undefined ? {} : { lapDistPct }),
     ...(replayFrame === undefined ? {} : { replayFrame }),
+    ...(captureSessionId ? { captureSessionId } : {}),
     windowBeforeSec: numberValue(source.windowBeforeSec, 'bookmark.windowBeforeSec', 0, 120),
     windowAfterSec: numberValue(source.windowAfterSec, 'bookmark.windowAfterSec', 0, 120),
     ...(notes ? { notes } : {})
@@ -261,6 +349,23 @@ function bookmarkInput(value: unknown): StewardIncidentBookmarkInput {
 
 function bookmarkRecord(value: unknown): StewardIncidentBookmark {
   const source = plain(value, 'bookmark')
+  onlyKeys(source, 'bookmark', [
+    'bookmarkId',
+    'source',
+    'sourceId',
+    'label',
+    'occurredAt',
+    'sessionTimeSec',
+    'lap',
+    'lapDistPct',
+    'replayFrame',
+    'captureSessionId',
+    'windowBeforeSec',
+    'windowAfterSec',
+    'notes',
+    'createdAt',
+    'createdBy'
+  ])
   const input = bookmarkInput(source)
   return {
     ...input,
@@ -272,6 +377,17 @@ function bookmarkRecord(value: unknown): StewardIncidentBookmark {
 
 function evidenceProvenance(value: unknown): StewardEvidenceProvenance {
   const source = plain(value, 'evidence.provenance')
+  onlyKeys(source, 'evidence.provenance', [
+    'sourceKind',
+    'sourceRef',
+    'producer',
+    'producerVersion',
+    'capturedAt',
+    'sessionRef',
+    'captureRange',
+    'transform',
+    'notes'
+  ])
   const sourceKind = text(source.sourceKind, 'evidence.provenance.sourceKind', 40)
   if (![
     ...BOOKMARK_SOURCES,
@@ -301,6 +417,17 @@ function evidenceProvenance(value: unknown): StewardEvidenceProvenance {
 
 function evidenceRecord(value: unknown): StewardEvidenceLock {
   const source = plain(value, 'evidence')
+  onlyKeys(source, 'evidence', [
+    'evidenceId',
+    'summary',
+    'mediaType',
+    'contentHash',
+    'byteLength',
+    'provenance',
+    'lockedAt',
+    'lockedBy',
+    'state'
+  ])
   const state = text(source.state, 'evidence.state', 20) as StewardEvidenceLock['state']
   if (!['available', 'missing', 'corrupt', 'redacted'].includes(state)) {
     throw new Error('evidence.state is not supported.')
@@ -320,6 +447,18 @@ function evidenceRecord(value: unknown): StewardEvidenceLock {
 
 function ruleRecord(value: unknown): StewardRuleCitation {
   const source = plain(value, 'rule')
+  onlyKeys(source, 'rule', [
+    'citationId',
+    'rulesetId',
+    'version',
+    'section',
+    'title',
+    'text',
+    'source',
+    'contentHash',
+    'citedAt',
+    'citedBy'
+  ])
   const citation: StewardRuleCitation = {
     citationId: identifier(source.citationId, 'rule.citationId'),
     rulesetId: text(source.rulesetId, 'rule.rulesetId', 160),
@@ -352,6 +491,17 @@ function stringIds(value: unknown, label: string): string[] {
 
 function verdictRecord(value: unknown): StewardHumanVerdict {
   const source = plain(value, 'verdict')
+  onlyKeys(source, 'verdict', [
+    'verdictId',
+    'finding',
+    'decisionText',
+    'actionText',
+    'ruleCitationIds',
+    'evidenceIds',
+    'supersedesVerdictId',
+    'decidedAt',
+    'decidedBy'
+  ])
   const finding = text(source.finding, 'verdict.finding', 40) as StewardVerdictFinding
   if (!FINDINGS.has(finding)) throw new Error('verdict.finding is not supported.')
   const actionText = optionalText(source.actionText, 'verdict.actionText', 4_000)
@@ -373,6 +523,14 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
 
 function dissentRecord(value: unknown): StewardDissent {
   const source = plain(value, 'dissent')
+  onlyKeys(source, 'dissent', [
+    'dissentId',
+    'verdictId',
+    'statement',
+    'grounds',
+    'submittedAt',
+    'submittedBy'
+  ])
   const submittedBy = actor(source.submittedBy, 'dissent.submittedBy')
   if (submittedBy.role === 'observer') throw new Error('Observers cannot submit dissent.')
   return {
@@ -387,6 +545,13 @@ function dissentRecord(value: unknown): StewardDissent {
 
 function resolutionRecord(value: unknown): StewardAppealResolution {
   const source = plain(value, 'appeal.resolution')
+  onlyKeys(source, 'appeal.resolution', [
+    'resolutionId',
+    'resolution',
+    'reasoning',
+    'resolvedAt',
+    'resolvedBy'
+  ])
   const resolution = text(source.resolution, 'appeal.resolution.resolution', 30)
   if (!RESOLUTIONS.has(resolution)) throw new Error('appeal resolution is not supported.')
   return {
@@ -400,6 +565,16 @@ function resolutionRecord(value: unknown): StewardAppealResolution {
 
 function appealRecord(value: unknown): StewardAppeal {
   const source = plain(value, 'appeal')
+  onlyKeys(source, 'appeal', [
+    'appealId',
+    'verdictId',
+    'grounds',
+    'requestedRemedy',
+    'filedAt',
+    'filedBy',
+    'status',
+    'resolutions'
+  ])
   const status = text(source.status, 'appeal.status', 20)
   if (status !== 'open' && status !== 'resolved') throw new Error('appeal.status is not supported.')
   const resolutions = array(source.resolutions, 'appeal.resolutions', 1_000).map(resolutionRecord)
@@ -425,6 +600,13 @@ function appealRecord(value: unknown): StewardAppeal {
 
 function importProvenanceRecord(value: unknown): StewardImportProvenance {
   const source = plain(value, 'importProvenance')
+  onlyKeys(source, 'importProvenance', [
+    'sourcePackageHash',
+    'sourceHeadHash',
+    'sourceCaseRef',
+    'profile',
+    'importedAt'
+  ])
   const profile = text(source.profile, 'importProvenance.profile', 20)
   if (profile !== 'full-local' && profile !== 'anonymized') {
     throw new Error('importProvenance.profile is not supported.')
@@ -479,6 +661,9 @@ function eventFingerprint(identityValue: StewardRaceSessionIdentity, bookmark: S
     sessionType: normalizedFingerprintText(identityValue.sessionType),
     source: bookmark.source,
     sourceKey,
+    ...(bookmark.captureSessionId
+      ? { captureSessionId: normalizedFingerprintText(bookmark.captureSessionId) }
+      : {}),
     sessionTimeSec: bookmark.sessionTimeSec === undefined
       ? null
       : Math.round(bookmark.sessionTimeSec * 10) / 10,
@@ -493,6 +678,30 @@ function eventFingerprint(identityValue: StewardRaceSessionIdentity, bookmark: S
 function assertUnique<T>(values: readonly T[], key: (value: T) => string, label: string): void {
   const ids = values.map(key)
   if (new Set(ids).size !== ids.length) throw new Error(`${label} contains duplicate ids.`)
+}
+
+function assertVerdictInvariants(
+  verdict: StewardHumanVerdict,
+  rules: readonly StewardRuleCitation[],
+  evidence: readonly StewardEvidenceLock[],
+  priorVerdicts: readonly StewardHumanVerdict[]
+): void {
+  if (verdict.ruleCitationIds.length === 0 || verdict.evidenceIds.length === 0) {
+    throw new Error('A human verdict requires at least one locked evidence item and one versioned rule citation.')
+  }
+  for (const id of verdict.ruleCitationIds) {
+    if (!rules.some((entry) => entry.citationId === id)) throw new Error(`Unknown rule citation ${id}.`)
+  }
+  for (const id of verdict.evidenceIds) {
+    const locked = evidence.find((entry) => entry.evidenceId === id)
+    if (!locked || locked.state !== 'available') throw new Error(`Evidence ${id} is not available.`)
+  }
+  if (
+    verdict.supersedesVerdictId &&
+    !priorVerdicts.some((entry) => entry.verdictId === verdict.supersedesVerdictId)
+  ) {
+    throw new Error(`Superseded verdict ${verdict.supersedesVerdictId} does not exist before this verdict.`)
+  }
 }
 
 function emptyIntegrity(failures: string[], checkedEvents: number, headHash?: string): StewardCaseIntegrity {
@@ -548,123 +757,200 @@ function portableCase(value: StewardCase): StewardPortableCase {
   return cloneJson(portable, PACKAGE_MAX_CANONICAL_BYTES)
 }
 
-function sensitiveReplacements(value: StewardPortableCase): Array<[string, string]> {
-  const replacements = new Map<string, string>()
-  const add = (source: string | undefined, replacement: string): void => {
-    if (source && source.length >= 3) replacements.set(source, replacement)
-  }
-  for (const field of [
-    value.identity.leagueId,
-    value.identity.leagueName,
-    value.identity.eventId,
-    value.identity.eventName,
-    value.identity.sessionId,
-    value.identity.trackName
-  ]) add(field, '[redacted]')
+function comparableImportedCase(value: StewardPortableCase): unknown {
+  const {
+    caseId: _caseId,
+    importProvenance: _importProvenance,
+    importCompleted: _importCompleted,
+    ...comparable
+  } = value
+  return comparable
+}
 
-  const actors: StewardActor[] = [
-    value.createdBy,
-    ...(value.assignedTo ? [value.assignedTo] : []),
-    ...value.bookmarks.map((entry) => entry.createdBy),
-    ...value.evidence.map((entry) => entry.lockedBy),
-    ...value.rules.map((entry) => entry.citedBy),
-    ...value.verdicts.map((entry) => entry.decidedBy),
-    ...value.dissents.map((entry) => entry.submittedBy),
-    ...value.appeals.flatMap((entry) => [
-      entry.filedBy,
-      ...entry.resolutions.map((resolution) => resolution.resolvedBy)
-    ])
-  ]
-  const aliases = new Map<string, StewardActor>()
-  const counters = new Map<string, number>()
-  for (const entry of actors) {
-    if (aliases.has(entry.id)) continue
-    const group = DECISION_ROLES.has(entry.role) ? 'steward' : entry.role === 'participant' ? 'participant' : 'observer'
-    const next = (counters.get(group) ?? 0) + 1
-    counters.set(group, next)
-    const title = group[0].toUpperCase() + group.slice(1)
-    aliases.set(entry.id, {
-      id: `anon-${group}-${next}`,
-      displayName: `${title} ${next}`,
-      role: entry.role
+const ANONYMIZED_EVIDENCE_SCHEMA_VERSION = 1 as const
+const INCIDENT_TYPES = new Set(['spin', 'off-track', 'contact', 'lockup'])
+const INCIDENT_SEVERITIES = new Set(['minor', 'moderate', 'major'])
+const INCIDENT_NUMERIC_FIELDS = [
+  'lap',
+  'lapDistPct',
+  'speedKmh',
+  'rpm',
+  'gear',
+  'throttle',
+  'brake',
+  'steerAngleDeg',
+  'latAccelG',
+  'longAccelG',
+  'vertAccelG',
+  'yawRateRadSec',
+  'speedDropKmh',
+  'gSpike'
+] as const
+
+function finiteField(source: Record<string, unknown>, key: string): number | undefined {
+  const value = source[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function anonymizedIncidentContent(
+  value: unknown,
+  captureSessionId: string,
+  normalizeTime: (value: number) => number
+): unknown | null {
+  if (!isPlainObject(value) ||
+      !INCIDENT_TYPES.has(String(value.type)) ||
+      !INCIDENT_SEVERITIES.has(String(value.severity)) ||
+      !Array.isArray(value.window) ||
+      !isPlainObject(value.metrics)) {
+    return null
+  }
+  const at = finiteField(value, 'at')
+  const createdAt = finiteField(value, 'createdAt')
+  const triggerIndex = finiteField(value, 'triggerIndex')
+  if (at === undefined || createdAt === undefined || triggerIndex === undefined) return null
+  const metrics = Object.fromEntries(
+    INCIDENT_NUMERIC_FIELDS.flatMap((key) => {
+      const field = finiteField(value.metrics as Record<string, unknown>, key)
+      return field === undefined ? [] : [[key, field]]
     })
-  }
-  for (const entry of actors) {
-    const alias = aliases.get(entry.id) as StewardActor
-    add(entry.id, alias.id)
-    add(entry.displayName, alias.displayName)
-  }
-  return [...replacements.entries()].sort((left, right) => right[0].length - left[0].length)
-}
-
-function replaceAllInsensitive(value: string, source: string, replacement: string): string {
-  const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return value.replace(new RegExp(escaped, 'giu'), replacement)
-}
-
-function scrubText(value: string, replacements: Array<[string, string]>): string {
-  const scrubbed = replacements.reduce(
-    (current, [source, replacement]) => replaceAllInsensitive(current, source, replacement),
-    value
   )
-  return scrubbed
-    .replace(
-      /\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?\b/giu,
-      '[timestamp-normalized]'
+  const samples = value.window.slice(0, 5_000).map((entry) => {
+    if (!isPlainObject(entry)) return { t: 0 }
+    const timestamp = finiteField(entry, 't')
+    const numeric = Object.fromEntries(
+      INCIDENT_NUMERIC_FIELDS.flatMap((key) => {
+        const field = finiteField(entry, key)
+        return field === undefined ? [] : [[key, field]]
+      })
     )
-    .replace(/\b1\d{9}(?:\d{3})?\b/gu, '[timestamp-normalized]')
-}
-
-const SENSITIVE_EVIDENCE_KEY =
-  /name|driver|team|email|user|account|cust(?:omer)?id|member|participant|steward|producer|author|owner|league|session(?:id|ref)|event(?:id|ref)|path|url|locator|token/i
-const EXACT_TIME_KEY = /^(?:t|time|timeMs|timestamp|date|dateTime|.*timestamp|.*At|.*_at|.*TimeMs)$/i
-
-function collectSensitiveContentValues(
-  value: unknown,
-  replacements: Map<string, string>,
-  key = ''
-): void {
-  if (SENSITIVE_EVIDENCE_KEY.test(key) && (typeof value === 'string' || typeof value === 'number')) {
-    const sensitive = String(value)
-    if (sensitive.length >= 3) replacements.set(sensitive, '[redacted]')
-    return
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectSensitiveContentValues(entry, replacements)
-    return
-  }
-  if (isPlainObject(value)) {
-    for (const [entryKey, entry] of Object.entries(value)) {
-      collectSensitiveContentValues(entry, replacements, entryKey)
+    return {
+      t: timestamp === undefined ? 0 : normalizeTime(timestamp),
+      ...numeric,
+      ...(typeof entry.onPitRoad === 'boolean' ? { onPitRoad: entry.onPitRoad } : {})
+    }
+  })
+  return {
+    schemaVersion: ANONYMIZED_EVIDENCE_SCHEMA_VERSION,
+    kind: 'incident-telemetry',
+    incidentType: value.type,
+    severity: value.severity,
+    occurredAt: normalizeTime(at),
+    ...(finiteField(value, 'lap') === undefined ? {} : { lap: finiteField(value, 'lap') }),
+    ...(finiteField(value, 'lapDistPct') === undefined
+      ? {}
+      : { lapDistPct: finiteField(value, 'lapDistPct') }),
+    metrics,
+    samples,
+    triggerIndex: Math.trunc(triggerIndex),
+    capturedAt: normalizeTime(createdAt),
+    captureSession: {
+      schemaVersion: INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION,
+      captureSessionId
     }
   }
 }
 
-function scrubContent(
+function anonymizedEvidenceContent(
+  evidence: StewardEvidenceLock,
   value: unknown,
-  replacements: Array<[string, string]>,
-  normalizeTime: (value: number) => number,
-  key = ''
+  captureSessionId: string,
+  normalizeTime: (value: number) => number
 ): unknown {
-  if (SENSITIVE_EVIDENCE_KEY.test(key)) return '[redacted]'
-  if (EXACT_TIME_KEY.test(key)) {
-    if (typeof value === 'number' && Number.isFinite(value)) return normalizeTime(value)
-    if (typeof value === 'string') {
-      const parsed = Date.parse(value)
-      if (Number.isFinite(parsed)) return normalizeTime(parsed)
+  if (evidence.mediaType === 'application/vnd.ultimate-sim.incident+json') {
+    const projected = anonymizedIncidentContent(value, captureSessionId, normalizeTime)
+    if (projected) return projected
+  }
+  return {
+    schemaVersion: ANONYMIZED_EVIDENCE_SCHEMA_VERSION,
+    kind: 'redacted',
+    reason: evidence.mediaType === 'text/plain'
+      ? 'free-form-content-removed'
+      : 'unsupported-content-schema'
+  }
+}
+
+function validateAnonymizedEvidenceContent(value: unknown): unknown {
+  const source = plain(value, 'anonymized evidence content')
+  if (source.schemaVersion !== ANONYMIZED_EVIDENCE_SCHEMA_VERSION) {
+    throw new Error('Anonymized evidence schemaVersion is unsupported.')
+  }
+  if (source.kind === 'redacted') {
+    onlyKeys(source, 'anonymized evidence content', ['schemaVersion', 'kind', 'reason'])
+    if (source.reason !== 'free-form-content-removed' && source.reason !== 'unsupported-content-schema') {
+      throw new Error('Anonymized evidence redaction reason is unsupported.')
+    }
+    return cloneJson(source)
+  }
+  if (source.kind !== 'incident-telemetry') throw new Error('Anonymized evidence kind is unsupported.')
+  onlyKeys(source, 'anonymized evidence content', [
+    'schemaVersion',
+    'kind',
+    'incidentType',
+    'severity',
+    'occurredAt',
+    'lap',
+    'lapDistPct',
+    'metrics',
+    'samples',
+    'triggerIndex',
+    'capturedAt',
+    'captureSession'
+  ])
+  if (!INCIDENT_TYPES.has(String(source.incidentType)) ||
+      !INCIDENT_SEVERITIES.has(String(source.severity))) {
+    throw new Error('Anonymized incident type or severity is unsupported.')
+  }
+  numberValue(source.occurredAt, 'anonymized evidence occurredAt')
+  optionalNumber(source.lap, 'anonymized evidence lap')
+  optionalNumber(source.lapDistPct, 'anonymized evidence lapDistPct', 0, 1)
+  numberValue(source.triggerIndex, 'anonymized evidence triggerIndex', 0)
+  numberValue(source.capturedAt, 'anonymized evidence capturedAt')
+  const metrics = plain(source.metrics, 'anonymized evidence metrics')
+  onlyKeys(metrics, 'anonymized evidence metrics', INCIDENT_NUMERIC_FIELDS)
+  for (const [key, entry] of Object.entries(metrics)) {
+    numberValue(entry, `anonymized evidence metrics.${key}`, -Number.MAX_SAFE_INTEGER)
+  }
+  for (const [index, entry] of array(source.samples, 'anonymized evidence samples', 5_000).entries()) {
+    const sample = plain(entry, `anonymized evidence samples[${index}]`)
+    onlyKeys(sample, `anonymized evidence samples[${index}]`, ['t', ...INCIDENT_NUMERIC_FIELDS, 'onPitRoad'])
+    numberValue(sample.t, `anonymized evidence samples[${index}].t`)
+    for (const key of INCIDENT_NUMERIC_FIELDS) {
+      if (sample[key] !== undefined) {
+        numberValue(sample[key], `anonymized evidence samples[${index}].${key}`, -Number.MAX_SAFE_INTEGER)
+      }
+    }
+    if (sample.onPitRoad !== undefined && typeof sample.onPitRoad !== 'boolean') {
+      throw new Error(`anonymized evidence samples[${index}].onPitRoad must be boolean.`)
     }
   }
-  if (typeof value === 'string') return scrubText(value, replacements)
-  if (Array.isArray(value)) return value.map((entry) => scrubContent(entry, replacements, normalizeTime))
-  if (isPlainObject(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([entryKey, entry]) => [
-        entryKey,
-        scrubContent(entry, replacements, normalizeTime, entryKey)
-      ])
-    )
+  const captureSession = plain(source.captureSession, 'anonymized evidence captureSession')
+  onlyKeys(captureSession, 'anonymized evidence captureSession', ['schemaVersion', 'captureSessionId'])
+  if (captureSession.schemaVersion !== INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION) {
+    throw new Error('Anonymized capture-session schemaVersion is unsupported.')
   }
-  return value
+  text(captureSession.captureSessionId, 'anonymized evidence captureSession.captureSessionId', 200)
+  return cloneJson(source)
+}
+
+function evidenceRightsRestriction(value: unknown, path = 'content', depth = 0): string | null {
+  if (depth > 32) return `${path}: rights metadata nesting exceeds the supported depth.`
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const restriction = evidenceRightsRestriction(value[index], `${path}[${index}]`, depth + 1)
+      if (restriction) return restriction
+    }
+    return null
+  }
+  if (!isPlainObject(value)) return null
+  if (Object.prototype.hasOwnProperty.call(value, 'thirdParty')) {
+    const restriction = thirdPartyDistributionRestrictionReason(value.thirdParty, 'reExport')
+    if (restriction) return `${path}.thirdParty: ${restriction}`
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    const restriction = evidenceRightsRestriction(entry, `${path}.${key}`, depth + 1)
+    if (restriction) return restriction
+  }
+  return null
 }
 
 function aliasActors(value: StewardPortableCase): Map<string, StewardActor> {
@@ -699,12 +985,6 @@ function anonymizeCase(
   evidenceContents: StewardExportEvidence[],
   aliasSeed: string
 ): { caseValue: StewardPortableCase; evidence: StewardExportEvidence[]; redactions: string[] } {
-  const replacementMap = new Map(sensitiveReplacements(sourceCase))
-  for (const entry of sourceCase.evidence) {
-    replacementMap.set(entry.provenance.producer, 'producer-redacted')
-  }
-  for (const entry of evidenceContents) collectSensitiveContentValues(entry.content, replacementMap)
-  const replacements = [...replacementMap.entries()].sort((left, right) => right[0].length - left[0].length)
   const aliases = aliasActors(sourceCase)
   const actorAlias = (value: StewardActor): StewardActor => cloneJson(aliases.get(value.id) ?? value)
   const baseTime = sourceCase.createdAt
@@ -716,11 +996,11 @@ function anonymizeCase(
   const verdictIdMap = new Map(sourceCase.verdicts.map((entry, index) => [entry.verdictId, `verdict-${index + 1}`]))
   const dissentIdMap = new Map(sourceCase.dissents.map((entry, index) => [entry.dissentId, `dissent-${index + 1}`]))
   const appealIdMap = new Map(sourceCase.appeals.map((entry, index) => [entry.appealId, `appeal-${index + 1}`]))
+  const anonymizedSessionId = `session-${sha256Text(`${aliasSeed}:${sourceCase.identity.sessionId}`).slice(0, 8)}`
   const bookmarkAlias = (entry: StewardIncidentBookmark, index: number): StewardIncidentBookmark => {
     const occurredAt = optionalRelative(entry.occurredAt)
     const sessionTimeSec = entry.sessionTimeSec === undefined ? undefined : Math.round(entry.sessionTimeSec / 5) * 5
     const lapDistPct = entry.lapDistPct === undefined ? undefined : Math.round(entry.lapDistPct * 100) / 100
-    const notes = entry.notes ? scrubText(entry.notes, replacements) : undefined
     return {
       bookmarkId: `bookmark-${index + 1}`,
       source: 'import',
@@ -734,16 +1014,17 @@ function anonymizeCase(
       ...(sessionTimeSec === undefined ? {} : { sessionTimeSec }),
       ...(entry.lap === undefined ? {} : { lap: entry.lap }),
       ...(lapDistPct === undefined ? {} : { lapDistPct }),
+      ...(entry.captureSessionId ? { captureSessionId: anonymizedSessionId } : {}),
       windowBeforeSec: entry.windowBeforeSec,
       windowAfterSec: entry.windowAfterSec,
-      ...(notes ? { notes } : {}),
       createdAt: relativeTime(entry.createdAt),
       createdBy: actorAlias(entry.createdBy)
     }
   }
 
   const anonymizedEvidence = evidenceContents.map((entry) => {
-    const content = scrubContent(entry.content, replacements, relativeTime)
+    const locked = sourceCase.evidence.find((item) => item.evidenceId === entry.evidenceId) as StewardEvidenceLock
+    const content = anonymizedEvidenceContent(locked, entry.content, anonymizedSessionId, relativeTime)
     return {
       evidenceId: evidenceIdMap.get(entry.evidenceId) as string,
       contentHash: sha256Canonical(content),
@@ -758,44 +1039,50 @@ function anonymizeCase(
     leagueName: 'League redacted',
     eventId: 'event-redacted',
     eventName: 'Event redacted',
-    sessionId: `session-${sha256Text(`${aliasSeed}:${sourceCase.identity.sessionId}`).slice(0, 8)}`,
-    sim: sourceCase.identity.sim,
-    sessionType: sourceCase.identity.sessionType,
+    sessionId: anonymizedSessionId,
+    sim: 'Sim redacted',
+    sessionType: 'Session redacted',
     trackName: 'Track redacted'
   }
-  const evidence = sourceCase.evidence.map((entry) => ({
-    ...entry,
-    evidenceId: evidenceIdMap.get(entry.evidenceId) as string,
-    summary: scrubText(entry.summary, replacements),
-    contentHash: evidenceHashes.get(evidenceIdMap.get(entry.evidenceId) as string) as string,
-    byteLength: Buffer.byteLength(canonicalStringify(
-      anonymizedEvidence.find((item) => item.evidenceId === evidenceIdMap.get(entry.evidenceId))?.content
-    ), 'utf8'),
-    provenance: {
-      sourceKind: entry.provenance.sourceKind,
-      sourceRef: '[redacted]',
-      producer: 'producer-redacted',
-      producerVersion: scrubText(entry.provenance.producerVersion, replacements),
-      capturedAt: relativeTime(entry.provenance.capturedAt),
-      ...(entry.provenance.captureRange
-        ? { captureRange: '[normalized]' }
-        : {}),
-      ...(entry.provenance.transform
-        ? { transform: scrubText(entry.provenance.transform, replacements) }
-        : {}),
-      ...(entry.provenance.notes ? { notes: scrubText(entry.provenance.notes, replacements) } : {})
-    },
-    lockedAt: relativeTime(entry.lockedAt),
-    lockedBy: actorAlias(entry.lockedBy),
-    state: 'available' as const
-  }))
+  const evidence = sourceCase.evidence.map((entry) => {
+    const anonymizedId = evidenceIdMap.get(entry.evidenceId) as string
+    const content = anonymizedEvidence.find((item) => item.evidenceId === anonymizedId)?.content
+    const incidentContent = isPlainObject(content) && content.kind === 'incident-telemetry'
+    return {
+      ...entry,
+      evidenceId: anonymizedId,
+      summary: `Evidence item ${sourceCase.evidence.indexOf(entry) + 1}`,
+      mediaType: incidentContent
+        ? 'application/vnd.ultimate-sim.incident.anonymized+json'
+        : 'application/vnd.ultimate-sim.redacted+json',
+      contentHash: evidenceHashes.get(anonymizedId) as string,
+      byteLength: Buffer.byteLength(canonicalStringify(content), 'utf8'),
+      provenance: {
+        sourceKind: entry.provenance.sourceKind,
+        sourceRef: '[redacted]',
+        producer: 'producer-redacted',
+        producerVersion: 'redacted',
+        capturedAt: relativeTime(entry.provenance.capturedAt),
+        ...(entry.provenance.sourceKind === 'incident-recorder'
+          ? { sessionRef: anonymizedSessionId }
+          : {}),
+        ...(entry.provenance.captureRange
+          ? { captureRange: '[normalized]' }
+          : {}),
+        ...(entry.provenance.transform ? { transform: 'redacted' } : {})
+      },
+      lockedAt: relativeTime(entry.lockedAt),
+      lockedBy: actorAlias(entry.lockedBy),
+      state: 'available' as const
+    }
+  })
   const rules = sourceCase.rules.map((entry) => {
     const content = {
-      rulesetId: entry.rulesetId,
-      version: entry.version,
-      section: entry.section,
-      title: scrubText(entry.title, replacements),
-      text: scrubText(entry.text, replacements),
+      rulesetId: `ruleset-${sourceCase.rules.indexOf(entry) + 1}`,
+      version: 'redacted',
+      section: 'redacted',
+      title: `Rule citation ${sourceCase.rules.indexOf(entry) + 1}`,
+      text: 'Free-form rule text removed from anonymized export.',
       source: '[redacted]'
     }
     return {
@@ -810,8 +1097,8 @@ function anonymizeCase(
   const verdicts = sourceCase.verdicts.map((entry) => ({
     ...entry,
     verdictId: verdictIdMap.get(entry.verdictId) as string,
-    decisionText: scrubText(entry.decisionText, replacements),
-    ...(entry.actionText ? { actionText: scrubText(entry.actionText, replacements) } : {}),
+    decisionText: 'Free-form human decision text removed from anonymized export.',
+    ...(entry.actionText ? { actionText: 'Free-form action text removed from anonymized export.' } : {}),
     ruleCitationIds: entry.ruleCitationIds.map((id) => ruleIdMap.get(id) as string),
     evidenceIds: entry.evidenceIds.map((id) => evidenceIdMap.get(id) as string),
     ...(entry.supersedesVerdictId
@@ -824,8 +1111,8 @@ function anonymizeCase(
     ...entry,
     dissentId: dissentIdMap.get(entry.dissentId) as string,
     verdictId: verdictIdMap.get(entry.verdictId) as string,
-    statement: scrubText(entry.statement, replacements),
-    grounds: scrubText(entry.grounds, replacements),
+    statement: 'Free-form dissent statement removed from anonymized export.',
+    grounds: 'Free-form dissent grounds removed from anonymized export.',
     submittedAt: relativeTime(entry.submittedAt),
     submittedBy: actorAlias(entry.submittedBy)
   }))
@@ -833,14 +1120,14 @@ function anonymizeCase(
     ...entry,
     appealId: appealIdMap.get(entry.appealId) as string,
     verdictId: verdictIdMap.get(entry.verdictId) as string,
-    grounds: scrubText(entry.grounds, replacements),
-    requestedRemedy: scrubText(entry.requestedRemedy, replacements),
+    grounds: 'Free-form appeal grounds removed from anonymized export.',
+    requestedRemedy: 'Free-form requested remedy removed from anonymized export.',
     filedAt: relativeTime(entry.filedAt),
     filedBy: actorAlias(entry.filedBy),
     resolutions: entry.resolutions.map((resolution, resolutionIndex) => ({
       ...resolution,
       resolutionId: `resolution-${sourceCase.appeals.indexOf(entry) + 1}-${resolutionIndex + 1}`,
-      reasoning: scrubText(resolution.reasoning, replacements),
+      reasoning: 'Free-form appeal resolution reasoning removed from anonymized export.',
       resolvedAt: relativeTime(resolution.resolvedAt),
       resolvedBy: actorAlias(resolution.resolvedBy)
     }))
@@ -869,9 +1156,129 @@ function anonymizeCase(
       'producer and steward provenance identities removed',
       'league, event, session, track, and source locators removed',
       'exact timestamps in case data, provenance, and evidence converted to relative minute offsets',
-      'sensitive evidence fields and known identity strings removed'
+      'free-form case text removed instead of heuristically scrubbed',
+      'evidence content reduced to schema-allowlisted telemetry or an explicit redaction marker'
     ]
   }
+}
+
+function assertAnonymizedActor(value: StewardActor): void {
+  const match = /^anon-(steward|participant|observer)-([1-9]\d*)$/.exec(value.id)
+  if (!match) throw new Error('Anonymized case actor id is not schema-allowlisted.')
+  const expectedGroup = DECISION_ROLES.has(value.role)
+    ? 'steward'
+    : value.role === 'participant'
+      ? 'participant'
+      : 'observer'
+  const expectedName = `${expectedGroup[0].toUpperCase()}${expectedGroup.slice(1)} ${match[2]}`
+  if (match[1] !== expectedGroup || value.displayName !== expectedName) {
+    throw new Error('Anonymized case actor identity is not schema-allowlisted.')
+  }
+}
+
+function assertAnonymizedCaseSchema(value: StewardPortableCase): void {
+  if (!/^case-anon-[a-f0-9]{12}$/.test(value.caseId) ||
+      value.title !== 'Anonymized steward case' ||
+      value.createdAt !== 0 ||
+      value.identity.leagueId !== 'league-redacted' ||
+      value.identity.leagueName !== 'League redacted' ||
+      value.identity.eventId !== 'event-redacted' ||
+      value.identity.eventName !== 'Event redacted' ||
+      !/^session-[a-f0-9]{8}$/.test(value.identity.sessionId) ||
+      value.identity.sim !== 'Sim redacted' ||
+      value.identity.sessionType !== 'Session redacted' ||
+      value.identity.trackName !== 'Track redacted' ||
+      value.identity.startedAt !== undefined ||
+      value.importProvenance !== undefined ||
+      value.importCompleted !== undefined) {
+    throw new Error('Anonymized case identity contains non-allowlisted data.')
+  }
+  const actors = [
+    value.createdBy,
+    ...(value.assignedTo ? [value.assignedTo] : []),
+    ...value.bookmarks.map((entry) => entry.createdBy),
+    ...value.evidence.map((entry) => entry.lockedBy),
+    ...value.rules.map((entry) => entry.citedBy),
+    ...value.verdicts.map((entry) => entry.decidedBy),
+    ...value.dissents.map((entry) => entry.submittedBy),
+    ...value.appeals.flatMap((entry) => [entry.filedBy, ...entry.resolutions.map((item) => item.resolvedBy)])
+  ]
+  actors.forEach(assertAnonymizedActor)
+  value.bookmarks.forEach((entry, index) => {
+    if (
+      entry.bookmarkId !== `bookmark-${index + 1}` ||
+      entry.source !== 'import' ||
+      !/^incident-[a-f0-9]{10}$/.test(entry.sourceId) ||
+      entry.label !== `Incident bookmark ${index + 1}` ||
+      entry.notes !== undefined ||
+      (entry.captureSessionId !== undefined && entry.captureSessionId !== value.identity.sessionId)
+    ) {
+      throw new Error('Anonymized bookmark contains non-allowlisted free-form data.')
+    }
+  })
+  value.evidence.forEach((entry, index) => {
+    if (
+      entry.evidenceId !== `evidence-${index + 1}` ||
+      entry.summary !== `Evidence item ${index + 1}` ||
+      (entry.mediaType !== 'application/vnd.ultimate-sim.incident.anonymized+json' &&
+        entry.mediaType !== 'application/vnd.ultimate-sim.redacted+json') ||
+      entry.provenance.sourceRef !== '[redacted]' ||
+      entry.provenance.producer !== 'producer-redacted' ||
+      entry.provenance.producerVersion !== 'redacted' ||
+      (entry.provenance.sessionRef !== undefined &&
+        entry.provenance.sessionRef !== value.identity.sessionId) ||
+      (entry.provenance.captureRange !== undefined &&
+        entry.provenance.captureRange !== '[normalized]') ||
+      (entry.provenance.transform !== undefined && entry.provenance.transform !== 'redacted') ||
+      entry.provenance.notes !== undefined
+    ) {
+      throw new Error('Anonymized evidence metadata contains non-allowlisted free-form data.')
+    }
+  })
+  value.rules.forEach((entry, index) => {
+    if (
+      entry.citationId !== `rule-${index + 1}` ||
+      entry.rulesetId !== `ruleset-${index + 1}` ||
+      entry.version !== 'redacted' ||
+      entry.section !== 'redacted' ||
+      entry.title !== `Rule citation ${index + 1}` ||
+      entry.text !== 'Free-form rule text removed from anonymized export.' ||
+      entry.source !== '[redacted]'
+    ) {
+      throw new Error('Anonymized rule contains non-allowlisted free-form data.')
+    }
+  })
+  value.verdicts.forEach((entry, index) => {
+    if (
+      entry.verdictId !== `verdict-${index + 1}` ||
+      entry.decisionText !== 'Free-form human decision text removed from anonymized export.' ||
+      (entry.actionText !== undefined &&
+        entry.actionText !== 'Free-form action text removed from anonymized export.')
+    ) {
+      throw new Error('Anonymized verdict contains non-allowlisted free-form data.')
+    }
+  })
+  value.dissents.forEach((entry, index) => {
+    if (
+      entry.dissentId !== `dissent-${index + 1}` ||
+      entry.statement !== 'Free-form dissent statement removed from anonymized export.' ||
+      entry.grounds !== 'Free-form dissent grounds removed from anonymized export.'
+    ) {
+      throw new Error('Anonymized dissent contains non-allowlisted free-form data.')
+    }
+  })
+  value.appeals.forEach((entry, index) => {
+    if (
+      entry.appealId !== `appeal-${index + 1}` ||
+      entry.grounds !== 'Free-form appeal grounds removed from anonymized export.' ||
+      entry.requestedRemedy !== 'Free-form requested remedy removed from anonymized export.' ||
+      entry.resolutions.some((resolution, resolutionIndex) =>
+        resolution.resolutionId !== `resolution-${index + 1}-${resolutionIndex + 1}` ||
+        resolution.reasoning !== 'Free-form appeal resolution reasoning removed from anonymized export.')
+    ) {
+      throw new Error('Anonymized appeal contains non-allowlisted free-form data.')
+    }
+  })
 }
 
 export function serializeStewardExportBundle(bundle: StewardExportBundle): string {
@@ -925,6 +1332,114 @@ function rebaseAnonymizedCase(value: StewardPortableCase, baseTime: number): Ste
       }))
     }))
   }
+}
+
+interface StewardEventSpec {
+  type: StewardCaseEventType
+  actor: StewardActor
+  payload: unknown
+  occurredAt?: number
+}
+
+function portableCaseEventSpecs(value: StewardPortableCase): StewardEventSpec[] {
+  const primary = value.bookmarks[0]
+  const events: StewardEventSpec[] = [
+    {
+      type: 'case-created',
+      actor: value.createdBy,
+      occurredAt: value.createdAt,
+      payload: {
+        title: value.title,
+        identity: value.identity,
+        incident: primary,
+        primaryIncidentFingerprint: eventFingerprint(value.identity, primary),
+        ...(value.assignedTo ? { assignedTo: value.assignedTo } : {})
+      } satisfies CaseCreatedPayload
+    },
+    ...value.bookmarks.slice(1).map((bookmark) => ({
+      type: 'bookmark-added' as const,
+      actor: bookmark.createdBy,
+      occurredAt: bookmark.createdAt,
+      payload: { bookmark }
+    })),
+    ...value.evidence.map((evidence) => ({
+      type: 'evidence-locked' as const,
+      actor: evidence.lockedBy,
+      occurredAt: evidence.lockedAt,
+      payload: { evidence: { ...evidence, state: 'available' as const } }
+    })),
+    ...value.rules.map((citation) => ({
+      type: 'rule-version-cited' as const,
+      actor: citation.citedBy,
+      occurredAt: citation.citedAt,
+      payload: { citation }
+    })),
+    ...value.verdicts.map((verdict) => ({
+      type: 'human-verdict-recorded' as const,
+      actor: verdict.decidedBy,
+      occurredAt: verdict.decidedAt,
+      payload: { verdict }
+    })),
+    ...value.dissents.map((dissent) => ({
+      type: 'dissent-recorded' as const,
+      actor: dissent.submittedBy,
+      occurredAt: dissent.submittedAt,
+      payload: { dissent }
+    }))
+  ]
+  for (const appeal of value.appeals) {
+    events.push({
+      type: 'appeal-filed',
+      actor: appeal.filedBy,
+      occurredAt: appeal.filedAt,
+      payload: { appeal: { ...appeal, status: 'open', resolutions: [] } }
+    })
+    for (const resolution of appeal.resolutions) {
+      events.push({
+        type: 'appeal-resolved',
+        actor: resolution.resolvedBy,
+        occurredAt: resolution.resolvedAt,
+        payload: { appealId: appeal.appealId, resolution }
+      })
+    }
+  }
+  events.push({
+    type: 'case-status-set',
+    actor: value.assignedTo ?? value.createdBy,
+    payload: { status: value.status }
+  })
+  return events
+}
+
+function canonicalEventRecords(
+  caseId: string,
+  events: readonly StewardEventSpec[],
+  eventId: (index: number) => string
+): StewardEventRecord[] {
+  let previousHash = ZERO_HASH
+  let occurredAt = Math.trunc(events[0]?.occurredAt ?? 0)
+  return events.map((event, index) => {
+    occurredAt = index === 0
+      ? Math.trunc(event.occurredAt ?? occurredAt)
+      : Math.max(Math.trunc(event.occurredAt ?? occurredAt + 1), occurredAt + 1)
+    const unsigned = eventUnsigned({
+      schemaVersion: STEWARD_CASE_SCHEMA_VERSION,
+      caseId,
+      eventId: eventId(index),
+      sequence: index + 1,
+      type: event.type,
+      occurredAt,
+      actor: cloneJson(event.actor),
+      payload: cloneJson(event.payload),
+      previousHash
+    })
+    const record: StewardEventRecord = {
+      ...unsigned,
+      eventHash: sha256Canonical(unsigned)
+    }
+    previousHash = record.eventHash
+    return record
+  })
 }
 
 export class StewardCaseStore {
@@ -988,6 +1503,12 @@ export class StewardCaseStore {
     const owner = decisionActor(input.actor)
     const normalizedIdentity = identity(input.identity)
     const normalizedIncident = bookmarkInput(input.incident)
+    if (
+      normalizedIncident.source === 'incident-recorder' &&
+      normalizedIncident.captureSessionId !== normalizedIdentity.sessionId
+    ) {
+      throw new Error('Incident-recorder cases require the immutable clip capture-session id.')
+    }
     const fingerprint = eventFingerprint(normalizedIdentity, normalizedIncident)
     const duplicate = this.listCases().find(
       (entry) => entry.integrity.state === 'unanchored' && entry.primaryIncidentFingerprint === fingerprint
@@ -1041,6 +1562,12 @@ export class StewardCaseStore {
     const owner = decisionActor(input.actor)
     const current = this.mutableCase(input.caseId)
     const normalized = bookmarkInput(input.bookmark)
+    if (
+      normalized.source === 'incident-recorder' &&
+      normalized.captureSessionId !== current.value.identity.sessionId
+    ) {
+      throw new Error('Incident-recorder bookmarks must match the immutable case capture session.')
+    }
     const fingerprint = eventFingerprint(current.value.identity, normalized)
     const duplicate = current.value.bookmarks.some(
       (entry) => eventFingerprint(current.value.identity, entry) === fingerprint
@@ -1060,6 +1587,15 @@ export class StewardCaseStore {
     const owner = decisionActor(input.actor)
     const current = this.mutableCase(input.caseId)
     const evidenceId = input.evidenceId ? identifier(input.evidenceId, 'evidenceId') : this.newId('evidence')
+    const provenance = evidenceProvenance(input.provenance)
+    if (provenance.sourceKind === 'incident-recorder') {
+      const clip = incidentClipIdentity(input.content)
+      if (provenance.sourceRef !== clip.id ||
+          provenance.sessionRef !== clip.captureSession.captureSessionId) {
+        throw new Error('Incident evidence provenance is not bound to the immutable clip identity.')
+      }
+      assertIncidentCaptureSession(current.value.identity, clip.captureSession)
+    }
     const canonical = canonicalStringify(input.content)
     const contentHash = sha256Text(canonical)
     const existing = current.value.evidence.find((entry) => entry.evidenceId === evidenceId)
@@ -1074,13 +1610,35 @@ export class StewardCaseStore {
       mediaType: text(input.mediaType, 'evidence.mediaType', 120),
       contentHash,
       byteLength: Buffer.byteLength(canonical, 'utf8'),
-      provenance: evidenceProvenance(input.provenance),
+      provenance,
       lockedAt: Math.trunc(this.now()),
       lockedBy: owner,
       state: 'available'
     }
     this.appendEvent(current.value.caseId, 'evidence-locked', owner, { evidence })
     return this.requireCase(current.value.caseId).value
+  }
+
+  lockIncidentClip(caseId: string, eventActor: StewardActor, clip: IncidentClip): StewardCase {
+    const capture = incidentClipIdentity(clip)
+    return this.lockEvidence({
+      caseId,
+      actor: eventActor,
+      evidenceId: `incident-${sha256Text(capture.id).slice(0, 24)}`,
+      summary: `${text(clip.type, 'incident clip.type', 40)} · ${capture.id}`,
+      mediaType: 'application/vnd.ultimate-sim.incident+json',
+      content: clip,
+      provenance: {
+        sourceKind: 'incident-recorder',
+        sourceRef: capture.id,
+        producer: 'Ultimate Sim App incident recorder',
+        producerVersion: '1',
+        capturedAt: numberValue(clip.createdAt, 'incident clip.createdAt'),
+        sessionRef: capture.captureSession.captureSessionId,
+        captureRange: `${clip.window[0]?.t ?? clip.at}-${clip.window.at(-1)?.t ?? clip.at}`,
+        transform: 'incident-recorder.v1'
+      }
+    })
   }
 
   citeRule(input: StewardRuleCitationInput): StewardCase {
@@ -1118,16 +1676,6 @@ export class StewardCaseStore {
     if (!FINDINGS.has(input.finding)) throw new Error('Unsupported verdict finding.')
     const ruleCitationIds = stringIds(input.ruleCitationIds, 'ruleCitationIds')
     const evidenceIds = stringIds(input.evidenceIds, 'evidenceIds')
-    if (ruleCitationIds.length === 0 || evidenceIds.length === 0) {
-      throw new Error('A human verdict requires at least one locked evidence item and one versioned rule citation.')
-    }
-    for (const id of ruleCitationIds) {
-      if (!current.value.rules.some((entry) => entry.citationId === id)) throw new Error(`Unknown rule citation ${id}.`)
-    }
-    for (const id of evidenceIds) {
-      const evidence = current.value.evidence.find((entry) => entry.evidenceId === id)
-      if (!evidence || evidence.state !== 'available') throw new Error(`Evidence ${id} is not available.`)
-    }
     const verdictId = input.verdictId ? identifier(input.verdictId, 'verdictId') : this.newId('verdict')
     if (current.value.verdicts.some((entry) => entry.verdictId === verdictId)) {
       throw new Error(`Verdict id ${verdictId} already exists.`)
@@ -1135,9 +1683,6 @@ export class StewardCaseStore {
     const supersedesVerdictId = input.supersedesVerdictId
       ? identifier(input.supersedesVerdictId, 'supersedesVerdictId')
       : undefined
-    if (supersedesVerdictId && !current.value.verdicts.some((entry) => entry.verdictId === supersedesVerdictId)) {
-      throw new Error(`Superseded verdict ${supersedesVerdictId} does not exist.`)
-    }
     const actionText = optionalText(input.actionText, 'actionText', 4_000)
     const verdict: StewardHumanVerdict = {
       verdictId,
@@ -1150,6 +1695,7 @@ export class StewardCaseStore {
       decidedAt: Math.trunc(this.now()),
       decidedBy: owner
     }
+    assertVerdictInvariants(verdict, current.value.rules, current.value.evidence, current.value.verdicts)
     this.appendEvent(current.value.caseId, 'human-verdict-recorded', owner, { verdict })
     return this.requireCase(current.value.caseId).value
   }
@@ -1227,23 +1773,37 @@ export class StewardCaseStore {
 
   exportCase(caseId: string, profile: StewardExportProfile): StewardExportBundle {
     if (profile !== 'full-local' && profile !== 'anonymized') throw new Error('Unsupported steward export profile.')
-    const current = this.mutableCase(caseId).value
+    const loaded = this.mutableCase(caseId)
+    const current = loaded.value
     if (!current.integrity.headHash) throw new Error('Case has no chain head.')
+    if (current.bookmarks.some((entry) =>
+      entry.source === 'incident-recorder' && entry.captureSessionId !== current.identity.sessionId)) {
+      throw new Error('Case cannot be exported because an incident bookmark lacks verified capture-session identity.')
+    }
     const sourcePortable = portableCase(current)
     const sourceEvidence: StewardExportEvidence[] = current.evidence.map((entry) => ({
       evidenceId: entry.evidenceId,
       contentHash: entry.contentHash,
       content: this.readEvidence(entry.contentHash)
     }))
+    for (const entry of sourceEvidence) {
+      const restriction = evidenceRightsRestriction(entry.content)
+      if (restriction) {
+        throw new Error(`Evidence ${entry.evidenceId} cannot be exported because re-export rights are denied: ${restriction}`)
+      }
+    }
     const projected = profile === 'anonymized'
       ? anonymizeCase(sourcePortable, sourceEvidence, randomUUID())
       : { caseValue: sourcePortable, evidence: sourceEvidence, redactions: [] }
-    const exportedHeadHash = profile === 'anonymized'
-      ? sha256Canonical(
-          { case: projected.caseValue, evidence: projected.evidence },
-          PACKAGE_MAX_CANONICAL_BYTES
+    const events = profile === 'anonymized'
+      ? canonicalEventRecords(
+          projected.caseValue.caseId,
+          portableCaseEventSpecs(projected.caseValue),
+          (index) => `event-export-${index + 1}`
         )
-      : current.integrity.headHash
+      : cloneJson(loaded.records, PACKAGE_MAX_CANONICAL_BYTES)
+    const exportedHeadHash = events.at(-1)?.eventHash
+    if (!exportedHeadHash) throw new Error('Case export has no canonical event-chain head.')
     const unsigned = {
       magic: STEWARD_EXPORT_MAGIC,
       version: STEWARD_EXPORT_VERSION,
@@ -1253,9 +1813,10 @@ export class StewardCaseStore {
         caseRef: profile === 'anonymized' ? projected.caseValue.caseId : current.caseId,
         headHash: exportedHeadHash,
         integrityState: 'unanchored' as const,
-        eventCount: current.history.length
+        eventCount: events.length
       },
       case: projected.caseValue,
+      events,
       evidence: projected.evidence,
       redactions: projected.redactions
     }
@@ -1314,22 +1875,9 @@ export class StewardCaseStore {
       profile: bundle.profile,
       importedAt: Math.trunc(this.now())
     }
-    const baseEvents: Array<{
-      type: StewardCaseEventType
-      actor: StewardActor
-      payload: unknown
-    }> = [
-      {
-        type: 'case-created',
-        actor: importActor,
-        payload: {
-          title: packageCase.title,
-          identity: packageCase.identity,
-          incident: primary,
-          primaryIncidentFingerprint: eventFingerprint(packageCase.identity, primary),
-          ...(packageCase.assignedTo ? { assignedTo: packageCase.assignedTo } : {})
-        } satisfies CaseCreatedPayload
-      },
+    const stateEvents = portableCaseEventSpecs(packageCase)
+    const baseEvents: StewardEventSpec[] = [
+      stateEvents[0],
       { type: 'case-imported', actor: importActor, payload: { provenance } }
     ]
     const stagingPath = this.importStagingPath(bundle.packageHash)
@@ -1342,61 +1890,18 @@ export class StewardCaseStore {
     }
     this.importFault?.('after-evidence')
 
-    const events: Array<{
-      type: StewardCaseEventType
-      actor: StewardActor
-      payload: unknown
-    }> = [
-      ...baseEvents,
-      ...packageCase.bookmarks.slice(1).map((bookmark) => ({
-        type: 'bookmark-added' as const,
-        actor: bookmark.createdBy,
-        payload: { bookmark }
-      })),
-      ...packageCase.evidence.map((evidence) => ({
-        type: 'evidence-locked' as const,
-        actor: evidence.lockedBy,
-        payload: { evidence: { ...evidence, state: 'available' as const } }
-      })),
-      ...packageCase.rules.map((citation) => ({
-        type: 'rule-version-cited' as const,
-        actor: citation.citedBy,
-        payload: { citation }
-      })),
-      ...packageCase.verdicts.map((verdict) => ({
-        type: 'human-verdict-recorded' as const,
-        actor: verdict.decidedBy,
-        payload: { verdict }
-      })),
-      ...packageCase.dissents.map((dissent) => ({
-        type: 'dissent-recorded' as const,
-        actor: dissent.submittedBy,
-        payload: { dissent }
-      }))
-    ]
-    for (const appeal of packageCase.appeals) {
-      events.push({
-        type: 'appeal-filed',
-        actor: appeal.filedBy,
-        payload: { appeal: { ...appeal, status: 'open', resolutions: [] } }
-      })
-      for (const resolution of appeal.resolutions) {
-        events.push({
-          type: 'appeal-resolved',
-          actor: resolution.resolvedBy,
-          payload: { appealId: appeal.appealId, resolution }
-        })
-      }
-    }
+    const events: StewardEventSpec[] = [...stateEvents]
     events.push(
       {
-        type: 'case-status-set',
+        type: 'case-imported',
         actor: importActor,
-        payload: { status: packageCase.status }
+        occurredAt: provenance.importedAt,
+        payload: { provenance }
       },
       {
         type: 'import-completed',
         actor: importActor,
+        occurredAt: provenance.importedAt + 1,
         payload: { packageHash: bundle.packageHash }
       }
     )
@@ -1408,7 +1913,9 @@ export class StewardCaseStore {
     if (
       staged.value.integrity.state !== 'unanchored' ||
       staged.value.importCompleted !== true ||
-      staged.value.importProvenance?.sourcePackageHash !== bundle.packageHash
+      staged.value.importProvenance?.sourcePackageHash !== bundle.packageHash ||
+      canonicalStringify(comparableImportedCase(portableCase(staged.value)), PACKAGE_MAX_CANONICAL_BYTES) !==
+        canonicalStringify(comparableImportedCase(packageCase), PACKAGE_MAX_CANONICAL_BYTES)
     ) {
       throw new Error('Staged steward import failed verification.')
     }
@@ -1432,20 +1939,52 @@ export class StewardCaseStore {
   }
 
   private validateBundle(bundle: StewardExportBundle): StewardExportBundle {
+    const packageRecord = plain(bundle, 'package')
+    onlyKeys(packageRecord, 'package', [
+      'magic',
+      'version',
+      'profile',
+      'exportedAt',
+      'source',
+      'case',
+      'events',
+      'evidence',
+      'redactions',
+      'packageHash'
+    ])
     if (bundle.profile !== 'full-local' && bundle.profile !== 'anonymized') {
       throw new Error('Unsupported steward package profile.')
     }
+    const exportedAt = numberValue(bundle.exportedAt, 'package.exportedAt')
+    if (bundle.profile === 'anonymized' && exportedAt !== 0) {
+      throw new Error('Anonymized steward packages must normalize exportedAt.')
+    }
     const source = plain(bundle.source, 'package.source')
-    hash(source.headHash, 'package.source.headHash')
-    text(source.caseRef, 'package.source.caseRef', 160)
+    onlyKeys(source, 'package.source', ['caseRef', 'headHash', 'integrityState', 'eventCount'])
+    const sourceHeadHash = hash(source.headHash, 'package.source.headHash')
+    const sourceCaseRef = text(source.caseRef, 'package.source.caseRef', 160)
     if (source.integrityState !== 'unanchored') throw new Error('Steward package integrity state must be unanchored.')
-    numberValue(source.eventCount, 'package.source.eventCount')
+    const sourceEventCount = numberValue(source.eventCount, 'package.source.eventCount')
     const caseValue = this.validatePortableCase(bundle.case)
+    if (bundle.profile === 'anonymized') assertAnonymizedCaseSchema(caseValue)
+    if (sourceCaseRef !== caseValue.caseId) throw new Error('Steward package source case reference mismatch.')
+    const events = this.validateExportEvents(bundle.events, caseValue.caseId)
+    if (events.length !== sourceEventCount || events.at(-1)?.eventHash !== sourceHeadHash) {
+      throw new Error('Steward package source event count or chain head mismatch.')
+    }
+    const reduced = portableCase(this.reduce(caseValue.caseId, events, [], false))
+    if (canonicalStringify(reduced, PACKAGE_MAX_CANONICAL_BYTES) !==
+        canonicalStringify(caseValue, PACKAGE_MAX_CANONICAL_BYTES)) {
+      throw new Error('Steward package case does not match its verified canonical event chain.')
+    }
     const evidenceValues = array(bundle.evidence, 'package.evidence', 5_000).map((entry) => {
       const sourceEvidence = plain(entry, 'package.evidence item')
+      onlyKeys(sourceEvidence, 'package.evidence item', ['evidenceId', 'contentHash', 'content'])
       const evidenceId = identifier(sourceEvidence.evidenceId, 'package.evidence.evidenceId')
       const contentHash = hash(sourceEvidence.contentHash, 'package.evidence.contentHash')
-      const content = cloneJson(sourceEvidence.content)
+      const content = bundle.profile === 'anonymized'
+        ? validateAnonymizedEvidenceContent(sourceEvidence.content)
+        : cloneJson(sourceEvidence.content)
       if (sha256Canonical(content) !== contentHash) {
         throw new Error(`Evidence ${evidenceId} hash mismatch in steward package.`)
       }
@@ -1465,15 +2004,92 @@ export class StewardCaseStore {
         throw new Error(`Evidence ${entry.evidenceId} byte length mismatch.`)
       }
     }
+    const redactions = array(bundle.redactions, 'package.redactions', 100).map((entry, index) =>
+      text(entry, `package.redactions[${index}]`, 500))
+    if (bundle.profile === 'anonymized' && redactions.length === 0) {
+      throw new Error('Anonymized steward packages must declare their redactions.')
+    }
     return {
       ...bundle,
       case: caseValue,
-      evidence: evidenceValues
+      events,
+      evidence: evidenceValues,
+      redactions
     }
+  }
+
+  private validateExportEvents(value: unknown, caseId: string): StewardEventRecord[] {
+    const records: StewardEventRecord[] = []
+    let previousHash = ZERO_HASH
+    let previousOccurredAt = -1
+    const eventIds = new Set<string>()
+    for (const [index, entry] of array(value, 'package.events', 20_000).entries()) {
+      const source = plain(entry, `package.events[${index}]`)
+      onlyKeys(source, `package.events[${index}]`, [
+        'schemaVersion',
+        'caseId',
+        'eventId',
+        'sequence',
+        'type',
+        'occurredAt',
+        'actor',
+        'payload',
+        'previousHash',
+        'eventHash'
+      ])
+      const type = text(source.type, `package.events[${index}].type`, 80) as StewardCaseEventType
+      if (!SUPPORTED_EVENT_TYPES.has(type)) throw new Error(`package.events[${index}] type is unsupported.`)
+      const record: StewardEventRecord = {
+        schemaVersion: source.schemaVersion === STEWARD_CASE_SCHEMA_VERSION
+          ? STEWARD_CASE_SCHEMA_VERSION
+          : (() => { throw new Error(`package.events[${index}] schemaVersion is unsupported.`) })(),
+        caseId: identifier(source.caseId, `package.events[${index}].caseId`),
+        eventId: identifier(source.eventId, `package.events[${index}].eventId`),
+        sequence: numberValue(source.sequence, `package.events[${index}].sequence`, 1),
+        type,
+        occurredAt: numberValue(source.occurredAt, `package.events[${index}].occurredAt`),
+        actor: actor(source.actor, `package.events[${index}].actor`),
+        payload: cloneJson(source.payload),
+        previousHash: hash(source.previousHash, `package.events[${index}].previousHash`),
+        eventHash: hash(source.eventHash, `package.events[${index}].eventHash`)
+      }
+      if (record.caseId !== caseId) throw new Error('Steward package event case id mismatch.')
+      if (record.sequence !== index + 1) throw new Error('Steward package event sequence gap.')
+      if (record.previousHash !== previousHash) throw new Error('Steward package event previous hash mismatch.')
+      if (record.occurredAt <= previousOccurredAt) throw new Error('Steward package event times are not monotonic.')
+      if (eventIds.has(record.eventId)) throw new Error('Steward package contains duplicate event ids.')
+      const { eventHash: _eventHash, ...unsigned } = record
+      if (sha256Canonical(unsigned) !== record.eventHash) throw new Error('Steward package event hash mismatch.')
+      records.push(record)
+      eventIds.add(record.eventId)
+      previousHash = record.eventHash
+      previousOccurredAt = record.occurredAt
+    }
+    if (records.length === 0) throw new Error('Steward package event chain is empty.')
+    return records
   }
 
   private validatePortableCase(value: unknown): StewardPortableCase {
     const source = plain(value, 'package.case')
+    onlyKeys(source, 'package.case', [
+      'schemaVersion',
+      'caseId',
+      'title',
+      'createdAt',
+      'createdBy',
+      'identity',
+      'primaryIncidentFingerprint',
+      'status',
+      'assignedTo',
+      'bookmarks',
+      'evidence',
+      'rules',
+      'verdicts',
+      'dissents',
+      'appeals',
+      'importProvenance',
+      'importCompleted'
+    ])
     if (source.schemaVersion !== STEWARD_CASE_SCHEMA_VERSION) throw new Error('Unsupported steward case schema.')
     const status = text(source.status, 'package.case.status', 30) as StewardCaseStatus
     if (!CASE_STATUSES.has(status)) throw new Error('Unsupported steward case status.')
@@ -1493,15 +2109,9 @@ export class StewardCaseStore {
     if (evidence.some((entry) => entry.state !== 'available')) {
       throw new Error('Steward packages may contain only available evidence.')
     }
-    const evidenceIds = new Set(evidence.map((entry) => entry.evidenceId))
-    const ruleIds = new Set(rules.map((entry) => entry.citationId))
     const verdictIds = new Set(verdicts.map((entry) => entry.verdictId))
-    for (const verdict of verdicts) {
-      if (verdict.evidenceIds.some((id) => !evidenceIds.has(id))) throw new Error('Verdict references unknown evidence.')
-      if (verdict.ruleCitationIds.some((id) => !ruleIds.has(id))) throw new Error('Verdict references an unknown rule.')
-      if (verdict.supersedesVerdictId && !verdictIds.has(verdict.supersedesVerdictId)) {
-        throw new Error('Verdict supersedes an unknown verdict.')
-      }
+    for (const [index, verdict] of verdicts.entries()) {
+      assertVerdictInvariants(verdict, rules, evidence, verdicts.slice(0, index))
     }
     for (const dissent of dissents) {
       if (!verdictIds.has(dissent.verdictId)) throw new Error('Dissent references an unknown verdict.')
@@ -1513,6 +2123,14 @@ export class StewardCaseStore {
       throw new Error('A packaged steward case must remain appealed while any appeal is open.')
     }
     const normalizedIdentity = identity(source.identity)
+    for (const bookmark of bookmarks) {
+      if (
+        bookmark.source === 'incident-recorder' &&
+        bookmark.captureSessionId !== normalizedIdentity.sessionId
+      ) {
+        throw new Error('Packaged incident bookmark does not match the immutable case capture session.')
+      }
+    }
     const packagedPrimaryIncidentFingerprint = hash(
       source.primaryIncidentFingerprint,
       'package.case.primaryIncidentFingerprint'
@@ -1573,9 +2191,23 @@ export class StewardCaseStore {
     const raw = readFileSync(path, 'utf8')
     const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0)
     let previousHash = ZERO_HASH
+    let previousOccurredAt = -1
+    const eventIds = new Set<string>()
     for (let index = 0; index < lines.length; index += 1) {
       try {
         const parsed = plain(JSON.parse(lines[index]) as unknown, `event ${index + 1}`)
+        onlyKeys(parsed, `event ${index + 1}`, [
+          'schemaVersion',
+          'caseId',
+          'eventId',
+          'sequence',
+          'type',
+          'occurredAt',
+          'actor',
+          'payload',
+          'previousHash',
+          'eventHash'
+        ])
         const eventHash = hash(parsed.eventHash, `event ${index + 1}.eventHash`)
         const record: StewardEventRecord = {
           schemaVersion: parsed.schemaVersion === STEWARD_CASE_SCHEMA_VERSION
@@ -1594,11 +2226,15 @@ export class StewardCaseStore {
         if (record.caseId !== caseId) throw new Error('case id mismatch')
         if (record.sequence !== records.length + 1) throw new Error('sequence gap')
         if (record.previousHash !== previousHash) throw new Error('previous hash mismatch')
+        if (record.occurredAt <= previousOccurredAt) throw new Error('event times are not monotonic')
+        if (eventIds.has(record.eventId)) throw new Error('duplicate event id')
         if (!SUPPORTED_EVENT_TYPES.has(record.type)) throw new Error('unsupported event type')
         const { eventHash: _eventHash, ...unsigned } = record
         if (sha256Canonical(unsigned) !== eventHash) throw new Error('event hash mismatch')
         records.push(record)
+        eventIds.add(record.eventId)
         previousHash = eventHash
+        previousOccurredAt = record.occurredAt
       } catch (error) {
         failures.push(`event ${index + 1}: ${error instanceof Error ? error.message : String(error)}`)
         break
@@ -1616,16 +2252,38 @@ export class StewardCaseStore {
     return { value, records }
   }
 
-  private reduce(caseId: string, records: StewardEventRecord[], failures: string[]): StewardCase {
+  private reduce(
+    caseId: string,
+    records: StewardEventRecord[],
+    failures: string[],
+    verifyEvidence = true
+  ): StewardCase {
     const first = records[0]
     if (first.type !== 'case-created') throw new Error('case chain does not begin with case-created')
     const source = plain(first.payload, 'case-created payload')
+    onlyKeys(source, 'case-created payload', [
+      'title',
+      'identity',
+      'incident',
+      'primaryIncidentFingerprint',
+      'assignedTo'
+    ])
     const created: CaseCreatedPayload = {
       title: text(source.title, 'case title', 300),
       identity: identity(source.identity),
       incident: bookmarkRecord(source.incident),
       primaryIncidentFingerprint: hash(source.primaryIncidentFingerprint, 'primaryIncidentFingerprint'),
-      ...(source.assignedTo ? { assignedTo: actor(source.assignedTo, 'assignedTo') } : {})
+      ...(source.assignedTo ? { assignedTo: decisionActor(source.assignedTo, 'assignedTo') } : {})
+    }
+    const createdBy = decisionActor(first.actor, 'case-created actor')
+    const legacyImportedActor = createdBy.id === 'steward-import' &&
+      records.some((record) => record.type === 'case-imported')
+    if (!legacyImportedActor) requireMatchingActor(createdBy, created.incident.createdBy, 'case-created')
+    if (
+      created.incident.captureSessionId &&
+      created.incident.captureSessionId !== created.identity.sessionId
+    ) {
+      throw new Error('case-created incident capture session mismatch')
     }
     const stablePrimaryIncidentFingerprint = eventFingerprint(created.identity, created.incident)
     if (
@@ -1639,7 +2297,7 @@ export class StewardCaseStore {
       caseId,
       title: created.title,
       createdAt: first.occurredAt,
-      createdBy: decisionActor(first.actor, 'case-created actor'),
+      createdBy,
       identity: created.identity,
       primaryIncidentFingerprint: stablePrimaryIncidentFingerprint,
       status: 'triage',
@@ -1658,50 +2316,111 @@ export class StewardCaseStore {
       const payload = plain(record.payload, `${record.type} payload`)
       switch (record.type) {
         case 'case-created':
+          if (record !== first) throw new Error('case chain contains more than one case-created event')
           break
         case 'case-assigned':
-          value.assignedTo = actor(payload.assignedTo, 'assignedTo')
+          onlyKeys(payload, 'case-assigned payload', ['assignedTo'])
+          decisionActor(record.actor, 'case-assigned actor')
+          value.assignedTo = decisionActor(payload.assignedTo, 'assignedTo')
           break
         case 'case-status-set': {
+          onlyKeys(payload, 'case-status-set payload', ['status'])
+          decisionActor(record.actor, 'case-status-set actor')
           const status = text(payload.status, 'status', 30) as StewardCaseStatus
           if (!CASE_STATUSES.has(status)) throw new Error('unsupported case status')
+          if (value.appeals.some((entry) => entry.status === 'open') && status !== 'appealed') {
+            throw new Error('case status must remain appealed while an appeal is open')
+          }
           value.status = status
           break
         }
-        case 'bookmark-added':
-          value.bookmarks.push(bookmarkRecord(payload.bookmark))
+        case 'bookmark-added': {
+          onlyKeys(payload, 'bookmark-added payload', ['bookmark'])
+          decisionActor(record.actor, 'bookmark-added actor')
+          const bookmark = bookmarkRecord(payload.bookmark)
+          requireMatchingActor(record.actor, bookmark.createdBy, 'bookmark-added')
+          if (bookmark.captureSessionId && bookmark.captureSessionId !== value.identity.sessionId) {
+            throw new Error('bookmark capture session mismatch')
+          }
+          value.bookmarks.push(bookmark)
           break
-        case 'evidence-locked':
-          value.evidence.push(evidenceRecord(payload.evidence))
+        }
+        case 'evidence-locked': {
+          onlyKeys(payload, 'evidence-locked payload', ['evidence'])
+          decisionActor(record.actor, 'evidence-locked actor')
+          const evidence = evidenceRecord(payload.evidence)
+          requireMatchingActor(record.actor, evidence.lockedBy, 'evidence-locked')
+          if (
+            evidence.provenance.sourceKind === 'incident-recorder' &&
+            evidence.provenance.sessionRef !== value.identity.sessionId
+          ) {
+            throw new Error('incident evidence session reference mismatch')
+          }
+          value.evidence.push(evidence)
           break
-        case 'rule-version-cited':
-          value.rules.push(ruleRecord(payload.citation))
+        }
+        case 'rule-version-cited': {
+          onlyKeys(payload, 'rule-version-cited payload', ['citation'])
+          decisionActor(record.actor, 'rule-version-cited actor')
+          const citation = ruleRecord(payload.citation)
+          requireMatchingActor(record.actor, citation.citedBy, 'rule-version-cited')
+          value.rules.push(citation)
           break
-        case 'human-verdict-recorded':
-          value.verdicts.push(verdictRecord(payload.verdict))
+        }
+        case 'human-verdict-recorded': {
+          onlyKeys(payload, 'human-verdict-recorded payload', ['verdict'])
+          decisionActor(record.actor, 'human-verdict-recorded actor')
+          const verdict = verdictRecord(payload.verdict)
+          requireMatchingActor(record.actor, verdict.decidedBy, 'human-verdict-recorded')
+          assertVerdictInvariants(verdict, value.rules, value.evidence, value.verdicts)
+          value.verdicts.push(verdict)
           value.status = value.appeals.some((entry) => entry.status === 'open') ? 'appealed' : 'decided'
           break
-        case 'dissent-recorded':
-          value.dissents.push(dissentRecord(payload.dissent))
+        }
+        case 'dissent-recorded': {
+          onlyKeys(payload, 'dissent-recorded payload', ['dissent'])
+          const dissent = dissentRecord(payload.dissent)
+          requireMatchingActor(record.actor, dissent.submittedBy, 'dissent-recorded')
+          if (!value.verdicts.some((entry) => entry.verdictId === dissent.verdictId)) {
+            throw new Error(`dissent references unknown verdict ${dissent.verdictId}`)
+          }
+          value.dissents.push(dissent)
           break
-        case 'appeal-filed':
-          value.appeals.push(appealRecord(payload.appeal))
+        }
+        case 'appeal-filed': {
+          onlyKeys(payload, 'appeal-filed payload', ['appeal'])
+          const appeal = appealRecord(payload.appeal)
+          requireMatchingActor(record.actor, appeal.filedBy, 'appeal-filed')
+          if (!value.verdicts.some((entry) => entry.verdictId === appeal.verdictId)) {
+            throw new Error(`appeal references unknown verdict ${appeal.verdictId}`)
+          }
+          value.appeals.push(appeal)
           value.status = 'appealed'
           break
+        }
         case 'appeal-resolved': {
+          onlyKeys(payload, 'appeal-resolved payload', ['appealId', 'resolution'])
+          decisionActor(record.actor, 'appeal-resolved actor')
           const appealId = identifier(payload.appealId, 'appealId')
           const target = value.appeals.find((entry) => entry.appealId === appealId)
           if (!target) throw new Error(`appeal resolution references unknown appeal ${appealId}`)
-          target.resolutions.push(resolutionRecord(payload.resolution))
+          if (target.status !== 'open') throw new Error(`appeal ${appealId} is already resolved`)
+          const resolution = resolutionRecord(payload.resolution)
+          requireMatchingActor(record.actor, resolution.resolvedBy, 'appeal-resolved')
+          target.resolutions.push(resolution)
           target.status = 'resolved'
           if (value.appeals.every((entry) => entry.status === 'resolved')) value.status = 'decided'
           break
         }
         case 'case-imported':
+          onlyKeys(payload, 'case-imported payload', ['provenance'])
+          decisionActor(record.actor, 'case-imported actor')
           value.importProvenance = importProvenanceRecord(payload.provenance)
           value.importCompleted = false
           break
         case 'import-completed': {
+          onlyKeys(payload, 'import-completed payload', ['packageHash'])
+          decisionActor(record.actor, 'import-completed actor')
           const packageHash = hash(payload.packageHash, 'import-completed.packageHash')
           if (!value.importProvenance || value.importProvenance.sourcePackageHash !== packageHash) {
             throw new Error('import-completed marker does not match import provenance')
@@ -1720,7 +2439,7 @@ export class StewardCaseStore {
     if (value.appeals.some((entry) => entry.status === 'open')) value.status = 'appealed'
 
     const evidenceFailures: string[] = []
-    value.evidence = value.evidence.map((entry) => {
+    value.evidence = verifyEvidence ? value.evidence.map((entry) => {
       const path = this.evidencePath(entry.contentHash)
       if (!existsSync(path)) {
         evidenceFailures.push(`${entry.evidenceId}: locked evidence is missing`)
@@ -1735,7 +2454,7 @@ export class StewardCaseStore {
         evidenceFailures.push(`${entry.evidenceId}: ${error instanceof Error ? error.message : String(error)}`)
         return { ...entry, state: 'corrupt' }
       }
-    })
+    }) : value.evidence.map((entry) => ({ ...entry, state: 'available' }))
     const chainFailures = [...failures]
     const integrity = emptyIntegrity(chainFailures, records.length, records.at(-1)?.eventHash)
     if (
@@ -1776,30 +2495,9 @@ export class StewardCaseStore {
 
   private buildEventRecords(
     caseId: string,
-    events: ReadonlyArray<{ type: StewardCaseEventType; actor: StewardActor; payload: unknown }>
+    events: readonly StewardEventSpec[]
   ): StewardEventRecord[] {
-    let previousHash = ZERO_HASH
-    let occurredAt = Math.trunc(this.now())
-    return events.map((event, index) => {
-      if (index > 0) occurredAt += 1
-      const unsigned = eventUnsigned({
-        schemaVersion: STEWARD_CASE_SCHEMA_VERSION,
-        caseId,
-        eventId: this.newId('event'),
-        sequence: index + 1,
-        type: event.type,
-        occurredAt,
-        actor: event.actor,
-        payload: cloneJson(event.payload),
-        previousHash
-      })
-      const record: StewardEventRecord = {
-        ...unsigned,
-        eventHash: sha256Canonical(unsigned)
-      }
-      previousHash = record.eventHash
-      return record
-    })
+    return canonicalEventRecords(caseId, events, () => this.newId('event'))
   }
 
   private writeStagedChain(path: string, records: readonly StewardEventRecord[]): void {

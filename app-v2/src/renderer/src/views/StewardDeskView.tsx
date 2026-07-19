@@ -1,9 +1,8 @@
 import { type FormEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
-import type { IncidentClip, IncidentClipMeta } from '../../../shared/incidents'
+import type { IncidentClipMeta } from '../../../shared/incidents'
 import { INCIDENT_CHANNELS } from '../../../shared/incidents'
 import {
   STEWARD_CHANNELS,
-  type StewardActor,
   type StewardAppealResolutionKind,
   type StewardCase,
   type StewardCaseStatus,
@@ -19,27 +18,6 @@ import '../styles/steward-desk.css'
 const STATUS_VALUES: StewardCaseStatus[] = ['triage', 'under-review', 'decided', 'appealed', 'closed']
 const FINDING_VALUES: StewardVerdictFinding[] = ['no-breach', 'breach', 'insufficient-evidence', 'procedural']
 const RESOLUTION_VALUES: StewardAppealResolutionKind[] = ['upheld', 'modified', 'remanded', 'dismissed']
-
-function slug(value: string, fallback: string): string {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  return normalized || fallback
-}
-
-function stewardActor(name: string): StewardActor {
-  return {
-    id: `steward-${slug(name, 'local')}`,
-    displayName: name.trim() || 'Local steward',
-    role: 'steward'
-  }
-}
-
-function participantActor(name: string): StewardActor {
-  return {
-    id: `participant-${slug(name, 'local')}`,
-    displayName: name.trim() || 'League participant',
-    role: 'participant'
-  }
-}
 
 function numeric(value: string): number | undefined {
   if (!value.trim()) return undefined
@@ -352,17 +330,16 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.createCase,
       {
         title: create.title,
-        actor: stewardActor(stewardName),
-        assignedTo: stewardActor(stewardName),
+        actorDisplayName: stewardName,
         identity: {
           leagueId: create.leagueId,
           leagueName: create.leagueName,
           eventId: create.eventId,
           eventName: create.eventName,
-          sessionId: create.sessionId,
-          sim: create.sim,
-          sessionType: create.sessionType,
-          trackName: create.trackName
+          sessionId: selectedClip?.captureSession?.captureSessionId ?? create.sessionId,
+          sim: selectedClip?.captureSession?.sim ?? create.sim,
+          sessionType: selectedClip?.captureSession?.sessionType ?? create.sessionType,
+          trackName: selectedClip?.captureSession?.trackName ?? create.trackName
         },
         incident
       },
@@ -389,7 +366,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.addBookmark,
       {
         caseId: selected.caseId,
-        actor: stewardActor(stewardName),
+        actorDisplayName: stewardName,
         bookmark: {
           source: 'replay',
           sourceId: bookmark.sourceId,
@@ -412,24 +389,10 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     if (!selected || !evidenceIncidentId) return
     setBusy(true)
     try {
-      const clip = await window.ipc.invoke<IncidentClip | null>(INCIDENT_CHANNELS.get, evidenceIncidentId)
-      if (!clip) throw new Error(tt(language, 'steward.error.incidentMissing'))
-      const next = await window.ipc.invoke<StewardCase>(STEWARD_CHANNELS.lockEvidence, {
+      const next = await window.ipc.invoke<StewardCase>(STEWARD_CHANNELS.lockIncidentEvidence, {
         caseId: selected.caseId,
-        actor: stewardActor(stewardName),
-        summary: `${clip.type} · ${clip.id}`,
-        mediaType: 'application/vnd.ultimate-sim.incident+json',
-        content: clip,
-        provenance: {
-          sourceKind: 'incident-recorder',
-          sourceRef: clip.id,
-          producer: 'Ultimate Sim App incident recorder',
-          producerVersion: '1',
-          capturedAt: clip.createdAt,
-          sessionRef: selected.identity.sessionId,
-          captureRange: `${clip.window[0]?.t ?? clip.at}-${clip.window.at(-1)?.t ?? clip.at}`,
-          transform: 'incident-recorder.v1'
-        }
+        incidentId: evidenceIncidentId,
+        actorDisplayName: stewardName
       })
       upsert(next)
       setEvidenceIncidentId('')
@@ -448,7 +411,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.lockEvidence,
       {
         caseId: selected.caseId,
-        actor: stewardActor(stewardName),
+        actorDisplayName: stewardName,
         summary: manualEvidence.summary,
         mediaType: 'text/plain',
         content: { note: manualEvidence.content },
@@ -474,7 +437,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.citeRule,
       {
         caseId: selected.caseId,
-        actor: stewardActor(stewardName),
+        actorDisplayName: stewardName,
         ...rule
       },
       'steward.toast.rule'
@@ -489,7 +452,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.recordVerdict,
       {
         caseId: selected.caseId,
-        actor: stewardActor(stewardName),
+        actorDisplayName: stewardName,
         ...verdict,
         ruleCitationIds: selectedRuleIds,
         evidenceIds: selectedEvidenceIds,
@@ -507,7 +470,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.recordDissent,
       {
         caseId: selected.caseId,
-        actor: participantActor(participantName),
+        actorDisplayName: participantName,
         ...dissent
       },
       'steward.toast.dissent'
@@ -522,7 +485,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.fileAppeal,
       {
         caseId: selected.caseId,
-        actor: participantActor(participantName),
+        actorDisplayName: participantName,
         ...appeal
       },
       'steward.toast.appeal'
@@ -537,7 +500,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.resolveAppeal,
       {
         caseId: selected.caseId,
-        actor: stewardActor(stewardName),
+        actorDisplayName: stewardName,
         ...resolution
       },
       'steward.toast.resolution'
@@ -690,16 +653,36 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                   <input required value={create.eventName} onChange={(event) => setCreate({ ...create, eventName: event.target.value })} />
                 </Field>
                 <Field label={tt(language, 'steward.field.sessionId')}>
-                  <input required value={create.sessionId} onChange={(event) => setCreate({ ...create, sessionId: event.target.value })} />
+                  <input
+                    required
+                    readOnly={Boolean(selectedClip?.captureSession)}
+                    value={selectedClip?.captureSession?.captureSessionId ?? create.sessionId}
+                    onChange={(event) => setCreate({ ...create, sessionId: event.target.value })}
+                  />
                 </Field>
                 <Field label={tt(language, 'steward.field.track')}>
-                  <input required value={create.trackName} onChange={(event) => setCreate({ ...create, trackName: event.target.value })} />
+                  <input
+                    required
+                    readOnly={Boolean(selectedClip?.captureSession?.trackName)}
+                    value={selectedClip?.captureSession?.trackName ?? create.trackName}
+                    onChange={(event) => setCreate({ ...create, trackName: event.target.value })}
+                  />
                 </Field>
                 <Field label={tt(language, 'steward.field.sim')}>
-                  <input required value={create.sim} onChange={(event) => setCreate({ ...create, sim: event.target.value })} />
+                  <input
+                    required
+                    readOnly={Boolean(selectedClip?.captureSession)}
+                    value={selectedClip?.captureSession?.sim ?? create.sim}
+                    onChange={(event) => setCreate({ ...create, sim: event.target.value })}
+                  />
                 </Field>
                 <Field label={tt(language, 'steward.field.sessionType')}>
-                  <input required value={create.sessionType} onChange={(event) => setCreate({ ...create, sessionType: event.target.value })} />
+                  <input
+                    required
+                    readOnly={Boolean(selectedClip?.captureSession?.sessionType)}
+                    value={selectedClip?.captureSession?.sessionType ?? create.sessionType}
+                    onChange={(event) => setCreate({ ...create, sessionType: event.target.value })}
+                  />
                 </Field>
               </div>
               <Field label={tt(language, 'steward.field.incidentClip')} hint={tt(language, 'steward.field.incidentClipHint')}>
@@ -780,7 +763,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                       STEWARD_CHANNELS.setStatus,
                       {
                         caseId: selected.caseId,
-                        actor: stewardActor(stewardName),
+                        actorDisplayName: stewardName,
                         status: event.target.value
                       },
                       'steward.toast.status'
@@ -804,8 +787,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                     STEWARD_CHANNELS.assignCase,
                     {
                       caseId: selected.caseId,
-                      actor: stewardActor(stewardName),
-                      assignedTo: stewardActor(stewardName)
+                      actorDisplayName: stewardName
                     },
                     'steward.toast.assigned'
                   )}

@@ -1,5 +1,5 @@
 export const STEWARD_CASE_SCHEMA_VERSION = 1 as const
-export const STEWARD_EXPORT_VERSION = 1 as const
+export const STEWARD_EXPORT_VERSION = 2 as const
 export const STEWARD_EXPORT_MAGIC = 'ultimate-sim-steward-case' as const
 export const STEWARD_EXPORT_EXTENSION = 'stewardcase' as const
 export const STEWARD_EVIDENCE_MAX_BYTES = 4 * 1024 * 1024
@@ -44,6 +44,7 @@ export interface StewardIncidentBookmark {
   lap?: number
   lapDistPct?: number
   replayFrame?: number
+  captureSessionId?: string
   windowBeforeSec: number
   windowAfterSec: number
   notes?: string
@@ -307,6 +308,19 @@ export interface StewardExportEvidence {
   content: unknown
 }
 
+export interface StewardExportEvent {
+  schemaVersion: typeof STEWARD_CASE_SCHEMA_VERSION
+  caseId: string
+  eventId: string
+  sequence: number
+  type: StewardCaseEventType
+  occurredAt: number
+  actor: StewardActor
+  payload: unknown
+  previousHash: string
+  eventHash: string
+}
+
 export interface StewardExportBundle {
   magic: typeof STEWARD_EXPORT_MAGIC
   version: typeof STEWARD_EXPORT_VERSION
@@ -319,6 +333,7 @@ export interface StewardExportBundle {
     eventCount: number
   }
   case: StewardPortableCase
+  events: StewardExportEvent[]
   evidence: StewardExportEvidence[]
   redactions: string[]
   packageHash: string
@@ -350,6 +365,12 @@ export interface StewardEvidenceDetailsRequest {
   evidenceId: string
 }
 
+export interface StewardIncidentEvidenceLockRequest {
+  caseId: string
+  incidentId: string
+  actorDisplayName?: string
+}
+
 export interface StewardEvidenceDetails {
   caseId: string
   evidence: StewardEvidenceLock
@@ -368,6 +389,7 @@ export const STEWARD_CHANNELS = {
   setStatus: 'steward:setStatus',
   addBookmark: 'steward:addBookmark',
   lockEvidence: 'steward:lockEvidence',
+  lockIncidentEvidence: 'steward:lockIncidentEvidence',
   citeRule: 'steward:citeRule',
   recordVerdict: 'steward:recordVerdict',
   recordDissent: 'steward:recordDissent',
