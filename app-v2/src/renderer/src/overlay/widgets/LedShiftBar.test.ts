@@ -75,6 +75,27 @@ describe('LedShiftBar render', () => {
     expect(markup).toContain('data-rev-shift="strobe"')
   })
 
+  it('treats blink=false as authoritative and falls back only when blink is absent', () => {
+    const providerOff = renderToStaticMarkup(
+      createElement(LedShiftBar, { pct: 0.999, segments: 8, blink: false })
+    )
+    expect(providerOff).toContain('data-rev-shift="normal"')
+    expect(providerOff).not.toContain('repeatCount="indefinite"')
+    expect(providerOff).not.toContain(REDLINE_FLASH_COLOR)
+
+    const providerOn = renderToStaticMarkup(
+      createElement(LedShiftBar, { pct: 0.2, segments: 8, blink: true })
+    )
+    expect(providerOn).toContain('data-rev-shift="strobe"')
+    expect(providerOn).toContain('repeatCount="indefinite"')
+    expect(providerOn).toContain(REDLINE_FLASH_COLOR)
+
+    const fallback = renderToStaticMarkup(
+      createElement(LedShiftBar, { pct: 0.999, segments: 8 })
+    )
+    expect(fallback).toContain('data-rev-shift="strobe"')
+  })
+
   it('an empty bar lights no bloom (only dimmed off-dome cores)', () => {
     const markup = renderToStaticMarkup(createElement(LedShiftBar, { pct: 0, segments: 10 }))
     // off LEDs draw exactly one rect each; no bloom pass with nothing lit.

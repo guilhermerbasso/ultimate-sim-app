@@ -1,4 +1,5 @@
 import { DEFAULT_ALERTS_CONFIG, type AlertsConfig } from './alerts'
+import { resolveShiftNow } from './revlights'
 import {
   fuelLapsRemainingOf,
   trackSurfaceMaterialLabel,
@@ -324,10 +325,10 @@ function shiftPointActive(snapshot: TelemetrySnapshot, alertsConfig: AlertsConfi
   const rpm = finite(snapshot.rpm)
   const maxRpm = finite(snapshot.maxRpm)
   const rpmPct = rpm != null && maxRpm != null && maxRpm > 0 ? rpm / maxRpm : undefined
-  return (
+  return resolveShiftNow(snapshot.revLights?.blink, (
     (shiftIndicatorPct != null && shiftIndicatorPct >= alertsConfig.shiftPoint.shiftIndicatorPct) ||
     (rpmPct != null && rpmPct >= alertsConfig.shiftPoint.rpmPct)
-  )
+  ))
 }
 
 function level(signal: TriggerSignal, phase = 'active', priority = 10): TemporalChannel {

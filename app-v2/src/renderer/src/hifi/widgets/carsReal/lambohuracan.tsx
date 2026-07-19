@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, legibleStroke, num, revFill, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, legibleStroke, num, resolveRevLightPct, resolveRpmGaugePct, revFill, signed } from '../kit'
 import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -19,20 +19,19 @@ function safeText(v: unknown): string {
 }
 
 function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
-  const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return frac(pct, 0, 1)
-  const rpm = num(snapshot?.rpm)
-  const max = num(snapshot?.maxRpm)
-  return rpm != null && max != null && max > 0 ? frac(rpm, 0, max) : 0
+  return resolveRpmGaugePct(snapshot)
 }
 
 function shiftState(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean; flash: boolean } {
-  const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: pct >= 0.96 || snapshot?.revLights?.blink === true }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
-  if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false, flash: rpm >= max * 0.96 }
-  return { f: 0, missing: true, flash: false }
+  const missing =
+    snapshot == null ||
+    (num(snapshot.shiftIndicatorPct) == null &&
+      num(snapshot.revLights?.pct) == null &&
+      !(rpm != null && max != null && max > 0))
+  const f = resolveRevLightPct(snapshot)
+  return { f, missing, flash: !missing && atShiftPoint(f, snapshot?.revLights?.blink, 0.96) }
 }
 
 function lapShort(sec: number | undefined): string {
@@ -81,7 +80,7 @@ function GlowDefs({ id }: { id: string }): ReactElement {
 
 function HexShiftRow({ snapshot, x, y, w, h, count = 20, id = 'lh-shift' }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; count?: number; id?: string }): ReactElement {
   const { f, missing, flash } = shiftState(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = Math.max(3, w * 0.006)
   const cell = (w - gap * (count - 1)) / count
@@ -249,7 +248,7 @@ function RpmWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
     <CleanTile width={w} height={h}>
       <HexShiftRow snapshot={snapshot} x={28} y={h * 0.58} w={w - 56} h={h * 0.18} count={12} id="lh-rpm-mini" />
       <text x={w / 2} y={h * 0.45} textAnchor="middle" fill={rpm == null ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={900} fontSize={h * 0.32} {...legibleStroke(h * 0.32)}>{fixed(rpm)}</text>
-      <path d={angularFramePath(38, h * 0.88, (w - 76) * f, 6, 'both')} fill={LIME} opacity={rpm == null ? 0.18 : 0.92} />
+      <path data-rpm-gauge="lh-rpm-bar" data-rpm-pct={f.toFixed(4)} d={angularFramePath(38, h * 0.88, (w - 76) * f, 6, 'both')} fill={LIME} opacity={rpm == null ? 0.18 : 0.92} />
     </CleanTile>
   )
 }

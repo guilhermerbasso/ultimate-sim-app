@@ -55,7 +55,7 @@ export interface RevLedBarProps {
   flashOn?: boolean
   /** @deprecated Shift-point colour is always the shared strong blue. */
   redlineColor?: string
-  /** Explicit provider shift/blink state; the shared threshold still applies. */
+  /** Provider shift/blink state. When defined it is authoritative; threshold is fallback only. */
   shiftActive?: boolean
   /** fill from the centre outward (Porsche/AiM) instead of left→right. */
   mirrored?: boolean
@@ -101,7 +101,7 @@ export function RevLedBar({
   dangerAt = 0.8,
   flashAt = 0.97,
   redlineFlash = true,
-  shiftActive = false,
+  shiftActive,
   mirrored = false,
   zones,
   glow = true,
@@ -128,7 +128,7 @@ export function RevLedBar({
   const bloomStrength = Number.isFinite(bloom) ? Math.max(0, bloom) : 0.35
   const n = Math.max(1, Math.min(64, Math.trunc(effSegments) || 1))
   const frac = clamp01(pct)
-  const flashing = redlineFlash && (shiftActive || atShiftPoint(frac, flashAt))
+  const flashing = redlineFlash && atShiftPoint(frac, shiftActive, flashAt)
 
   const g = Number.isFinite(gap) ? Math.max(0, gap) : 4
   const layout = revLightRowLayout(width, height, n, { gap: g })
