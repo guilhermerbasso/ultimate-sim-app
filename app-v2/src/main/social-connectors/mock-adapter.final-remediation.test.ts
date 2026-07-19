@@ -11,6 +11,7 @@ import {
   type SocialActionIntentV1,
   type SocialActorV1,
   type SocialCapabilityId,
+  type SocialConnectorStatusV1,
   type SocialProvider
 } from '../../shared/social-connectors'
 import { ManualSocialClock } from './clock'
@@ -881,6 +882,49 @@ describe('malformed untrusted adapter inputs', () => {
 })
 
 describe('authority-clock status refresh', () => {
+  it.each([
+    ['schema', { schema: 'invalid.social.status' }],
+    ['contract version', { contractVersion: '999.0.0' }],
+    ['connector id', { connectorId: 'mock.other.social.v1' }],
+    ['provider', { provider: 'discord' }],
+    ['mode', { mode: 'live' }],
+    ['network access', { networkAccess: true }],
+    ['credential configuration', { credentialsConfigured: true }]
+  ] as const)('rejects injected status with invalid %s contract metadata', (_label, patch) => {
+    const status = createMockConnectorStatus('twitch', NOW)
+    expect(() =>
+      createMockTwitchConnector({
+        referenceTimeMs: NOW,
+        fixtureKeyId: KEY_ID,
+        fixtureKeyMaterial: KEY_MATERIAL,
+        status: { ...status, ...patch } as unknown as SocialConnectorStatusV1
+      })
+    ).toThrow(/Invalid social connector status contract/)
+  })
+
+  it('rejects injected ready status missing required scope, entitlement or review keys', () => {
+    const status = createMockConnectorStatus('twitch', NOW)
+    const capability = socialCapabilityFor('twitch', 'twitch.marker.create')!
+    const scope = capability.requiredScopes[0]
+    const scopes = { ...status.scopes }
+    const entitlements = { ...status.entitlements }
+    const reviews = { ...status.reviews }
+    delete scopes[scope]
+    delete entitlements[capability.entitlementKey]
+    delete reviews[capability.id]
+
+    for (const patch of [{ scopes }, { entitlements }, { reviews }]) {
+      expect(() =>
+        createMockTwitchConnector({
+          referenceTimeMs: NOW,
+          fixtureKeyId: KEY_ID,
+          fixtureKeyMaterial: KEY_MATERIAL,
+          status: { ...status, ...patch }
+        })
+      ).toThrow(/Missing required status/)
+    }
+  })
+
   it('preserves revoked scope truth in the capability matrix', () => {
     const twitch = createMockConnectorStatus('twitch', NOW)
     const capability = socialCapabilityFor('twitch', 'twitch.marker.create')!

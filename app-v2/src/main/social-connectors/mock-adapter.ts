@@ -17,6 +17,7 @@ import {
   type SocialCapabilityId,
   type SocialCapabilityV1,
   type SocialConnectorStatusV1,
+  type SocialConnectorManifestV1,
   type SocialConnectorV1,
   type SocialConsentState,
   type SocialDestinationPolicyV1,
@@ -226,6 +227,19 @@ const SOCIAL_CONSENT_STATES = new Set<SocialConsentState>([
   'expired',
   'missing'
 ])
+const SOCIAL_SCOPE_STATES = new Set<SocialScopeState>(['granted', 'revoked', 'missing'])
+const SOCIAL_ENTITLEMENT_STATES = new Set<SocialEntitlementState>([
+  'eligible',
+  'ineligible',
+  'unknown'
+])
+const SOCIAL_REVIEW_STATES = new Set<SocialReviewState>([
+  'not-required',
+  'unknown',
+  'pending',
+  'approved',
+  'rejected'
+])
 const SOCIAL_ACTOR_ROLES = new Set<SocialActorRole>([
   'operator',
   'broadcaster',
@@ -424,19 +438,116 @@ function validateStorageLimits(limits: MockSocialConnectorStorageLimits): void {
   assertPositiveFinite(limits.auditRetentionMs, 'storage.auditRetentionMs')
 }
 
-function validateStatus(status: SocialConnectorStatusV1): void {
+function validateStatus(
+  value: unknown,
+  manifest: SocialConnectorManifestV1
+): SocialConnectorStatusV1 {
+  const status = sanitizeSocialJsonRecord(value)
+  const allowedKeys = new Set([
+    'schema',
+    'contractVersion',
+    'connectorId',
+    'provider',
+    'mode',
+    'lifecycle',
+    'scopes',
+    'entitlements',
+    'reviews',
+    'quota',
+    'consent',
+    'operatorControl',
+    'policyState',
+    'networkAccess',
+    'credentialsConfigured',
+    'updatedAtMs'
+  ])
+  if (
+    !status ||
+    !hasOnlyKeys(status, allowedKeys) ||
+    status.schema !== SOCIAL_CONNECTOR_SCHEMA ||
+    status.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
+    status.connectorId !== manifest.connectorId ||
+    status.provider !== manifest.provider ||
+    status.mode !== 'mock-conformance' ||
+    (status.lifecycle !== 'ready' && status.lifecycle !== 'blocked') ||
+    status.networkAccess !== false ||
+    status.credentialsConfigured !== false
+  ) {
+    throw new Error('Invalid social connector status contract')
+  }
+
+  const scopes = readSocialDataRecord(status.scopes)
+  const entitlements = readSocialDataRecord(status.entitlements)
+  const reviews = readSocialDataRecord(status.reviews)
+  const quota = readSocialDataRecord(status.quota)
+  const consent = readSocialDataRecord(status.consent)
+  if (!scopes || !entitlements || !reviews || !quota || !consent) {
+    throw new Error('Invalid social connector status state')
+  }
+
   assertFiniteTimestamp(status.updatedAtMs, 'status.updatedAtMs')
-  assertNonNegativeFinite(status.quota.limit, 'status.quota.limit')
-  assertNonNegativeFinite(status.quota.remaining, 'status.quota.remaining')
-  assertFiniteTimestamp(status.quota.resetAtMs, 'status.quota.resetAtMs')
-  assertNonNegativeSafeInteger(status.consent.epoch, 'status.consent.epoch')
-  assertFiniteTimestamp(status.consent.expiresAtMs, 'status.consent.expiresAtMs')
-  if (!SOCIAL_CONSENT_STATES.has(status.consent.state)) {
+  assertNonNegativeFinite(quota.limit, 'status.quota.limit')
+  assertNonNegativeFinite(quota.remaining, 'status.quota.remaining')
+  assertFiniteTimestamp(quota.resetAtMs, 'status.quota.resetAtMs')
+  assertNonNegativeSafeInteger(consent.epoch, 'status.consent.epoch')
+  assertFiniteTimestamp(consent.expiresAtMs, 'status.consent.expiresAtMs')
+  if (!SOCIAL_CONSENT_STATES.has(consent.state as SocialConsentState)) {
     throw new Error('status.consent.state is invalid')
   }
-  if (status.quota.remaining > status.quota.limit) {
+  if (
+    quota.state !== 'available' &&
+    quota.state !== 'exhausted' &&
+    quota.state !== 'unknown'
+  ) {
+    throw new Error('status.quota.state is invalid')
+  }
+  if (status.operatorControl !== 'enabled' && status.operatorControl !== 'blocked') {
+    throw new Error('status.operatorControl is invalid')
+  }
+  if (
+    status.policyState !== 'current' &&
+    status.policyState !== 'stale' &&
+    status.policyState !== 'missing'
+  ) {
+    throw new Error('status.policyState is invalid')
+  }
+  if (quota.remaining > quota.limit) {
     throw new Error('status.quota.remaining cannot exceed status.quota.limit')
   }
+  if (
+    Object.values(scopes).some(
+      (state) => !SOCIAL_SCOPE_STATES.has(state as SocialScopeState)
+    ) ||
+    Object.values(entitlements).some(
+      (state) => !SOCIAL_ENTITLEMENT_STATES.has(state as SocialEntitlementState)
+    ) ||
+    Object.values(reviews).some(
+      (state) => !SOCIAL_REVIEW_STATES.has(state as SocialReviewState)
+    )
+  ) {
+    throw new Error('Invalid social connector status state value')
+  }
+  for (const capability of manifest.capabilities) {
+    for (const scope of capability.requiredScopes) {
+      if (!SOCIAL_SCOPE_STATES.has(scopes[scope] as SocialScopeState)) {
+        throw new Error(`Missing required status scope ${scope}`)
+      }
+    }
+    if (
+      !SOCIAL_ENTITLEMENT_STATES.has(
+        entitlements[capability.entitlementKey] as SocialEntitlementState
+      )
+    ) {
+      throw new Error(`Missing required status entitlement ${capability.entitlementKey}`)
+    }
+    if (
+      capability.review === 'required' &&
+      !SOCIAL_REVIEW_STATES.has(reviews[capability.id] as SocialReviewState)
+    ) {
+      throw new Error(`Missing required status review ${capability.id}`)
+    }
+  }
+  return status as unknown as SocialConnectorStatusV1
 }
 
 function validateDestinationPolicy(
@@ -564,8 +675,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     this.#policy = policy ? cloneSocialValue(policy) : null
     const sourceStatus =
       options.status ?? createMockConnectorStatus(options.provider, authorityNowMs)
-    validateStatus(sourceStatus)
-    this.#status = cloneSocialValue(sourceStatus) as MutableStatus
+    this.#status = validateStatus(sourceStatus, this.manifest) as MutableStatus
     this.#consentAuthority = cloneSocialValue(this.#status.consent)
     this.#rateLimitOverrides = cloneSocialValue(options.rateLimitOverrides ?? {})
     for (const [capabilityId, rateLimit] of Object.entries(this.#rateLimitOverrides)) {
@@ -1349,15 +1459,15 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       this.#status.quota.state !== 'available' ||
       this.#status.consent.state !== 'granted' ||
       this.#status.operatorControl !== 'enabled' ||
-      Object.values(this.#status.scopes).some((state) => state !== 'granted') ||
-      Object.values(this.#status.entitlements).some((state) => state !== 'eligible') ||
-      Object.entries(this.#status.reviews).some(([capabilityId, state]) => {
-        const capability = socialCapabilityFor(
-          this.manifest.provider,
-          capabilityId as SocialCapabilityId
-        )
-        return capability?.review === 'required' && state !== 'approved'
-      })
+      this.manifest.capabilities.some(
+        (capability) =>
+          capability.requiredScopes.some(
+            (scope) => this.#status.scopes[scope] !== 'granted'
+          ) ||
+          this.#status.entitlements[capability.entitlementKey] !== 'eligible' ||
+          (capability.review === 'required' &&
+            this.#status.reviews[capability.id] !== 'approved')
+      )
     this.#status.lifecycle = blocked ? 'blocked' : 'ready'
   }
 
