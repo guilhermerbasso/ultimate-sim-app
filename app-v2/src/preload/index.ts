@@ -120,6 +120,7 @@ const ALLOWED_PREFIXES = [
   'stt:',
   'streaming:',
   'rigPreflight:',
+  'mqtt:',
   'simhub:',
   // ─── Config EXPORT/IMPORT + saved-state VIEW/DELETE (perfil completo, por
   //     seção, listSaved/deleteSection/resetSection, changed broadcast) ──────────
