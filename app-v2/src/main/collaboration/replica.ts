@@ -792,8 +792,9 @@ function validateOperation(
   if (input.type === 'delete') return { type: 'delete', path }
   if (!('value' in input)) throw new CollaborationValidationError('Set operation is missing a value.')
   validateJsonValue(input.value)
-  validateValueForPath(kind, path, input.value)
-  return { type: 'set', path, value: cloneJson(input.value) }
+  const value = path === '/name' || path === '/title' ? validateTitle(input.value) : input.value
+  validateValueForPath(kind, path, value)
+  return { type: 'set', path, value: cloneJson(value) }
 }
 
 function validateAllowedPath(kind: CollaborationDocumentKind, path: string): string {

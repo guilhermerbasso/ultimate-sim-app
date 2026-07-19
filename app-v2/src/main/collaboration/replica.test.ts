@@ -189,6 +189,45 @@ describe('LocalCollaborationReplica', () => {
     expect(restored.getDocument(document.id).tombstoneCount).toBe(1)
   })
 
+  it('normalizes name and title values before signing and export', () => {
+    const source = replica(ACTOR_A, 'normalized-title')
+    const raceNotes = source.createDocument({
+      kind: 'race-notes',
+      title: 'Initial notes',
+      id: 'normalized-title',
+      createdAt: 13
+    })
+    const dashboard = source.createDocument({
+      kind: 'dashboard',
+      title: 'Initial dashboard',
+      id: 'normalized-name',
+      createdAt: 14
+    })
+
+    const notesView = source.setValue(raceNotes.id, '/title', '  Race strategy  ', undefined, 15)
+    const dashboardView = source.setValue(dashboard.id, '/name', '  Endurance DDU  ', undefined, 16)
+
+    expect(notesView.title).toBe('Race strategy')
+    expect(notesView.data.title).toBe('Race strategy')
+    expect(notesView.history.find((entry) => entry.createdAt === 15)?.operation).toEqual({
+      type: 'set',
+      path: '/title',
+      value: 'Race strategy'
+    })
+    expect(dashboardView.title).toBe('Endurance DDU')
+    expect(dashboardView.data.name).toBe('Endurance DDU')
+    expect(dashboardView.history.find((entry) => entry.createdAt === 16)?.operation).toEqual({
+      type: 'set',
+      path: '/name',
+      value: 'Endurance DDU'
+    })
+
+    const restored = replica(ACTOR_C, 'unused-normalized')
+    restored.importBundle(source.exportBundle())
+    expect(restored.getDocument(raceNotes.id)).toEqual(notesView)
+    expect(restored.getDocument(dashboard.id)).toEqual(dashboardView)
+  })
+
   it('preserves author identity and rejects a peer introducing another author', () => {
     const { a, b, transport } = pair()
     expect(() =>
