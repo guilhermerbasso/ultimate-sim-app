@@ -24,8 +24,8 @@
   position: relative;
   isolation: isolate;
   display: block;
-  min-width: 56px;
-  min-height: 56px;
+  min-width: var(--bb-min-touch-target, 56px);
+  min-height: var(--bb-min-touch-target, 56px);
   padding: 0;
   border-style: solid;
   border-color: var(--bb-border, #60a5fa);
@@ -39,6 +39,13 @@
   user-select: none;
   touch-action: manipulation;
   transition: transform 0.05s ease, filter 0.12s ease, box-shadow 0.12s ease;
+}
+
+.bb-hidden-slot {
+  min-width: var(--bb-min-touch-target, 56px);
+  min-height: var(--bb-min-touch-target, 56px);
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* Auto-fit icon + label overlay. Fills the key, never intercepts pointer. */

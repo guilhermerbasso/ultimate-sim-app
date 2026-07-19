@@ -806,7 +806,7 @@ export class MqttCertificationTarget {
   private async handleIncoming(packet: MqttIncomingPacket, epoch: number): Promise<void> {
     if (epoch !== this.lifecycleEpoch || this.stopped) return
     this.status.metrics.received += 1
-    if (!this.config.commandsEnabled || packet.retain) {
+    if (!this.config.commandsEnabled || packet.retain || packet.qos !== 1) {
       this.status.metrics.denied += 1
       this.notify()
       return
