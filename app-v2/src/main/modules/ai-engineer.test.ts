@@ -557,7 +557,9 @@ describe('createEngineerOrchestrator.ask', () => {
     'What does tyre compound mean?',
     'Explain tyre pressure.',
     'Define tyre change.',
-    'What does tyre change mean?'
+    'What does tyre change mean?',
+    'What does change tyres mean?',
+    'What does choose a compound mean?'
   ])('never sends explicit telemetry-noun definitions to the LLM: %s', async (question) => {
     const harness = makeHarness()
 
@@ -575,7 +577,10 @@ describe('createEngineerOrchestrator.ask', () => {
     'Please save fuel and explain why.',
     'What tyre pressure should I use? Explain.',
     'Could you explain how to conserve fuel?',
-    'Please explain how to reduce tyre pressure.'
+    'Please explain how to reduce tyre pressure.',
+    'Please explain whether I should lower tyre pressure.',
+    'Could you explain what tyre pressure I should run?',
+    'Explain which tyre compound I should pick.'
   ])('does not bypass caution safety through ordinary words: %s', async (question) => {
     const harness = makeHarness({
       racecraftContext: {

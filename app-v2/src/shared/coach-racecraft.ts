@@ -641,12 +641,26 @@ const DEFINITION_PERSONAL_CONTEXT =
   /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|then|and then|so i|into (?:turn|t\d+)|racing line|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|vuelta \d+|mon|ma|tour \d+|virage \d+|mein|meine|runde \d+|kurve \d+)\b/
 
 const DEFINITION_ACTION_CLAUSE =
-  /\b(?:how to|how i|how do|how should|should i|can i|could i|need to|want to|save fuel|conserve fuel|finish the race|pit now|attack (?:the )?|pass (?:the )?|overtake the|reduce (?:the )?(?:tyre |tire )?pressure|increase (?:the )?(?:tyre |tire )?pressure|set (?:the )?(?:tyre |tire )?pressure|change (?:the )?(?:tyre|tyres|tire|tires)|replace (?:the )?(?:tyre|tyres|tire|tires)|choose (?:a |the )?(?:tyre|tire|compound)|use (?:a |the )?(?:tyre|tire|compound)|como faco|como posso|devo|preciso|economizar combustivel|terminar a corrida|trocar (?:o |os )?pneus|reduzir (?:a )?pressao|aumentar (?:a )?pressao|usar (?:o |os )?pneus|como puedo|debo|necesito|ahorrar combustible|cambiar (?:el |los )?neumaticos|reducir (?:la )?presion|usar (?:el |los )?neumaticos|dois je|ameliorer|economiser (?:du )?carburant|changer (?:le |les )?pneus|reduire (?:la )?pression|utiliser (?:le |les )?pneus|wie ich|wie kann|soll ich|muss ich|kraftstoff sparen|reifen wechseln|reifendruck reduzieren|reifen verwenden)\b/
+  /\b(?:how to|how i|how do|how should|should i|can i|could i|need to|want to|i should|i can|i could|i need|i must|save fuel|conserve fuel|finish the race|pit now|attack (?:the )?|pass (?:the )?|overtake the|reduce (?:the )?(?:tyre |tire )?pressure|increase (?:the )?(?:tyre |tire )?pressure|set (?:the )?(?:tyre |tire )?pressure|change (?:the )?(?:tyre|tyres|tire|tires)|replace (?:the )?(?:tyre|tyres|tire|tires)|choose (?:a |the )?(?:tyre|tire|compound)|use (?:a |the )?(?:tyre|tire|compound)|como faco|como posso|devo|preciso|economizar combustivel|terminar a corrida|trocar (?:o |os )?pneus|reduzir (?:a )?pressao|aumentar (?:a )?pressao|usar (?:o |os )?pneus|como puedo|debo|necesito|ahorrar combustible|cambiar (?:el |los )?neumaticos|reducir (?:la )?presion|usar (?:el |los )?neumaticos|dois je|ameliorer|economiser (?:du )?carburant|changer (?:le |les )?pneus|reduire (?:la )?pression|utiliser (?:le |les )?pneus|wie ich|wie kann|soll ich|muss ich|kraftstoff sparen|reifen wechseln|reifendruck reduzieren|reifen verwenden)\b/
 
-function isPureDefinitionBody(body: string): boolean {
+function isExplicitMeaningEnvelope(question: string): boolean {
+  return (
+    /^(?:please )?(?:define\b|definition\b|meaning\b|what (?:is|s)\b|what does .+ mean\b|how (?:is|are) .+ defined\b|(?:can|could|would) .+ be explained\b)/.test(question) ||
+    /^(?:por favor )?(?:defina\b|definicao\b|significado\b|o que (?:e|significa)\b|que significa\b|qual e o (?:significado|conceito|definicao|explicacao)\b)/.test(question) ||
+    /^(?:por favor )?(?:define\b|definicion\b|significado\b|que (?:es|significa)\b)/.test(question) ||
+    /^(?:s il vous plait )?(?:definis\b|definissez\b|definition\b|signification\b|qu est ce que\b|que signifie\b)/.test(question) ||
+    /^(?:bitte )?(?:definiere\b|definition\b|bedeutung\b|was (?:ist|bedeutet|heisst|heißt)\b)/.test(question) ||
+    /(?:是什么|是什么意思|的定义是什么|含义是什么|とは|の定義は|の意味は)/u.test(question)
+  )
+}
+
+function isPureDefinitionBody(
+  body: string,
+  explicitMeaningEnvelope = false
+): boolean {
   return (
     !DEFINITION_PERSONAL_CONTEXT.test(body) &&
-    !DEFINITION_ACTION_CLAUSE.test(body)
+    (explicitMeaningEnvelope || !DEFINITION_ACTION_CLAUSE.test(body))
   )
 }
 
@@ -799,7 +813,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       const match = pattern.exec(q)
       if (!match) continue
       const body = match[1]?.trim() ?? ''
-      const pure = isPureDefinitionBody(body)
+      const pure = isPureDefinitionBody(body, isExplicitMeaningEnvelope(q))
       return {
         language: form.language,
         body,
@@ -822,7 +836,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       language: 'en-US',
       body: q,
       topic: null,
-      pure: isPureDefinitionBody(q),
+      pure: isPureDefinitionBody(q, isExplicitMeaningEnvelope(q)),
       command: true
     }
   }
