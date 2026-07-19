@@ -134,6 +134,9 @@ interface DebriefSnapshotMetadata extends LapCoachFindingsContext, FindingsConte
   sessionUniqueId?: number
   sessionIdentity?: string
   connectionEpoch?: number
+  trackWetnessPct?: number
+  isRaining?: boolean
+  weatherDeclaredWet?: boolean
   completedLaps?: number
   currentLap?: number
   bestLapTimeSec?: number
@@ -259,6 +262,9 @@ function debriefSnapshotMetadata(snapshot: TelemetrySnapshot): DebriefSnapshotMe
     sessionIdentity: snapshot.replayContext?.sessionIdentity,
     connectionEpoch: snapshot.replayContext?.connectionEpoch,
     condition: coachComparableIdentityFromSnapshot(snapshot).condition,
+    trackWetnessPct: snapshot.trackWetnessPct,
+    isRaining: snapshot.isRaining,
+    weatherDeclaredWet: snapshot.weatherDeclaredWet,
     completedLaps: snapshot.completedLaps,
     currentLap: snapshot.currentLap,
     bestLapTimeSec: snapshot.bestLapTimeSec

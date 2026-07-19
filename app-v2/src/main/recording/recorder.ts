@@ -81,6 +81,7 @@ export class TelemetryRecorder {
   private writeQueue: Promise<void> = Promise.resolve()
   private metadataQueue: Promise<void> = Promise.resolve()
   private pendingWriteFailures: Error[] = []
+  private pendingMetadataFailure: Error | null = null
   private sampleWritesBlocked = false
   private droppedSampleWrites = 0
   private stopping = false
@@ -196,6 +197,7 @@ export class TelemetryRecorder {
       this.writeQueue = Promise.resolve()
       this.metadataQueue = Promise.resolve()
       this.pendingWriteFailures = []
+      this.pendingMetadataFailure = null
       this.sampleWritesBlocked = false
       this.droppedSampleWrites = 0
       this.finalization = null
@@ -255,7 +257,8 @@ export class TelemetryRecorder {
       const failures = [
         ...finalization.failures,
         ...finalization.pendingWriteFailures,
-        recordingFailure('Recording metadata persistence failed', error)
+        this.pendingMetadataFailure ??
+          recordingFailure('Recording metadata persistence failed', error)
       ]
       if (failures.length === 1) throw failures[0]
       throw new AggregateError(failures, 'Recording persistence failed.')
@@ -285,6 +288,7 @@ export class TelemetryRecorder {
       this.writeQueue = Promise.resolve()
       this.metadataQueue = Promise.resolve()
       this.finalization = null
+      this.pendingMetadataFailure = null
       this.sampleWritesBlocked = false
       this.droppedSampleWrites = 0
     }
@@ -316,6 +320,7 @@ export class TelemetryRecorder {
       this.droppedSampleWrites = 0
       this.stopping = false
     }
+    this.pendingMetadataFailure = null
     await this.lifecycle.removeSession(this.sessionDir(sessionId)).catch(() => undefined)
   }
 
@@ -424,9 +429,7 @@ export class TelemetryRecorder {
       this.lapStartedAtBoundary.set(this.currentLapIndex, openedAtBoundary)
       this.active.lapCount = this.active.laps.length
       this.boundaryPending = false
-      const pendingWriteFailures = this.pendingWriteFailures
       void this.enqueueMetadataPersist().catch((error: unknown) => {
-        pendingWriteFailures.push(recordingFailure('Recording I/O failed', error))
         console.warn('[recording] metadata persist failed:', errorMessage(error))
       })
     }
@@ -489,7 +492,18 @@ export class TelemetryRecorder {
     const payload = `${JSON.stringify(session, null, 2)}\n`
     this.metadataQueue = this.metadataQueue
       .catch(() => undefined)
-      .then(() => this.persistMetadataAtomically(targetPath, payload))
+      .then(async () => {
+        try {
+          await this.persistMetadataAtomically(targetPath, payload)
+          this.pendingMetadataFailure = null
+        } catch (error) {
+          this.pendingMetadataFailure = recordingFailure(
+            'Recording metadata persistence failed',
+            error
+          )
+          throw error
+        }
+      })
     return this.metadataQueue
   }
 

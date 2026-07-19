@@ -94,6 +94,9 @@ export interface FindingsContext {
   trackConfigName?: string
   sessionType?: string
   condition?: CoachTrackCondition
+  trackWetnessPct?: number
+  isRaining?: boolean
+  weatherDeclaredWet?: boolean
 }
 
 interface PublishedCoachFindings extends FindingsContext {
@@ -114,7 +117,12 @@ function publishedConditionMatches(
 ): boolean {
   if (condition === undefined) return true
   const direct = coachComparableIdentityFromSnapshot(snapshot).condition
-  if (publishedContextConditionMatches(condition, direct)) return true
+  if (publishedContextConditionMatches(condition, {
+    condition: direct,
+    trackWetnessPct: snapshot.trackWetnessPct,
+    isRaining: snapshot.isRaining,
+    weatherDeclaredWet: snapshot.weatherDeclaredWet
+  })) return true
   return (
     condition === 'drying' &&
     snapshot.isRaining !== true &&
@@ -125,11 +133,19 @@ function publishedConditionMatches(
 
 function publishedContextConditionMatches(
   published: CoachTrackCondition | undefined,
-  current: CoachTrackCondition | undefined
+  current: FindingsContext
 ): boolean {
   if (published === undefined) return true
-  if (current === undefined) return false
-  return published === current || (published === 'drying' && current === 'intermediate')
+  if (published === current.condition) return true
+  if (published !== 'drying' || current.isRaining === true) return false
+  return (
+    current.condition === 'intermediate' ||
+    (
+      current.condition === 'dry' &&
+      Number.isFinite(current.trackWetnessPct) &&
+      (current.trackWetnessPct as number) > 0.03
+    )
+  )
 }
 
 /**
@@ -147,7 +163,10 @@ export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | nul
         trackName: currentSnapshot.trackName,
         trackConfigName: currentSnapshot.trackConfigName,
         sessionType: currentSnapshot.sessionType,
-        condition: coachComparableIdentityFromSnapshot(currentSnapshot).condition
+        condition: coachComparableIdentityFromSnapshot(currentSnapshot).condition,
+        trackWetnessPct: currentSnapshot.trackWetnessPct,
+        isRaining: currentSnapshot.isRaining,
+        weatherDeclaredWet: currentSnapshot.weatherDeclaredWet
       }
     : undefined)
 }
@@ -180,7 +199,7 @@ export function getLatestCoachFindingsForContext(
       sessionType !== undefined &&
       !samePublishedIdentity(sessionType, currentContext.sessionType)
     ) return []
-    if (!publishedContextConditionMatches(condition, currentContext.condition)) return []
+    if (!publishedContextConditionMatches(condition, currentContext)) return []
   }
   return findings
 }
@@ -193,7 +212,10 @@ function publishCoachFindings(findings: CoachFinding[], context?: FindingsContex
     trackName: context?.trackName,
     trackConfigName: context?.trackConfigName,
     sessionType: context?.sessionType,
-    condition: context?.condition
+    condition: context?.condition,
+    trackWetnessPct: context?.trackWetnessPct,
+    isRaining: context?.isRaining,
+    weatherDeclaredWet: context?.weatherDeclaredWet
   }
 }
 
@@ -1094,7 +1116,10 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       trackName: snapshot.trackName,
       trackConfigName: snapshot.trackConfigName,
       sessionType: snapshot.sessionType,
-      condition: conditionForSnapshot(snapshot)
+      condition: conditionForSnapshot(snapshot),
+      trackWetnessPct: snapshot.trackWetnessPct,
+      isRaining: snapshot.isRaining,
+      weatherDeclaredWet: snapshot.weatherDeclaredWet
     }
   }
 

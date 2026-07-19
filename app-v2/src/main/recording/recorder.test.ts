@@ -119,6 +119,45 @@ describe('TelemetryRecorder stop durability', () => {
     expect(readFileSync(samplesPath, 'utf8').trim().split('\n')).toHaveLength(1)
   })
 
+  it('clears a transient lap-metadata failure after the final metadata write succeeds', async () => {
+    const root = scratch('intermediate-metadata-retry')
+    let failNextRename = false
+    const recorder = new TelemetryRecorder(
+      root,
+      undefined,
+      persistenceWithRename(async (from, to) => {
+        if (failNextRename) {
+          failNextRename = false
+          throw new Error('transient lap metadata failure')
+        }
+        await rename(from, to)
+      })
+    )
+    const started = await recorder.start({ sampleRateHz: 15 })
+    const sessionId = started.activeSession?.id
+    expect(sessionId).toBeTruthy()
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    failNextRename = true
+    recorder.onSnapshot(snapshot('recording', 'Track A', 1_000))
+    await vi.waitFor(() => {
+      expect(warning).toHaveBeenCalledWith(
+        '[recording] metadata persist failed:',
+        expect.any(String)
+      )
+    })
+
+    await expect(recorder.stop()).resolves.toEqual({ recording: false, activeSession: null })
+    expect(JSON.parse(readFileSync(
+      join(root, 'recordings', sessionId as string, 'session.json'),
+      'utf8'
+    ))).toMatchObject({
+      id: sessionId,
+      sampleCount: 1,
+      endedAt: expect.any(Number)
+    })
+  })
+
   it('aggregates queued sample and final metadata durability failures', async () => {
     const root = scratch('combined-failure')
     const recorder = new TelemetryRecorder(root)

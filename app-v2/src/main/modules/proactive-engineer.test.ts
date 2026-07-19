@@ -684,6 +684,17 @@ describe('getLatestCoachFindings — car/track scoping', () => {
       sessionType: 'Race',
       condition: 'intermediate'
     })).toHaveLength(1)
+    expect(getLatestCoachFindingsForContext({
+      carName: 'A',
+      carPath: 'a',
+      trackName: 'X',
+      trackConfigName: 'GP',
+      sessionType: 'Race',
+      condition: 'dry',
+      trackWetnessPct: 0.06,
+      isRaining: false,
+      weatherDeclaredWet: false
+    })).toHaveLength(1)
   })
 
   it('is cleared on disconnect (publishes [])', () => {
