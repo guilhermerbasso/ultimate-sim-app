@@ -35,12 +35,21 @@ export interface SerialIdentityMigrationResult {
   record: SerialIdentityMigrationRecord | null
 }
 
-function serial(value: unknown): string | undefined {
-  return cleanText(value)
+export function profileCanMigrateWithSerialIdentity(
+  profile: { deviceId?: string; port?: string },
+  saved: SavedSerialIdentity
+): boolean {
+  const idMatches = Boolean(saved.id && profile.deviceId === saved.id)
+  const pathMatches = profile.port === saved.path
+  return (
+    (idMatches || pathMatches) &&
+    (!profile.deviceId || idMatches) &&
+    (!profile.port || pathMatches)
+  )
 }
 
-function serialKey(value: unknown): string | undefined {
-  return serial(value)?.toLowerCase()
+function serial(value: unknown): string | undefined {
+  return cleanText(value)
 }
 
 function hasCompleteIdentity(value: {
@@ -78,51 +87,61 @@ export function resolveConnectedSerialIdentityMigration(input: {
     productId: normalizeUsbId(port?.productId),
     serialNumber: serial(port?.serialNumber)
   }
-  const record: SerialIdentityMigrationRecord = {
-    id: connected.id,
-    path: connected.path,
-    vendorId: observed.vendorId,
-    productId: observed.productId,
-    serialNumber: observed.serialNumber
-  }
-
-  if (input.saved && hasCompleteIdentity(input.saved)) {
-    if (!hasCompleteIdentity(observed)) {
+  const saved = input.saved
+    ? {
+        vendorId: normalizeUsbId(input.saved.vendorId),
+        productId: normalizeUsbId(input.saved.productId),
+        serialNumber: serial(input.saved.serialNumber)
+      }
+    : {}
+  const descriptors = [
+    { label: 'VID', saved: saved.vendorId, observed: observed.vendorId, normalize: (value: string) => value },
+    { label: 'PID', saved: saved.productId, observed: observed.productId, normalize: (value: string) => value },
+    { label: 'serial', saved: saved.serialNumber, observed: observed.serialNumber, normalize: (value: string) => value.toLowerCase() }
+  ]
+  for (const descriptor of descriptors) {
+    if (!descriptor.saved) continue
+    if (!descriptor.observed) {
       return {
         state: 'unverified',
-        message: 'The OS did not report complete VID/PID/serial metadata; the saved identity and path were not overwritten.',
+        message: `The OS did not report the saved ${descriptor.label}; the saved identity and path were not overwritten.`,
         record: null
       }
     }
     if (
-      normalizeUsbId(input.saved.vendorId) !== observed.vendorId ||
-      normalizeUsbId(input.saved.productId) !== observed.productId ||
-      serialKey(input.saved.serialNumber) !== serialKey(observed.serialNumber)
+      descriptor.normalize(descriptor.saved) !== descriptor.normalize(descriptor.observed)
     ) {
       return {
         state: 'mismatch',
-        message: 'The reconnected device does not match the saved VID/PID/serial identity; no configuration was updated.',
+        message: `The observed ${descriptor.label} does not match the saved identity; no configuration was updated.`,
         record: null
       }
     }
-    return {
-      state: 'verified',
-      message: 'Observed VID/PID/serial matches the saved device identity.',
-      record
-    }
   }
 
-  if (!input.allowUnboundMigration) {
+  if (
+    !input.allowUnboundMigration &&
+    (!input.saved || !hasCompleteIdentity(input.saved))
+  ) {
     return {
       state: 'unverified',
       message: 'Legacy identity is incomplete; explicit setup or manual reconnect is required before migration.',
       record: null
     }
   }
-  return hasCompleteIdentity(observed)
+  const record: SerialIdentityMigrationRecord = {
+    id: connected.id,
+    path: connected.path,
+    vendorId: saved.vendorId ?? observed.vendorId,
+    productId: saved.productId ?? observed.productId,
+    serialNumber: saved.serialNumber ?? observed.serialNumber
+  }
+  return hasCompleteIdentity(record)
     ? {
         state: 'verified',
-        message: 'Observed VID/PID/serial was captured from the actual connected port.',
+        message: input.saved
+          ? 'All saved descriptors matched and missing VID/PID/serial fields were safely enriched.'
+          : 'Observed VID/PID/serial was captured from the actual connected port.',
         record
       }
     : {

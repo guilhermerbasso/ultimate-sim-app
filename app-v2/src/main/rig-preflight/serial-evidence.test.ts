@@ -169,7 +169,8 @@ describe('rig preflight configured serial identity evidence', () => {
     const profiles = [
       { id: 'iflag-profile', deviceId: 'iflag', port: 'COM7' },
       { id: 'missing-profile', deviceId: 'missing', port: 'COM99' },
-      { id: 'empty-profile' }
+      { id: 'empty-profile' },
+      { id: 'id-only-profile', deviceId: 'iflag' }
     ]
     const inventory = buildConfiguredSerialInventory(
       configured,
@@ -184,7 +185,7 @@ describe('rig preflight configured serial identity evidence', () => {
       ]
     )
 
-    expect(inventory).toHaveLength(4)
+    expect(inventory).toHaveLength(5)
     const iflag = inventory.find((entry) => entry.profileIds.includes('iflag-profile'))
     expect(iflag?.state).toBe('verified')
     expect(iflag?.sources).toEqual(['profile:iflag-profile', 'serial-store:iflag'])
@@ -195,6 +196,10 @@ describe('rig preflight configured serial identity evidence', () => {
     expect(inventory.find((entry) => entry.desiredIdentity === 'profile:empty-profile')).toMatchObject({
       state: 'unknown',
       profileIds: ['empty-profile']
+    })
+    expect(inventory.find((entry) => entry.desiredIdentity === 'profile:id-only-profile')).toMatchObject({
+      state: 'unknown',
+      profileIds: ['id-only-profile']
     })
   })
 

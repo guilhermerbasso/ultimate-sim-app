@@ -472,6 +472,7 @@ export class RigPreflightService {
   private storage: RigPreflightStorageStatus
   private loadPromise: Promise<void> | null = null
   private transactionQueue: Promise<void> = Promise.resolve()
+  private generation = 0
   private readonly now: () => number
   private readonly createId: () => string
   private readonly hash: (value: unknown) => string
@@ -558,102 +559,120 @@ export class RigPreflightService {
   }
 
   async run(request: RigPreflightRunRequest): Promise<RigPreflightRun> {
-    return this.transact(async () => {
-    await this.ensureLoaded()
-    this.assertStorageHealthy()
-    this.assertRequestedProfile(request?.profile)
-    const startedAt = this.now()
-    const profile = deepClone(this.state.profile)
-    const waivers = deepClone(this.state.waivers)
-    const waiverHash = this.hash(waiverHashInput(waivers))
-    const observation = await this.options.collectObservation(profile, request.clientEvidence)
+    const captured = await this.transact(async () => {
+      await this.ensureLoaded()
+      this.assertStorageHealthy()
+      this.assertRequestedProfile(request?.profile)
+      const profile = deepClone(this.state.profile)
+      const waivers = deepClone(this.state.waivers)
+      return {
+        generation: this.generation,
+        startedAt: this.now(),
+        profile,
+        waivers,
+        waiverHash: this.hash(waiverHashInput(waivers)),
+        clientEvidence: request.clientEvidence
+          ? deepClone(request.clientEvidence)
+          : undefined
+      }
+    })
+    const observation = await this.options.collectObservation(
+      captured.profile,
+      captured.clientEvidence
+    )
     const completedAt = this.now()
-    this.assertProfileStillCurrent(profile)
-    if (this.hash(waiverHashInput(this.state.waivers)) !== waiverHash) {
-      throw new RigPreflightProfileConflictError(
-        'Run rejected because waivers changed while evidence was being collected.'
+
+    return this.transact(async () => {
+      await this.ensureLoaded()
+      this.assertStorageHealthy()
+      this.assertCollectionGeneration(captured.generation, 'Preflight run')
+      this.assertProfileStillCurrent(captured.profile)
+      if (this.hash(waiverHashInput(this.state.waivers)) !== captured.waiverHash) {
+        throw new RigPreflightProfileConflictError(
+          'Run rejected because waivers changed while evidence was being collected.'
+        )
+      }
+      const baseChecks = evaluateRigPreflightChecks(
+        captured.profile,
+        observation,
+        captured.waivers,
+        completedAt
       )
-    }
-    const baseChecks = evaluateRigPreflightChecks(
-      profile,
-      observation,
-      waivers,
-      completedAt
-    )
-    const freshUntil = requiredEvidenceFreshUntil(profile, baseChecks, completedAt)
-    const signature = this.hash(signatureInput(profile, baseChecks))
-    const knownGoodCheck = createKnownGoodCheck(
-      profile,
-      signature,
-      this.state.knownGood,
-      waivers,
-      completedAt
-    )
-    const checks = [...baseChecks, knownGoodCheck]
-    const summary = summarizeRigPreflightChecks(checks)
-    const knownGoodSignature = this.state.knownGood?.signature ?? null
-    const drift: RigPreflightCertificate['drift'] = !profile.requirements.requireKnownGood
-      ? 'not-required'
-      : !knownGoodSignature
-        ? 'not-established'
-        : knownGoodSignature === signature
-          ? 'match'
-          : 'mismatch'
-    const activeWaiverExpiries = checks
-      .filter((check) => check.state === 'waived-with-reason' && check.waiver)
-      .map((check) => check.waiver!.expiresAt)
-    const ttlExpiry = completedAt + profile.certificateTtlMs
-    const waiverExpiry = activeWaiverExpiries.length > 0
-      ? Math.min(...activeWaiverExpiries)
-      : Number.POSITIVE_INFINITY
-    const expiresAt = Math.min(ttlExpiry, waiverExpiry)
-    const certificate: RigPreflightCertificate = {
-      id: this.createId(),
-      issuedAt: completedAt,
-      expiresAt,
-      expiryBasis: waiverExpiry < ttlExpiry ? 'waiver' : 'profile-ttl',
-      decision: summary.decision,
-      coverage: summary.coverage,
-      signature,
-      profileRevision: profile.revision,
-      profileHash: profile.hash,
-      knownGoodSignature,
-      drift,
-      counts: summary.counts,
-      untestedCheckIds: summary.untestedCheckIds,
-      waivedCheckIds: summary.waivedCheckIds
-    }
-    const eligibleAsKnownGood = baseChecks
-      .filter((check) => check.applicability === 'required')
-      .every((check) => check.underlyingState === 'verified')
-    const run: RigPreflightRun = {
-      id: this.createId(),
-      profileId: profile.id,
-      profileName: profile.name,
-      profileRevision: profile.revision,
-      profileHash: profile.hash,
-      startedAt,
-      completedAt,
-      signature,
-      checks,
-      certificate,
-      eligibleAsKnownGood
-    }
-    const previous = deepClone(this.state)
-    this.state.history = [run, ...this.state.history].slice(0, HISTORY_LIMIT)
-    this.state.activeCertificate = {
-      runId: run.id,
-      certificate,
-      invalidatedAt: null,
-      invalidationReason: null,
-      invalidationProvenance: [],
-      revalidationRequired: false,
-      lastValidatedAt: completedAt,
-      freshUntil
-    }
-    this.state.updatedAt = completedAt
-    await this.commit(previous)
-    return deepClone(run)
+      const freshUntil = requiredEvidenceFreshUntil(captured.profile, baseChecks, completedAt)
+      const signature = this.hash(signatureInput(captured.profile, baseChecks))
+      const knownGoodCheck = createKnownGoodCheck(
+        captured.profile,
+        signature,
+        this.state.knownGood,
+        captured.waivers,
+        completedAt
+      )
+      const checks = [...baseChecks, knownGoodCheck]
+      const summary = summarizeRigPreflightChecks(checks)
+      const knownGoodSignature = this.state.knownGood?.signature ?? null
+      const drift: RigPreflightCertificate['drift'] =
+        !captured.profile.requirements.requireKnownGood
+          ? 'not-required'
+          : !knownGoodSignature
+            ? 'not-established'
+            : knownGoodSignature === signature
+              ? 'match'
+              : 'mismatch'
+      const activeWaiverExpiries = checks
+        .filter((check) => check.state === 'waived-with-reason' && check.waiver)
+        .map((check) => check.waiver!.expiresAt)
+      const ttlExpiry = completedAt + captured.profile.certificateTtlMs
+      const waiverExpiry = activeWaiverExpiries.length > 0
+        ? Math.min(...activeWaiverExpiries)
+        : Number.POSITIVE_INFINITY
+      const expiresAt = Math.min(ttlExpiry, waiverExpiry)
+      const certificate: RigPreflightCertificate = {
+        id: this.createId(),
+        issuedAt: completedAt,
+        expiresAt,
+        expiryBasis: waiverExpiry < ttlExpiry ? 'waiver' : 'profile-ttl',
+        decision: summary.decision,
+        coverage: summary.coverage,
+        signature,
+        profileRevision: captured.profile.revision,
+        profileHash: captured.profile.hash,
+        knownGoodSignature,
+        drift,
+        counts: summary.counts,
+        untestedCheckIds: summary.untestedCheckIds,
+        waivedCheckIds: summary.waivedCheckIds
+      }
+      const eligibleAsKnownGood = baseChecks
+        .filter((check) => check.applicability === 'required')
+        .every((check) => check.underlyingState === 'verified')
+      const run: RigPreflightRun = {
+        id: this.createId(),
+        profileId: captured.profile.id,
+        profileName: captured.profile.name,
+        profileRevision: captured.profile.revision,
+        profileHash: captured.profile.hash,
+        startedAt: captured.startedAt,
+        completedAt,
+        signature,
+        checks,
+        certificate,
+        eligibleAsKnownGood
+      }
+      const previous = deepClone(this.state)
+      this.state.history = [run, ...this.state.history].slice(0, HISTORY_LIMIT)
+      this.state.activeCertificate = {
+        runId: run.id,
+        certificate,
+        invalidatedAt: null,
+        invalidationReason: null,
+        invalidationProvenance: [],
+        revalidationRequired: false,
+        lastValidatedAt: completedAt,
+        freshUntil
+      }
+      this.state.updatedAt = completedAt
+      await this.commit(previous)
+      return deepClone(run)
     })
   }
 
@@ -752,27 +771,41 @@ export class RigPreflightService {
   }
 
   async runFaultMatrix(request: RigPreflightRunRequest): Promise<RigFaultMatrixRun> {
-    return this.transact(async () => {
-    await this.ensureLoaded()
-    this.assertStorageHealthy()
-    this.assertRequestedProfile(request?.profile)
+    const captured = await this.transact(async () => {
+      await this.ensureLoaded()
+      this.assertStorageHealthy()
+      this.assertRequestedProfile(request?.profile)
+      return {
+        generation: this.generation,
+        profile: deepClone(this.state.profile),
+        clientEvidence: request.clientEvidence
+          ? deepClone(request.clientEvidence)
+          : undefined
+      }
+    })
     const now = this.now()
-    const profile = deepClone(this.state.profile)
-    const observation = await this.options.collectObservation(profile, request.clientEvidence)
-    this.assertProfileStillCurrent(profile)
-    const results = runRigPreflightFaultMatrix(profile, observation, now)
-    const record: RigFaultMatrixRun = {
-      id: this.createId(),
-      runAt: now,
-      passed: results.filter((result) => result.detected).length,
-      total: results.length,
-      results
-    }
-    const previous = deepClone(this.state)
-    this.state.faultHistory = [record, ...this.state.faultHistory].slice(0, FAULT_HISTORY_LIMIT)
-    this.state.updatedAt = now
-    await this.commit(previous)
-    return deepClone(record)
+    const observation = await this.options.collectObservation(
+      captured.profile,
+      captured.clientEvidence
+    )
+    return this.transact(async () => {
+      await this.ensureLoaded()
+      this.assertStorageHealthy()
+      this.assertCollectionGeneration(captured.generation, 'Fault matrix')
+      this.assertProfileStillCurrent(captured.profile)
+      const results = runRigPreflightFaultMatrix(captured.profile, observation, now)
+      const record: RigFaultMatrixRun = {
+        id: this.createId(),
+        runAt: now,
+        passed: results.filter((result) => result.detected).length,
+        total: results.length,
+        results
+      }
+      const previous = deepClone(this.state)
+      this.state.faultHistory = [record, ...this.state.faultHistory].slice(0, FAULT_HISTORY_LIMIT)
+      this.state.updatedAt = now
+      await this.commit(previous)
+      return deepClone(record)
     })
   }
 
@@ -800,87 +833,139 @@ export class RigPreflightService {
   }
 
   async revalidate(request: RigPreflightRunRequest): Promise<RigPreflightRevalidationResult> {
-    return this.transact(async () => {
-    await this.ensureLoaded()
-    this.assertStorageHealthy()
-    if (await this.expireStaleEvidenceHeartbeatLocked()) {
-      return {
-        changed: true,
-        status: 'invalidated',
-        reason: this.state.activeCertificate?.invalidationReason ?? 'Evidence freshness deadline expired.'
+    const captured = await this.transact(async () => {
+      await this.ensureLoaded()
+      this.assertStorageHealthy()
+      if (await this.expireStaleEvidenceHeartbeatLocked()) {
+        return {
+          kind: 'result' as const,
+          result: {
+            changed: true,
+            status: 'invalidated' as const,
+            reason: this.state.activeCertificate?.invalidationReason ?? 'Evidence freshness deadline expired.'
+          }
+        }
       }
-    }
-    const active = this.state.activeCertificate
-    if (
-      !active ||
-      active.invalidatedAt !== null ||
-      active.certificate.decision === 'blocked'
-    ) return { changed: false, status: 'idle' }
-    if (active.certificate.expiresAt <= this.now()) {
-      const changed = await this.expireActiveCertificateLocked()
-      return { changed, status: 'expired', reason: 'Certificate expired.' }
-    }
-    this.assertRequestedProfile(request?.profile)
-    const profile = deepClone(this.state.profile)
-    if (
-      active.certificate.profileRevision !== profile.revision ||
-      active.certificate.profileHash !== profile.hash
-    ) {
-      const reason = 'Active certificate profile revision/hash no longer matches the saved profile.'
-      const changed = await this.invalidateActiveCertificateLocked(
-        reason,
-        [{ kind: 'config', source: 'rig-preflight profile binding' }]
-      )
-      return { changed, status: 'invalidated', reason }
-    }
+      const active = this.state.activeCertificate
+      if (
+        !active ||
+        active.invalidatedAt !== null ||
+        active.certificate.decision === 'blocked'
+      ) {
+        return {
+          kind: 'result' as const,
+          result: { changed: false, status: 'idle' as const }
+        }
+      }
+      if (active.certificate.expiresAt <= this.now()) {
+        const changed = await this.expireActiveCertificateLocked()
+        return {
+          kind: 'result' as const,
+          result: { changed, status: 'expired' as const, reason: 'Certificate expired.' }
+        }
+      }
+      this.assertRequestedProfile(request?.profile)
+      const profile = deepClone(this.state.profile)
+      if (
+        active.certificate.profileRevision !== profile.revision ||
+        active.certificate.profileHash !== profile.hash
+      ) {
+        const reason = 'Active certificate profile revision/hash no longer matches the saved profile.'
+        const changed = await this.invalidateActiveCertificateLocked(
+          reason,
+          [{ kind: 'config', source: 'rig-preflight profile binding' }]
+        )
+        return {
+          kind: 'result' as const,
+          result: { changed, status: 'invalidated' as const, reason }
+        }
+      }
+      const waivers = deepClone(this.state.waivers)
+      return {
+        kind: 'collect' as const,
+        generation: this.generation,
+        profile,
+        waivers,
+        waiverHash: this.hash(waiverHashInput(waivers)),
+        activeRunId: active.runId,
+        certificateSignature: active.certificate.signature,
+        clientEvidence: request.clientEvidence
+          ? deepClone(request.clientEvidence)
+          : undefined
+      }
+    })
+    if (captured.kind === 'result') return captured.result
 
-    const observation = await this.options.collectObservation(profile, request.clientEvidence)
+    const observation = await this.options.collectObservation(
+      captured.profile,
+      captured.clientEvidence
+    )
     const completedAt = this.now()
-    this.assertProfileStillCurrent(profile)
-    if (await this.expireStaleEvidenceHeartbeatLocked()) {
-      return {
-        changed: true,
-        status: 'invalidated',
-        reason: this.state.activeCertificate?.invalidationReason ?? 'Evidence freshness deadline expired.'
-      }
-    }
-    const checks = evaluateRigPreflightChecks(
-      profile,
-      observation,
-      this.state.waivers,
-      completedAt
-    )
-    const freshUntil = requiredEvidenceFreshUntil(profile, checks, completedAt)
-    const required = checks.filter((check) => check.applicability === 'required')
-    const notReady = required.filter(
-      (check) => check.state !== 'verified' && check.state !== 'waived-with-reason'
-    )
-    const signature = this.hash(signatureInput(profile, checks))
-    if (notReady.length > 0 || signature !== active.certificate.signature) {
-      const reason = notReady.length > 0
-        ? `Fresh revalidation failed: ${notReady.map((check) => check.id).join(', ')}.`
-        : 'Fresh revalidation detected desired/reported identity drift.'
-      const changed = await this.invalidateActiveCertificateLocked(
-        reason,
-        [{ kind: 'runtime', source: 'full rig evidence monitor' }]
-      )
-      return { changed, status: 'invalidated', reason }
-    }
 
-    if (
-      !active.revalidationRequired &&
-      active.lastValidatedAt === completedAt &&
-      active.freshUntil === freshUntil
-    ) {
-      return { changed: false, status: 'verified' }
-    }
-    const previous = deepClone(this.state)
-    active.revalidationRequired = false
-    active.lastValidatedAt = completedAt
-    active.freshUntil = freshUntil
-    this.state.updatedAt = completedAt
-    await this.commit(previous)
-    return { changed: true, status: 'verified' }
+    return this.transact(async () => {
+      await this.ensureLoaded()
+      this.assertStorageHealthy()
+      this.assertCollectionGeneration(captured.generation, 'Preflight revalidation')
+      this.assertProfileStillCurrent(captured.profile)
+      if (this.hash(waiverHashInput(this.state.waivers)) !== captured.waiverHash) {
+        throw new RigPreflightProfileConflictError(
+          'Revalidation rejected because waivers changed while evidence was being collected.'
+        )
+      }
+      if (await this.expireStaleEvidenceHeartbeatLocked()) {
+        return {
+          changed: true,
+          status: 'invalidated',
+          reason: this.state.activeCertificate?.invalidationReason ?? 'Evidence freshness deadline expired.'
+        }
+      }
+      const active = this.state.activeCertificate
+      if (
+        !active ||
+        active.runId !== captured.activeRunId ||
+        active.invalidatedAt !== null
+      ) {
+        throw new RigPreflightProfileConflictError(
+          'Revalidation evidence is stale because the active certificate changed during collection.'
+        )
+      }
+      const checks = evaluateRigPreflightChecks(
+        captured.profile,
+        observation,
+        captured.waivers,
+        completedAt
+      )
+      const freshUntil = requiredEvidenceFreshUntil(captured.profile, checks, completedAt)
+      const required = checks.filter((check) => check.applicability === 'required')
+      const notReady = required.filter(
+        (check) => check.state !== 'verified' && check.state !== 'waived-with-reason'
+      )
+      const signature = this.hash(signatureInput(captured.profile, checks))
+      if (notReady.length > 0 || signature !== captured.certificateSignature) {
+        const reason = notReady.length > 0
+          ? `Fresh revalidation failed: ${notReady.map((check) => check.id).join(', ')}.`
+          : 'Fresh revalidation detected desired/reported identity drift.'
+        const changed = await this.invalidateActiveCertificateLocked(
+          reason,
+          [{ kind: 'runtime', source: 'full rig evidence monitor' }]
+        )
+        return { changed, status: 'invalidated', reason }
+      }
+
+      if (
+        !active.revalidationRequired &&
+        active.lastValidatedAt === completedAt &&
+        active.freshUntil === freshUntil
+      ) {
+        return { changed: false, status: 'verified' }
+      }
+      const previous = deepClone(this.state)
+      active.revalidationRequired = false
+      active.lastValidatedAt = completedAt
+      active.freshUntil = freshUntil
+      this.state.updatedAt = completedAt
+      await this.commit(previous)
+      return { changed: true, status: 'verified' }
     })
   }
 
@@ -1022,6 +1107,13 @@ export class RigPreflightService {
     }
   }
 
+  private assertCollectionGeneration(expected: number, operation: string): void {
+    if (this.generation === expected) return
+    throw new RigPreflightProfileConflictError(
+      `${operation} evidence is stale because rig state changed during collection.`
+    )
+  }
+
   private failClosedState(now: number): RigPreflightPersistedState {
     const state = defaultRigPreflightState(now)
     state.profile = normalizeRigPreflightProfile(
@@ -1139,6 +1231,7 @@ export class RigPreflightService {
           occurredAt: null
         }
       }
+      this.generation += 1
     } catch (error) {
       this.state = previous
       this.storage = {
@@ -1148,6 +1241,7 @@ export class RigPreflightService {
         quarantinePath: this.storage.quarantinePath,
         occurredAt: this.now()
       }
+      this.generation += 1
       throw new RigPreflightStorageBlockedError(
         this.storage.message || 'Rig preflight storage write failed.'
       )

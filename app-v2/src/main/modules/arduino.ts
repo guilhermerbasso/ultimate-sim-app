@@ -26,11 +26,17 @@ import type {
   SerialLogEntry,
   SerialTxOrigin
 } from '../../shared/arduino'
+import { DEVICES_CHANNELS, type DeviceProfile } from '../../shared/devices'
 import type { ModuleContext } from '../module-context'
+import { DeviceConfigStore, getDeviceConfigStore } from '../devices/store'
 import type { SerialDevice } from '../serial/device'
 import { CompanionInputTracker } from '../serial-devices/inputs'
 import { SerialDevicesStore, getSerialDevicesStore, serialIdentityMatches, sharesUsbVendorProduct } from '../serial-devices/store'
-import { resolveConnectedSerialIdentityMigration } from '../serial-devices/identity-migration'
+import {
+  profileCanMigrateWithSerialIdentity,
+  resolveConnectedSerialIdentityMigration,
+  type SerialIdentityMigrationRecord
+} from '../serial-devices/identity-migration'
 import { saveSimXPrimaryIdentity } from '../serial-devices/simx-identity'
 
 const CONFIG_FILE = 'arduino-runtime.json'
@@ -243,6 +249,7 @@ function emptyMonitor(): DeviceMonitor {
 // for "send raw" / "clear log" parallel to the SIM-X monitor above.
 class FleetManager {
   private readonly store: SerialDevicesStore
+  private readonly profileStore: DeviceConfigStore
   private readonly tracker = new CompanionInputTracker()
   private readonly monitors = new Map<string, DeviceMonitor>()
   private readonly unsubscribers = new Map<string, () => void>()
@@ -251,10 +258,11 @@ class FleetManager {
 
   constructor(private readonly ctx: ModuleContext) {
     this.store = getSerialDevicesStore(ctx.app)
+    this.profileStore = getDeviceConfigStore(ctx.app)
   }
 
   async initialize(): Promise<void> {
-    await this.store.ensureLoaded()
+    await Promise.all([this.store.ensureLoaded(), this.profileStore.ensureLoaded()])
     this.attachHubListeners()
     this.startInputsTimer()
     await this.autoReconnect()
@@ -349,6 +357,7 @@ class FleetManager {
         baud: existingSummary.baud,
         autoConnect: input.autoConnect ?? true
       })
+      await this.migrateLinkedProfiles(savedConfig, migration.record)
       this.broadcastDevices()
       return existingSummary
     }
@@ -374,6 +383,7 @@ class FleetManager {
       baud,
       autoConnect: input.autoConnect ?? true
     })
+    await this.migrateLinkedProfiles(savedConfig, migration.record)
     return device.getSummary()
   }
 
@@ -424,6 +434,7 @@ class FleetManager {
       baud: config.baud,
       autoConnect: config.autoConnect
     })
+    await this.migrateLinkedProfiles(config, migration.record)
     return device.getSummary()
   }
 
@@ -615,6 +626,7 @@ class FleetManager {
           baud: config.baud,
           autoConnect: config.autoConnect
         })
+        await this.migrateLinkedProfiles(config, migration.record)
       } catch (error) {
         console.warn(
           `[arduino] auto-reconnect failed for ${config.label} (${targetPath}):`,
@@ -663,6 +675,27 @@ class FleetManager {
       ports,
       allowUnboundMigration
     })
+  }
+
+  private async migrateLinkedProfiles(
+    saved: GenericSerialDeviceConfig | undefined,
+    identity: SerialIdentityMigrationRecord
+  ): Promise<void> {
+    if (!saved) return
+    await this.profileStore.ensureLoaded()
+    const linked = this.profileStore.list().filter((profile) =>
+      profileCanMigrateWithSerialIdentity(profile, saved)
+    )
+    for (const profile of linked) {
+      await this.profileStore.save({
+        ...profile,
+        deviceId: identity.id,
+        port: identity.path
+      } satisfies Partial<DeviceProfile>)
+    }
+    if (linked.length > 0) {
+      this.ctx.broadcast(DEVICES_CHANNELS.changed, this.profileStore.list())
+    }
   }
 }
 

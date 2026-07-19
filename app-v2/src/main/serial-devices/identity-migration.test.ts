@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { resolveConnectedSerialIdentityMigration } from './identity-migration'
+import {
+  profileCanMigrateWithSerialIdentity,
+  resolveConnectedSerialIdentityMigration
+} from './identity-migration'
 
 const saved = {
   id: 'iflag',
@@ -109,5 +112,129 @@ describe('connected serial identity migration', () => {
     expect(result.state).toBe('unverified')
     expect(result.record).toBeNull()
     expect(result.message).toContain('explicit setup or manual reconnect')
+  })
+
+  it('rejects a VID/PID-only saved device when an impostor occupies the path', () => {
+    const result = resolveConnectedSerialIdentityMigration({
+      deviceId: 'partial',
+      saved: {
+        id: 'partial',
+        path: 'COM7',
+        vendorId: '2341',
+        productId: '0043'
+      },
+      live: [{ id: 'partial', path: 'COM7', connected: true }],
+      ports: [{
+        path: 'COM7',
+        vendorId: '2341',
+        productId: '9999',
+        serialNumber: 'IMPOSTOR'
+      }],
+      allowUnboundMigration: true
+    })
+
+    expect(result.state).toBe('mismatch')
+    expect(result.record).toBeNull()
+    expect(result.message).toContain('PID')
+  })
+
+  it('rejects a serial-only saved identity when the observed serial differs', () => {
+    const result = resolveConnectedSerialIdentityMigration({
+      deviceId: 'serial-only',
+      saved: {
+        id: 'serial-only',
+        path: 'COM8',
+        serialNumber: 'KNOWN-001'
+      },
+      live: [{ id: 'serial-only', path: 'COM8', connected: true }],
+      ports: [{
+        path: 'COM8',
+        vendorId: '1209',
+        productId: '0001',
+        serialNumber: 'OTHER-001'
+      }],
+      allowUnboundMigration: true
+    })
+
+    expect(result.state).toBe('mismatch')
+    expect(result.record).toBeNull()
+    expect(result.message).toContain('serial')
+  })
+
+  it('fills only missing descriptors when every known normalized field agrees', () => {
+    const result = resolveConnectedSerialIdentityMigration({
+      deviceId: 'partial',
+      saved: {
+        id: 'partial',
+        path: 'COM7',
+        vendorId: '0X2341',
+        productId: '0043'
+      },
+      live: [{ id: 'partial', path: 'COM12', connected: true }],
+      ports: [{
+        path: 'COM12',
+        vendorId: '2341',
+        productId: '0x0043',
+        serialNumber: 'NEW-SERIAL'
+      }],
+      allowUnboundMigration: true
+    })
+
+    expect(result.state).toBe('verified')
+    expect(result.record).toEqual({
+      id: 'partial',
+      path: 'COM12',
+      vendorId: '2341',
+      productId: '0043',
+      serialNumber: 'NEW-SERIAL'
+    })
+  })
+
+  it('normalizes USB ids and compares serial case without replacing known values', () => {
+    const result = resolveConnectedSerialIdentityMigration({
+      deviceId: 'normalized',
+      saved: {
+        id: 'normalized',
+        path: 'COM5',
+        vendorId: '0X2341',
+        productId: '0x0043',
+        serialNumber: 'known-serial'
+      },
+      live: [{ id: 'normalized', path: 'COM6', connected: true }],
+      ports: [{
+        path: 'COM6',
+        vendorId: '2341',
+        productId: '0043',
+        serialNumber: 'KNOWN-SERIAL'
+      }],
+      allowUnboundMigration: true
+    })
+
+    expect(result.state).toBe('verified')
+    expect(result.record).toMatchObject({
+      path: 'COM6',
+      vendorId: '2341',
+      productId: '0043',
+      serialNumber: 'known-serial'
+    })
+  })
+
+  it('migrates only profile selectors that agree and leaves swapped profiles quarantined', () => {
+    expect(profileCanMigrateWithSerialIdentity(
+      { deviceId: 'iflag', port: 'COM7' },
+      saved
+    )).toBe(true)
+    expect(profileCanMigrateWithSerialIdentity(
+      { deviceId: 'iflag' },
+      saved
+    )).toBe(true)
+    expect(profileCanMigrateWithSerialIdentity(
+      { port: 'COM7' },
+      saved
+    )).toBe(true)
+    expect(profileCanMigrateWithSerialIdentity(
+      { deviceId: 'iflag', port: 'COM12' },
+      saved
+    )).toBe(false)
   })
 })

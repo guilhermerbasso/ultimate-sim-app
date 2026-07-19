@@ -328,7 +328,7 @@ describe('RigPreflightService persistence', () => {
     )
   })
 
-  it('rejects unsaved/stale revisions and serializes a run before a queued profile mutation', async () => {
+  it('rejects stale collection after concurrent profile/waiver mutations and allows a fresh rerun', async () => {
     let now = 50_000
     let releaseCollection: () => void = () => undefined
     let markCollectionStarted: () => void = () => undefined
@@ -367,21 +367,26 @@ describe('RigPreflightService persistence', () => {
     const runPromise = service.run({ profile: bound })
     await collectionStarted
     const profilePromise = service.setProfile({ ...bound, name: 'Queued save' })
-    let profileSettled = false
-    void profilePromise.finally(() => {
-      profileSettled = true
+    const waiverPromise = service.createWaiver({
+      checkId: RIG_PREFLIGHT_CHECK_IDS.simx,
+      reason: 'Queued waiver',
+      owner: 'Crew chief',
+      expiresAt: now + 10_000
     })
-    await Promise.resolve()
-    expect(profileSettled).toBe(false)
-    releaseCollection()
-    const run = await runPromise
-    const updated = await profilePromise
+    const [updated] = await Promise.all([profilePromise, waiverPromise])
     expect(updated.profile.name).toBe('Queued save')
-    expect(updated.activeCertificate?.runId).toBe(run.id)
-    expect(updated.activeCertificate?.invalidationReason).toContain('profile changed')
+    releaseCollection()
+    await expect(runPromise).rejects.toBeInstanceOf(RigPreflightProfileConflictError)
+
+    blockCollection = false
+    now += 1
+    const freshState = await service.getState()
+    const freshRun = await service.run({ profile: freshState.profile })
+    expect(freshRun.certificate.decision).toBe('ready')
     const disk = JSON.parse(persistence.content as string)
-    expect(disk.profile).toEqual(updated.profile)
-    expect(disk.activeCertificate).toEqual(updated.activeCertificate)
+    expect(disk.profile).toEqual(freshState.profile)
+    expect(disk.activeCertificate.runId).toBe(freshRun.id)
+    expect(disk.waivers).toHaveLength(1)
   })
 
   it('requires fresh full revalidation after restart before restoring readiness', async () => {
@@ -462,6 +467,50 @@ describe('RigPreflightService persistence', () => {
     expect(state.activeCertificate?.invalidationProvenance[0]?.source).toContain(
       'main-process'
     )
+  })
+
+  it('lets the watchdog preempt a blocked collection and rejects its stale completion', async () => {
+    let now = 120_000
+    let current = observation(now)
+    let blockCollection = false
+    let releaseCollection: () => void = () => undefined
+    let markCollectionStarted: () => void = () => undefined
+    const collectionStarted = new Promise<void>((resolve) => {
+      markCollectionStarted = resolve
+    })
+    const service = new RigPreflightService({
+      persistence: new MemoryPersistence(),
+      now: () => now,
+      createId: () => `watchdog-${now}`,
+      collectObservation: async () => {
+        if (blockCollection) {
+          markCollectionStarted()
+          await new Promise<void>((resolve) => {
+            releaseCollection = resolve
+          })
+        }
+        return current
+      }
+    })
+    await runBound(service)
+    const certified = await service.getState()
+    blockCollection = true
+    const revalidation = service.revalidate({ profile: certified.profile })
+    await collectionStarted
+
+    now = certified.activeCertificate!.freshUntil + 1
+    expect(await service.expireStaleEvidenceHeartbeat()).toBe(true)
+    const revoked = await service.getState()
+    expect(revoked.activeCertificate?.invalidatedAt).toBe(now)
+
+    current = observation(now)
+    releaseCollection()
+    await expect(revalidation).rejects.toBeInstanceOf(RigPreflightProfileConflictError)
+
+    blockCollection = false
+    const freshRun = await service.run({ profile: revoked.profile })
+    expect(freshRun.certificate.decision).toBe('ready')
+    expect((await service.getState()).activeCertificate?.runId).toBe(freshRun.id)
   })
 
   it('persists the canonical evidence deadline across restart and revokes synchronously', async () => {

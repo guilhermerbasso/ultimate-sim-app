@@ -239,7 +239,7 @@ export function buildConfiguredSerialInventory(
     const matchedInventory = [...new Set(
       matches.map((config) => configEvidence.get(config)!)
     )]
-    if (matchedInventory.length === 1) {
+    if (byId && byPath && matchedInventory.length === 1) {
       const entry = matchedInventory[0]
       entry.sources = stableUnique([...entry.sources, `profile:${profile.id}`])
       entry.profileIds = stableUnique([...entry.profileIds, profile.id])
@@ -256,9 +256,13 @@ export function buildConfiguredSerialInventory(
       desiredIdentity,
       observedIdentity: observed.observedIdentity,
       state: 'unknown',
-      reason: matchedInventory.length > 1
-        ? 'Profile deviceId and COM path resolve to different stable serial-store devices.'
-        : 'Profile has no associated serial-store device with stable USB identity.',
+      reason: !profile.deviceId || !profile.port
+        ? 'Profile must declare both deviceId and COM path before stable inventory association.'
+        : !byId || !byPath
+          ? 'Profile deviceId and COM path do not both resolve to a serial-store device.'
+          : matchedInventory.length > 1
+            ? 'Profile deviceId and COM path resolve to different stable serial-store devices.'
+            : 'Profile has no associated serial-store device with stable USB identity.',
       sources: [`profile:${profile.id}`],
       profileIds: [profile.id]
     })
