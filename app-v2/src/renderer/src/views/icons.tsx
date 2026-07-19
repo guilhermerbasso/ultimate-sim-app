@@ -37,6 +37,13 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M7 12V9M11 12V7M15 12V10" />
     </Svg>
   ),
+  streaming: () => (
+    <Svg>
+      <rect x="3" y="5" width="12" height="10" rx="2" />
+      <path d="M7 18h4M9 15v3" />
+      <path d="M17 8a4 4 0 0 1 0 4M19 6a7 7 0 0 1 0 8" />
+    </Svg>
+  ),
   'touch-controls': () => (
     <Svg>
       {/* button-box grid of keys + a finger tap */}

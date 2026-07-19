@@ -5,11 +5,14 @@ import { readFile as readFileAsync, rename as renameAsync } from 'node:fs/promis
 import { join } from 'node:path'
 import type { Dashboard, DashboardElement, DashboardPlaylistItem } from '../../shared/dashboards'
 import { BUILTIN_PRESETS, DASHBOARD_ELEMENT_TYPES, dashboardStorageValidationResult } from '../../shared/dashboards'
+import { listUserAddedStreamTargetSources } from '../../shared/stream-targets'
 import { buttonPanelPlaylistItem } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import {
   applyThirdPartyImportMetadata,
+  dashboardBuiltinFingerprint,
   DashboardManager,
+  inferBuiltInDashboardIds,
   openablePlaylistItems,
   resolveCycleStep,
   sameCockpitTarget,
@@ -333,6 +336,47 @@ function storageIoError(code: string, message: string): NodeJS.ErrnoException {
   return Object.assign(new Error(message), { code })
 }
 
+describe('dashboard origin classification', () => {
+  it('prefers exact fingerprints and only falls back to identity when no exact candidate exists', () => {
+    const seeded: Dashboard = {
+      id: 'seeded',
+      name: 'Built-in',
+      width: 1024,
+      height: 600,
+      bg: '#000000',
+      elements: [],
+      createdAt: 10,
+      updatedAt: 10
+    }
+    const duplicated: Dashboard = {
+      ...structuredClone(seeded),
+      id: 'duplicated',
+      createdAt: 20,
+      updatedAt: 20
+    }
+    const edited: Dashboard = {
+      ...structuredClone(seeded),
+      id: 'edited-user-copy',
+      bg: '#111111',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const original = structuredClone([seeded, duplicated])
+    const preset = {
+      id: 'preset',
+      name: 'Built-in',
+      build: () => ({ ...structuredClone(seeded), id: 'fresh', createdAt: 30, updatedAt: 30 })
+    }
+
+    expect(dashboardBuiltinFingerprint(seeded)).toBe(dashboardBuiltinFingerprint(preset.build()))
+    expect(inferBuiltInDashboardIds([seeded, duplicated], [preset])).toEqual(new Set(['seeded']))
+    expect(inferBuiltInDashboardIds([edited, seeded], [preset])).toEqual(new Set(['seeded']))
+    expect(inferBuiltInDashboardIds([seeded, edited], [preset])).toEqual(new Set(['seeded']))
+    expect(inferBuiltInDashboardIds([edited], [preset])).toEqual(new Set(['edited-user-copy']))
+    expect([seeded, duplicated]).toEqual(original)
+  })
+})
+
 describe('DashboardManager restart restoration', () => {
   let userData: string
 
@@ -342,6 +386,78 @@ describe('DashboardManager restart restoration', () => {
 
   afterEach(() => {
     rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('persists built-in origin separately and treats an explicit save as user-added', async () => {
+    const dashboard = raceTrafficAttack()
+    persistDashboard(userData, dashboard)
+    const originsDir = join(userData, 'dashboards', '.dashboard-metadata')
+    mkdirSync(originsDir, { recursive: true })
+    writeFileSync(join(originsDir, 'dashboard-origins.json'), JSON.stringify({
+      schemaVersion: 1,
+      builtInIds: [dashboard.id]
+    }), 'utf8')
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+    expect(manager.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(true)
+
+    await manager.save({ ...dashboard, name: `${dashboard.name} saved` })
+    expect(manager.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(false)
+    const persistedDashboard = JSON.parse(readFileSync(join(userData, 'dashboards', `${dashboard.id}.json`), 'utf8')) as Dashboard
+    expect(persistedDashboard).not.toHaveProperty('builtIn')
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(false)
+  })
+
+  it('persists exact origin migration while keeping an edited identity copy streamable', async () => {
+    const exact = {
+      ...raceTrafficAttack(),
+      createdAt: 20,
+      updatedAt: 20
+    }
+    const edited = structuredClone(exact)
+    edited.id = 'race-traffic-attack-user-copy'
+    edited.bg = exact.bg === '#010203' ? '#020304' : '#010203'
+    edited.createdAt = 10
+    edited.updatedAt = 10
+    delete edited.previewPng
+    delete edited.thirdParty
+
+    const exactStored = persistDashboard(userData, exact)
+    const editedStored = persistDashboard(userData, edited)
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.list().find((item) => item.id === exact.id)?.builtIn).toBe(true)
+    expect(manager.list().find((item) => item.id === edited.id)?.builtIn).toBe(false)
+    expect(listUserAddedStreamTargetSources(manager.list(), [])).toContainEqual({
+      kind: 'dashboard',
+      id: edited.id,
+      label: edited.name
+    })
+    expect(JSON.parse(readFileSync(
+      join(userData, 'dashboards', '.dashboard-metadata', 'dashboard-origins.json'),
+      'utf8'
+    ))).toEqual({
+      schemaVersion: 1,
+      builtInIds: [exact.id]
+    })
+    expect(readFileSync(exactStored.path, 'utf8')).toBe(exactStored.raw)
+    expect(readFileSync(editedStored.path, 'utf8')).toBe(editedStored.raw)
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.list().find((item) => item.id === exact.id)?.builtIn).toBe(true)
+    expect(restarted.list().find((item) => item.id === edited.id)?.builtIn).toBe(false)
+    expect(listUserAddedStreamTargetSources(restarted.list(), [])).toContainEqual({
+      kind: 'dashboard',
+      id: edited.id,
+      label: edited.name
+    })
+    expect(readFileSync(editedStored.path, 'utf8')).toBe(editedStored.raw)
   })
 
   it('restores Race Traffic Attack overlay widgets without rewriting persisted data', async () => {

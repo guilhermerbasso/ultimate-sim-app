@@ -43,6 +43,9 @@ This fetches the local llama/whisper/sherpa/tts binaries, runs `electron-vite bu
 It also downloads the official Cloudflare Windows amd64 `cloudflared` asset pinned in
 `scripts/fetch-win-cloudflared.sh`. The script verifies the pinned SHA-256 before an atomic
 install and never executes the binary. An existing file is reused only when its hash matches.
+Packaging also includes the isolated `resources/cloudflared/quick-tunnel.yml`; runtime startup
+re-verifies the executable hash before every initial launch or reconnect and refuses to spawn a
+replacement until the prior process has exited.
 To perform a no-network verification:
 
 ```bash
