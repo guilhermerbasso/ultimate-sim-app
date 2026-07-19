@@ -371,6 +371,18 @@ export function StreamOverlayRoot() {
         return res.json() as Promise<unknown>
       })
       presentationFetches.current.set(requestKey, request)
+      void request.then(
+        () => {
+          if (presentationFetches.current.get(requestKey) === request) {
+            presentationFetches.current.delete(requestKey)
+          }
+        },
+        () => {
+          if (presentationFetches.current.get(requestKey) === request) {
+            presentationFetches.current.delete(requestKey)
+          }
+        }
+      )
     }
     void request
       .then((raw) => {
@@ -465,6 +477,18 @@ export function StreamOverlayRoot() {
     if (!request) {
       request = fetchStreamPanel(panelId, { activate: false })
       touchFetches.current.set(requestKey, request)
+      void request.then(
+        () => {
+          if (touchFetches.current.get(requestKey) === request) {
+            touchFetches.current.delete(requestKey)
+          }
+        },
+        () => {
+          if (touchFetches.current.get(requestKey) === request) {
+            touchFetches.current.delete(requestKey)
+          }
+        }
+      )
     }
     void request
       .then((payload) => {
