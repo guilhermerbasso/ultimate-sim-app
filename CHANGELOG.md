@@ -34,6 +34,9 @@
 - **Deterministic local Social Connector simulations** for Twitch, YouTube, and Discord workflow
   testing, covering chat, events, polls, moderation, markers, clips, broadcasts, commands, and room
   policies with zero live network egress.
+- **Fail-closed Rig Preflight certification** for pre-session desired-vs-observed checks,
+  remediation, governed waivers, known-good drift, expiring certificates, and continuous
+  evidence-freshness monitoring.
 - **Local-first Steward Desk** for evidence-backed league incident review, versioned rules, human
   verdicts, dissent, appeals, and rights-gated case exchange. Penalties and final decisions remain
   explicitly human-owned.
@@ -68,6 +71,11 @@
   cancellable retries across live, suspended, disconnected, context-transition, and shutdown paths.
   Persistent sample failures are capped and surfaced, newer pace payloads drain after in-flight
   writes, and saved debriefs retain and speak their recorded language.
+- Rig certification uses the earliest required evidence deadline plus a main-process watchdog,
+  stable USB VID/PID/serial identity, audited replacement that invalidates active certification,
+  serialized atomic persistence, and fail-closed recovery/quarantine for interrupted replacements.
+- Pre-existing generated touch-panel snapshot and visual-audit working-tree drift remains explicitly
+  excluded from the Rig Preflight change set and release documentation update.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 

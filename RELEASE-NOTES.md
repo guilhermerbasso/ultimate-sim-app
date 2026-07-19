@@ -96,6 +96,22 @@ offline race-operation rehearsal.
 - 📦 Fixture bodies, signatures, sanitized JSON depth/count/size, policy allowlists, and exported
   status snapshots are bounded and validated before simulation.
 
+### Fail-closed Rig Preflight certification
+- ✅ **See a clear pre-session readiness decision from desired-versus-observed hardware and runtime
+  evidence**, with actionable remediation, governed waivers, known-good drift, and expiring
+  certificates instead of an assumed-safe rig.
+- ⏱️ Certification is bounded by the earliest required evidence deadline, while a main-process
+  watchdog can revoke readiness even when renderer evidence collection is blocked or stale.
+- 🔌 Hardware certification requires stable observed USB VID/PID/serial identity; mutable COM paths
+  and runtime IDs cannot certify a device. Audited Arduino replacement invalidates active
+  certification before rebinding, and ESP32 identities are canonicalized collision-safely.
+- 💾 State transactions serialize through an explicit durable commit point. Interrupted
+  `.previous`/`.next` replacement files recover or quarantine fail closed, distinguishing
+  pre-commit rollback from post-commit cleanup warnings.
+- 🧹 **Generated drift exclusion:** pre-existing generated touch-panel snapshots and visual-audit
+  working-tree drift are explicitly outside the Rig Preflight change set and this release-doc
+  update.
+
 ### Durable replay, recording, and debrief persistence
 - 💾 **Completed recordings and final `session.json` metadata are written atomically**, with bounded
   retryable finalization retained after transient storage failures instead of being silently lost.
@@ -179,6 +195,8 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   lease-bound interactive Touch Controls with fail-closed ownership and teardown.
 - [#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95) — add the local, evidence-safe
   Steward Desk with human-owned verdicts, appeals, privacy, and rights gates.
+- [#96](https://github.com/guilhermerbasso/ultimate-sim-app/pull/96) — add fail-closed Rig Preflight
+  certification with evidence freshness, stable hardware identity, and atomic persistence.
 - [#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97) — make recording, sidecar,
   pace-model, and language-aware debrief persistence retryable and shutdown-safe.
 

@@ -42,6 +42,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Exercise Twitch, YouTube, and Discord workflows without contacting them** ([#93](https://github.com/guilhermerbasso/ultimate-sim-app/pull/93)): deterministic local simulations cover chat, events, polls, moderation, markers, clips, broadcasts, commands, and room policies with zero live egress, no live credentials, and no claim of production adapter support or platform certification.
 - **Use saved Touch Controls securely from a phone or tablet** ([#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94)): authenticated, target-bound capabilities allow only governed simulator actions, require CSRF/nonces/origin checks and a live receiver lease, and fail closed while releasing every hold or latch safely.
 - **Review league incidents with evidence and human-owned verdicts** ([#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95)): the local Steward Desk preserves verified case history, rules, dissent and appeals, anonymizes exported evidence, gates redistribution rights, and never adjudicates or applies penalties automatically.
+- **Certify the rig before joining a session** ([#96](https://github.com/guilhermerbasso/ultimate-sim-app/pull/96)): Rig Preflight compares desired and observed hardware/runtime state, expires or revokes certification when evidence goes stale, requires stable USB identity, audits replacements, and fails closed on persistence or inventory uncertainty.
 - **Keep completed recordings, sidecars, learned pace data, and debrief language durable** ([#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97)): atomic finalization, bounded retry/backoff, explicit dropped-sample accounting, and scoped ended-session evidence prevent shutdown, context changes, or transient storage failures from silently hiding data.
 - **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
 
@@ -122,6 +123,9 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Sounds/audio cues** for shift beeps, incidents, ABS, TCS, and race warnings.
 - **Haptics and zonal haptics** for bass shakers/tactile feedback mapped to cockpit zones.
 - **Arduino and ESP32 device support** for RGB, matrix LEDs, displays, gauges, controls, pinout design, and firmware-oriented workflows.
+- **Rig Preflight** for fail-closed pre-session certification using evidence freshness deadlines,
+  stable USB VID/PID/serial identity, audited device replacement, governed waivers, continuous
+  watchdog revalidation, and atomic recoverable profile persistence.
 - **Loopback-only MQTT certification target**, disabled by default, with authenticated roles, narrow topic permissions, retained health/session state, and command execution disabled unless explicitly enabled.
 - **Input monitor, controls, and keyboard bindings** for buttons, axes, keystrokes, virtual gamepad actions, iRacing commands, and app actions.
 
