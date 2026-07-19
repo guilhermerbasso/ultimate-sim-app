@@ -1,4 +1,4 @@
-import { existsSync, statSync, createWriteStream } from 'node:fs'
+import { existsSync, createWriteStream } from 'node:fs'
 import { mkdir, readFile, writeFile, unlink, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -11,7 +11,6 @@ import {
   PIPER_VOICE_CATALOG,
   isValidPiperVoiceId,
   sherpaVoiceBundleUrl,
-  piperVoiceApproxBytes,
   sherpaVoiceBundleBytes,
   type PiperVoiceInfo,
   type PiperVoiceProgress,
@@ -24,6 +23,21 @@ import {
   extractSherpaVoiceBundle,
   evictTtsCache
 } from './sherpa'
+import { PiperEngineHealth } from './piper-engine-health'
+import { PiperVoiceRepairCoordinator } from './piper-voice-repair'
+import {
+  PIPER_VOICE_CONFIG_FILE,
+  PIPER_VOICE_MODEL_FILE,
+  PIPER_VOICE_TOKENS_FILE,
+  installTrustedVoiceDirectory,
+  piperVoiceTrustSupport,
+  recoverAtomicVoiceDirectory,
+  trustedPiperVoiceDigest,
+  verifyTrustedVoiceDirectory,
+  voicePayloadMatchesTrustedDigest,
+  type VoiceDirectoryDependencies,
+  type TrustedPiperVoiceDigest
+} from './piper-voice-integrity'
 
 // Neural TTS main-process module — engine = sherpa-onnx (VITS), replacing piper.exe
 // which hard-crashed (0xC0000005) on many Windows CPUs and made tts:synth return
@@ -34,8 +48,8 @@ import {
 // SHARED espeak-ng-data (resources/tts/espeak-ng-data). Each voice's weights are
 // DOWNLOADED on first use into a writable userData dir
 // (userData/tts/voices/<id>/{model.onnx,tokens.txt}) via tts:ensureVoice. A voice
-// hand-bundled under resources/tts/voices/<id>/ is still honored (back-compat), so
-// `installed` = present in EITHER location.
+// hand-bundled under resources/tts/voices/<id>/ is honored only when the complete
+// directory and metadata match a checked-in trusted digest entry.
 //
 // On macOS / Linux dev the native engine is usually absent, so synth degrades
 // gracefully returning null (callers fall back to a DISTINCT OS voice). Run
@@ -48,15 +62,12 @@ import {
 //   tts:voiceProgress (main → renderer)  download progress events
 
 const TEMP_DIR_NAME = 'sherpa-tts'
+const ENGINE_MAX_CRASHES = 2
+const engineHealth = new PiperEngineHealth(ENGINE_MAX_CRASHES)
 
-// A downloaded model.onnx smaller than this (or this fraction of its catalog size)
-// is treated as truncated/absent so a half-written file never poisons the next run.
-const MIN_ONNX_BYTES = 1_000_000
-const MIN_TOKENS_BYTES = 100
-const MIN_VALID_RATIO = 0.9
-
-const MODEL_FILE = 'model.onnx'
-const TOKENS_FILE = 'tokens.txt'
+const MODEL_FILE = PIPER_VOICE_MODEL_FILE
+const CONFIG_FILE = PIPER_VOICE_CONFIG_FILE
+const TOKENS_FILE = PIPER_VOICE_TOKENS_FILE
 const ESPEAK_DIR = 'espeak-ng-data'
 
 // ── Engine + shared-asset paths ─────────────────────────────────────────────
@@ -88,6 +99,138 @@ function getBundledVoicesDir(): string {
   return join(process.resourcesPath, 'tts', 'voices')
 }
 
+const voiceDirectoryDependencies: VoiceDirectoryDependencies = {
+  exists: async (path) => {
+    try {
+      await stat(path)
+      return true
+    } catch {
+      return false
+    }
+  },
+  mkdir: async (path) => {
+    await mkdir(path, { recursive: true })
+  },
+  writeFile: async (path, bytes) => {
+    await writeFile(path, bytes)
+  },
+  readFile,
+  rename,
+  remove: async (path) => {
+    await rm(path, { recursive: true, force: true })
+  }
+}
+
+interface VerifiedVoiceLocation {
+  directory: string
+  modelPath: string
+  configPath: string
+  tokensPath: string
+  source: 'user' | 'bundled'
+  reason: string | null
+}
+
+interface VoiceInspection {
+  location: VerifiedVoiceLocation | null
+  reason: string | null
+}
+
+async function quarantineUserVoice(
+  app: App,
+  voiceId: string,
+  reason: string
+): Promise<string> {
+  const root = getUserVoicesDir(app)
+  const live = join(root, voiceId)
+  const quarantine = join(
+    root,
+    `${voiceId}.quarantine-${Date.now()}`
+  )
+  try {
+    await rename(live, quarantine)
+    return `${reason} Quarantined at ${quarantine}.`
+  } catch {
+    return `${reason} Quarantine failed; the voice remains unavailable.`
+  }
+}
+
+async function resolveVerifiedVoice(
+  app: App,
+  voiceId: string
+): Promise<VoiceInspection> {
+  const trusted = trustedPiperVoiceDigest(voiceId)
+  const userRoot = getUserVoicesDir(app)
+  const userDirectory = join(userRoot, voiceId)
+  const userExists = await voiceDirectoryDependencies.exists(userDirectory)
+  if (!trusted) {
+    let reason = `Trusted manifest unavailable for ${voiceId}.`
+    if (userExists) {
+      reason = await quarantineUserVoice(
+        app,
+        voiceId,
+        reason
+      )
+    }
+    return { location: null, reason }
+  }
+
+  const recovered = await recoverAtomicVoiceDirectory(
+    userRoot,
+    voiceId,
+    trusted,
+    voiceDirectoryDependencies
+  )
+  if (recovered.verified) {
+    return {
+      location: {
+        directory: userDirectory,
+        modelPath: join(userDirectory, MODEL_FILE),
+        configPath: join(userDirectory, CONFIG_FILE),
+        tokensPath: join(userDirectory, TOKENS_FILE),
+        source: 'user',
+        reason: recovered.reason
+      },
+      reason: recovered.reason
+    }
+  }
+  let reason = recovered.reason
+  if (await voiceDirectoryDependencies.exists(userDirectory)) {
+    reason = await quarantineUserVoice(
+      app,
+      voiceId,
+      recovered.reason ?? `Voice ${voiceId} is unverified.`
+    )
+  }
+
+  const bundledDirectory = join(getBundledVoicesDir(), voiceId)
+  if (await voiceDirectoryDependencies.exists(bundledDirectory)) {
+    const bundled = await verifyTrustedVoiceDirectory(
+      bundledDirectory,
+      voiceId,
+      trusted,
+      voiceDirectoryDependencies
+    )
+    if (bundled.verified) {
+      return {
+        location: {
+          directory: bundledDirectory,
+          modelPath: join(bundledDirectory, MODEL_FILE),
+          configPath: join(bundledDirectory, CONFIG_FILE),
+          tokensPath: join(bundledDirectory, TOKENS_FILE),
+          source: 'bundled',
+          reason: null
+        },
+        reason: null
+      }
+    }
+    reason = bundled.reason
+  }
+  return {
+    location: null,
+    reason: reason ?? `Voice ${voiceId} is not installed.`
+  }
+}
+
 // Absolute path to the out-of-process synth worker (sherpa-worker.cjs). In a
 // packaged app it is shipped via extraResources to process.resourcesPath; in dev it
 // is read straight from source under the app dir. Kept here (not in sherpa.ts) so
@@ -99,7 +242,8 @@ function resolveSherpaWorkerPath(app: App): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Voice resolution (PURE + testable) — downloaded copy wins over bundled.
+// Legacy path resolution helper (PURE + testable). Runtime synthesis never trusts
+// this result alone; resolveVerifiedVoice performs metadata + digest verification.
 //
 // Kept side-effect free (an injected `exists` predicate) so unit tests can assert
 // the userData-vs-resources precedence without touching the real filesystem. With
@@ -120,15 +264,6 @@ export function resolveVoiceModelPath(opts: ResolveVoiceModelOptions): string | 
   const bundled = join(opts.bundledVoicesDir, opts.voiceId, MODEL_FILE)
   if (opts.exists(bundled)) return bundled
   return null
-}
-
-function resolveVoiceModel(app: App, voiceId: string): string | null {
-  return resolveVoiceModelPath({
-    userVoicesDir: getUserVoicesDir(app),
-    bundledVoicesDir: getBundledVoicesDir(),
-    voiceId,
-    exists: existsSync
-  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -179,51 +314,70 @@ async function downloadFileWithProgress(
   await rename(partPath, destPath)
 }
 
-async function fileAtLeast(path: string, minBytes: number): Promise<boolean> {
-  try {
-    const info = await stat(path)
-    return info.isFile() && info.size >= minBytes
-  } catch {
-    return false
-  }
-}
-
-function minOnnxBytes(voiceId: string): number {
-  const approx = piperVoiceApproxBytes(voiceId)
-  return approx > 0 ? Math.max(MIN_ONNX_BYTES, Math.floor(approx * MIN_VALID_RATIO)) : MIN_ONNX_BYTES
-}
-
-// True when BOTH the downloaded weights + tokens exist at full size.
-function isDownloadedComplete(app: App, voiceId: string): boolean {
-  const dir = join(getUserVoicesDir(app), voiceId)
-  const onnx = join(dir, MODEL_FILE)
-  const tokens = join(dir, TOKENS_FILE)
-  try {
-    if (!existsSync(onnx) || !existsSync(tokens)) return false
-    return statSync(onnx).size >= minOnnxBytes(voiceId) && statSync(tokens).size >= MIN_TOKENS_BYTES
-  } catch {
-    return false
-  }
-}
-
-// True when the voice is usable from EITHER the downloaded copy or a bundled one.
-function isVoiceInstalled(app: App, voiceId: string): boolean {
-  if (isDownloadedComplete(app, voiceId)) return true
-  const bundled = join(getBundledVoicesDir(), voiceId, MODEL_FILE)
-  return existsSync(bundled)
-}
-
 export function register(ctx: ModuleContext): void {
   const tempDir = join(ctx.app.getPath('userData'), TEMP_DIR_NAME)
-  // Single-flight per voice: concurrent ensureVoice calls share ONE download.
-  const inflight = new Map<string, Promise<EnsureVoiceResult>>()
+  const repairCoordinator = new PiperVoiceRepairCoordinator(
+    engineHealth,
+    async (voiceId) =>
+      Boolean((await resolveVerifiedVoice(ctx.app, voiceId)).location),
+    async (voiceId) => {
+      const trusted = trustedPiperVoiceDigest(voiceId)
+      if (!trusted) {
+        const error = `No pinned trusted digest is available for ${voiceId}; repair is disabled.`
+        emitProgress(ctx, {
+          voiceId,
+          phase: 'error',
+          totalBytes: 0,
+          downloadedBytes: 0,
+          ratio: 0,
+          error
+        })
+        return {
+          ok: false,
+          voiceId,
+          installed: false,
+          error
+        }
+      }
+      const result = await ensureVoice(ctx, tempDir, voiceId, trusted)
+      if (result.ok && result.installed) {
+        engineHealth.resetVoice(voiceId)
+        emitProgress(ctx, {
+          voiceId,
+          phase: 'done',
+          totalBytes: 0,
+          downloadedBytes: 0,
+          ratio: 1
+        })
+      }
+      return result
+    }
+  )
 
-  ctx.ipcMain.handle(TTS_CHANNELS.listVoices, (): PiperVoiceInfo[] => {
+  ctx.ipcMain.handle(TTS_CHANNELS.listVoices, async (): Promise<PiperVoiceInfo[]> => {
     const engineReady = isSherpaEngineReady()
-    return PIPER_VOICE_CATALOG.map((voice) => ({
-      ...voice,
-      // A voice is usable only when the native engine is also present.
-      installed: engineReady && resolveVoiceModel(ctx.app, voice.id) !== null
+    return Promise.all(PIPER_VOICE_CATALOG.map(async (voice) => {
+      const trusted = trustedPiperVoiceDigest(voice.id)
+      const trustSupport = piperVoiceTrustSupport(voice.id)
+      const inspection = await resolveVerifiedVoice(ctx.app, voice.id)
+      const needsRepair = engineHealth.needsRepair(voice.id)
+      const installed =
+        engineReady && !needsRepair && inspection.location !== null
+      return {
+        ...voice,
+        installed,
+        downloadSupported: trustSupport.downloadSupported,
+        repairSupported: trustSupport.repairSupported,
+        unavailableReason: installed
+          ? null
+          : !trusted
+            ? inspection.reason ?? trustSupport.unavailableReason
+            : !engineReady
+              ? 'Native Piper engine is unavailable.'
+              : needsRepair
+                ? `Voice ${voice.id} requires a verified repair.`
+                : inspection.reason
+      }
     }))
   })
 
@@ -239,36 +393,52 @@ export function register(ctx: ModuleContext): void {
         return null
       }
       if (!isSherpaEngineReady()) {
+        updateEngineStatus(ctx, {
+          engine: 'none',
+          ok: false,
+          reason: 'Native sherpa engine is unavailable.'
+        })
         logger.info('tts', 'synth fallback: engine unavailable', {
           voiceId,
           reason: 'engine-missing'
         })
         return null
       }
-      const model = resolveVoiceModel(ctx.app, voiceId)
-      if (!model) {
-        logger.info('tts', 'synth fallback: voice model not installed', {
+      const inspection = await resolveVerifiedVoice(ctx.app, voiceId)
+      if (!inspection.location) {
+        logger.info('tts', 'synth fallback: verified voice unavailable', {
           voiceId,
-          reason: 'model-missing'
+          reason: inspection.reason ?? 'verified-voice-missing'
         })
         return null
       }
+      const model = inspection.location.modelPath
       const dataDir = resolveDataDir()
       if (!dataDir) {
+        updateEngineStatus(ctx, {
+          engine: 'sherpa',
+          ok: false,
+          reason: 'espeak-ng-data is unavailable.'
+        })
         logger.info('tts', 'synth fallback: espeak-ng-data (dataDir) absent', {
           voiceId,
           reason: 'datadir-missing'
         })
         return null
       }
-      if ((engineCrashCount.get(voiceId) ?? 0) >= ENGINE_MAX_CRASHES) {
+      if (engineHealth.isDisabled(voiceId)) {
+        updateEngineStatus(ctx, {
+          engine: 'sherpa',
+          ok: false,
+          reason: `Piper is disabled for ${voiceId} after repeated runtime failures.`
+        })
         logger.info('tts', 'synth fallback: engine disabled for this voice after repeated failures', {
           voiceId,
           reason: 'engine-crash-disabled'
         })
         return null
       }
-      const tokens = join(model, '..', TOKENS_FILE)
+      const tokens = inspection.location.tokensPath
       try {
         const wav = await synthWavWithSherpa({
           modelPath: model,
@@ -282,7 +452,9 @@ export function register(ctx: ModuleContext): void {
           outDir: tempDir
         })
         if (!wav) throw new Error('engine returned no audio')
-        engineCrashCount.delete(voiceId)
+        const previousStatus = engineHealth.cachedStatus
+        const status = engineHealth.recordSuccess(voiceId)
+        broadcastEngineStatusIfChanged(ctx, previousStatus, status)
         logger.debug('tts', 'synth ok (sherpa)', {
           voiceId,
           engine: 'sherpa',
@@ -293,12 +465,17 @@ export function register(ctx: ModuleContext): void {
         })
         return wav
       } catch (error) {
-        engineCrashCount.set(voiceId, (engineCrashCount.get(voiceId) ?? 0) + 1)
+        const reason = error instanceof Error ? error.message : String(error)
+        const previousStatus = engineHealth.cachedStatus
+        const failure = engineHealth.recordFailure(voiceId, reason)
+        broadcastEngineStatusIfChanged(ctx, previousStatus, failure.status)
         logger.warn('tts', 'synth fallback: sherpa synth failed', {
           voiceId,
           reason: 'synth-error',
           modelPath: model,
-          error: error instanceof Error ? error.message : String(error)
+          error: reason,
+          crashCount: failure.count,
+          disabled: failure.disabled
         })
         return null
       }
@@ -311,19 +488,14 @@ export function register(ctx: ModuleContext): void {
       if (!isValidPiperVoiceId(voiceId)) {
         return { ok: false, voiceId, installed: false, error: `unknown voice id: ${voiceId}` }
       }
-      // Already present (downloaded or bundled) → no network.
-      if (isVoiceInstalled(ctx.app, voiceId)) {
+      const alreadyHealthy =
+        Boolean((await resolveVerifiedVoice(ctx.app, voiceId)).location) &&
+        !engineHealth.needsRepair(voiceId)
+      const result = await repairCoordinator.ensure(voiceId)
+      if (alreadyHealthy && result.ok && result.installed) {
         emitProgress(ctx, { voiceId, phase: 'done', totalBytes: 0, downloadedBytes: 0, ratio: 1 })
-        return { ok: true, voiceId, installed: true }
       }
-      const existing = inflight.get(voiceId)
-      if (existing) return existing
-
-      const task = ensureVoice(ctx, tempDir, voiceId).finally(() => {
-        inflight.delete(voiceId)
-      })
-      inflight.set(voiceId, task)
-      return task
+      return result
     }
   )
 
@@ -332,14 +504,36 @@ export function register(ctx: ModuleContext): void {
   // worker so we catch CPUs where onnxruntime hard-crashes (0xC0000005). The result
   // is cached so the probe (and its child process) runs at most once per app run.
   ctx.ipcMain.handle(TTS_CHANNELS.engineStatus, async (): Promise<TtsEngineStatus> => {
-    if (engineStatusCache) return engineStatusCache
-    engineStatusCache = await probeEngineStatus(ctx, tempDir)
-    return engineStatusCache
+    if (engineHealth.cachedStatus) return engineHealth.cachedStatus
+    const status = await probeEngineStatus(ctx, tempDir)
+    updateEngineStatus(ctx, status)
+    return status
   })
 }
 
-// Cached once per app run: the probe may spawn a child synth, so we never repeat it.
-let engineStatusCache: TtsEngineStatus | null = null
+function updateEngineStatus(
+  ctx: ModuleContext,
+  status: TtsEngineStatus
+): void {
+  const previousStatus = engineHealth.cachedStatus
+  engineHealth.setProbeStatus(status)
+  broadcastEngineStatusIfChanged(ctx, previousStatus, status)
+}
+
+function broadcastEngineStatusIfChanged(
+  ctx: ModuleContext,
+  previous: TtsEngineStatus | null,
+  next: TtsEngineStatus
+): void {
+  if (
+    previous?.engine === next.engine &&
+    previous.ok === next.ok &&
+    previous.reason === next.reason
+  ) {
+    return
+  }
+  ctx.broadcast(TTS_CHANNELS.engineStatusEvent, next)
+}
 
 async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<TtsEngineStatus> {
   // 1. Cheapest signal: are the native engine files present on disk at all?
@@ -367,10 +561,17 @@ async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<T
   // 2. Pick the first INSTALLED voice to probe. With none installed we cannot run a
   // real synth, but the engine IS present, so report ok (the first download will
   // surface any CPU-level crash through the per-voice crash guard).
-  const probeVoiceId = PIPER_VOICE_CATALOG.map((v) => v.id).find(
-    (id) => resolveVoiceModel(ctx.app, id) !== null
-  )
-  if (!probeVoiceId) {
+  let probeVoiceId: string | null = null
+  let probeLocation: VerifiedVoiceLocation | null = null
+  for (const voice of PIPER_VOICE_CATALOG) {
+    const inspection = await resolveVerifiedVoice(ctx.app, voice.id)
+    if (inspection.location) {
+      probeVoiceId = voice.id
+      probeLocation = inspection.location
+      break
+    }
+  }
+  if (!probeVoiceId || !probeLocation) {
     const status: TtsEngineStatus = {
       engine: 'sherpa',
       ok: true,
@@ -380,13 +581,8 @@ async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<T
     return status
   }
 
-  const model = resolveVoiceModel(ctx.app, probeVoiceId)
-  if (!model) {
-    const status: TtsEngineStatus = { engine: 'sherpa', ok: true }
-    logger.info('tts', 'engine status: voice model vanished before probe', { probeVoiceId })
-    return status
-  }
-  const tokens = join(model, '..', TOKENS_FILE)
+  const model = probeLocation.modelPath
+  const tokens = probeLocation.tokensPath
 
   // 3. Tiny REAL synth in the isolated worker. A native crash there throws here.
   try {
@@ -407,6 +603,7 @@ async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<T
     return status
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
+    engineHealth.recordFailure(probeVoiceId, reason)
     const status: TtsEngineStatus = { engine: 'sherpa', ok: false, reason }
     // Named so the next user log pinpoints the exact neural failure on this CPU.
     logger.warn('tts', 'engine status: neural synth probe FAILED (using OS voices)', {
@@ -426,20 +623,20 @@ function emitProgress(ctx: ModuleContext, progress: PiperVoiceProgress): void {
 async function ensureVoice(
   ctx: ModuleContext,
   tempDir: string,
-  voiceId: string
+  voiceId: string,
+  trusted: TrustedPiperVoiceDigest
 ): Promise<EnsureVoiceResult> {
   const url = sherpaVoiceBundleUrl(voiceId)
   if (!url) return { ok: false, voiceId, installed: false, error: `cannot resolve bundle URL for ${voiceId}` }
 
-  const voiceDir = join(getUserVoicesDir(ctx.app), voiceId)
+  const voicesRoot = getUserVoicesDir(ctx.app)
+  const voiceDir = join(voicesRoot, voiceId)
   const onnxPath = join(voiceDir, MODEL_FILE)
-  const tokensPath = join(voiceDir, TOKENS_FILE)
   const bundlePath = join(tempDir, `${voiceId}-${randomUUID()}.tar.bz2`)
   const totalBytes = sherpaVoiceBundleBytes(voiceId)
 
   try {
     await mkdir(tempDir, { recursive: true })
-    await mkdir(voiceDir, { recursive: true })
     emitProgress(ctx, { voiceId, phase: 'resolving', totalBytes, downloadedBytes: 0, ratio: 0 })
 
     // 1. Download the .tar.bz2 bundle (the big file → drives the progress bar).
@@ -454,38 +651,32 @@ async function ensureVoice(
       })
     })
 
-    // 2. Extract model.onnx + tokens.txt (pure-JS bzip2 + tar; no shelling out).
+    // 2. Extract and verify the complete voice directory payload.
     emitProgress(ctx, { voiceId, phase: 'verifying', totalBytes, downloadedBytes: totalBytes, ratio: 1 })
     const bundle = await readFile(bundlePath)
+    if (!voicePayloadMatchesTrustedDigest(trusted, { archive: bundle })) {
+      throw new Error('downloaded voice archive failed pinned SHA-256 verification')
+    }
     const extracted = extractSherpaVoiceBundle(bundle, voiceId)
-    if (!extracted) throw new Error('bundle extraction failed (missing model.onnx or tokens.txt)')
-
-    // Write to .part files then atomically rename, so a crash mid-write never
-    // leaves a half-file that passes the presence check.
-    await writeFile(`${onnxPath}.part`, extracted.onnx)
-    await writeFile(`${tokensPath}.part`, extracted.tokens)
-    await rename(`${onnxPath}.part`, onnxPath)
-    await rename(`${tokensPath}.part`, tokensPath)
-    evictTtsCache(onnxPath) // drop any stale engine instance for this path
-
-    // 3. Verify the extracted files are full-size.
-    if (!(await fileAtLeast(onnxPath, minOnnxBytes(voiceId))) || !(await fileAtLeast(tokensPath, MIN_TOKENS_BYTES))) {
-      throw new Error('extracted voice failed verification (missing or truncated)')
+    if (!extracted) {
+      throw new Error(
+        'bundle extraction failed (missing model, config, or tokens)'
+      )
     }
 
-    emitProgress(ctx, { voiceId, phase: 'done', totalBytes, downloadedBytes: totalBytes, ratio: 1 })
+    await installTrustedVoiceDirectory(
+      voicesRoot,
+      voiceId,
+      extracted,
+      trusted,
+      voiceDirectoryDependencies
+    )
+    evictTtsCache(onnxPath) // drop any stale engine instance for this path
+
     logger.info('tts', 'voice downloaded', { voiceId, engine: 'sherpa', onnxPath, bytes: extracted.onnx.length })
-    // A fresh (re)download supersedes a corrupt model that hit the crash cap, so
-    // clear the sticky guard and let this voice try the neural engine again.
-    engineCrashCount.delete(voiceId)
     return { ok: true, voiceId, installed: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    // Remove BOTH partial files (+ any leftover .part) so neither poisons retry.
-    await rm(onnxPath, { force: true }).catch(() => undefined)
-    await rm(tokensPath, { force: true }).catch(() => undefined)
-    await rm(`${onnxPath}.part`, { force: true }).catch(() => undefined)
-    await rm(`${tokensPath}.part`, { force: true }).catch(() => undefined)
     emitProgress(ctx, { voiceId, phase: 'error', totalBytes, downloadedBytes: 0, ratio: 0, error: message })
     logger.warn('tts', 'voice download failed', { voiceId, reason: 'download-error', error: message })
     return { ok: false, voiceId, installed: false, error: message }
@@ -496,11 +687,3 @@ async function ensureVoice(
     await rm(`${bundlePath}.part`, { force: true }).catch(() => undefined)
   }
 }
-
-// The engine can still fail for a specific voice on some machines (corrupt model,
-// unsupported op, OOM). Each failure logs + wastes CPU, and the proactive engineer +
-// spotter retry every few seconds. After a couple of failures for a given voice we
-// stop calling the engine for it and go straight to the distinct-OS-voice fallback.
-// Reset on a later success. (Engine-neutral rename of the old PIPER_MAX_CRASHES.)
-const ENGINE_MAX_CRASHES = 2
-const engineCrashCount = new Map<string, number>()

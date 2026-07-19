@@ -22,6 +22,7 @@ import { BrandLogo } from './components/BrandLogo'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ReportBugButton } from './components/ReportBugButton'
 import { CheckUpdatesButton } from './components/CheckUpdatesButton'
+import { AccessibilityCueLayer } from './components/AccessibilityCueLayer'
 import { OnboardingFlow } from './onboarding/OnboardingFlow'
 import { TutorialLauncherButton } from './onboarding/TutorialLauncherButton'
 import { TutorialOverlay } from './onboarding/TutorialOverlay'
@@ -43,6 +44,7 @@ import {
   type ResolvedLanguage
 } from './i18n'
 import './styles/navigation.css'
+import './styles/accessibility-cues.css'
 import { APP_NAVIGATE_EVENT, type AppNavigateDetail } from './lib/app-navigation'
 
 type ToastTone = 'success' | 'error' | 'info'
@@ -593,6 +595,8 @@ function App(): ReactElement {
         views={translatedViews}
         language={language}
       />
+
+      <AccessibilityCueLayer language={language} />
 
       {showOnboarding && (
         <OnboardingFlow

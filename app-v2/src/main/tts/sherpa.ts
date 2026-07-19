@@ -106,12 +106,13 @@ function readTarString(buf: Buffer, start: number, length: number): string {
 
 export interface ExtractedVoiceFiles {
   onnx: Buffer
+  config: Buffer
   tokens: Buffer
 }
 
 /**
- * Extract `<id>.onnx` (the model weights) and `tokens.txt` from a sherpa voice
- * `.tar.bz2` buffer. Returns null when either file is missing (corrupt/partial
+ * Extract `<id>.onnx`, its JSON config, and `tokens.txt` from a sherpa voice
+ * `.tar.bz2` buffer. Returns null when any file is missing (corrupt/partial
  * download), so the caller can discard and retry. NEVER throws for a bad archive.
  */
 export function extractSherpaVoiceBundle(bz2: Buffer, voiceId: string): ExtractedVoiceFiles | null {
@@ -120,13 +121,30 @@ export function extractSherpaVoiceBundle(bz2: Buffer, voiceId: string): Extracte
     const tar = bzip.decode(bz2)
     const entries = parseTarEntries(tar)
     let onnx: Buffer | undefined
+    let config: Buffer | undefined
     let tokens: Buffer | undefined
     for (const [name, data] of entries) {
       if (name.endsWith(`${voiceId}.onnx`)) onnx = data
+      else if (
+        name.endsWith(`${voiceId}.onnx.json`) ||
+        name.endsWith('/config.json') ||
+        name === 'config.json'
+      ) {
+        config = data
+      }
       else if (name.endsWith('/tokens.txt') || name === 'tokens.txt') tokens = data
     }
-    if (!onnx || onnx.length === 0 || !tokens || tokens.length === 0) return null
-    return { onnx, tokens }
+    if (
+      !onnx ||
+      onnx.length === 0 ||
+      !config ||
+      config.length === 0 ||
+      !tokens ||
+      tokens.length === 0
+    ) {
+      return null
+    }
+    return { onnx, config, tokens }
   } catch (error) {
     logger.warn('tts', 'sherpa bundle extraction failed', {
       voiceId,
