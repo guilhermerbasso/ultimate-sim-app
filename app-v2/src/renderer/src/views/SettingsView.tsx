@@ -19,6 +19,7 @@ import { TrackMapSetup } from '../components/TrackMapSetup'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { SavedConfigsPanel } from '../components/SavedConfigsPanel'
 import { UpdatePanel } from '../components/UpdatePanel'
+import { RelayCapabilityStatusMatrix } from '../components/RelayCapabilityStatusMatrix'
 import { MqttSetupPanel } from '../components/MqttSetupPanel'
 import packageJson from '../../../../package.json'
 import {
@@ -665,6 +666,8 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           <SectionExportImport sectionId="settings" label={tt(language, 'settings.appThemeSection')} language={language} />
         </div>
       </div>
+
+      <RelayCapabilityStatusMatrix />
 
       <SavedConfigsPanel language={language} />
 
