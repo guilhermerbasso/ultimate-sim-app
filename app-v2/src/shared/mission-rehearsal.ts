@@ -1421,7 +1421,7 @@ export function advanceMissionRun(
 
 function missionRoll(seed: number, checkpointId: string, eventId: string): number {
   const checksum = missionChecksum(`${seed}:${checkpointId}:${eventId}`)
-  return Number.parseInt(checksum.slice(-8), 16) / 0xffffffff
+  return Number.parseInt(checksum.slice(-8), 16) / 0x100000000
 }
 
 function compareMissionIds(left: string, right: string): number {

@@ -281,10 +281,13 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
       const next = advanceMissionRun(manifest, run, decisionId)
       if (next.status === 'completed') {
         const finalized = finalizeMissionRun(window.localStorage, manifest, next)
-        activeRunLockedRef.current = isMissionRunBoundaryLocked(next, finalized.value ?? history)
         setRun(next)
+        if (finalized.error) {
+          activeRunLockedRef.current = true
+          throw finalized.error
+        }
         if (finalized.value) setHistory(finalized.value)
-        if (finalized.error) throw finalized.error
+        activeRunLockedRef.current = isMissionRunBoundaryLocked(next, finalized.value ?? history)
         setTab('debrief')
         showToast(tt(language, 'mission.toast.runCompleted'), 'success')
       } else {
@@ -303,13 +306,13 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
   const retryRunArchive = useCallback((): void => {
     if (!run || run.status !== 'completed') return
     const finalized = finalizeMissionRun(window.localStorage, manifest, run)
-    activeRunLockedRef.current = isMissionRunBoundaryLocked(run, finalized.value ?? history)
-    if (finalized.value) setHistory(finalized.value)
     if (finalized.error) {
       setBoundaryError(errorMessage(finalized.error))
       showToast(errorMessage(finalized.error), 'error')
       return
     }
+    if (finalized.value) setHistory(finalized.value)
+    activeRunLockedRef.current = isMissionRunBoundaryLocked(run, finalized.value ?? history)
     setBoundaryError(null)
     setTab('debrief')
     showToast(tt(language, 'mission.toast.runCompleted'), 'success')
