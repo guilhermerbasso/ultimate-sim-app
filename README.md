@@ -27,11 +27,17 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.54.0 — managed streaming, secure Internet sharing, and offline Mission Rehearsal
+### 2.54.0 — managed streaming, local integrations, and offline race preparation
 
+- **Connect local tools through a hardened MQTT target** ([#70](https://github.com/guilhermerbasso/ultimate-sim-app/pull/70)): it is disabled by default, binds only to loopback (`127.0.0.1` / `::1`), separates authenticated publisher, reader, and command roles, and keeps command execution off unless explicitly enabled.
 - **Choose and keep your own Streaming targets** ([#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71)): the dedicated Streaming area stores dashboard and Touch Controls profiles, and edited dashboard copies remain available after migration and restart.
 - **Share securely over the Internet without manual tunnel setup** ([#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72)): Internet mode can start the bundled checksum-verified Cloudflare quick tunnel, establish the authenticated viewer session, show receiver health, and reconnect with bounded retries.
 - **Practice race operations completely offline** ([#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73)): Mission Rehearsal supports branching scenarios, assigned roles, checkpoints, resume/archive recovery, repeat comparisons, and scored blameless debriefs.
+- **Prepare exact phone and tablet presentations** ([#74](https://github.com/guilhermerbasso/ultimate-sim-app/pull/74)): save revision-bound mobile profiles with device presets, orientation, safe areas, fit/fill behavior, and minimum touch sizing without changing the source dashboard or Touch Controls panel.
+- **Position trigger-only visuals before they fire** ([#75](https://github.com/guilhermerbasso/ultimate-sim-app/pull/75)): an editor-only toggle reveals inactive trigger-based overlays and dashboard widgets without changing saved rules, live visibility, compositor output, or streams.
+- **Audit cockpit Context-Debt experimentally** ([#76](https://github.com/guilhermerbasso/ultimate-sim-app/pull/76)): a local pre-race meter finds competing cues, invalid routes, and unavailable devices. It remains an N=0 experiment—not a validated demand or predictive-accuracy claim.
+- **Compare one setup change with evidence instead of guesswork** ([#88](https://github.com/guilhermerbasso/ultimate-sim-app/pull/88)): the local Setup Experiment Twin guides manual A-B-A/B-A-B comparisons, reports uncertainty and conflicting evidence honestly, and never applies a setup automatically.
+- **Reconnect the local PWA receiver without duplicate sockets or metrics** ([#90](https://github.com/guilhermerbasso/ultimate-sim-app/pull/90)): duplicate close/online triggers preserve the first pending 250 ms reconnect deadline, while offline and unmount cleanup still cancel pending work.
 - **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
 
 ### 2.53.1 — SerialPort startup hotfix
@@ -89,7 +95,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **336 built-in dashboard presets**, including 50 dense 1024×600 GT3 layouts for qualifying, sprint, race, and endurance use.
 - **Restart-safe persistence** validates and migrates dashboard identities, preserves invalid bytes in quarantine, resolves duplicate/version conflicts, restores saved windows atomically, and reports storage/render failures instead of leaving a black dashboard.
 - **Race playlist** support can interleave dashboards and Touch Controls panels and cycle them from mapped hardware buttons.
-- **Read-only dashboard streaming** in local, LAN, or Internet mode, with a dedicated Streaming area, persistent user-managed dashboard and Touch Controls targets, HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
+- **Read-only dashboard streaming** in local, LAN, or Internet mode, with a dedicated Streaming area, persistent user-managed dashboard and Touch Controls targets, revision-bound phone/tablet presentation profiles, HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, debounced PWA receiver reconnects, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
 - **Adaptive dashboards** that show/hide or emphasize widgets according to session phase and live race context.
 - **AI dashboard builder** that assembles a preview from a plain-English description, with an offline keyword fallback when the local model is unavailable.
 - **OLED Dashboard** presets for 128x64 ButtonBox displays.
@@ -98,7 +104,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ### Overlays and race awareness
 
 - Transparent overlay windows for gear/speed, delta, inputs, fuel, relative/standings, flags, tyres, brakes, weather, radar, rev lights, and telemetry widgets.
-- **Trigger-only condition overlays** for spotter/proximity, pace-car and pits-open messages, DRS, pit service, repairs, weather, race-control flags, incidents, shift flash, pit limiter, and low fuel, with pulse/TTL behavior and replay/session-safe resets.
+- **Trigger-only condition overlays** for spotter/proximity, pace-car and pits-open messages, DRS, pit service, repairs, weather, race-control flags, incidents, shift flash, pit limiter, and low fuel, with pulse/TTL behavior, replay/session-safe resets, and an isolated editor-only preview toggle for positioning inactive visuals.
 - **Interactive 3D Waze-style navigation map** with follow-camera track-up behavior, zoom, pan/rotate, recenter, layout-specific learned outlines/corners, replay-safe learning pauses, and a 2D fallback where WebGL is unavailable.
 - Overlay editing, positioning, import/export, and compositor mode for one transparent window per display.
 
@@ -110,6 +116,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Sounds/audio cues** for shift beeps, incidents, ABS, TCS, and race warnings.
 - **Haptics and zonal haptics** for bass shakers/tactile feedback mapped to cockpit zones.
 - **Arduino and ESP32 device support** for RGB, matrix LEDs, displays, gauges, controls, pinout design, and firmware-oriented workflows.
+- **Loopback-only MQTT certification target**, disabled by default, with authenticated roles, narrow topic permissions, retained health/session state, and command execution disabled unless explicitly enabled.
 - **Input monitor, controls, and keyboard bindings** for buttons, axes, keystrokes, virtual gamepad actions, iRacing commands, and app actions.
 
 ### Live/replay and configuration safety
@@ -125,6 +132,8 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **AI Coach** for lap analysis, corner findings, and improvement points — intent- and racecraft-aware for overtaking, defending, general improvement, and qualifying context; honest when opponent controls are unavailable; and cleared outside confirmed live telemetry.
 - **Semantic Search** across setups, ghosts, notes, and coach findings with a keyword fallback.
 - **Mission Rehearsal** for authoring and running branching offline race-operation scenarios with roles, checkpoints, resume/archive recovery, repeat comparisons, and scored blameless debriefs. Synthetic events stay out of real telemetry and session history.
+- **Experimental Context-Debt meter** for local pre-race audits of competing cues, invalid routes, and unavailable devices, with fail-closed inventory checks and no claim of validated player demand or prediction.
+- **Setup Experiment Twin** for local, manual one-variable A-B-A/B-A-B comparisons with matched-block contrasts, uncertainty, rollback/drift checks, persistence recovery, and abstention when the evidence is incomplete or conflicting.
 - **Career and ratings** views for iRating, Safety Rating, licenses, incidents, and result history.
 - **Biometrics** for heart rate and stress-vs-pace exploration.
 - **Community sharing** through local-first ghosts, telemetry, setups, and `.simshare` files.
