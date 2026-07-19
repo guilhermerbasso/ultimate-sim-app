@@ -4,11 +4,15 @@ import {
   type EvidenceAttestationBinding,
   type EvidenceAttestationVerifier,
   type GovernanceRole,
+  type LedgerAppendAuthorityCommit,
+  type LedgerAppendOperation,
+  type LedgerAppendRecord,
   type LedgerFinalizationAuthority,
   type LedgerFinalizationAuthorityCommit,
   type LedgerFinalizationOperation,
   type LedgerFinalizationRecord,
   type LedgerAuthorityDependencies,
+  type LedgerPublicationHead,
   type OpaqueAttestation,
   type PromptApprovalCheckpointBinding,
   type RootAttestationVerifier,
@@ -48,9 +52,13 @@ import {
 } from './constants'
 import { fail } from './errors'
 import {
+  computeLedgerAppendOperationHash,
   computeLedgerFinalizationOperationHash,
+  normalizeLedgerAppendCommit,
+  normalizeLedgerAppendOperation,
   normalizeLedgerFinalizationCommit,
-  normalizeLedgerFinalizationOperation
+  normalizeLedgerFinalizationOperation,
+  normalizeLedgerPublicationHead
 } from './finalization-authority'
 import {
   expectedArtifactIds,
@@ -839,6 +847,11 @@ interface LedgerDependencySnapshot {
   readonly verifyRoot: RootAttestationVerifier['verifyRoot']
   readonly finalizationAuthority: LedgerFinalizationAuthority
   readonly finalizationAuthorityId: string
+  readonly appendCommit: LedgerFinalizationAuthority['commitAppend']
+  readonly appendRecover: LedgerFinalizationAuthority['recoverAppend']
+  readonly publicationEventsAfter: LedgerFinalizationAuthority['eventsAfter']
+  readonly publicationHead: LedgerFinalizationAuthority['head']
+  readonly verifyAppendCommit: LedgerFinalizationAuthority['verifyAppendCommit']
   readonly finalizationCommit: LedgerFinalizationAuthority['commit']
   readonly finalizationRecover: LedgerFinalizationAuthority['recover']
   readonly finalizationCurrent: LedgerFinalizationAuthority['current']
@@ -969,6 +982,31 @@ function assertLedgerDependencies(
       'authorityId',
       'Ledger finalization authority id'
     ),
+    appendCommit: ledgerDependencyMethod(
+      finalizationAuthority,
+      'commitAppend',
+      'Ledger publication authority append commit'
+    ) as LedgerFinalizationAuthority['commitAppend'],
+    appendRecover: ledgerDependencyMethod(
+      finalizationAuthority,
+      'recoverAppend',
+      'Ledger publication authority append recovery'
+    ) as LedgerFinalizationAuthority['recoverAppend'],
+    publicationEventsAfter: ledgerDependencyMethod(
+      finalizationAuthority,
+      'eventsAfter',
+      'Ledger publication authority event reader'
+    ) as LedgerFinalizationAuthority['eventsAfter'],
+    publicationHead: ledgerDependencyMethod(
+      finalizationAuthority,
+      'head',
+      'Ledger publication authority head reader'
+    ) as LedgerFinalizationAuthority['head'],
+    verifyAppendCommit: ledgerDependencyMethod(
+      finalizationAuthority,
+      'verifyAppendCommit',
+      'Ledger publication authority append verifier'
+    ) as LedgerFinalizationAuthority['verifyAppendCommit'],
     finalizationCommit: ledgerDependencyMethod(
       finalizationAuthority,
       'commit',
@@ -1103,9 +1141,18 @@ export class VisualArtifactLedger {
   private hasAcceptedHistory = false
   private finalized = false
   private finalizationEvent?: LedgerFinalizedEvent
-  private synchronizingFinalization = false
+  private synchronizingAuthority = false
   private authoritativeSynchronizationSuppressed = false
   private serializedEventBytes = 0
+  private cachedLocalRootHash?: string
+  private cachedPublicationHeadSource?: object
+  private cachedPublicationHead?: LedgerPublicationHead
+  private hasLocallyCommittedPublicationHead = false
+  private locallyCommittedSequence = 0
+  private locallyCommittedRootHash = ''
+  private locallyCommittedEventHash = ''
+  private locallyCommittedAcceptedCount = 0
+  private locallyCommittedAuthorityRootHash = ''
 
   private constructor(
     plan: ArtifactPlan,
@@ -1128,11 +1175,14 @@ export class VisualArtifactLedger {
   }
 
   private localRootHash(): string {
-    return computeVisualArtifactLedgerRootHash(
-      this.plan.planHash,
-      this.eventLog.length,
-      this.lastEventHash
-    )
+    if (this.cachedLocalRootHash === undefined) {
+      this.cachedLocalRootHash = computeVisualArtifactLedgerRootHash(
+        this.plan.planHash,
+        this.eventLog.length,
+        this.lastEventHash
+      )
+    }
+    return this.cachedLocalRootHash
   }
 
   private externalDependencies(): VisualArtifactLedgerDependencies {
@@ -1166,6 +1216,135 @@ export class VisualArtifactLedger {
     return deepFreeze({ operation, commit })
   }
 
+  private normalizeAppendRecord(value: unknown): LedgerAppendRecord {
+    assertPlainObject(value, 'Ledger publication authority append record')
+    assertExactKeys(
+      value,
+      ['operation', 'commit'],
+      'Ledger publication authority append record'
+    )
+    const operation = normalizeLedgerAppendOperation(value.operation)
+    const commit = normalizeLedgerAppendCommit(value.commit)
+    if (
+      operation.authorityId !== this.dependencies.finalizationAuthorityId ||
+      operation.planHash !== this.plan.planHash ||
+      operation.registryHash !== this.plan.registryHash ||
+      commit.authorityId !== this.dependencies.finalizationAuthorityId ||
+      commit.operationHash !== operation.operationHash
+    ) {
+      fail('TRUST', 'Ledger publication append record does not belong to this ledger.')
+    }
+    invokeSynchronousVerifier(
+      this.dependencies.verifyAppendCommit,
+      this.dependencies.finalizationAuthority,
+      [commit, operation],
+      'Ledger publication authority append commit verifier'
+    )
+    return deepFreeze({ operation, commit })
+  }
+
+  private currentPublicationHead(): LedgerPublicationHead | undefined {
+    const head = Reflect.apply(
+      this.dependencies.publicationHead,
+      this.dependencies.finalizationAuthority,
+      [this.plan.planHash]
+    ) as LedgerPublicationHead | undefined
+    if (head === undefined) return undefined
+    if (
+      typeof head === 'object' &&
+      head !== null &&
+      head === this.cachedPublicationHeadSource &&
+      this.cachedPublicationHead
+    ) {
+      return this.cachedPublicationHead
+    }
+    if (
+      this.hasLocallyCommittedPublicationHead &&
+      this.matchesLocallyCommittedPublicationHead(head)
+    ) {
+      this.cachedPublicationHeadSource = head
+      this.cachedPublicationHead = head
+      return head
+    }
+    const normalized = normalizeLedgerPublicationHead(head)
+    if (
+      normalized.authorityId !== this.dependencies.finalizationAuthorityId ||
+      normalized.planHash !== this.plan.planHash ||
+      normalized.registryHash !== this.plan.registryHash
+    ) {
+      fail('TRUST', 'Ledger publication authority head does not belong to this ledger.')
+    }
+    if (typeof head === 'object' && head !== null && Object.isFrozen(head)) {
+      this.cachedPublicationHeadSource = head
+      this.cachedPublicationHead = normalized
+    }
+    return normalized
+  }
+
+  private matchesLocallyCommittedPublicationHead(
+    value: LedgerPublicationHead
+  ): boolean {
+    if (!Object.isFrozen(value)) return false
+    assertPlainObject(value, 'Ledger publication authority head')
+    assertExactKeys(
+      value,
+      [
+        'authorityId',
+        'planHash',
+        'registryHash',
+        'ledgerSequence',
+        'ledgerRootHash',
+        'ledgerEventHash',
+        'acceptedArtifactCount',
+        'authorityRootHash',
+        'finalized'
+      ],
+      'Ledger publication authority head'
+    )
+    return (
+      value.authorityId === this.dependencies.finalizationAuthorityId &&
+      value.planHash === this.plan.planHash &&
+      value.registryHash === this.plan.registryHash &&
+      value.ledgerSequence === this.locallyCommittedSequence &&
+      value.ledgerRootHash === this.locallyCommittedRootHash &&
+      value.ledgerEventHash === this.locallyCommittedEventHash &&
+      value.acceptedArtifactCount === this.locallyCommittedAcceptedCount &&
+      value.authorityRootHash === this.locallyCommittedAuthorityRootHash &&
+      value.finalized === false
+    )
+  }
+
+  private authoritativeEventsAfter(sequence: number): readonly LedgerAppendRecord[] {
+    const records = Reflect.apply(
+      this.dependencies.publicationEventsAfter,
+      this.dependencies.finalizationAuthority,
+      [this.plan.planHash, sequence]
+    ) as readonly LedgerAppendRecord[]
+    if (!Array.isArray(records) || utilTypes.isProxy(records)) {
+      fail('TRUST', 'Ledger publication authority events must be a concrete array.')
+    }
+    if (records.length > MAX_LEDGER_EVENTS - sequence) {
+      fail('CARDINALITY', 'Ledger publication authority returned too many events.')
+    }
+    const normalized: LedgerAppendRecord[] = []
+    for (let index = 0; index < records.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(records, String(index))
+      if (!descriptor?.enumerable || !('value' in descriptor)) {
+        fail(
+          'TRUST',
+          'Ledger publication authority events must be dense own data.'
+        )
+      }
+      Object.defineProperty(normalized, String(index), {
+        value: this.normalizeAppendRecord(descriptor.value),
+        enumerable: true,
+        configurable: true,
+        writable: true
+      })
+    }
+    return deepFreeze(normalized)
+  }
+
   private currentFinalizationRecord(): LedgerFinalizationRecord | undefined {
     const record = Reflect.apply(
       this.dependencies.finalizationCurrent,
@@ -1177,102 +1356,213 @@ export class VisualArtifactLedger {
       : this.normalizeFinalizationRecord(record)
   }
 
-  private synchronizeAuthoritativeFinalization(): void {
+  private ordinarySequence(): number {
+    return this.finalized ? this.eventLog.length - 1 : this.eventLog.length
+  }
+
+  private ordinaryEventHash(): string {
+    const sequence = this.ordinarySequence()
+    return sequence === 0 ? ZERO_HASH : this.eventLog[sequence - 1].eventHash
+  }
+
+  private ordinaryRootHash(): string {
+    return computeVisualArtifactLedgerRootHash(
+      this.plan.planHash,
+      this.ordinarySequence(),
+      this.ordinaryEventHash()
+    )
+  }
+
+  private assertPublicationHeadMatchesLocal(
+    head: LedgerPublicationHead
+  ): void {
+    if (
+      head.ledgerSequence !== this.ordinarySequence() ||
+      head.ledgerRootHash !== this.ordinaryRootHash() ||
+      head.ledgerEventHash !== this.ordinaryEventHash() ||
+      head.acceptedArtifactCount !== this.acceptedCurrentCount
+    ) {
+      fail('CAS', 'Ledger local state diverged from the shared publication head.')
+    }
+  }
+
+  private replayAuthoritativeAppend(record: LedgerAppendRecord): void {
+    const operation = record.operation
+    if (
+      this.finalized ||
+      operation.expectedLedgerSequence !== this.eventLog.length ||
+      operation.expectedLedgerRootHash !== this.localRootHash() ||
+      operation.expectedLedgerEventHash !== this.lastEventHash ||
+      operation.expectedAcceptedArtifactCount !== this.acceptedCurrentCount ||
+      operation.nextLedgerSequence !== this.eventLog.length + 1
+    ) {
+      fail('CAS', 'Ledger publication authority append history is not contiguous.')
+    }
+    const stored = operation.event as ArtifactEvent
+    const storedInput = storedEventToInput(
+      stored,
+      operation.nextLedgerSequence,
+      this.lastEventHash
+    )
+    const priorSuppression = this.authoritativeSynchronizationSuppressed
+    this.authoritativeSynchronizationSuppressed = true
+    try {
+      const generated = this.append(
+       storedInput.input,
+       storedInput.principalAttestation
+      )
+      if (
+       canonicalStringify(stored) !== canonicalStringify(generated) ||
+       generated.eventHash !== operation.nextLedgerEventHash ||
+       this.localRootHash() !== operation.nextLedgerRootHash ||
+       this.acceptedCurrentCount !== operation.nextAcceptedArtifactCount
+      ) {
+       fail(
+         'INTEGRITY',
+         'Ledger publication authority append record does not replay to its committed head.'
+       )
+      }
+    } finally {
+      this.authoritativeSynchronizationSuppressed = priorSuppression
+    }
+  }
+
+  private synchronizeAuthoritativePublication(): void {
     if (
       this.authoritativeSynchronizationSuppressed ||
-      this.synchronizingFinalization ||
-      (!this.finalized &&
-        this.acceptedCurrentCount !== this.expectedIds.length)
+      this.synchronizingAuthority
     ) {
       return
     }
-    this.synchronizingFinalization = true
+    this.synchronizingAuthority = true
     try {
-      const record = this.currentFinalizationRecord()
-      if (!record) {
-        if (this.finalized) {
-          fail('TRUST', 'Finalized ledger is missing its authoritative CAS record.')
-        }
-        return
+      for (;;) {
+       const head = this.currentPublicationHead()
+       const ordinarySequence = this.ordinarySequence()
+       if (!head) {
+         if (ordinarySequence !== 0 || this.finalized) {
+           fail(
+             'TRUST',
+             'Ledger history is missing its shared durable publication head.'
+           )
+         }
+         return
+       }
+       if (head.ledgerSequence < ordinarySequence) {
+         fail('CAS', 'Ledger local history is ahead of its publication authority.')
+       }
+       if (head.ledgerSequence > ordinarySequence) {
+         const records = this.authoritativeEventsAfter(ordinarySequence)
+         if (records.length === 0) {
+           fail(
+             'INTEGRITY',
+             'Ledger publication authority head is missing its committed events.'
+           )
+         }
+         for (const record of records) this.replayAuthoritativeAppend(record)
+         continue
+       }
+       this.assertPublicationHeadMatchesLocal(head)
+       if (!head.finalized) {
+         if (this.finalized) {
+           fail('CAS', 'Local finalization is absent from the publication authority.')
+         }
+         return
+       }
+       const record = this.currentFinalizationRecord()
+       if (!record) {
+         fail('TRUST', 'Finalized publication head is missing its authoritative record.')
+       }
+       if (
+         record.operation.expectedLedgerSequence !== head.ledgerSequence ||
+         record.operation.expectedLedgerRootHash !== head.ledgerRootHash ||
+         record.operation.trustedCheckpointEventHash !== head.ledgerEventHash ||
+         record.operation.artifactCount !== head.acceptedArtifactCount ||
+         record.commit.rootHash !== head.authorityRootHash
+       ) {
+         fail('CAS', 'Ledger finalization record diverges from the publication head.')
+       }
+       if (this.finalized) {
+         if (
+           !this.finalizationEvent ||
+           this.finalizationEvent.finalizationAuthorityOperationHash !==
+             record.operation.operationHash ||
+           this.finalizationEvent.finalizationAuthorityRootHash !==
+             record.commit.rootHash
+         ) {
+           fail(
+             'CAS',
+             'Ledger finalization authority exposes a split finalized head.'
+           )
+         }
+         return
+       }
+       this.appendFinalization(
+         {
+           occurredAt: record.operation.occurredAt,
+           actorId: record.operation.actorId,
+           planHash: record.operation.planHash,
+           registryHash: record.operation.registryHash,
+           trustedCheckpoint: {
+             schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
+             sequence: record.operation.trustedCheckpointSequence,
+             eventHash: record.operation.trustedCheckpointEventHash,
+             rootHash: record.operation.trustedCheckpointRootHash,
+             planHash: record.operation.planHash,
+             registryHash: record.operation.registryHash
+           },
+           trustedCheckpointAttestation:
+             record.operation.trustedCheckpointAttestation
+         },
+         record.operation.principalAttestation,
+         true,
+         record.operation,
+         record.commit
+       )
+       return
       }
-      if (this.finalized) {
-        if (
-          !this.finalizationEvent ||
-          this.finalizationEvent.finalizationAuthorityOperationHash !==
-            record.operation.operationHash ||
-          this.finalizationEvent.finalizationAuthorityRootHash !==
-            record.commit.rootHash
-        ) {
-          fail('CAS', 'Ledger finalization authority exposes a split finalized head.')
-        }
-        return
-      }
-      if (
-        record.operation.expectedLedgerSequence !== this.eventLog.length ||
-        record.operation.expectedLedgerRootHash !== this.localRootHash()
-      ) {
-        fail('CAS', 'Ledger head diverged from the authoritative finalized head.')
-      }
-      this.appendFinalization(
-        {
-          occurredAt: record.operation.occurredAt,
-          actorId: record.operation.actorId,
-          planHash: record.operation.planHash,
-          registryHash: record.operation.registryHash,
-          trustedCheckpoint: {
-            schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
-            sequence: record.operation.trustedCheckpointSequence,
-            eventHash: record.operation.trustedCheckpointEventHash,
-            rootHash: record.operation.trustedCheckpointRootHash,
-            planHash: record.operation.planHash,
-            registryHash: record.operation.registryHash
-          },
-          trustedCheckpointAttestation:
-            record.operation.trustedCheckpointAttestation
-        },
-        record.operation.principalAttestation,
-        true,
-        record.operation,
-        record.commit
-      )
     } finally {
-      this.synchronizingFinalization = false
+      this.synchronizingAuthority = false
     }
   }
 
   get sequence(): number {
-    this.synchronizeAuthoritativeFinalization()
+    this.synchronizeAuthoritativePublication()
     return this.eventLog.length
   }
 
   get eventCount(): number {
-    this.synchronizeAuthoritativeFinalization()
+    this.synchronizeAuthoritativePublication()
     return this.eventLog.length
   }
 
   get artifactCount(): number {
+    this.synchronizeAuthoritativePublication()
     return this.artifacts.size
   }
 
   get evidenceCount(): number {
+    this.synchronizeAuthoritativePublication()
     return this.evidenceIds.size
   }
 
   get acceptedArtifactCount(): number {
+    this.synchronizeAuthoritativePublication()
     return this.acceptedCurrentCount
   }
 
   get isFinalized(): boolean {
-    this.synchronizeAuthoritativeFinalization()
+    this.synchronizeAuthoritativePublication()
     return this.finalized
   }
 
   get rootHash(): string {
-    this.synchronizeAuthoritativeFinalization()
+    this.synchronizeAuthoritativePublication()
     return this.localRootHash()
   }
 
   principalBindingFor(value: unknown): AuthenticatedPrincipalBinding {
+    this.synchronizeAuthoritativePublication()
     const input = normalizeInput(value)
     return deepFreeze({
       domain: 'visual-artifact-ledger',
@@ -1283,12 +1573,13 @@ export class VisualArtifactLedger {
         domain: 'visual-artifact-principal-action-v1',
         event: input
       }),
-      contextRootHash: this.rootHash,
-      contextVersion: this.sequence
+      contextRootHash: this.localRootHash(),
+      contextVersion: this.eventLog.length
     })
   }
 
   evidenceBindingFor(value: unknown): EvidenceAttestationBinding {
+    this.synchronizeAuthoritativePublication()
     assertPlainObject(value, 'Artifact evidence binding input')
     assertExactKeys(
       value,
@@ -1309,8 +1600,8 @@ export class VisualArtifactLedger {
       subjectHash: evidence.subjectHash,
       contentHash: evidence.contentHash,
       planHash: this.plan.planHash,
-      ledgerRootBefore: this.rootHash,
-      ledgerSequence: this.sequence + 1
+      ledgerRootBefore: this.localRootHash(),
+      ledgerSequence: this.eventLog.length + 1
     })
   }
 
@@ -1327,8 +1618,8 @@ export class VisualArtifactLedger {
         domain: 'visual-artifact-principal-action-v1',
         event: input
       }),
-      contextRootHash: this.rootHash,
-      contextVersion: this.sequence
+      contextRootHash: this.localRootHash(),
+      contextVersion: this.eventLog.length
     }
     invokeSynchronousVerifier(
       this.dependencies.verifyPrincipal,
@@ -1338,12 +1629,89 @@ export class VisualArtifactLedger {
     )
   }
 
-  private assertWritable(): void {
-    this.synchronizeAuthoritativeFinalization()
+  private assertWritable(synchronize = true): void {
+    if (synchronize) this.synchronizeAuthoritativePublication()
     if (this.finalized) fail('FINALIZATION', 'A finalized visual artifact ledger is immutable.')
     if (this.eventLog.length >= MAX_LEDGER_EVENTS) {
       fail('CARDINALITY', `Ledger event limit ${MAX_LEDGER_EVENTS} reached.`)
     }
+  }
+
+  private publishAppend(
+    event: ArtifactEvent,
+    nextAcceptedArtifactCount: number
+  ): string {
+    const nextLedgerRootHash = computeVisualArtifactLedgerRootHash(
+      this.plan.planHash,
+      event.sequence,
+      event.eventHash
+    )
+    if (this.authoritativeSynchronizationSuppressed) {
+      return nextLedgerRootHash
+    }
+    const operationWithoutHash = {
+      authorityId: this.dependencies.finalizationAuthorityId,
+      expectedLedgerSequence: this.eventLog.length,
+      expectedLedgerRootHash: this.localRootHash(),
+      expectedLedgerEventHash: this.lastEventHash,
+      expectedAcceptedArtifactCount: this.acceptedCurrentCount,
+      planHash: this.plan.planHash,
+      registryHash: this.plan.registryHash,
+      nextLedgerSequence: event.sequence,
+      nextLedgerRootHash,
+      nextLedgerEventHash: event.eventHash,
+      nextAcceptedArtifactCount,
+      event
+    }
+    const operation: LedgerAppendOperation = deepFreeze({
+      ...operationWithoutHash,
+      operationHash: computeLedgerAppendOperationHash(operationWithoutHash)
+    })
+    let commit: LedgerAppendAuthorityCommit
+    try {
+      commit = normalizeLedgerAppendCommit(
+        Reflect.apply(
+          this.dependencies.appendCommit,
+          this.dependencies.finalizationAuthority,
+          [operation]
+        )
+      )
+    } catch (error) {
+      const recovered = Reflect.apply(
+        this.dependencies.appendRecover,
+        this.dependencies.finalizationAuthority,
+        [operation]
+      ) as LedgerAppendAuthorityCommit | undefined
+      if (!recovered) {
+        const message = error instanceof Error ? error.message : String(error)
+        fail('CAS', `Ledger publication authority rejected atomic append: ${message}`)
+      }
+      commit = normalizeLedgerAppendCommit(recovered)
+    }
+    if (
+      commit.authorityId !== this.dependencies.finalizationAuthorityId ||
+      commit.version !== 1 ||
+      commit.committedAt !== event.occurredAt ||
+      commit.operationHash !== operation.operationHash
+    ) {
+      fail('TRUST', 'Ledger publication authority returned an invalid append commit.')
+    }
+    invokeSynchronousVerifier(
+      this.dependencies.verifyAppendCommit,
+      this.dependencies.finalizationAuthority,
+      [commit, operation],
+      'Ledger publication authority append commit verifier'
+    )
+    this.cachedPublicationHeadSource = undefined
+    this.cachedPublicationHead = undefined
+    this.hasLocallyCommittedPublicationHead = true
+    this.locallyCommittedSequence = operation.nextLedgerSequence
+    this.locallyCommittedRootHash = operation.nextLedgerRootHash
+    this.locallyCommittedEventHash = operation.nextLedgerEventHash
+    this.locallyCommittedAcceptedCount =
+      operation.nextAcceptedArtifactCount
+    this.locallyCommittedAuthorityRootHash = commit.rootHash
+    return nextLedgerRootHash
   }
 
   private assertTimestamp(timestamp: string): void {
@@ -1408,8 +1776,8 @@ export class VisualArtifactLedger {
       subjectHash: evidence.subjectHash,
       contentHash: evidence.contentHash,
       planHash: this.plan.planHash,
-      ledgerRootBefore: this.rootHash,
-      ledgerSequence: this.sequence + 1
+      ledgerRootBefore: this.localRootHash(),
+      ledgerSequence: this.eventLog.length + 1
     }
     invokeSynchronousVerifier(
       this.dependencies.verifyEvidence,
@@ -1476,7 +1844,7 @@ export class VisualArtifactLedger {
   }
 
   append(value: unknown, principalAttestationValue: unknown): ArtifactEvent {
-    this.assertWritable()
+    this.assertWritable(false)
     const input = normalizeInput(value)
     const principalAttestation = parseOpaqueAttestation(
       principalAttestationValue,
@@ -1720,6 +2088,18 @@ export class VisualArtifactLedger {
         `Artifact revision exceeds ${MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION} serialized bytes.`
       )
     }
+    let nextAcceptedArtifactCount = this.acceptedCurrentCount
+    if (input.type === 'artifact-accepted') {
+      nextAcceptedArtifactCount += 1
+    } else if (input.type === 'artifact-revision-superseded') {
+      const history = this.artifacts.get(input.artifactId)!
+      const prior = history.revisions[history.revisions.length - 1]
+      if (prior.status === 'accepted') nextAcceptedArtifactCount -= 1
+    }
+    const nextLedgerRootHash = this.publishAppend(
+      event,
+      nextAcceptedArtifactCount
+    )
 
     if (input.type === 'artifact-revision-started') {
       const revision: MutableRevisionState = {
@@ -1764,11 +2144,7 @@ export class VisualArtifactLedger {
           revision.promptApprovedAt = input.occurredAt
           revision.promptApprovalEventHash = event.eventHash
           revision.promptApprovalSequence = event.sequence
-          revision.promptApprovalLedgerRootHash = computeVisualArtifactLedgerRootHash(
-            this.plan.planHash,
-            event.sequence,
-            event.eventHash
-          )
+          revision.promptApprovalLedgerRootHash = nextLedgerRootHash
         }
       } else if (input.type === 'image-generation-recorded') {
         revision.status = 'image-generated'
@@ -1806,10 +2182,12 @@ export class VisualArtifactLedger {
     this.serializedEventBytes += eventBytes
     this.lastTimestamp = event.occurredAt
     this.lastEventHash = event.eventHash
+    this.cachedLocalRootHash = nextLedgerRootHash
     return event
   }
 
   getArtifact(artifactIdValue: unknown): ArtifactHistorySnapshot | undefined {
+    this.synchronizeAuthoritativePublication()
     const artifactId = parseArtifactId(artifactIdValue).id
     const history = this.artifacts.get(artifactId)
     if (!history) return undefined
@@ -1869,11 +2247,12 @@ export class VisualArtifactLedger {
   }
 
   events(): readonly ArtifactEvent[] {
-    this.synchronizeAuthoritativeFinalization()
+    this.synchronizeAuthoritativePublication()
     return deepFreeze(cloneCanonical(this.eventLog))
   }
 
   promptApprovalCheckpointBinding(artifactIdValue: unknown): PromptApprovalCheckpointBinding {
+    this.synchronizeAuthoritativePublication()
     const artifactId = parseArtifactId(artifactIdValue).id
     const history = this.artifacts.get(artifactId)
     const revision = history?.revisions[history.revisions.length - 1]
@@ -1901,7 +2280,7 @@ export class VisualArtifactLedger {
   }
 
   createCheckpoint(): LedgerCheckpoint {
-    this.synchronizeAuthoritativeFinalization()
+    this.synchronizeAuthoritativePublication()
     return deepFreeze({
       schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
       sequence: this.eventLog.length,
@@ -2128,6 +2507,7 @@ export class VisualArtifactLedger {
     this.serializedEventBytes += eventBytes
     this.lastTimestamp = occurredAt
     this.lastEventHash = event.eventHash
+    this.cachedLocalRootHash = undefined
     this.finalized = true
     this.finalizationEvent = event
     return event
@@ -2160,7 +2540,7 @@ export class VisualArtifactLedger {
   }
 
   finalizationPrincipalBindingFor(value: unknown): AuthenticatedPrincipalBinding {
-    this.synchronizeAuthoritativeFinalization()
+    this.synchronizeAuthoritativePublication()
     return this.finalizationPrincipalBinding(
       normalizeLedgerFinalizationInput(value)
     )
@@ -2188,7 +2568,7 @@ export class VisualArtifactLedger {
     attestation: OpaqueAttestation,
     synchronize = true
   ): void {
-    if (synchronize) this.synchronizeAuthoritativeFinalization()
+    if (synchronize) this.synchronizeAuthoritativePublication()
     invokeSynchronousVerifier(
       this.dependencies.verifyRoot,
       this.dependencies.rootVerifier,

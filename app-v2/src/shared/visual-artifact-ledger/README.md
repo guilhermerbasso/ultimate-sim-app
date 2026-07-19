@@ -27,13 +27,20 @@ SHA-256. Its in-memory indexes update only the affected artifact revision, evide
 chain, and scheduler receipt lookup. Full replay is intentionally limited to parsing and
 finalization.
 
-Finalization is also committed through one injected shared `LedgerFinalizationAuthority`. The
-authority atomically compares the exact pre-final sequence/root and durably publishes one
-plan-bound operation/commit record. Its operation parser independently requires the exact 16,600
-count, a complete-event floor, and checkpoint/event/root coherence. Stale complete instances adopt
-that same committed event; different concurrent heads fail CAS. `DurableLedgerFinalizationAuthority`
-uses a fully flushed same-directory temporary file plus atomic exclusive hard-link publication, so
-process races and restart recovery cannot overwrite the winning record.
+Every ordinary append and finalization is committed through the same injected shared
+`LedgerFinalizationAuthority`. An append transaction compares writability, sequence, root, last-event
+hash, registry, and accepted count before storing the event and advancing the head. Finalization
+compares that same row, independently requires the exact 16,600 count, complete-event floor, and
+checkpoint/event/root coherence, then atomically marks the head finalized. The finalized bit and
+head update therefore cannot be interleaved: finalization is uniquely last, while stale instances
+replay the authority's committed events or fail CAS.
+
+`DurableLedgerFinalizationAuthority` stores the shared head, append records, and finalization record
+in Node's built-in SQLite backend. It requires WAL mode, `synchronous=FULL`, foreign keys, and
+`BEGIN IMMEDIATE` writer transactions; unsupported durability fails closed during construction.
+SQLite commit/rollback boundaries provide Windows-capable crash and restart recovery without
+claiming success after an ignored directory-sync error. Exact operation hashes recover responses
+lost after commit, while pre-commit process loss leaves no published head.
 
 Each revision must proceed through research, prompt draft, independent prompt QA, scheduler-backed
 image generation, independent image QA, implementation, independent render QA, and acceptance.

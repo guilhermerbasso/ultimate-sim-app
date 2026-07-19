@@ -578,6 +578,55 @@ describe('externally attested visual artifact ledger', () => {
     expect(reads).toBe(0)
   })
 
+  it('shares ordinary append publication and recovers lost responses across instances', () => {
+    const { governance, scheduler, ledger, plan, ids, clock, hashes } = setup()
+    const peer = VisualArtifactLedger.create(
+      plan,
+      governance.ledgerDependencies(scheduler)
+    )
+    startArtifact(ledger, governance, ids[0], hashes, clock)
+    expect(peer.eventCount).toBe(1)
+    expect(peer.rootHash).toBe(ledger.rootHash)
+
+    governance.finalizationAuthority.simulateLostNextAppendResponse()
+    startArtifact(peer, governance, ids[1], hashes, clock)
+    expect(peer.eventCount).toBe(2)
+    expect(ledger.eventCount).toBe(2)
+    expect(ledger.rootHash).toBe(peer.rootHash)
+    expect(ledger.getArtifact(ids[1])?.revisions[0].status).toBe('started')
+  })
+
+  it('rejects an in-flight stale append after a competing instance publishes', () => {
+    const { governance, scheduler, ledger, plan, ids, clock, hashes } = setup()
+    const peer = VisualArtifactLedger.create(
+      plan,
+      governance.ledgerDependencies(scheduler)
+    )
+    const input = {
+      type: 'artifact-revision-started' as const,
+      occurredAt: clock.next(),
+      actorId: 'planner',
+      artifactId: ids[0],
+      revision: 1,
+      specificationHash: hashes.next(),
+      planHash: plan.planHash
+    }
+    const principal = governance.attestations.issuePrincipal(
+      ledger.principalBindingFor(input)
+    )
+    governance.finalizationAuthority.beforeNextAppendCommit(() => {
+      startArtifact(peer, governance, ids[1], hashes, clock)
+    })
+
+    expect(() => ledger.append(input, principal)).toThrow(
+      /stale or finalized shared ledger append CAS/i
+    )
+    expect(ledger.eventCount).toBe(1)
+    expect(ledger.rootHash).toBe(peer.rootHash)
+    expect(ledger.getArtifact(ids[0])).toBeUndefined()
+    expect(ledger.getArtifact(ids[1])?.revisions[0].status).toBe('started')
+  })
+
   it('domain-separates finalization checkpoints from serialized envelope trust', () => {
     const { governance, ledger, ids, clock, hashes } = setup()
     appendPromptApproved(ledger, governance, ids[0], 1, hashes, clock, {

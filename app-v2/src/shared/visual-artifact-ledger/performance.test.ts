@@ -121,6 +121,23 @@ describe('16,600-artifact exact contract performance', () => {
       preFinalizationSerialized = ''
 
       const finalizationStartedAt = performance.now()
+      const racingArtifactId = ids[1]
+      const racingPriorRoot =
+        staleFork.getArtifact(racingArtifactId)!.revisions[0].rootHash
+      const racingAppend = {
+        type: 'artifact-revision-superseded' as const,
+        occurredAt: ledgerClock.next(),
+        actorId: 'planner',
+        artifactId: racingArtifactId,
+        revision: 2,
+        priorRevision: 1,
+        priorRevisionRootHash: racingPriorRoot,
+        specificationHash: hashes.next(),
+        planHash: plan.planHash
+      }
+      const racingPrincipal = governance.attestations.issuePrincipal(
+        staleFork.principalBindingFor(racingAppend)
+      )
       const finalization = {
         occurredAt: ledgerClock.next(),
         actorId: 'release-owner',
@@ -129,17 +146,25 @@ describe('16,600-artifact exact contract performance', () => {
         trustedCheckpoint: checkpoint,
         trustedCheckpointAttestation: checkpointAttestation
       }
+      const finalizationPrincipal = governance.attestations.issuePrincipal(
+        ledger.finalizationPrincipalBindingFor(finalization)
+      )
       governance.finalizationAuthority.simulateLostNextResponse()
-      ledger.finalize(
-        finalization,
-        governance.attestations.issuePrincipal(
-          ledger.finalizationPrincipalBindingFor(finalization)
-        )
+      governance.finalizationAuthority.beforeNextAppendCommit(() => {
+        ledger.finalize(finalization, finalizationPrincipal)
+      })
+      expect(() => staleFork.append(racingAppend, racingPrincipal)).toThrow(
+        /stale or finalized shared ledger append CAS/i
       )
       const finalizationMs = performance.now() - finalizationStartedAt
       const finalizedRoot = ledger.rootHash
       expect(staleFork.rootHash).toBe(finalizedRoot)
       expect(staleFork.isFinalized).toBe(true)
+      expect(staleFork.acceptedArtifactCount).toBe(
+        APPROVED_EXACT_ARTIFACT_COUNT
+      )
+      expect(staleFork.getArtifact(racingArtifactId)?.revisions).toHaveLength(1)
+      expect(staleFork.events().at(-1)?.type).toBe('ledger-finalized')
       const finalRootAttestation = ledgerRootAttestation(ledger, governance)
 
       const roundTripStartedAt = performance.now()

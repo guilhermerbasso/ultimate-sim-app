@@ -3,10 +3,14 @@ import {
   type AuthenticatedPrincipalVerifier,
   type EvidenceAttestationBinding,
   type EvidenceAttestationVerifier,
+  type LedgerAppendAuthorityCommit,
+  type LedgerAppendOperation,
+  type LedgerAppendRecord,
   type LedgerFinalizationAuthority,
   type LedgerFinalizationAuthorityCommit,
   type LedgerFinalizationOperation,
   type LedgerFinalizationRecord,
+  type LedgerPublicationHead,
   type OpaqueAttestation,
   type PromptApprovalCheckpoint,
   type PromptApprovalCheckpointBinding,
@@ -21,6 +25,7 @@ import {
   type SchedulerServiceReceiptVerifier
 } from './authorities'
 import { cloneCanonical, deepFreeze, sha256Hex } from './canonical'
+import { computeLedgerPublicationAuthorityRootHash } from './finalization-authority'
 import {
   VisualArtifactLedger,
   type ArtifactEvidence,
@@ -196,13 +201,35 @@ export class TestAttestationAuthority
   }
 }
 
+interface TestStoredLedgerAppend {
+  readonly registryHash: string
+  readonly expectedLedgerSequence: number
+  readonly expectedLedgerRootHash: string
+  readonly expectedLedgerEventHash: string
+  readonly expectedAcceptedArtifactCount: number
+  readonly nextLedgerSequence: number
+  readonly nextLedgerRootHash: string
+  readonly nextLedgerEventHash: string
+  readonly nextAcceptedArtifactCount: number
+  readonly event: unknown
+  readonly operationHash: string
+  readonly committedAt: string
+  readonly previousAuthorityRootHash: string
+  readonly authorityRootHash: string
+}
+
 export class TestLedgerFinalizationAuthority
   implements LedgerFinalizationAuthority
 {
   readonly authorityId: string
   private loseNextResponse = false
+  private loseNextAppendResponse = false
   private readonly records = new Map<string, LedgerFinalizationRecord>()
+  private readonly heads = new Map<string, LedgerPublicationHead>()
+  private readonly appendRecords = new Map<string, TestStoredLedgerAppend[]>()
   private readonly recoverableOperationHashes = new Set<string>()
+  private readonly recoverableAppendOperationHashes = new Set<string>()
+  private beforeNextAppend?: () => void
 
   constructor(authorityId = 'test-ledger-finalization-authority') {
     this.authorityId = authorityId
@@ -212,15 +239,236 @@ export class TestLedgerFinalizationAuthority
     this.loseNextResponse = true
   }
 
+  simulateLostNextAppendResponse(): void {
+    this.loseNextAppendResponse = true
+  }
+
+  beforeNextAppendCommit(callback: () => void): void {
+    this.beforeNextAppend = callback
+  }
+
   private commitToken(
-    commit: Omit<LedgerFinalizationAuthorityCommit, 'attestation'>
+    commit: Omit<
+      LedgerFinalizationAuthorityCommit | LedgerAppendAuthorityCommit,
+      'attestation'
+    >
   ): OpaqueAttestation {
-    const token = `final:${sha256Hex({
-      domain: 'test-ledger-finalization-commit-v1',
-      secret: 'test-only-finalization-secret',
-      commit
-    })}`
-    return { token: token.padEnd(88, 'x') }
+    return Object.freeze({
+      token: `ledger:${commit.operationHash}`.padEnd(88, 'x')
+    })
+  }
+
+  private authorityRoot(
+    kind: 'append' | 'finalize',
+    previousRootHash: string,
+    operationHash: string,
+    committedAt: string
+  ): string {
+    return computeLedgerPublicationAuthorityRootHash(kind, {
+      authorityId: this.authorityId,
+      version: 1,
+      committedAt,
+      previousRootHash,
+      rootHash: ZERO_HASH,
+      operationHash
+    })
+  }
+
+  private appendCommitFor(
+    stored: TestStoredLedgerAppend
+  ): LedgerAppendAuthorityCommit {
+    const unsigned = {
+      authorityId: this.authorityId,
+      version: 1 as const,
+      committedAt: stored.committedAt,
+      previousRootHash: stored.previousAuthorityRootHash,
+      rootHash: stored.authorityRootHash,
+      operationHash: stored.operationHash
+    }
+    return Object.freeze({
+      ...unsigned,
+      attestation: this.commitToken(unsigned)
+    })
+  }
+
+  private appendOperationFor(
+    planHash: string,
+    stored: TestStoredLedgerAppend
+  ): LedgerAppendOperation {
+    return deepFreeze({
+      authorityId: this.authorityId,
+      expectedLedgerSequence: stored.expectedLedgerSequence,
+      expectedLedgerRootHash: stored.expectedLedgerRootHash,
+      expectedLedgerEventHash: stored.expectedLedgerEventHash,
+      expectedAcceptedArtifactCount:
+        stored.expectedAcceptedArtifactCount,
+      planHash,
+      registryHash: stored.registryHash,
+      nextLedgerSequence: stored.nextLedgerSequence,
+      nextLedgerRootHash: stored.nextLedgerRootHash,
+      nextLedgerEventHash: stored.nextLedgerEventHash,
+      nextAcceptedArtifactCount: stored.nextAcceptedArtifactCount,
+      event: stored.event,
+      operationHash: stored.operationHash
+    })
+  }
+
+  private appendRecordFor(
+    planHash: string,
+    stored: TestStoredLedgerAppend
+  ): LedgerAppendRecord {
+    return deepFreeze({
+      operation: this.appendOperationFor(planHash, stored),
+      commit: this.appendCommitFor(stored)
+    })
+  }
+
+  commitAppend(operation: LedgerAppendOperation): LedgerAppendAuthorityCommit {
+    if (operation.authorityId !== this.authorityId) {
+      throw new Error('wrong ledger publication authority')
+    }
+    const records = this.appendRecords.get(operation.planHash) ?? []
+    const existing = records[operation.nextLedgerSequence - 1]
+    if (existing) {
+      if (existing.operationHash === operation.operationHash) {
+        return this.appendCommitFor(existing)
+      }
+      throw new Error('stale or finalized shared ledger append CAS')
+    }
+    const beforeNextAppend = this.beforeNextAppend
+    this.beforeNextAppend = undefined
+    beforeNextAppend?.()
+    const current = this.heads.get(operation.planHash)
+    const stale =
+      current !== undefined
+        ? current.registryHash !== operation.registryHash ||
+        current.finalized ||
+        current.ledgerSequence !== operation.expectedLedgerSequence ||
+        current.ledgerRootHash !== operation.expectedLedgerRootHash ||
+        current.ledgerEventHash !== operation.expectedLedgerEventHash ||
+        current.acceptedArtifactCount !==
+          operation.expectedAcceptedArtifactCount
+        : operation.expectedLedgerSequence !== 0 ||
+          operation.expectedLedgerRootHash !==
+            sha256Hex({
+              domain: 'visual-artifact-ledger-root-v2',
+              planHash: operation.planHash,
+              sequence: 0,
+              lastEventHash: ZERO_HASH
+            }) ||
+          operation.expectedLedgerEventHash !== ZERO_HASH ||
+          operation.expectedAcceptedArtifactCount !== 0
+    if (stale) {
+      throw new Error('stale or finalized shared ledger append CAS')
+    }
+    const event = operation.event as { occurredAt: string }
+    const unsigned = {
+      authorityId: this.authorityId,
+      version: 1 as const,
+      committedAt: event.occurredAt,
+      previousRootHash: current?.authorityRootHash ?? ZERO_HASH,
+      rootHash: this.authorityRoot(
+        'append',
+        current?.authorityRootHash ?? ZERO_HASH,
+        operation.operationHash,
+        event.occurredAt
+      ),
+      operationHash: operation.operationHash
+    }
+    const commit = Object.freeze({
+      ...unsigned,
+      attestation: this.commitToken(unsigned)
+    })
+    const stored: TestStoredLedgerAppend = {
+      registryHash: operation.registryHash,
+      expectedLedgerSequence: operation.expectedLedgerSequence,
+      expectedLedgerRootHash: operation.expectedLedgerRootHash,
+      expectedLedgerEventHash: operation.expectedLedgerEventHash,
+      expectedAcceptedArtifactCount:
+        operation.expectedAcceptedArtifactCount,
+      nextLedgerSequence: operation.nextLedgerSequence,
+      nextLedgerRootHash: operation.nextLedgerRootHash,
+      nextLedgerEventHash: operation.nextLedgerEventHash,
+      nextAcceptedArtifactCount: operation.nextAcceptedArtifactCount,
+      event: operation.event,
+      operationHash: operation.operationHash,
+      committedAt: event.occurredAt,
+      previousAuthorityRootHash: unsigned.previousRootHash,
+      authorityRootHash: unsigned.rootHash
+    }
+    records.push(stored)
+    this.appendRecords.set(operation.planHash, records)
+    this.heads.set(
+      operation.planHash,
+      Object.freeze({
+        authorityId: this.authorityId,
+        planHash: operation.planHash,
+        registryHash: operation.registryHash,
+        ledgerSequence: operation.nextLedgerSequence,
+        ledgerRootHash: operation.nextLedgerRootHash,
+        ledgerEventHash: operation.nextLedgerEventHash,
+        acceptedArtifactCount: operation.nextAcceptedArtifactCount,
+        authorityRootHash: commit.rootHash,
+        finalized: false
+      })
+    )
+    if (this.loseNextAppendResponse) {
+      this.loseNextAppendResponse = false
+      this.recoverableAppendOperationHashes.add(operation.operationHash)
+      throw new Error('simulated lost append response after durable commit')
+    }
+    return commit
+  }
+
+  recoverAppend(
+    operation: LedgerAppendOperation
+  ): LedgerAppendAuthorityCommit | undefined {
+    const record = this.appendRecords.get(operation.planHash)?.[
+      operation.nextLedgerSequence - 1
+    ]
+    if (!record || record.operationHash !== operation.operationHash) {
+      return undefined
+    }
+    if (
+      this.recoverableAppendOperationHashes.size > 0 &&
+      !this.recoverableAppendOperationHashes.delete(operation.operationHash)
+    ) {
+      return undefined
+    }
+    return this.appendCommitFor(record)
+  }
+
+  eventsAfter(planHash: string, sequence: number): readonly LedgerAppendRecord[] {
+    return deepFreeze(
+      (this.appendRecords.get(planHash) ?? [])
+        .slice(sequence)
+        .map((record) => this.appendRecordFor(planHash, record))
+    )
+  }
+
+  head(planHash: string): LedgerPublicationHead | undefined {
+    return this.heads.get(planHash)
+  }
+
+  verifyAppendCommit(
+    commit: LedgerAppendAuthorityCommit,
+    operation: LedgerAppendOperation
+  ): boolean {
+    const stored = this.appendRecords.get(operation.planHash)?.[
+      operation.nextLedgerSequence - 1
+    ]
+    return (
+      stored !== undefined &&
+      stored.operationHash === operation.operationHash &&
+      commit.authorityId === this.authorityId &&
+      commit.version === 1 &&
+      commit.committedAt === stored.committedAt &&
+      commit.previousRootHash === stored.previousAuthorityRootHash &&
+      commit.rootHash === stored.authorityRootHash &&
+      commit.operationHash === operation.operationHash &&
+      commit.attestation.token ===
+        `ledger:${stored.operationHash}`.padEnd(88, 'x')
+    )
   }
 
   commit(
@@ -236,19 +484,29 @@ export class TestLedgerFinalizationAuthority
       }
       throw new Error('stale shared ledger finalization CAS')
     }
+    const head = this.heads.get(operation.planHash)
+    if (
+      !head ||
+      head.finalized ||
+      head.registryHash !== operation.registryHash ||
+      head.ledgerSequence !== operation.expectedLedgerSequence ||
+      head.ledgerRootHash !== operation.expectedLedgerRootHash ||
+      head.ledgerEventHash !== operation.trustedCheckpointEventHash ||
+      head.acceptedArtifactCount !== operation.artifactCount
+    ) {
+      throw new Error('stale shared ledger finalization CAS')
+    }
     const unsigned = {
       authorityId: this.authorityId,
       version: 1 as const,
       committedAt: operation.occurredAt,
-      previousRootHash: ZERO_HASH,
-      rootHash: sha256Hex({
-        domain: 'visual-artifact-finalization-authority-root-v1',
-        authorityId: this.authorityId,
-        version: 1,
-        previousRootHash: ZERO_HASH,
-        operationHash: operation.operationHash,
-        committedAt: operation.occurredAt
-      }),
+      previousRootHash: head.authorityRootHash,
+      rootHash: this.authorityRoot(
+        'finalize',
+        head.authorityRootHash,
+        operation.operationHash,
+        operation.occurredAt
+      ),
       operationHash: operation.operationHash
     }
     const commit = deepFreeze({
@@ -260,6 +518,14 @@ export class TestLedgerFinalizationAuthority
       deepFreeze({
         operation: cloneCanonical(operation),
         commit: cloneCanonical(commit)
+      })
+    )
+    this.heads.set(
+      operation.planHash,
+      deepFreeze({
+        ...head,
+        authorityRootHash: commit.rootHash,
+        finalized: true
       })
     )
     if (this.loseNextResponse) {
@@ -293,14 +559,16 @@ export class TestLedgerFinalizationAuthority
     commit: LedgerFinalizationAuthorityCommit,
     operation: LedgerFinalizationOperation
   ): boolean {
-    const { attestation: _attestation, ...unsigned } = commit
+    const stored = this.records.get(operation.planHash)?.commit
     return (
+      stored !== undefined &&
       commit.authorityId === this.authorityId &&
       commit.version === 1 &&
-      commit.committedAt === operation.occurredAt &&
-      commit.previousRootHash === ZERO_HASH &&
+      commit.committedAt === stored.committedAt &&
+      commit.previousRootHash === stored.previousRootHash &&
+      commit.rootHash === stored.rootHash &&
       commit.operationHash === operation.operationHash &&
-      commit.attestation.token === this.commitToken(unsigned).token
+      commit.attestation.token === stored.attestation.token
     )
   }
 }

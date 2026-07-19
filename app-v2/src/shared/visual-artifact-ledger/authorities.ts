@@ -428,9 +428,64 @@ export interface LedgerFinalizationRecord {
   readonly commit: LedgerFinalizationAuthorityCommit
 }
 
+export interface LedgerAppendOperation {
+  readonly authorityId: string
+  readonly expectedLedgerSequence: number
+  readonly expectedLedgerRootHash: string
+  readonly expectedLedgerEventHash: string
+  readonly expectedAcceptedArtifactCount: number
+  readonly planHash: string
+  readonly registryHash: string
+  readonly nextLedgerSequence: number
+  readonly nextLedgerRootHash: string
+  readonly nextLedgerEventHash: string
+  readonly nextAcceptedArtifactCount: number
+  readonly event: unknown
+  readonly operationHash: string
+}
+
+export interface LedgerAppendAuthorityCommit {
+  readonly authorityId: string
+  readonly version: 1
+  readonly committedAt: string
+  readonly previousRootHash: string
+  readonly rootHash: string
+  readonly operationHash: string
+  readonly attestation: OpaqueAttestation
+}
+
+export interface LedgerAppendRecord {
+  readonly operation: LedgerAppendOperation
+  readonly commit: LedgerAppendAuthorityCommit
+}
+
+export interface LedgerPublicationHead {
+  readonly authorityId: string
+  readonly planHash: string
+  readonly registryHash: string
+  readonly ledgerSequence: number
+  readonly ledgerRootHash: string
+  readonly ledgerEventHash: string
+  readonly acceptedArtifactCount: number
+  readonly authorityRootHash: string
+  readonly finalized: boolean
+}
+
 export interface LedgerFinalizationAuthority {
   readonly authorityId: string
-  /** Atomically publish the unique finalization for one plan/head. */
+  /** Atomically advance the shared durable ledger head while it remains writable. */
+  commitAppend(operation: LedgerAppendOperation): LedgerAppendAuthorityCommit
+  /** Recover only the exact append whose durable response was lost. */
+  recoverAppend(operation: LedgerAppendOperation): LedgerAppendAuthorityCommit | undefined
+  /** Read and verify committed append records after a local sequence. */
+  eventsAfter(planHash: string, sequence: number): readonly LedgerAppendRecord[]
+  /** Read the shared durable head used by both append and finalization CAS. */
+  head(planHash: string): LedgerPublicationHead | undefined
+  verifyAppendCommit(
+    commit: LedgerAppendAuthorityCommit,
+    operation: LedgerAppendOperation
+  ): unknown
+  /** Atomically finalize the same shared durable head used by ordinary appends. */
   commit(operation: LedgerFinalizationOperation): LedgerFinalizationAuthorityCommit
   /** Recover only the exact operation whose durable response was lost. */
   recover(operation: LedgerFinalizationOperation): LedgerFinalizationAuthorityCommit | undefined

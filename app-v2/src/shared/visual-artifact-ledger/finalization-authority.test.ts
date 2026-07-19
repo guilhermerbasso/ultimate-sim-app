@@ -1,57 +1,272 @@
-import {
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { buildSync } from 'esbuild'
 import { describe, expect, it } from 'vitest'
 import type {
+  LedgerAppendAuthorityCommit,
+  LedgerAppendOperation,
   LedgerFinalizationOperation,
+  LedgerPublicationHead,
   OpaqueAttestation
 } from './authorities'
 import { canonicalStringify, sha256Hex } from './canonical'
 import {
   DurableLedgerFinalizationAuthority,
+  computeLedgerAppendOperationHash,
   computeLedgerFinalizationOperationHash,
-  type LedgerFinalizationCommitBinding
+  computeLedgerPublicationAuthorityRootHash,
+  type LedgerAuthorityCommitBinding,
+  type LedgerAuthorityFaultPoint
 } from './finalization-authority'
+import { ZERO_HASH } from './constants'
+
+const AUTHORITY_ID = 'durable-ledger-publication'
 
 function hash(value: number): string {
   return value.toString(16).padStart(64, '0')
 }
 
-function operation(
-  authorityId: string,
-  offset = 0
-): LedgerFinalizationOperation {
-  const expectedLedgerSequence = 149_400
-  const planHash = hash(20)
-  const trustedCheckpointEventHash = hash(50 + offset)
-  const expectedLedgerRootHash = sha256Hex({
+function ledgerRoot(
+  planHash: string,
+  sequence: number,
+  eventHash: string
+): string {
+  return sha256Hex({
     domain: 'visual-artifact-ledger-root-v2',
     planHash,
-    sequence: expectedLedgerSequence,
-    lastEventHash: trustedCheckpointEventHash
+    sequence,
+    lastEventHash: eventHash
   })
+}
+
+function issue(binding: LedgerAuthorityCommitBinding): OpaqueAttestation {
+  return {
+    token: `ledger:${sha256Hex({
+      domain: 'test-durable-publication-attestation',
+      secret: 'test-only-secret',
+      binding
+    })}`.padEnd(88, 'x')
+  }
+}
+
+function authority(
+  directoryPath: string,
+  faultPoint?: LedgerAuthorityFaultPoint
+): DurableLedgerFinalizationAuthority {
+  return new DurableLedgerFinalizationAuthority({
+    authorityId: AUTHORITY_ID,
+    directoryPath,
+    issueCommitAttestation: issue,
+    verifyCommitAttestation: (attestation, binding) =>
+      attestation.token === issue(binding).token,
+    ...(faultPoint === undefined
+      ? {}
+      : {
+          faultInjector: (fault: {
+            point: LedgerAuthorityFaultPoint
+          }) => {
+            if (fault.point === faultPoint) {
+              throw new Error(`simulated ${faultPoint} power loss`)
+            }
+          }
+        })
+  })
+}
+
+function event(
+  planHash: string,
+  sequence: number,
+  previousEventHash: string,
+  offset = 0
+): Record<string, unknown> {
   const withoutHash = {
-    authorityId,
+    sequence,
+    type: 'artifact-revision-started',
+    occurredAt: new Date(
+      Date.parse('2026-01-01T00:00:00.000Z') + sequence + offset
+    ).toISOString(),
+    actorId: 'planner',
+    principalAttestation: {
+      token: `principal:${hash(100 + offset)}`.slice(0, 88)
+    },
+    previousEventHash,
+    artifactId: `trigger-family-${offset + 1}:trigger`,
+    revision: 1,
+    specificationHash: hash(200 + offset),
+    planHash
+  }
+  return {
+    ...withoutHash,
+    eventHash: sha256Hex({
+      domain: 'visual-artifact-event-v2',
+      event: withoutHash
+    })
+  }
+}
+
+function appendOperation(
+  head?: LedgerPublicationHead,
+  offset = 0
+): LedgerAppendOperation {
+  const planHash = head?.planHash ?? hash(20)
+  const registryHash = head?.registryHash ?? hash(30)
+  const expectedLedgerSequence = head?.ledgerSequence ?? 0
+  const expectedLedgerEventHash = head?.ledgerEventHash ?? ZERO_HASH
+  const expectedLedgerRootHash =
+    head?.ledgerRootHash ??
+    ledgerRoot(planHash, expectedLedgerSequence, expectedLedgerEventHash)
+  const nextEvent = event(
+    planHash,
+    expectedLedgerSequence + 1,
+    expectedLedgerEventHash,
+    offset
+  )
+  const nextLedgerEventHash = nextEvent.eventHash as string
+  const withoutHash = {
+    authorityId: AUTHORITY_ID,
     expectedLedgerSequence,
     expectedLedgerRootHash,
+    expectedLedgerEventHash,
+    expectedAcceptedArtifactCount: head?.acceptedArtifactCount ?? 0,
     planHash,
-    registryHash: hash(30),
+    registryHash,
+    nextLedgerSequence: expectedLedgerSequence + 1,
+    nextLedgerRootHash: ledgerRoot(
+      planHash,
+      expectedLedgerSequence + 1,
+      nextLedgerEventHash
+    ),
+    nextLedgerEventHash,
+    nextAcceptedArtifactCount: head?.acceptedArtifactCount ?? 0,
+    event: nextEvent
+  }
+  return {
+    ...withoutHash,
+    operationHash: computeLedgerAppendOperationHash(withoutHash)
+  }
+}
+
+interface CertifiedSeed {
+  readonly head: LedgerPublicationHead
+  readonly operation: LedgerAppendOperation
+  readonly commit: LedgerAppendAuthorityCommit
+}
+
+function certifiedSeed(offset = 0): CertifiedSeed {
+  const planHash = hash(20 + offset)
+  const prior: LedgerPublicationHead = {
+    authorityId: AUTHORITY_ID,
+    planHash,
+    registryHash: hash(30 + offset),
+    ledgerSequence: 149_399,
+    ledgerRootHash: ledgerRoot(planHash, 149_399, hash(50 + offset)),
+    ledgerEventHash: hash(50 + offset),
+    acceptedArtifactCount: 16_600,
+    authorityRootHash: hash(80 + offset),
+    finalized: false
+  }
+  const operation = appendOperation(prior, offset)
+  const unsigned = {
+    authorityId: AUTHORITY_ID,
+    version: 1 as const,
+    committedAt: (operation.event as { occurredAt: string }).occurredAt,
+    previousRootHash: prior.authorityRootHash,
+    rootHash: ZERO_HASH,
+    operationHash: operation.operationHash
+  }
+  const binding = {
+    ...unsigned,
+    rootHash: computeLedgerPublicationAuthorityRootHash('append', unsigned)
+  }
+  const commit = {
+    ...binding,
+    attestation: issue(binding)
+  }
+  return {
+    operation,
+    commit,
+    head: {
+      authorityId: AUTHORITY_ID,
+      planHash,
+      registryHash: prior.registryHash,
+      ledgerSequence: operation.nextLedgerSequence,
+      ledgerRootHash: operation.nextLedgerRootHash,
+      ledgerEventHash: operation.nextLedgerEventHash,
+      acceptedArtifactCount: operation.nextAcceptedArtifactCount,
+      authorityRootHash: commit.rootHash,
+      finalized: false
+    }
+  }
+}
+
+function seedHead(
+  directoryPath: string,
+  seed: CertifiedSeed
+): void {
+  const { head, operation, commit } = seed
+  const initialized = authority(directoryPath)
+  initialized.close()
+  const database = new DatabaseSync(
+    join(directoryPath, 'visual-artifact-ledger-authority.sqlite3')
+  )
+  try {
+    database
+      .prepare(`
+        INSERT INTO ledger_heads(
+          plan_hash, registry_hash, ledger_sequence, ledger_root_hash,
+          ledger_event_hash, accepted_artifact_count, authority_root_hash,
+          finalized, finalization_operation_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)
+      `)
+      .run(
+        head.planHash,
+        head.registryHash,
+        head.ledgerSequence,
+        head.ledgerRootHash,
+        head.ledgerEventHash,
+        head.acceptedArtifactCount,
+        head.authorityRootHash
+      )
+    database
+      .prepare(`
+        INSERT INTO append_records(
+          plan_hash, ledger_sequence, operation_hash, operation_json, commit_json
+        ) VALUES (?, ?, ?, ?, ?)
+      `)
+      .run(
+        head.planHash,
+        head.ledgerSequence,
+        operation.operationHash,
+        canonicalStringify(operation),
+        canonicalStringify(commit)
+      )
+  } finally {
+    database.close()
+  }
+}
+
+function finalizationOperation(
+  head: LedgerPublicationHead,
+  offset = 0
+): LedgerFinalizationOperation {
+  const withoutHash = {
+    authorityId: AUTHORITY_ID,
+    expectedLedgerSequence: head.ledgerSequence,
+    expectedLedgerRootHash: head.ledgerRootHash,
+    planHash: head.planHash,
+    registryHash: head.registryHash,
     artifactCount: 16_600,
-    artifactSetHash: hash(40),
+    artifactSetHash: hash(40 + offset),
     occurredAt: new Date(
-      Date.parse('2026-01-01T00:00:00.000Z') + offset
+      Date.parse('2026-01-02T00:00:00.000Z') + offset
     ).toISOString(),
     actorId: offset === 0 ? 'release-owner-a' : 'release-owner-b',
-    trustedCheckpointSequence: expectedLedgerSequence,
-    trustedCheckpointEventHash,
-    trustedCheckpointRootHash: expectedLedgerRootHash,
+    trustedCheckpointSequence: head.ledgerSequence,
+    trustedCheckpointEventHash: head.ledgerEventHash,
+    trustedCheckpointRootHash: head.ledgerRootHash,
     trustedCheckpointAttestation: {
       token: `checkpoint:${hash(60 + offset)}`.slice(0, 88)
     },
@@ -65,46 +280,76 @@ function operation(
   }
 }
 
-function rehashOperation(
-  value: LedgerFinalizationOperation
-): LedgerFinalizationOperation {
-  const { operationHash: _operationHash, ...withoutHash } = value
-  return {
-    ...withoutHash,
-    operationHash: computeLedgerFinalizationOperationHash(withoutHash)
-  }
-}
-
-function authority(
-  directoryPath: string,
-  authorityId = 'durable-ledger-finalization'
-): DurableLedgerFinalizationAuthority {
-  const issue = (
-    binding: LedgerFinalizationCommitBinding
-  ): OpaqueAttestation => ({
-    token: `final:${sha256Hex({
-      domain: 'test-durable-finalization-attestation',
-      secret: 'test-only-secret',
-      binding
-    })}`.padEnd(88, 'x')
+function compileWorker(directoryPath: string): string {
+  const moduleDirectory = dirname(fileURLToPath(import.meta.url))
+  const workerPath = join(directoryPath, 'publication-worker.mjs')
+  buildSync({
+    stdin: {
+      contents: `
+        import { DurableLedgerFinalizationAuthority } from './finalization-authority.ts'
+        import { sha256Hex } from './canonical.ts'
+        const input = JSON.parse(process.argv[2])
+        const issue = (binding) => ({
+          token: ('ledger:' + sha256Hex({
+            domain: 'test-durable-publication-attestation',
+            secret: 'test-only-secret',
+            binding
+          })).padEnd(88, 'x')
+        })
+        const authority = new DurableLedgerFinalizationAuthority({
+          authorityId: ${JSON.stringify(AUTHORITY_ID)},
+          directoryPath: input.directoryPath,
+          issueCommitAttestation: issue,
+          verifyCommitAttestation: (attestation, binding) =>
+            attestation.token === issue(binding).token,
+          ...(input.exitAt ? {
+            faultInjector: (fault) => {
+              if (fault.point === input.exitAt) process.exit(input.exitCode)
+            }
+          } : {})
+        })
+        try {
+          const commit = input.kind === 'append'
+            ? authority.commitAppend(input.operation)
+            : authority.commit(input.operation)
+          authority.close()
+          process.stdout.write(JSON.stringify({ ok: true, commit }))
+        } catch (error) {
+          authority.close()
+          process.stdout.write(JSON.stringify({
+            ok: false,
+            message: error instanceof Error ? error.message : String(error)
+          }))
+        }
+      `,
+      resolveDir: moduleDirectory,
+      sourcefile: 'publication-worker.ts',
+      loader: 'ts'
+    },
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node24',
+    outfile: workerPath,
+    logLevel: 'silent'
   })
-  return new DurableLedgerFinalizationAuthority({
-    authorityId,
-    directoryPath,
-    issueCommitAttestation: issue,
-    verifyCommitAttestation: (attestation, binding) =>
-      attestation.token === issue(binding).token
-  })
+  return workerPath
 }
 
 function runWorker(
   workerPath: string,
-  input: LedgerFinalizationOperation
-): Promise<{ ok: boolean; message?: string }> {
+  input: Record<string, unknown>
+): Promise<{
+  code: number | null
+  stdout: string
+  stderr: string
+}> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [workerPath, JSON.stringify(input)], {
-      windowsHide: true
-    })
+    const child = spawn(
+      process.execPath,
+      [workerPath, JSON.stringify(input)],
+      { windowsHide: true }
+    )
     let stdout = ''
     let stderr = ''
     child.stdout.setEncoding('utf8')
@@ -116,172 +361,316 @@ function runWorker(
       stderr += chunk
     })
     child.once('error', reject)
-    child.once('exit', (code) => {
-      if (code !== 0) {
-        reject(new Error(`Finalization worker failed (${code}): ${stderr}`))
-        return
-      }
-      resolve(JSON.parse(stdout) as { ok: boolean; message?: string })
-    })
+    child.once('exit', (code) => resolve({ code, stdout, stderr }))
   })
 }
 
-describe('durable ledger finalization authority', () => {
-  it('converges cross-instance CAS races and restart recovery on one head', () => {
+function parsedWorkerResult(result: {
+  code: number | null
+  stdout: string
+  stderr: string
+}): { ok: boolean; message?: string } {
+  if (result.code !== 0) {
+    throw new Error(`Publication worker failed (${result.code}): ${result.stderr}`)
+  }
+  return JSON.parse(result.stdout) as { ok: boolean; message?: string }
+}
+
+describe('durable shared ledger publication authority', () => {
+  it('serializes append CAS across instances, rejects ABA, and recovers after restart', () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-finalization-test-')
+      join(process.cwd(), '.visual-ledger-publication-test-')
     )
+    const open: DurableLedgerFinalizationAuthority[] = []
     try {
       const first = authority(directory)
       const second = authority(directory)
-      const winningOperation = operation(first.authorityId)
-      const competingOperation = operation(first.authorityId, 1)
+      open.push(first, second)
+      const winning = appendOperation()
+      const competing = appendOperation(undefined, 1)
+      const commit = first.commitAppend(winning)
 
-      expect(() =>
-        first.commit(
-          rehashOperation({
-            ...winningOperation,
-            artifactCount: 14_850
-          })
-        )
-      ).toThrow(/exactly 16600 artifacts/i)
-      expect(() =>
-        first.commit(
-          rehashOperation({
-            ...winningOperation,
-            trustedCheckpointSequence:
-              winningOperation.trustedCheckpointSequence - 1
-          })
-        )
-      ).toThrow(/checkpoint must fence the exact committed head/i)
-
-      const commit = first.commit(winningOperation)
-      expect(() => second.commit(competingOperation)).toThrow(
-        /stale shared ledger finalization CAS/i
+      expect(() => second.commitAppend(competing)).toThrow(
+        /stale or finalized shared ledger append CAS/i
       )
-      expect(second.current(winningOperation.planHash)).toEqual({
-        operation: winningOperation,
-        commit
+      expect(second.recoverAppend(winning)).toEqual(commit)
+      expect(second.eventsAfter(winning.planHash, 0)).toEqual([
+        { operation: winning, commit }
+      ])
+      const head = second.head(winning.planHash)
+      expect(head).toMatchObject({
+        ledgerSequence: 1,
+        ledgerRootHash: winning.nextLedgerRootHash,
+        ledgerEventHash: winning.nextLedgerEventHash,
+        acceptedArtifactCount: 0,
+        finalized: false
       })
-      expect(second.commit(winningOperation)).toEqual(commit)
-      expect(second.recover(winningOperation)).toEqual(commit)
+      expect(() => first.commitAppend(winning)).not.toThrow()
+      expect(() => first.commitAppend(appendOperation())).not.toThrow()
 
+      first.close()
+      second.close()
+      open.length = 0
       const restarted = authority(directory)
-      expect(restarted.current(winningOperation.planHash)).toEqual({
-        operation: winningOperation,
-        commit
-      })
-      expect(
-        readdirSync(directory).filter((name) =>
-          name.endsWith('.finalization.json')
-        )
-      ).toHaveLength(1)
-      expect(
-        readdirSync(directory).filter((name) =>
-          name.endsWith('.finalization.tmp')
-        )
-      ).toHaveLength(0)
+      open.push(restarted)
+      expect(restarted.head(winning.planHash)).toEqual(head)
+      expect(restarted.recoverAppend(winning)).toEqual(commit)
+      expect(() => restarted.commitAppend(competing)).toThrow(
+        /stale or finalized shared ledger append CAS/i
+      )
     } finally {
+      for (const item of open) item.close()
       rmSync(directory, { recursive: true, force: true })
     }
   })
 
-  it('allows only one winner across concurrently committing processes', async () => {
+  it('uses one transactional fence for competing append and finalization', () => {
+    const finalizeDirectory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    const appendDirectory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    const open: DurableLedgerFinalizationAuthority[] = []
+    try {
+      const firstSeed = certifiedSeed()
+      const firstHead = firstSeed.head
+      seedHead(finalizeDirectory, firstSeed)
+      const finalizer = authority(finalizeDirectory)
+      const appender = authority(finalizeDirectory)
+      open.push(finalizer, appender)
+      const finalization = finalizationOperation(firstHead)
+      const append = appendOperation(firstHead)
+      const finalCommit = finalizer.commit(finalization)
+      expect(() => appender.commitAppend(append)).toThrow(
+        /stale or finalized shared ledger append CAS/i
+      )
+      expect(appender.current(firstHead.planHash)).toEqual({
+        operation: finalization,
+        commit: finalCommit
+      })
+      expect(appender.head(firstHead.planHash)).toMatchObject({
+        ledgerSequence: firstHead.ledgerSequence,
+        ledgerRootHash: firstHead.ledgerRootHash,
+        acceptedArtifactCount: 16_600,
+        finalized: true
+      })
+
+      const secondSeed = certifiedSeed(1)
+      const secondHead = secondSeed.head
+      seedHead(appendDirectory, secondSeed)
+      const appendWinner = authority(appendDirectory)
+      const finalizationLoser = authority(appendDirectory)
+      open.push(appendWinner, finalizationLoser)
+      const appendCommit = appendWinner.commitAppend(
+        appendOperation(secondHead)
+      )
+      expect(appendCommit.operationHash).toBeDefined()
+      expect(() =>
+        finalizationLoser.commit(finalizationOperation(secondHead))
+      ).toThrow(/stale shared ledger finalization CAS/i)
+      expect(finalizationLoser.head(secondHead.planHash)).toMatchObject({
+        ledgerSequence: secondHead.ledgerSequence + 1,
+        acceptedArtifactCount: 16_600,
+        finalized: false
+      })
+    } finally {
+      for (const item of open) item.close()
+      rmSync(finalizeDirectory, { recursive: true, force: true })
+      rmSync(appendDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('allows exactly one cross-process append/finalization winner', async () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-finalization-test-')
+      join(process.cwd(), '.visual-ledger-publication-test-')
     )
     try {
-      const moduleDirectory = dirname(fileURLToPath(import.meta.url))
-      const workerPath = join(directory, 'finalization-race-worker.mjs')
-      buildSync({
-        stdin: {
-          contents: `
-            import { DurableLedgerFinalizationAuthority } from './finalization-authority.ts'
-            import { sha256Hex } from './canonical.ts'
-            const directoryPath = ${JSON.stringify(directory)}
-            const authorityId = 'durable-ledger-finalization'
-            const issue = (binding) => ({
-              token: ('final:' + sha256Hex({
-                domain: 'test-durable-finalization-attestation',
-                secret: 'test-only-secret',
-                binding
-              })).padEnd(88, 'x')
-            })
-            const authority = new DurableLedgerFinalizationAuthority({
-              authorityId,
-              directoryPath,
-              issueCommitAttestation: issue,
-              verifyCommitAttestation: (attestation, binding) =>
-                attestation.token === issue(binding).token
-            })
-            const operation = JSON.parse(process.argv[2])
-            try {
-              authority.commit(operation)
-              process.stdout.write(JSON.stringify({ ok: true }))
-            } catch (error) {
-              process.stdout.write(JSON.stringify({
-                ok: false,
-                message: error instanceof Error ? error.message : String(error)
-              }))
-            }
-          `,
-          resolveDir: moduleDirectory,
-          sourcefile: 'finalization-race-worker.ts',
-          loader: 'ts'
-        },
-        bundle: true,
-        platform: 'node',
-        format: 'esm',
-        target: 'node24',
-        outfile: workerPath,
-        logLevel: 'silent'
-      })
-      const firstOperation = operation('durable-ledger-finalization')
-      const secondOperation = operation(
-        'durable-ledger-finalization',
-        1
-      )
+      const seed = certifiedSeed()
+      const head = seed.head
+      seedHead(directory, seed)
+      const workerPath = compileWorker(directory)
       const results = await Promise.all([
-        runWorker(workerPath, firstOperation),
-        runWorker(workerPath, secondOperation)
+        runWorker(workerPath, {
+          directoryPath: directory,
+          kind: 'append',
+          operation: appendOperation(head)
+        }),
+        runWorker(workerPath, {
+          directoryPath: directory,
+          kind: 'finalize',
+          operation: finalizationOperation(head)
+        })
       ])
-      expect(results.filter((result) => result.ok)).toHaveLength(1)
-      expect(
-        results.find((result) => !result.ok)?.message
-      ).toMatch(/stale shared ledger finalization CAS/i)
+      const parsed = results.map(parsedWorkerResult)
+      expect(parsed.filter((result) => result.ok)).toHaveLength(1)
+      expect(parsed.filter((result) => !result.ok)).toHaveLength(1)
 
       const restarted = authority(directory)
-      const record = restarted.current(firstOperation.planHash)
-      expect([
-        firstOperation.operationHash,
-        secondOperation.operationHash
-      ]).toContain(record?.operation.operationHash)
+      try {
+        const authoritative = restarted.head(head.planHash)!
+        expect(authoritative.acceptedArtifactCount).toBe(16_600)
+        if (authoritative.finalized) {
+          expect(authoritative.ledgerSequence).toBe(head.ledgerSequence)
+          expect(restarted.current(head.planHash)).toBeDefined()
+        } else {
+          expect(authoritative.ledgerSequence).toBe(head.ledgerSequence + 1)
+          expect(restarted.current(head.planHash)).toBeUndefined()
+        }
+      } finally {
+        restarted.close()
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
   })
 
-  it('fails closed on non-canonical or corrupted durable state', () => {
+  it('fails closed before commit and recovers an after-commit power-loss boundary', async () => {
+    const beforeDirectory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    const afterDirectory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    try {
+      const beforeWorker = compileWorker(beforeDirectory)
+      const beforeOperation = appendOperation()
+      const before = await runWorker(beforeWorker, {
+        directoryPath: beforeDirectory,
+        kind: 'append',
+        operation: beforeOperation,
+        exitAt: 'before-commit',
+        exitCode: 71
+      })
+      expect(before.code).toBe(71)
+      const beforeRestart = authority(beforeDirectory)
+      try {
+        expect(beforeRestart.head(beforeOperation.planHash)).toBeUndefined()
+        expect(beforeRestart.recoverAppend(beforeOperation)).toBeUndefined()
+      } finally {
+        beforeRestart.close()
+      }
+
+      const afterWorker = compileWorker(afterDirectory)
+      const afterOperation = appendOperation()
+      const after = await runWorker(afterWorker, {
+        directoryPath: afterDirectory,
+        kind: 'append',
+        operation: afterOperation,
+        exitAt: 'after-commit',
+        exitCode: 72
+      })
+      expect(after.code).toBe(72)
+      const afterRestart = authority(afterDirectory)
+      try {
+        expect(afterRestart.head(afterOperation.planHash)).toMatchObject({
+          ledgerSequence: 1,
+          ledgerRootHash: afterOperation.nextLedgerRootHash,
+          finalized: false
+        })
+        expect(afterRestart.recoverAppend(afterOperation)).toBeDefined()
+      } finally {
+        afterRestart.close()
+      }
+    } finally {
+      rmSync(beforeDirectory, { recursive: true, force: true })
+      rmSync(afterDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers a committed finalization after process loss and rejects restart competitors', async () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-finalization-test-')
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    try {
+      const seed = certifiedSeed()
+      const head = seed.head
+      seedHead(directory, seed)
+      const workerPath = compileWorker(directory)
+      const winner = finalizationOperation(head)
+      const result = await runWorker(workerPath, {
+        directoryPath: directory,
+        kind: 'finalize',
+        operation: winner,
+        exitAt: 'after-commit',
+        exitCode: 73
+      })
+      expect(result.code).toBe(73)
+
+      const restarted = authority(directory)
+      try {
+        expect(restarted.recover(winner)).toBeDefined()
+        expect(restarted.current(head.planHash)?.operation).toEqual(winner)
+        expect(() =>
+          restarted.commit(finalizationOperation(head, 1))
+        ).toThrow(/stale shared ledger finalization CAS/i)
+        expect(() => restarted.commitAppend(appendOperation(head))).toThrow(
+          /stale or finalized shared ledger append CAS/i
+        )
+      } finally {
+        restarted.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed on corrupted transactional records', () => {
+    const directory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
     )
     try {
       const subject = authority(directory)
-      const input = operation(subject.authorityId)
-      const commit = subject.commit(input)
-      const path = join(directory, `${input.planHash}.finalization.json`)
-      writeFileSync(
-        path,
-        `${canonicalStringify({ operation: input, commit })}\n`,
-        'utf8'
+      const operation = appendOperation()
+      subject.commitAppend(operation)
+      subject.close()
+
+      const databasePath = join(
+        directory,
+        'visual-artifact-ledger-authority.sqlite3'
       )
-      expect(() => authority(directory).current(input.planHash)).toThrow(
-        /not canonical/i
-      )
-      writeFileSync(path, 'x'.repeat(64 * 1024 + 1), 'utf8')
-      expect(() => authority(directory).current(input.planHash)).toThrow(
-        /exceeds 65536 bytes/i
-      )
+      const database = new DatabaseSync(databasePath)
+      try {
+        database
+          .prepare(
+            'UPDATE ledger_heads SET accepted_artifact_count = 1 WHERE plan_hash = ?'
+          )
+          .run(operation.planHash)
+      } finally {
+        database.close()
+      }
+      const corruptHead = authority(directory)
+      try {
+        expect(() => corruptHead.head(operation.planHash)).toThrow(
+          /not backed by its latest signed append record/i
+        )
+      } finally {
+        corruptHead.close()
+      }
+
+      const recordDatabase = new DatabaseSync(databasePath)
+      try {
+        recordDatabase
+          .prepare(
+            'UPDATE ledger_heads SET accepted_artifact_count = ? WHERE plan_hash = ?'
+          )
+          .run(operation.nextAcceptedArtifactCount, operation.planHash)
+        recordDatabase
+          .prepare(
+            'UPDATE append_records SET operation_json = ? WHERE operation_hash = ?'
+          )
+          .run(`${canonicalStringify(operation)}\n`, operation.operationHash)
+      } finally {
+        recordDatabase.close()
+      }
+      const restarted = authority(directory)
+      try {
+        expect(() => restarted.eventsAfter(operation.planHash, 0)).toThrow(
+          /not canonical/i
+        )
+      } finally {
+        restarted.close()
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
