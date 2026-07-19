@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { INCIDENT_CHANNELS } from '../../../shared/incidents'
 import {
@@ -225,6 +225,74 @@ describe('StewardDeskView', () => {
       STEWARD_CHANNELS.getEvidenceDetails,
       { caseId: current.caseId, evidenceId: 'evidence-1' }
     )
+  })
+
+  it('clears verified evidence content when refresh selects another case with the same evidence id', async () => {
+    const first = fixture('case-cache-a', 'Cache case A')
+    const second = fixture('case-cache-b', 'Cache case B')
+    let cases = [first]
+    let changed: (() => void) | undefined
+    const invoke = vi.fn(async (channel: string, ...args: unknown[]) => {
+      if (channel === STEWARD_CHANNELS.listCases) return cases
+      if (channel === INCIDENT_CHANNELS.list) return []
+      if (channel === STEWARD_CHANNELS.getEvidenceDetails) {
+        const request = args[0] as { caseId: string }
+        const current = request.caseId === first.caseId ? first : second
+        return {
+          caseId: current.caseId,
+          evidence: current.evidence[0],
+          content: { sourceCase: current.caseId },
+          contentHashVerified: true,
+          chainState: 'unanchored',
+          verifiedAt: 2_000
+        } satisfies StewardEvidenceDetails
+      }
+      throw new Error(`Unexpected channel ${channel}`)
+    })
+    Object.defineProperty(window, 'ipc', {
+      configurable: true,
+      value: {
+        invoke,
+        subscribe: (channel: string, callback: () => void) => {
+          if (channel === STEWARD_CHANNELS.changed) changed = callback
+          return () => undefined
+        }
+      }
+    })
+    render(createElement(StewardDeskView, {
+      connectedDevice: null,
+      mapping: null,
+      config: null,
+      setConnectedDevice: vi.fn(),
+      refreshDeviceState: vi.fn(async () => undefined),
+      showToast: vi.fn(),
+      language: 'en'
+    }))
+
+    await screen.findByRole('heading', { name: 'Cache case A' })
+    let evidenceArticle = screen.getAllByText('Evidence summary')[0].closest('article') as HTMLElement
+    fireEvent.click(within(evidenceArticle).getByText('Verified read-only details'))
+    fireEvent.click(within(evidenceArticle).getByRole('button', { name: 'Load and verify evidence content' }))
+    await waitFor(() => {
+      expect(evidenceArticle.querySelector('.steward-evidence-content')?.textContent)
+        .toContain('"sourceCase": "case-cache-a"')
+    })
+
+    cases = [second]
+    act(() => changed?.())
+    await screen.findByRole('heading', { name: 'Cache case B' })
+    await waitFor(() => {
+      expect(document.querySelector('.steward-evidence-content')?.textContent ?? '')
+        .not.toContain('"sourceCase": "case-cache-a"')
+    })
+
+    evidenceArticle = screen.getAllByText('Evidence summary')[0].closest('article') as HTMLElement
+    fireEvent.click(within(evidenceArticle).getByText('Verified read-only details'))
+    fireEvent.click(within(evidenceArticle).getByRole('button', { name: 'Load and verify evidence content' }))
+    await waitFor(() => {
+      expect(evidenceArticle.querySelector('.steward-evidence-content')?.textContent)
+        .toContain('"sourceCase": "case-cache-b"')
+    })
   })
 
   it('keeps verdict submission disabled when evidence and rule selections are empty', async () => {

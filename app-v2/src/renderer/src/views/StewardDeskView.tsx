@@ -297,6 +297,8 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   }, [refresh])
 
   useEffect(() => {
+    setEvidenceDetails({})
+    setEvidenceLoadingId('')
     if (!selected) {
       setSelectedRuleIds([])
       setSelectedEvidenceIds([])
