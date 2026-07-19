@@ -367,6 +367,29 @@ describe('immutable Twitch destination guard', () => {
       })
     ).toThrow(/must block merged-chat/)
   })
+
+  it('rejects malformed policy allowlists before policy evaluation', () => {
+    const valid = createMockDestinationPolicy('twitch', NOW)
+    const target = connector('twitch')
+    const invalidPolicies = [
+      { ...valid, allowedCapabilities: {} },
+      { ...valid, allowedActorRoles: ['administrator'] },
+      { ...valid, allowedSourceProviders: ['facebook'] },
+      { ...valid, allowedRoomRoleIds: [42] }
+    ] as unknown as SocialDestinationPolicyV1[]
+
+    for (const policy of invalidPolicies) {
+      expect(() => target.setPolicy(policy)).toThrow(/Invalid social destination policy/)
+    }
+    expect(() =>
+      createMockTwitchConnector({
+        referenceTimeMs: NOW,
+        fixtureKeyId: KEY_ID,
+        fixtureKeyMaterial: KEY_MATERIAL,
+        policy: invalidPolicies[0]
+      })
+    ).toThrow(/Invalid social destination policy/)
+  })
 })
 
 describe('idempotency request fingerprinting', () => {

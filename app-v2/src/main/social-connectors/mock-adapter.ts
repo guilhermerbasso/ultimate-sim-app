@@ -572,6 +572,30 @@ function validateDestinationPolicy(
   if (expectedProvider && policy.provider !== expectedProvider) {
     throw new Error(`Policy provider ${policy.provider} does not match ${expectedProvider}`)
   }
+  if (
+    !SOCIAL_PROVIDERS.has(policy.provider) ||
+    policy.destination !== PROVIDER_DESTINATION[policy.provider] ||
+    !Array.isArray(policy.allowedCapabilities) ||
+    !Array.isArray(policy.allowedActorRoles) ||
+    !Array.isArray(policy.allowedSourceProviders) ||
+    !Array.isArray(policy.allowedRoomRoleIds) ||
+    policy.allowedCapabilities.some(
+      (capabilityId) =>
+        typeof capabilityId !== 'string' ||
+        !socialCapabilityFor(policy.provider, capabilityId as SocialCapabilityId)
+    ) ||
+    policy.allowedActorRoles.some(
+      (role) => typeof role !== 'string' || !SOCIAL_ACTOR_ROLES.has(role as SocialActorRole)
+    ) ||
+    policy.allowedSourceProviders.some(
+      (provider) =>
+        typeof provider !== 'string' ||
+        !SOCIAL_PROVIDERS.has(provider as SocialProvider)
+    ) ||
+    policy.allowedRoomRoleIds.some((roleId) => !isNonEmptyString(roleId))
+  ) {
+    throw new Error('Invalid social destination policy allowlist')
+  }
   if (policy.provider === 'twitch' && policy.twitchMergedChatOutput !== 'block') {
     throw new Error('Twitch policies must block merged-chat output')
   }
