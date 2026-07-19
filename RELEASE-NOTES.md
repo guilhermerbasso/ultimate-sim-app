@@ -3,7 +3,8 @@
 ## v2.54.0 — Smarter streaming, local integrations & offline race preparation
 
 Version 2.54.0 adds safer local integrations, exact phone/tablet stream presentations, editor-only
-trigger previews, an experimental pre-race Context-Debt audit, and offline race-operation rehearsal.
+trigger previews, evidence-safe setup experiments, an experimental pre-race Context-Debt audit, and
+offline race-operation rehearsal.
 
 ### Loopback-only MQTT integration
 - 🔌 **A hardened MQTT certification target connects local tools without cloud credentials.** It is
@@ -28,6 +29,14 @@ trigger previews, an experimental pre-race Context-Debt audit, and offline race-
   tunnel processes, and reconnect with bounded retries.
 - 🏠 Local and LAN streaming continue to work independently of the Internet tunnel.
 
+### Reliable local PWA reconnects
+- 🔁 **Duplicate close and online events no longer queue overlapping receiver WebSockets or
+  double-count reconnect attempts and reliability metrics.**
+- ⏱️ The first pending reconnect keeps its original 250 ms deadline instead of being cancelled and
+  rescheduled by a duplicate trigger.
+- 📴 Pending reconnects are still cancelled while offline and on unmount, while legitimate later
+  exponential backoff remains intact.
+
 ### Mobile presentations without changing the source
 - 📱 **Save presentation profiles for exact iPhone, iPad, and Android viewports**, including
   orientation, safe areas, fit/fill behavior, and minimum touch sizing.
@@ -44,6 +53,14 @@ trigger previews, an experimental pre-race Context-Debt audit, and offline race-
 - 🧹 Preview ownership is released on hide, reload, or renderer loss and restored after a tray
   reopen. HiFi preview cards remain inert and do not subscribe to live Coach, Engineer, or Alerts
   IPC.
+
+### Evidence-safe Setup Experiment Twin
+- 🧰 **Compare exactly one setup-variable change through a declared A-B-A or B-A-B protocol** with
+  manual setup confirmation; the app never applies a setup automatically.
+- 📊 Matched-block contrasts, moving-block bootstrap uncertainty, rollback/drift checks, outlier
+  sensitivity, and direction agreement keep exploratory evidence separate from confirmation.
+- 🛑 The Twin abstains when evidence is incomplete or conflicting, retains unsaved laps through
+  persistence failures, and exposes paused/recovered state instead of overstating causality.
 
 ### Experimental Context-Debt audit
 - 🧪 **The local pre-race meter highlights competing cues, invalid routes, and unavailable devices**
@@ -92,6 +109,10 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   positioning previews for trigger-based overlays and dashboard widgets.
 - [#76](https://github.com/guilhermerbasso/ultimate-sim-app/pull/76) — add the experimental local
   Context-Debt pre-race meter.
+- [#88](https://github.com/guilhermerbasso/ultimate-sim-app/pull/88) — add the local, evidence-safe
+  Setup Experiment Twin for controlled one-variable comparisons.
+- [#90](https://github.com/guilhermerbasso/ultimate-sim-app/pull/90) — debounce PWA receiver
+  reconnects without changing the first pending deadline or legitimate backoff.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 

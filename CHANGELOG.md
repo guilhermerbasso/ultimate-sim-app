@@ -22,6 +22,9 @@
 - **Experimental local Context-Debt meter** for auditing competing cues, invalid routes, and
   unavailable devices before a race. It remains an N=0 experiment, not a validated demand or
   predictive-accuracy claim.
+- **Local Setup Experiment Twin** for controlled one-variable A-B-A/B-A-B setup comparisons, with
+  manual setup confirmation, matched-block evidence, uncertainty reporting, persistence recovery,
+  and honest abstention instead of automatic setup application or causal claims.
 - **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
   runs, repeat comparisons, and scored blameless debriefs.
 
@@ -33,6 +36,8 @@
   reopen, while compositor, streaming, saved rules, and live Coach/Engineer/Alerts IPC stay isolated.
 - Context-Debt audits fail closed on malformed profiles and incomplete audio/serial inventories, and
   suggestions respect per-cue route and modality limits.
+- PWA receiver reconnects preserve the first pending 250 ms deadline, deduplicate overlapping
+  close/online triggers and metrics, and cancel pending reconnects while offline or unmounted.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 
