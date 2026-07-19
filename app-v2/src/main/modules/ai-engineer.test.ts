@@ -559,7 +559,11 @@ describe('createEngineerOrchestrator.ask', () => {
     'Define tyre change.',
     'What does tyre change mean?',
     'What does change tyres mean?',
-    'What does choose a compound mean?'
+    'What does choose a compound mean?',
+    'Give me the meaning of change tyres.',
+    'How is change tyres defined?',
+    'Could change tyres be explained?',
+    'What does "change tyres" mean?'
   ])('never sends explicit telemetry-noun definitions to the LLM: %s', async (question) => {
     const harness = makeHarness()
 
@@ -600,7 +604,10 @@ describe('createEngineerOrchestrator.ask', () => {
 
   it.each([
     'Could you tell me the meaning of change tyres?',
-    'Can you tell me what change tyres means?'
+    'Can you tell me what change tyres means?',
+    'Give me the meaning of change tyres.',
+    'How is change tyres defined?',
+    'Could change tyres be explained?'
   ])('keeps alternate explicit meaning envelopes out of the LLM: %s', async (question) => {
     const harness = makeHarness()
 

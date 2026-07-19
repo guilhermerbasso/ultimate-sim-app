@@ -643,29 +643,6 @@ const DEFINITION_PERSONAL_CONTEXT =
 const DEFINITION_ACTION_CLAUSE =
   /\b(?:how to|how i|how do|how should|should i|can i|could i|need to|want to|i should|i can|i could|i need|i must|save fuel|conserve fuel|finish the race|pit now|attack (?:the )?|pass (?:the )?|overtake the|reduce (?:the )?(?:tyre |tire )?pressure|increase (?:the )?(?:tyre |tire )?pressure|set (?:the )?(?:tyre |tire )?pressure|change (?:the )?(?:tyre|tyres|tire|tires)|replace (?:the )?(?:tyre|tyres|tire|tires)|choose (?:a |the )?(?:tyre|tire|compound)|use (?:a |the )?(?:tyre|tire|compound)|como faco|como posso|devo|preciso|economizar combustivel|terminar a corrida|trocar (?:o |os )?pneus|reduzir (?:a )?pressao|aumentar (?:a )?pressao|usar (?:o |os )?pneus|como puedo|debo|necesito|ahorrar combustible|cambiar (?:el |los )?neumaticos|reducir (?:la )?presion|usar (?:el |los )?neumaticos|dois je|ameliorer|economiser (?:du )?carburant|changer (?:le |les )?pneus|reduire (?:la )?pression|utiliser (?:le |les )?pneus|wie ich|wie kann|soll ich|muss ich|kraftstoff sparen|reifen wechseln|reifendruck reduzieren|reifen verwenden)\b/
 
-function isExplicitMeaningEnvelope(question: string): boolean {
-  return (
-    /^(?:the )?(?:definition|meaning|explanation)(?: of)?\b/.test(question) ||
-    /^what does .+ (?:mean|do)$/.test(question) ||
-    /^what s the (?:definition|meaning|explanation) of\b/.test(question) ||
-    /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of\b/.test(question) ||
-    /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me what .+ means$/.test(question) ||
-    /^(?:por favor )?(?:a |o )?(?:definicao|significado|explicacao)(?: de)?\b/.test(question) ||
-    /^(?:o que|que) significa\b/.test(question) ||
-    /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)diga o que significa\b/.test(question) ||
-    /^(?:por favor )?(?:la |el )?(?:definicion|significado|explicacion)(?: de)?\b/.test(question) ||
-    /^que significa\b/.test(question) ||
-    /^(?:(?:puedes|podrias) )?decirme que significa\b/.test(question) ||
-    /^(?:s il vous plait )?(?:la |le )?(?:definition|signification|explication)(?: de)?\b/.test(question) ||
-    /^que signifie\b/.test(question) ||
-    /^(?:(?:peux tu|pourrais tu) )?me dire ce que signifie\b/.test(question) ||
-    /^(?:bitte )?(?:die |der |das )?(?:definition|bedeutung|erklarung)(?: von)?\b/.test(question) ||
-    /^was (?:bedeutet|heisst|heißt)\b/.test(question) ||
-    /^(?:(?:kannst|konntest) du )?mir sagen was .+ bedeutet$/.test(question) ||
-    /(?:是什么|是什么意思|的定义是什么|含义是什么|とは|の定義は|の意味は)/u.test(question)
-  )
-}
-
 function isPureDefinitionBody(
   body: string,
   explicitMeaningEnvelope = false
@@ -689,6 +666,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
     language: CoachAdviceLanguage
     command: boolean
     patterns: readonly RegExp[]
+    meaningPatterns?: readonly RegExp[]
   }> = [
     {
       language: 'en-US',
@@ -701,6 +679,11 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me about (?!my\b|this\b|our\b|the race\b)(?:the )?(?:concept(?: of)? )?(.+)$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of (.+)$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me about (.+)$/
+      ],
+      meaningPatterns: [
+        /^(?:please )?(?:(?:the |an? )?(?:definition|meaning|explanation)(?: of)?|give me (?:the )?(?:definition|meaning|explanation) of) (.+)$/,
+        /^(?:(?:can|could|would) )(.+) be explained$/,
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of (.+)$/
       ]
     },
     {
@@ -708,6 +691,11 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       command: false,
       patterns: [
         /^what (?:is|are|s) (.+)$/,
+        /^what does (.+) (?:mean|do)$/,
+        /^how (?:is|are) (.+) defined$/,
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me what (.+) means$/
+      ],
+      meaningPatterns: [
         /^what does (.+) (?:mean|do)$/,
         /^how (?:is|are) (.+) defined$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me what (.+) means$/
@@ -723,6 +711,10 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)fale sobre (?:o )?conceito(?: de)? (.+)$/,
         /^(?:(?:por favor )?voce (?:pode|poderia) )(?:me )?(?:explicar|explique) (?:o )?(.+)$/,
         /^(?:qual e o )?(?:significado|conceito|definicao|explicacao) de (.+)$/
+      ],
+      meaningPatterns: [
+        /^(?:por favor )?(?:(?:a |o )?(?:definicao|significado|explicacao)(?: de)?|me de (?:a |o )?(?:definicao|significado|explicacao) de) (.+)$/,
+        /^(?:qual e o )?(?:significado|conceito|definicao|explicacao) de (.+)$/
       ]
     },
     {
@@ -730,6 +722,11 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       command: false,
       patterns: [
         /^o que e (.+)$/,
+        /^o que significa (.+)$/,
+        /^que significa (.+)$/,
+        /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)diga o que significa (.+)$/
+      ],
+      meaningPatterns: [
         /^o que significa (.+)$/,
         /^que significa (.+)$/,
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)diga o que significa (.+)$/
@@ -747,12 +744,19 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:por favor )?(?:puede|puedes|podria|podrias) )(?:explicarme|explicar) (?:el )?(.+)$/,
         /^(?:me )?(?:explicas|expliqueme) (?:el )?(.+)$/,
         /^(?:podria|puede|puedes|podrias) definirme (?:el )?(.+)$/
+      ],
+      meaningPatterns: [
+        /^(?:por favor )?(?:(?:la |el )?(?:definicion|significado|explicacion)(?: de)?|dame (?:la |el )?(?:definicion|significado|explicacion) de) (.+)$/
       ]
     },
     {
       language: 'es',
       command: false,
-      patterns: [/^que es (.+)$/, /^que significa (.+)$/, /^(?:(?:puedes|podrias) )?decirme que significa (.+)$/]
+      patterns: [/^que es (.+)$/, /^que significa (.+)$/, /^(?:(?:puedes|podrias) )?decirme que significa (.+)$/],
+      meaningPatterns: [
+        /^que significa (.+)$/,
+        /^(?:(?:puedes|podrias) )?decirme que significa (.+)$/
+      ]
     },
     {
       language: 'fr',
@@ -766,12 +770,19 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:expliquez moi|explique moi) (?:le )?(.+)$/,
         /^(?:(?:pouvez vous|pourriez vous) )definir (?:le )?(.+)$/,
         /^definissez (?:le )?(.+)$/
+      ],
+      meaningPatterns: [
+        /^(?:s il vous plait )?(?:(?:la |le )?(?:definition|signification|explication)(?: de)?|donne moi (?:la |le )?(?:definition|signification|explication) de) (.+)$/
       ]
     },
     {
       language: 'fr',
       command: false,
-      patterns: [/^qu est ce que (.+)$/, /^que signifie (.+)$/, /^(?:(?:peux tu|pourrais tu) )?me dire ce que signifie (.+)$/]
+      patterns: [/^qu est ce que (.+)$/, /^que signifie (.+)$/, /^(?:(?:peux tu|pourrais tu) )?me dire ce que signifie (.+)$/],
+      meaningPatterns: [
+        /^que signifie (.+)$/,
+        /^(?:(?:peux tu|pourrais tu) )?me dire ce que signifie (.+)$/
+      ]
     },
     {
       language: 'de',
@@ -784,6 +795,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erzahl mir vom konzept(?: von)? (.+)$/,
         /^(?:(?:bitte )?konnen sie )(.+) erklaren$/,
         /^(?:(?:bitte )?(?:konnen sie|kannst du) )(.+) definieren$/
+      ],
+      meaningPatterns: [
+        /^(?:bitte )?(?:(?:die |der |das )?(?:definition|bedeutung|erklarung)(?: von)?|gib mir (?:die |der |das )?(?:definition|bedeutung|erklarung) von) (.+)$/
       ]
     },
     {
@@ -794,12 +808,18 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^was bedeutet (.+)$/,
         /^was (?:heisst|heißt) (.+)$/,
         /^(?:(?:kannst|konntest) du )?mir sagen was (.+) bedeutet$/
+      ],
+      meaningPatterns: [
+        /^was bedeutet (.+)$/,
+        /^was (?:heisst|heißt) (.+)$/,
+        /^(?:(?:kannst|konntest) du )?mir sagen was (.+) bedeutet$/
       ]
     },
     {
       language: 'zh',
       command: false,
-      patterns: [/^(.+?)(?:是什么|是什么意思|的定义是什么|含义是什么)$/]
+      patterns: [/^(.+?)(?:是什么|是什么意思|的定义是什么|含义是什么)$/],
+      meaningPatterns: [/^(.+?)(?:是什么意思|的定义是什么|含义是什么)$/]
     },
     {
       language: 'zh',
@@ -809,7 +829,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
     {
       language: 'ja',
       command: false,
-      patterns: [/^(.+?)(?:とは|とは何|の定義は|の意味は)$/]
+      patterns: [/^(.+?)(?:とは|とは何|の定義は|の意味は)$/],
+      meaningPatterns: [/^(.+?)(?:とは|とは何|の定義は|の意味は)$/]
     },
     {
       language: 'ja',
@@ -825,7 +846,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       const match = pattern.exec(q)
       if (!match) continue
       const body = match[1]?.trim() ?? ''
-      const pure = isPureDefinitionBody(body, isExplicitMeaningEnvelope(q))
+      const explicitMeaning =
+        form.meaningPatterns?.some((candidate) => candidate.test(q)) ?? false
+      const pure = isPureDefinitionBody(body, explicitMeaning)
       return {
         language: form.language,
         body,
@@ -848,7 +871,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       language: 'en-US',
       body: q,
       topic: null,
-      pure: isPureDefinitionBody(q, isExplicitMeaningEnvelope(q)),
+      pure: isPureDefinitionBody(q),
       command: true
     }
   }
