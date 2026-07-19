@@ -276,7 +276,9 @@ export function AccessibilityCueLayer({
             lang: next.language,
             source: 'accessibility-cue',
             tipId: next.route.instanceId,
-            spatialPan: next.spatialPan
+            spatialPan: next.spatialPan,
+            semanticKey: cueRouteSemanticKey(next.route),
+            priority: cueSeverityPriority(next.route.severity)
           }
         )
       },

@@ -1,21 +1,6 @@
 import type { EnsureVoiceResult } from '../../shared/spotter'
 import type { PiperEngineHealth } from './piper-engine-health'
 
-export interface VoiceInstallHashes {
-  onnx: string
-  tokens: string
-}
-
-export function voiceInstallHashesMatch(
-  expected: VoiceInstallHashes,
-  actual: VoiceInstallHashes
-): boolean {
-  return (
-    expected.onnx === actual.onnx &&
-    expected.tokens === actual.tokens
-  )
-}
-
 export class PiperVoiceRepairCoordinator {
   private readonly inflight = new Map<
     string,
@@ -31,6 +16,8 @@ export class PiperVoiceRepairCoordinator {
   ) {}
 
   ensure(voiceId: string): Promise<EnsureVoiceResult> {
+    const existing = this.inflight.get(voiceId)
+    if (existing) return existing
     if (
       this.isInstalled(voiceId) &&
       !this.health.needsRepair(voiceId)
@@ -41,8 +28,6 @@ export class PiperVoiceRepairCoordinator {
         installed: true
       })
     }
-    const existing = this.inflight.get(voiceId)
-    if (existing) return existing
 
     const repair = this.install(voiceId)
       .then((result) => {

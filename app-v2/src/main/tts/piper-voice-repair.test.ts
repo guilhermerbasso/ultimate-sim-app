@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PiperEngineHealth } from './piper-engine-health'
-import {
-  PiperVoiceRepairCoordinator,
-  voiceInstallHashesMatch
-} from './piper-voice-repair'
+import { PiperVoiceRepairCoordinator } from './piper-voice-repair'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -70,6 +67,45 @@ describe('PiperVoiceRepairCoordinator', () => {
     }
   )
 
+  it('shares verification failure even after target files become visible', async () => {
+    const health = new PiperEngineHealth(1)
+    health.recordFailure('voice-a', 'runtime crash')
+    let visible = false
+    const pending = deferred<{
+      ok: boolean
+      voiceId: string
+      installed: boolean
+      error: string
+    }>()
+    const install = vi.fn(() => pending.promise)
+    const coordinator = new PiperVoiceRepairCoordinator(
+      health,
+      () => visible,
+      install
+    )
+
+    const first = coordinator.ensure('voice-a')
+    visible = true
+    const second = coordinator.ensure('voice-a')
+    expect(second).toBe(first)
+    pending.resolve({
+      ok: false,
+      voiceId: 'voice-a',
+      installed: false,
+      error: 'installed voice failed pinned verification'
+    })
+
+    const [firstResult, secondResult] = await Promise.all([first, second])
+    expect(firstResult).toBe(secondResult)
+    expect(firstResult).toMatchObject({
+      ok: false,
+      installed: false,
+      error: expect.stringMatching(/verification/)
+    })
+    expect(install).toHaveBeenCalledTimes(1)
+    expect(health.isDisabled('voice-a')).toBe(true)
+  })
+
   it('repairs an existing voice after the first runtime failure before hard disable', async () => {
     const health = new PiperEngineHealth(2)
     health.recordFailure('voice-a', 'transient crash')
@@ -107,24 +143,5 @@ describe('PiperVoiceRepairCoordinator', () => {
       installed: true
     })
     expect(install).not.toHaveBeenCalled()
-  })
-})
-
-describe('voiceInstallHashesMatch', () => {
-  it('accepts only exact model and token digests', () => {
-    const expected = { onnx: 'a'.repeat(64), tokens: 'b'.repeat(64) }
-    expect(voiceInstallHashesMatch(expected, expected)).toBe(true)
-    expect(
-      voiceInstallHashesMatch(expected, {
-        ...expected,
-        onnx: 'c'.repeat(64)
-      })
-    ).toBe(false)
-    expect(
-      voiceInstallHashesMatch(expected, {
-        ...expected,
-        tokens: 'd'.repeat(64)
-      })
-    ).toBe(false)
   })
 })

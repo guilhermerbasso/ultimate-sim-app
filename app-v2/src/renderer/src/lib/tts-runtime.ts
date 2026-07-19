@@ -44,6 +44,7 @@ import {
 } from '../../../shared/tts-voice'
 import { CueCapabilityLeasePublisher } from './accessibility-cue-capability-client'
 import { logClient } from './log-client'
+import { getSharedWebSpeechScheduler } from './web-speech-scheduler'
 
 // ─── Renderer-local config (PURE helpers — unit-tested in node) ──────────────────
 
@@ -267,8 +268,6 @@ interface IsolatedTtsChannelState {
   context: AudioContext | null
   source: AudioBufferSourceNode | null
   spatialNode: StereoPannerNode | null
-  utterance: SpeechSynthesisUtterance | null
-  cancelUtterance: (() => void) | null
 }
 
 const isolatedTtsChannels = new Map<IsolatedTtsChannelId, IsolatedTtsChannelState>()
@@ -281,9 +280,7 @@ function isolatedChannel(channel: IsolatedTtsChannelId): IsolatedTtsChannelState
     generation: 0,
     context: null,
     source: null,
-    spatialNode: null,
-    utterance: null,
-    cancelUtterance: null
+    spatialNode: null
   }
   isolatedTtsChannels.set(channel, created)
   return created
@@ -341,7 +338,7 @@ async function playIsolatedWav(
   }
 }
 
-export function stopIsolatedTts(channel: IsolatedTtsChannelId): void {
+function stopIsolatedChannelState(channel: IsolatedTtsChannelId): void {
   const state = isolatedTtsChannels.get(channel)
   if (!state) return
   state.generation += 1
@@ -353,27 +350,18 @@ export function stopIsolatedTts(channel: IsolatedTtsChannelId): void {
   state.source = null
   state.spatialNode?.disconnect()
   state.spatialNode = null
-  const hadUtterance = Boolean(state.utterance)
-  state.cancelUtterance?.()
-  state.cancelUtterance = null
-  if (hadUtterance && isWebSpeechAvailable()) {
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
-  state.utterance = null
+}
+
+export function stopIsolatedTts(channel: IsolatedTtsChannelId): void {
+  stopIsolatedChannelState(channel)
+  getSharedWebSpeechScheduler()?.cancelChannel(channel)
 }
 
 function stopAllIsolatedTts(): void {
-  for (const channel of isolatedTtsChannels.keys()) stopIsolatedTts(channel)
-}
-
-function cancelIsolatedWebSpeech(): void {
-  for (const state of isolatedTtsChannels.values()) {
-    state.cancelUtterance?.()
+  for (const channel of isolatedTtsChannels.keys()) {
+    stopIsolatedChannelState(channel)
   }
+  getSharedWebSpeechScheduler()?.cancelAll()
 }
 
 /**
@@ -470,9 +458,11 @@ async function runWebSpeech(
   lang: string | undefined,
   rate: number,
   seedVoiceId: string | undefined,
-  isCurrent: () => boolean,
-  onUtterance?: (utterance: SpeechSynthesisUtterance | null) => void,
-  onCancel?: (cancel: (() => void) | null) => void
+  channel: string,
+  generation: number,
+  semanticKey: string,
+  priority: number,
+  isCurrent: () => boolean
 ): Promise<boolean> {
   if (!isWebSpeechAvailable() || !text || !isCurrent()) return false
   // Warm the async OS voice list before picking so the FIRST utterance honors a
@@ -512,26 +502,25 @@ async function runWebSpeech(
         utterance.pitch = prosody.pitch
         utterance.rate = rate * prosody.rate
       }
-      let settled = false
-      const done = (spoken: boolean): void => {
-        if (settled) return
-        settled = true
-        onUtterance?.(null)
-        onCancel?.(null)
-        resolve(spoken)
-      }
-      utterance.onend = () => done(true)
-      utterance.onerror = () => done(false)
-      onUtterance?.(utterance)
-      onCancel?.(() => done(false))
       if (!isCurrent()) {
-        done(false)
+        resolve(false)
         return
       }
-      window.speechSynthesis.speak(utterance)
+      const scheduler = getSharedWebSpeechScheduler()
+      if (!scheduler) {
+        resolve(false)
+        return
+      }
+      void scheduler
+        .enqueue({
+          channel,
+          generation,
+          semanticKey,
+          priority,
+          utterance
+        })
+        .then(resolve)
     } catch {
-      onUtterance?.(null)
-      onCancel?.(null)
       resolve(false)
     }
   })
@@ -542,42 +531,44 @@ async function webSpeechSpeak(
   lang: string | undefined,
   rate: number,
   seq: number,
-  seedVoiceId?: string
+  seedVoiceId: string | undefined,
+  semanticKey: string,
+  priority: number
 ): Promise<boolean> {
   return runWebSpeech(
     text,
     lang,
     rate,
     seedVoiceId,
+    'general',
+    seq,
+    semanticKey,
+    priority,
     () => seq === speakSeq
   )
 }
 
 async function isolatedWebSpeechSpeak(
   state: IsolatedTtsChannelState,
+  channel: IsolatedTtsChannelId,
   text: string,
   lang: string | undefined,
   rate: number,
   generation: number,
-  seedVoiceId?: string
+  seedVoiceId: string | undefined,
+  semanticKey: string,
+  priority: number
 ): Promise<boolean> {
   return runWebSpeech(
     text,
     lang,
     rate,
     seedVoiceId,
-    () => generation === state.generation,
-    (utterance) => {
-      state.utterance = utterance
-    },
-    (cancel) => {
-      state.cancelUtterance = cancel
-        ? () => {
-            state.generation += 1
-            cancel()
-          }
-        : null
-    }
+    channel,
+    generation,
+    semanticKey,
+    priority,
+    () => generation === state.generation
   )
 }
 
@@ -706,14 +697,7 @@ async function synthesize(text: string, voiceId: string, rate: number): Promise<
 export function stopTts(): void {
   speakSeq += 1
   disposeCurrentAudio()
-  if (isWebSpeechAvailable()) {
-    try {
-      cancelIsolatedWebSpeech()
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+  getSharedWebSpeechScheduler()?.cancelChannel('general')
 }
 
 export interface SpeakOptions {
@@ -729,6 +713,10 @@ export interface SpeakOptions {
   corner?: number
   /** Optional -1..1 stereo position for an accessibility cue. Piper WAV only. */
   spatialPan?: number
+  /** Stable semantic identity used to replace queued duplicate Web Speech work. */
+  semanticKey?: string
+  /** Scheduler priority: critical live cues use a higher value than preview. */
+  priority?: number
 }
 
 export async function speakViaIsolatedTts(
@@ -762,6 +750,19 @@ export async function speakViaIsolatedTts(
         ? resolvedVoice.overrideHonored
         : pref.engine === 'piper')
     const fallbackLang = speechLocale
+    const semanticKey =
+      options.semanticKey ??
+      options.tipId ??
+      `${channel}:${generation}`
+    const requestedPriority = options.priority ?? 0
+    const priority =
+      channel === 'accessibility-preview'
+        ? 0
+        : requestedPriority >= 2
+          ? 1_000
+          : requestedPriority >= 1
+            ? 600
+            : 400
     speakingCount += 1
     try {
       let engineUnavailable = !usePiper
@@ -770,11 +771,14 @@ export async function speakViaIsolatedTts(
         if (engineUnavailable) {
           const spoken = await isolatedWebSpeechSpeak(
             state,
+            channel,
             chunk,
             fallbackLang,
             rate,
             generation,
-            webSpeechSeed
+            webSpeechSeed,
+            semanticKey,
+            priority
           )
           if (generation !== state.generation) return
           if (!spoken) {
@@ -805,11 +809,14 @@ export async function speakViaIsolatedTts(
         engineUnavailable = true
         const spoken = await isolatedWebSpeechSpeak(
           state,
+          channel,
           chunk,
           fallbackLang,
           rate,
           generation,
-          webSpeechSeed
+          webSpeechSeed,
+          semanticKey,
+          priority
         )
         if (generation !== state.generation) return
         if (!spoken) {
@@ -871,16 +878,14 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
   }
 
   const seq = ++speakSeq
+  const semanticKey =
+    options.semanticKey ??
+    options.tipId ??
+    `general:${seq}`
+  const priority = 100 + Math.max(0, options.priority ?? 0)
   // Supersede any current/queued speech (latest callout wins) WITHOUT bumping seq again.
   disposeCurrentAudio()
-  if (isWebSpeechAvailable()) {
-    try {
-      cancelIsolatedWebSpeech()
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+  getSharedWebSpeechScheduler()?.cancelChannel('general')
 
   // Mark "speaking" for the whole synth/play lifetime so the wake-word mic can skip
   // capture (never transcribe the engineer's own voice). Always cleared in finally.
@@ -893,7 +898,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(content, fallbackLang, rate, seq, webSpeechSeed)
+      await webSpeechSpeak(
+        content,
+        fallbackLang,
+        rate,
+        seq,
+        webSpeechSeed,
+        semanticKey,
+        priority
+      )
       return
     }
 
@@ -905,7 +918,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
     for (const chunk of chunks) {
       if (seq !== speakSeq) return
       if (engineUnavailable) {
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, webSpeechSeed)
+        await webSpeechSpeak(
+          chunk,
+          fallbackLang,
+          rate,
+          seq,
+          webSpeechSeed,
+          semanticKey,
+          priority
+        )
         continue
       }
       const wav = await synthesize(chunk, voiceId, rate)
@@ -930,7 +951,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
           lang: fallbackLang ?? null,
           ...diag
         })
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, webSpeechSeed)
+        await webSpeechSpeak(
+          chunk,
+          fallbackLang,
+          rate,
+          seq,
+          webSpeechSeed,
+          semanticKey,
+          priority
+        )
         continue
       }
       // Engine/voice missing → fall back for THIS and the remaining chunks (same language).
@@ -942,7 +971,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(chunk, fallbackLang, rate, seq, webSpeechSeed)
+      await webSpeechSpeak(
+        chunk,
+        fallbackLang,
+        rate,
+        seq,
+        webSpeechSeed,
+        semanticKey,
+        priority
+      )
     }
   } finally {
     speakingCount -= 1

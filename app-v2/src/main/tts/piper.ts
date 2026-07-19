@@ -1,7 +1,7 @@
 import { existsSync, statSync, createWriteStream } from 'node:fs'
 import { mkdir, readFile, writeFile, unlink, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { App } from 'electron'
 import type { ModuleContext } from '../module-context'
@@ -25,10 +25,13 @@ import {
   evictTtsCache
 } from './sherpa'
 import { PiperEngineHealth } from './piper-engine-health'
+import { PiperVoiceRepairCoordinator } from './piper-voice-repair'
 import {
-  PiperVoiceRepairCoordinator,
-  voiceInstallHashesMatch
-} from './piper-voice-repair'
+  installTrustedVoiceFiles,
+  trustedPiperVoiceDigest,
+  voicePayloadMatchesTrustedDigest,
+  type TrustedPiperVoiceDigest
+} from './piper-voice-integrity'
 
 // Neural TTS main-process module — engine = sherpa-onnx (VITS), replacing piper.exe
 // which hard-crashed (0xC0000005) on many Windows CPUs and made tts:synth return
@@ -226,7 +229,25 @@ export function register(ctx: ModuleContext): void {
     engineHealth,
     (voiceId) => isVoiceInstalled(ctx.app, voiceId),
     async (voiceId) => {
-      const result = await ensureVoice(ctx, tempDir, voiceId)
+      const trusted = trustedPiperVoiceDigest(voiceId)
+      if (!trusted) {
+        const error = `No pinned trusted digest is available for ${voiceId}; repair is disabled.`
+        emitProgress(ctx, {
+          voiceId,
+          phase: 'error',
+          totalBytes: 0,
+          downloadedBytes: 0,
+          ratio: 0,
+          error
+        })
+        return {
+          ok: false,
+          voiceId,
+          installed: false,
+          error
+        }
+      }
+      const result = await ensureVoice(ctx, tempDir, voiceId, trusted)
       if (result.ok && result.installed) {
         engineHealth.resetVoice(voiceId)
         emitProgress(ctx, {
@@ -492,7 +513,8 @@ function emitProgress(ctx: ModuleContext, progress: PiperVoiceProgress): void {
 async function ensureVoice(
   ctx: ModuleContext,
   tempDir: string,
-  voiceId: string
+  voiceId: string,
+  trusted: TrustedPiperVoiceDigest
 ): Promise<EnsureVoiceResult> {
   const url = sherpaVoiceBundleUrl(voiceId)
   if (!url) return { ok: false, voiceId, installed: false, error: `cannot resolve bundle URL for ${voiceId}` }
@@ -523,32 +545,30 @@ async function ensureVoice(
     // 2. Extract model.onnx + tokens.txt (pure-JS bzip2 + tar; no shelling out).
     emitProgress(ctx, { voiceId, phase: 'verifying', totalBytes, downloadedBytes: totalBytes, ratio: 1 })
     const bundle = await readFile(bundlePath)
+    if (!voicePayloadMatchesTrustedDigest(trusted, { archive: bundle })) {
+      throw new Error('downloaded voice archive failed pinned SHA-256 verification')
+    }
     const extracted = extractSherpaVoiceBundle(bundle, voiceId)
     if (!extracted) throw new Error('bundle extraction failed (missing model.onnx or tokens.txt)')
 
-    // Write to .part files then atomically rename, so a crash mid-write never
-    // leaves a half-file that passes the presence check.
-    await writeFile(`${onnxPath}.part`, extracted.onnx)
-    await writeFile(`${tokensPath}.part`, extracted.tokens)
-    await rename(`${onnxPath}.part`, onnxPath)
-    await rename(`${tokensPath}.part`, tokensPath)
+    await installTrustedVoiceFiles(
+      { onnx: onnxPath, tokens: tokensPath },
+      extracted,
+      trusted,
+      {
+        writeFile: async (path, bytes) => writeFile(path, bytes),
+        rename,
+        readFile,
+        remove: async (path) => {
+          await rm(path, { force: true })
+        }
+      }
+    )
     evictTtsCache(onnxPath) // drop any stale engine instance for this path
 
-    // 3. Verify the extracted files are full-size and byte-identical to the
-    // validated installer payload before resetting any crash-disable state.
+    // 3. Keep the existing minimum-size defense in addition to pinned hashes.
     if (!(await fileAtLeast(onnxPath, minOnnxBytes(voiceId))) || !(await fileAtLeast(tokensPath, MIN_TOKENS_BYTES))) {
       throw new Error('extracted voice failed verification (missing or truncated)')
-    }
-    const expectedHashes = {
-      onnx: createHash('sha256').update(extracted.onnx).digest('hex'),
-      tokens: createHash('sha256').update(extracted.tokens).digest('hex')
-    }
-    const actualHashes = {
-      onnx: createHash('sha256').update(await readFile(onnxPath)).digest('hex'),
-      tokens: createHash('sha256').update(await readFile(tokensPath)).digest('hex')
-    }
-    if (!voiceInstallHashesMatch(expectedHashes, actualHashes)) {
-      throw new Error('installed voice failed SHA-256 verification')
     }
 
     logger.info('tts', 'voice downloaded', { voiceId, engine: 'sherpa', onnxPath, bytes: extracted.onnx.length })

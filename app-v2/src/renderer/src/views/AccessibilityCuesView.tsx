@@ -95,7 +95,20 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
       CUE_MANIFESTS[0].eventId
   )
   const [preview, setPreview] = useState<CueRoute | null>(null)
+  const previewRevisionRef = useRef(envelope.revision)
   const mutationQueueRef = useRef<CueProfileMutationQueue | null>(null)
+
+  useEffect(() => {
+    if (previewRevisionRef.current === envelope.revision) return
+    previewRevisionRef.current = envelope.revision
+    stopIsolatedTts('accessibility-preview')
+    setPreview(null)
+  }, [envelope.revision])
+
+  useEffect(
+    () => () => stopIsolatedTts('accessibility-preview'),
+    []
+  )
 
   useEffect(() => {
     const queue = new CueProfileMutationQueue(
@@ -274,7 +287,9 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
           lang: language,
           source: 'accessibility-cue-preview',
           tipId: route.instanceId,
-          spatialPan: audio.spatialPan
+          spatialPan: audio.spatialPan,
+          semanticKey: route.eventId,
+          priority: 0
         }
       )
     }
