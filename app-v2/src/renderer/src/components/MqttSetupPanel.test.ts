@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_MQTT_LOCAL_CONFIG, MQTT_CHANNELS } from '../../../shared/mqtt'
 import { MqttSetupPanel } from './MqttSetupPanel'
 
-function defaultInvoke(channel: string) {
+async function defaultInvoke(channel: string): Promise<unknown> {
   if (channel === MQTT_CHANNELS.getConfig) return DEFAULT_MQTT_LOCAL_CONFIG
   if (channel === MQTT_CHANNELS.status) return null
   if (channel === MQTT_CHANNELS.contract) return null
