@@ -77,7 +77,7 @@ function ErsBar({ element, snapshot, variant }: NewWidgetProps & { variant: 'fut
   const has = isFiniteNum(raw)
   const p = clamp01(raw ?? 0)
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={p} />
+    return <RevInstrument element={element} frac={p} snapshot={snapshot} />
   }
   const color = has ? chargeColor(p) : GT3.textMuted
   const label = (s.label ?? 'ERS').toString()

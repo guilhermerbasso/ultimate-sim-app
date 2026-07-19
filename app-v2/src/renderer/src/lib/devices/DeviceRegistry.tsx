@@ -116,7 +116,7 @@ export interface DeviceRegistryValue {
   // callers can drive their own toasts/UX without re-querying.
   refreshPorts(): Promise<PortInfo[]>
   refreshFleet(): Promise<void>
-  refreshAudioOutputs(requestLabels?: boolean): Promise<void>
+  refreshAudioOutputs(requestLabels?: boolean): Promise<boolean>
   refreshDisplays(): Promise<OverlayDisplayInfo[]>
   refreshAll(): Promise<void>
 
@@ -142,10 +142,9 @@ function getErrorMessage(error: unknown): string {
 
 // Map raw MediaDeviceInfo entries to the audio outputs we expose. We KEEP the
 // synthetic 'default' sink (relabeled "System default") instead of dropping it
-// — on Chromium it is frequently the only entry with a stable, usable id, so
-// filtering it left the picker empty/unusable. We still drop empty ids (those
-// only appear before the media-permission grant unlocks labels) and de-dupe by
-// deviceId. The system-default entry is surfaced first when present.
+// because the picker still needs a usable fallback. Context-debt completeness
+// separately requires an original device id for passive scans. We still drop
+// empty ids and de-dupe by deviceId. The system-default entry is surfaced first.
 function mapAudioOutputs(list: MediaDeviceInfo[]): AudioOutputDeviceInfo[] {
   const seen = new Set<string>()
   const outputs: AudioOutputDeviceInfo[] = []
@@ -166,19 +165,36 @@ function mapAudioOutputs(list: MediaDeviceInfo[]): AudioOutputDeviceInfo[] {
   return outputs
 }
 
+export function isAudioOutputScanComplete(
+  outputs: readonly AudioOutputDeviceInfo[],
+  evidence: {
+    requestLabels: boolean
+    labelsUnlocked: boolean
+  }
+): boolean {
+  if (evidence.requestLabels) return evidence.labelsUnlocked
+  return outputs.some((output) => {
+    const id = output.deviceId.trim().toLowerCase()
+    return id.length > 0 && id !== 'default' && id !== 'communications' && id !== 'system-default'
+  })
+}
+
 // On-demand getUserMedia({audio}) bootstrap. Chromium only exposes audiooutput
 // labels/ids AFTER a media-permission grant; requesting an audio stream once (then
 // immediately stopping its tracks) unlocks them for enumerateDevices. We only do
 // this for explicit label requests, never on provider mount/app launch.
 let audioLabelsUnlocked = false
 
-async function unlockAudioLabels(): Promise<void> {
-  if (audioLabelsUnlocked) return
-  if (!navigator.mediaDevices?.getUserMedia) return
+async function unlockAudioLabels(): Promise<boolean> {
+  if (audioLabelsUnlocked) return true
+  if (!navigator.mediaDevices?.getUserMedia) return false
   let stream: MediaStream | null = null
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     audioLabelsUnlocked = true
+    return true
+  } catch {
+    return false
   } finally {
     stream?.getTracks().forEach((track) => track.stop())
   }
@@ -222,34 +238,50 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
     return value
   }, [])
 
-  const refreshAudioOutputs = useCallback(async (requestLabels = false): Promise<void> => {
+  const refreshAudioOutputs = useCallback(async (requestLabels = false): Promise<boolean> => {
     if (!navigator.mediaDevices?.enumerateDevices) {
       setAudioOutputs([])
       setAudioOutputsStatus('Audio output enumeration is not available in this renderer.')
-      return
+      return false
     }
 
     setAudioBusy(true)
+    let labelsUnlocked = audioLabelsUnlocked
     try {
       // Passive scans keep enumeration working without prompting for microphone
       // access. Explicit Sounds/Haptics refreshes can request labels on demand.
       if (requestLabels) {
-        await unlockAudioLabels().catch(() => undefined)
+        labelsUnlocked = await unlockAudioLabels()
       }
       const list = await navigator.mediaDevices.enumerateDevices()
       const outputs = mapAudioOutputs(list)
+      const complete = isAudioOutputScanComplete(outputs, { requestLabels, labelsUnlocked })
       setAudioOutputs(outputs)
-      setAudioOutputsStatus(
-        outputs.length > 0
-          ? `Found ${outputs.length} audio output device${outputs.length === 1 ? '' : 's'}.`
-          : 'No dedicated audio outputs found; using system default.'
-      )
+      if (requestLabels && !labelsUnlocked) {
+        setAudioOutputsStatus('Could not unlock audio labels and stable device ids; the inventory is incomplete.')
+      } else if (!requestLabels && !complete) {
+        setAudioOutputsStatus('Only system audio aliases are visible; the passive inventory is incomplete.')
+      } else {
+        setAudioOutputsStatus(
+          outputs.length > 0
+            ? `Found ${outputs.length} audio output device${outputs.length === 1 ? '' : 's'}.`
+            : 'No dedicated audio outputs found; using system default.'
+        )
+      }
+      return complete
     } catch (error) {
       setAudioOutputsStatus(
         `Could not refresh labels: ${getErrorMessage(error)}. Showing available outputs if labels are already unlocked.`
       )
-      const fallback = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[])
-      setAudioOutputs(mapAudioOutputs(fallback))
+      try {
+        const fallback = await navigator.mediaDevices.enumerateDevices()
+        const outputs = mapAudioOutputs(fallback)
+        setAudioOutputs(outputs)
+        return isAudioOutputScanComplete(outputs, { requestLabels, labelsUnlocked })
+      } catch {
+        setAudioOutputs([])
+        return false
+      }
     } finally {
       setAudioBusy(false)
     }

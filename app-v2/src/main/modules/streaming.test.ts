@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { request, type IncomingHttpHeaders } from 'node:http'
+import { connect } from 'node:net'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import WebSocket from 'ws'
 import {
   STREAMING_CHANNELS,
   STREAMING_EXPRESSION_EXCLUSION_MESSAGE,
@@ -12,6 +14,7 @@ import {
   type StreamingTouchActionResponse,
   type StreamingTouchPanelPayload
 } from '../../shared/streaming'
+import { createStreamPresentationProfile } from '../../shared/stream-presentation'
 import type {
   ButtonAction,
   ButtonBoxPanel,
@@ -115,9 +118,33 @@ const managerState = vi.hoisted(() => ({
         fontSize: 18,
         borderColor: '#f87171',
         borderWidth: 2
+      },
+      {
+        id: 'mode-selector',
+        label: 'Mode',
+        control: {
+          kind: 'selector' as const,
+          initialChoiceId: 'hold-mode',
+          choices: [{
+            id: 'hold-mode',
+            label: 'Hold mode',
+            value: 'HOLD',
+            action: { kind: 'keyboard' as const, command: { mode: 'hold' as const, keys: ['M'] } }
+          }]
+        },
+        shape: 'square' as const,
+        material: 'selector' as const,
+        bodyColor: '#312e81',
+        textColor: '#ffffff',
+        fontSize: 18,
+        borderColor: '#818cf8',
+        borderWidth: 2
       }
     ]
   } as ButtonBoxPanel
+}))
+const presentationState = vi.hoisted(() => ({
+  item: null as unknown
 }))
 
 vi.mock('./dashboards', () => ({
@@ -152,11 +179,20 @@ vi.mock('../touchpanel/manager', () => ({
   })
 }))
 
+vi.mock('./stream-presentation', () => ({
+  getStreamPresentationProfileForRuntime: async () => presentationState.item
+}))
+
 import {
   isLocalNetworkAddress,
+  isSseBackpressured,
+  isWebSocketBackpressured,
+  probeStreamingReceiver,
   publicBaseUrlAfterTunnelStops,
   register,
-  resolveStreamingBaseOrigin
+  resolveStreamingBaseOrigin,
+  streamingListenHost,
+  streamingReceiverTransport
 } from './streaming'
 
 interface ResponseData {
@@ -382,6 +418,48 @@ function sseHandshake(url: string, cookie: string): Promise<string> {
   })
 }
 
+function webSocketFrame(url: string, cookie: string): Promise<string> {
+  return new Promise((resolveResult, rejectResult) => {
+    const httpUrl = new URL(url)
+    const webSocketUrl = new URL(url)
+    webSocketUrl.protocol = webSocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    const socket = new WebSocket(webSocketUrl, { headers: { Cookie: cookie, Origin: httpUrl.origin }, handshakeTimeout: 3_000 })
+    socket.once('message', (data) => {
+      resolveResult(data.toString())
+      socket.close()
+    })
+    socket.once('error', rejectResult)
+  })
+}
+
+function webSocketUpgradeStatus(url: string, cookie: string, origin = new URL(url).origin): Promise<number> {
+  return new Promise((resolveResult, rejectResult) => {
+    const webSocketUrl = new URL(url)
+    webSocketUrl.protocol = webSocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    const socket = new WebSocket(webSocketUrl, { headers: { Cookie: cookie, Origin: origin }, handshakeTimeout: 3_000 })
+    socket.once('open', () => {
+      socket.close()
+      resolveResult(101)
+    })
+    socket.once('unexpected-response', (_request, response) => {
+      response.resume()
+      resolveResult(response.statusCode ?? 0)
+    })
+    socket.once('error', rejectResult)
+  })
+}
+
+function openWebSocketReceiver(url: string, cookie: string): Promise<{ socket: WebSocket; payload: string }> {
+  return new Promise((resolveResult, rejectResult) => {
+    const httpUrl = new URL(url)
+    const webSocketUrl = new URL(url)
+    webSocketUrl.protocol = webSocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    const socket = new WebSocket(webSocketUrl, { headers: { Cookie: cookie, Origin: httpUrl.origin }, handshakeTimeout: 3_000 })
+    socket.once('message', (data) => resolveResult({ socket, payload: data.toString() }))
+    socket.once('error', rejectResult)
+  })
+}
+
 function openSseReceiver(
   url: string,
   cookie: string
@@ -444,6 +522,7 @@ describe('streaming authenticated server', () => {
     process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = resolve(fixtureRoot, 'stream-renderer')
     managerState.requestedDashboards.length = 0
     managerState.requestedPanels.length = 0
+    presentationState.item = null
     managerState.semanticCalls.length = 0
     managerState.releasedOwners.length = 0
     managerState.panelAvailable = true
@@ -491,6 +570,17 @@ describe('streaming authenticated server', () => {
     expect(getControl.statusCode).toBe(404)
   })
 
+  it('joins streaming cleanup to the bounded quiesce teardown barrier', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    expect(ctx.teardownTasks).toHaveLength(1)
+    expect(ctx.teardownTasks[0].phase).toBe('quiesce')
+    await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, { layoutId: 'race' })
+
+    await ctx.teardownTasks[0].task()
+    expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).running).toBe(false)
+  })
+
   it('requires passwords for LAN/internet and a public HTTPS URL for manual internet mode', async () => {
     ctx = fakeContext()
     register(ctx)
@@ -536,6 +626,92 @@ describe('streaming authenticated server', () => {
 
     const queryTokenWithoutCookie = await httpRequest(`${entryUrl}?token=${encodeURIComponent(started.token)}`)
     expect(queryTokenWithoutCookie.statusCode).toBe(403)
+  })
+
+  it('streams a current presentation profile and exposes only its selected runtime payload', async () => {
+    const profile = createStreamPresentationProfile({
+      kind: 'dashboard',
+      id: 'race',
+      name: 'Race dashboard',
+      revision: 'dashboard:race:1',
+      width: 1024,
+      height: 600,
+      itemCount: 1,
+      hidden: false
+    }, {
+      id: 'stream-profile-race',
+      presetId: 'iphone-15-pro',
+      now: 10
+    })
+    presentationState.item = {
+      profile,
+      target: {
+        kind: 'dashboard',
+        id: 'race',
+        name: 'Race dashboard',
+        revision: profile.target.revision,
+        width: 1024,
+        height: 600,
+        itemCount: 1,
+        hidden: false
+      },
+      targetState: 'current'
+    }
+    ctx = fakeContext()
+    register(ctx)
+
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      presentationProfileId: profile.id
+    })
+    const documentUrl = localDocumentUrl(started)
+    const parsedUrl = new URL(documentUrl)
+    const document = await httpRequest(documentUrl)
+    const cookie = sessionCookie(document)
+    const baseUrl = new URL('../', documentUrl)
+    const presentation = await httpRequest(
+      new URL(`api/presentation/${profile.id}`, baseUrl).toString(),
+      { headers: { Cookie: cookie } }
+    )
+    const dashboard = await httpRequest(
+      new URL('api/dashboard/race', baseUrl).toString(),
+      { headers: { Cookie: cookie } }
+    )
+    const status = await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)
+
+    expect(parsedUrl.searchParams.get('profile')).toBe(profile.id)
+    expect(parsedUrl.searchParams.get('dash')).toBe('race')
+    expect(started.presentationProfileId).toBe(profile.id)
+    expect(status.presentationProfileId).toBe(profile.id)
+    expect(presentation.statusCode).toBe(200)
+    expect(JSON.parse(presentation.body)).toEqual(profile)
+    expect(dashboard.statusCode).toBe(200)
+  })
+
+  it('blocks stale presentation profiles before opening a stream', async () => {
+    const profile = createStreamPresentationProfile({
+      kind: 'dashboard',
+      id: 'race',
+      name: 'Race dashboard',
+      revision: 'dashboard:race:1',
+      width: 1024,
+      height: 600,
+      itemCount: 1,
+      hidden: false
+    }, {
+      id: 'stream-profile-race',
+      now: 10
+    })
+    presentationState.item = {
+      profile,
+      target: { kind: 'dashboard', id: 'race', name: 'Race dashboard', revision: 'dashboard:race:2', itemCount: 1, hidden: false },
+      targetState: 'stale'
+    }
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      presentationProfileId: profile.id
+    })).rejects.toThrow(/target changed/i)
   })
 
   it('preserves a manual HTTPS path prefix and scopes a Secure internet cookie to it', async () => {
@@ -683,6 +859,7 @@ describe('streaming authenticated server', () => {
 
     const beforeAuth = await httpRequest(new URL('ping', baseUrl).toString(), { headers: { Cookie: cookie } })
     expect(JSON.parse(beforeAuth.body)).toEqual({ passwordRequired: true })
+    expect(await webSocketUpgradeStatus(new URL('ws', baseUrl).toString(), cookie)).toBe(403)
 
     const authenticated = await httpRequest(new URL('auth/session', baseUrl).toString(), {
       method: 'POST',
@@ -691,6 +868,7 @@ describe('streaming authenticated server', () => {
     })
     expect(authenticated.statusCode).toBe(200)
     cookie = sessionCookie(authenticated)
+    expect(await webSocketUpgradeStatus(new URL('ws', baseUrl).toString(), cookie, 'http://sibling.example.test')).toBe(403)
 
     for (let index = 0; index < 12; index += 1) {
       const ping = await httpRequest(new URL('ping', baseUrl).toString(), { headers: { Cookie: cookie } })
@@ -714,6 +892,70 @@ describe('streaming authenticated server', () => {
     expect(handshake).toContain('"driverName":"YOU"')
     expect(handshake).not.toContain('Secret Driver')
     expect(handshake).not.toContain('Rival Name')
+
+    const webSocketPayload = await webSocketFrame(new URL('ws', baseUrl).toString(), cookie)
+    expect(webSocketPayload).toContain('"driverName":"YOU"')
+    expect(webSocketPayload).not.toContain('Secret Driver')
+    expect(webSocketPayload).not.toContain('Rival Name')
+  })
+
+  it('stops promptly with a live WebSocket receiver and admits no reconnecting client', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, { layoutId: 'race' })
+    const documentUrl = localDocumentUrl(started)
+    const document = await httpRequest(documentUrl)
+    const cookie = sessionCookie(document)
+    const baseUrl = new URL('../', documentUrl)
+    const receiver = await openWebSocketReceiver(new URL('ws', baseUrl).toString(), cookie)
+    expect(receiver.payload).toContain('"driverName":"YOU"')
+    const closed = new Promise<void>((resolveClosed) => receiver.socket.once('close', () => resolveClosed()))
+
+    const stopPromise = invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.stop)
+    const stoppedWithinOneSecond = await Promise.race([
+      stopPromise.then(() => true),
+      new Promise<boolean>((resolveTimeout) => {
+        const timer = setTimeout(() => resolveTimeout(false), 1_000)
+        timer.unref()
+      })
+    ])
+    expect(stoppedWithinOneSecond).toBe(true)
+    await closed
+    await expect(httpRequest(documentUrl)).rejects.toThrow()
+  })
+
+  it('aborts a partial authentication request instead of hanging shutdown', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, { layoutId: 'race' })
+    const document = await httpRequest(localDocumentUrl(started))
+    const cookie = sessionCookie(document)
+    const socket = connect(started.port, '127.0.0.1')
+    await new Promise<void>((resolveConnected, rejectConnected) => {
+      socket.once('connect', resolveConnected)
+      socket.once('error', rejectConnected)
+    })
+    const closed = new Promise<void>((resolveClosed) => socket.once('close', () => resolveClosed()))
+    socket.write(
+      'POST /auth/session HTTP/1.1\r\n' +
+      `Host: 127.0.0.1:${started.port}\r\n` +
+      `Cookie: ${cookie}\r\n` +
+      'Content-Type: application/json\r\n' +
+      'Content-Length: 100\r\n' +
+      'Connection: keep-alive\r\n\r\n' +
+      '{'
+    )
+
+    const stopPromise = invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.stop)
+    const stoppedWithinOneSecond = await Promise.race([
+      stopPromise.then(() => true),
+      new Promise<boolean>((resolveTimeout) => {
+        const timer = setTimeout(() => resolveTimeout(false), 1_000)
+        timer.unref()
+      })
+    ])
+    expect(stoppedWithinOneSecond).toBe(true)
+    await closed
   })
 
   it('evicts only bootstrap sessions at capacity and preserves authenticated viewers', async () => {
@@ -1175,6 +1417,84 @@ describe('streaming authenticated server', () => {
         testCase.offAction
       ])
     }
+  })
+
+  it('derives trigger-only capabilities for discrete latch and selector keyboard holds', async () => {
+    const lights = managerState.panel.buttons.find((button) => button.id === 'lights-toggle')
+    if (!lights || lights.control.kind !== 'latching-toggle') throw new Error('lights fixture missing')
+    const latchHold: ButtonAction = {
+      kind: 'keyboard',
+      command: { mode: 'hold', keys: ['H'] }
+    }
+    const latchOff: ButtonAction = {
+      kind: 'keyboard',
+      command: { mode: 'press', keys: ['O'] }
+    }
+    lights.control.onAction = latchHold
+    lights.control.offAction = latchOff
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const latchOn = touchCapability(session, 'lights-toggle', 'on', 'trigger')
+    const latchOffCapability = touchCapability(session, 'lights-toggle', 'off', 'trigger')
+    const selector = touchCapability(session, 'mode-selector', 'choice:hold-mode', 'trigger')
+    expect(latchOn.phases).toEqual(['trigger'])
+    expect(selector.phases).toEqual(['trigger'])
+
+    for (const phase of ['begin', 'end', 'cancel'] as const) {
+      expect((await postTouchAction(session, {
+        capabilityId: latchOn.id,
+        phase
+      })).statusCode).toBe(403)
+      expect((await postTouchAction(session, {
+        capabilityId: selector.id,
+        phase
+      })).statusCode).toBe(403)
+    }
+    expect(managerState.semanticCalls).toHaveLength(0)
+
+    const staleNonce = session.payload.interaction.nonce
+    const enabled = await postTouchAction(session, {
+      capabilityId: latchOn.id,
+      phase: 'trigger',
+      nonce: staleNonce
+    })
+    expect(enabled.statusCode).toBe(200)
+    const disabled = await postTouchAction(session, {
+      capabilityId: latchOffCapability.id,
+      phase: 'trigger',
+      nonce: staleNonce
+    })
+    expect(disabled.statusCode).toBe(200)
+    expect((await postTouchAction(session, {
+      capabilityId: latchOffCapability.id,
+      phase: 'trigger',
+      nonce: staleNonce
+    })).statusCode).toBe(200)
+    session.payload.interaction.nonce =
+      (JSON.parse(disabled.body) as StreamingTouchActionResponse).nextNonce
+    expect((await postTouchAction(session, {
+      capabilityId: selector.id,
+      phase: 'trigger'
+    })).statusCode).toBe(200)
+
+    expect(managerState.semanticCalls.map(({ request }) => ({
+      action: request.action,
+      phase: request.phase,
+      zone: request.zone
+    }))).toEqual([
+      { action: latchHold, phase: 'trigger', zone: 'on' },
+      { action: latchOff, phase: 'trigger', zone: 'off' },
+      {
+        action: { kind: 'keyboard', command: { mode: 'hold', keys: ['M'] } },
+        phase: 'trigger',
+        zone: 'choice:hold-mode'
+      }
+    ])
   })
 
   it('releases mixed keyboard-toggle ON before logical OFF and keeps repeated cleanup idempotent', async () => {
@@ -1669,6 +1989,38 @@ describe('streaming public endpoint selection', () => {
     expect(resolveStreamingBaseOrigin('internet', stopped, 3210, '192.168.1.20')).toBe(manualUrl)
     expect(resolveStreamingBaseOrigin('local', null, 3210, null)).toBe('http://127.0.0.1:3210')
     expect(resolveStreamingBaseOrigin('lan', null, 3210, '192.168.1.20')).toBe('http://192.168.1.20:3210')
+  })
+
+  it('keeps local/LAN listeners unchanged and isolates the bundled Internet tunnel on loopback', () => {
+    expect(streamingListenHost('local', false)).toBe('127.0.0.1')
+    expect(streamingListenHost('lan', false)).toBe('0.0.0.0')
+    expect(streamingListenHost('internet', false)).toBe('0.0.0.0')
+    expect(streamingListenHost('internet', true)).toBe('127.0.0.1')
+    expect(streamingListenHost('internet', true, true)).toBe('0.0.0.0')
+    expect(streamingReceiverTransport('local')).toBe('sse')
+    expect(streamingReceiverTransport('lan')).toBe('sse')
+    expect(streamingReceiverTransport('internet')).toBe('websocket')
+  })
+
+  it('requires WebSocket for Auto-tunnel but preserves SSE-only manual HTTPS receivers', async () => {
+    const unavailableWebSocket = vi.fn(async () => { throw new Error('upgrade unsupported') })
+    const workingSse = vi.fn(async () => undefined)
+
+    await expect(probeStreamingReceiver('websocket', unavailableWebSocket, workingSse))
+      .rejects.toThrow(/upgrade unsupported/)
+    expect(workingSse).not.toHaveBeenCalled()
+
+    await expect(probeStreamingReceiver('auto', unavailableWebSocket, workingSse))
+      .resolves.toBe('sse')
+    expect(workingSse).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds queued WebSocket telemetry for stalled Internet receivers', () => {
+    expect(isWebSocketBackpressured(1_048_576)).toBe(false)
+    expect(isWebSocketBackpressured(1_048_577)).toBe(true)
+    expect(isWebSocketBackpressured(Number.POSITIVE_INFINITY)).toBe(true)
+    expect(isSseBackpressured(1_048_576)).toBe(false)
+    expect(isSseBackpressured(1_048_577)).toBe(true)
   })
 })
 

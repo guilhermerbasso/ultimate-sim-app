@@ -362,6 +362,42 @@ describe('ButtonBoxRenderer pointer lifecycle', () => {
     expect(events.map((event) => event.action.kind === 'keyboard' ? event.action.command.keys[0] : '')).toEqual(['1', '0'])
   })
 
+  it('emits trigger for keyboard holds configured on discrete latch and selector controls', () => {
+    const events: TouchControlActionEvent[] = []
+    const hold = key('H', 'hold')
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({ kind: 'latching-toggle', onAction: hold, offAction: key('O') }),
+      onAction: (event) => { events.push(event) }
+    }))
+    let hit = screen.getByRole('button', { name: /latching toggle/i })
+    pointerDown(hit)
+    pointerUp(hit)
+
+    view.unmount()
+    render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({
+        kind: 'selector',
+        initialChoiceId: 'idle',
+        choices: [
+          { id: 'idle', label: 'Idle', value: 'I', action: key('I') },
+          { id: 'hold', label: 'Hold', value: 'H', action: hold }
+        ]
+      }),
+      onAction: (event) => { events.push(event) }
+    }))
+    hit = screen.getByRole('button', { name: /next choice/i })
+    pointerDown(hit)
+    pointerUp(hit)
+
+    expect(events.map(({ phase, zone }) => `${zone}:${phase}`)).toEqual([
+      'on:trigger',
+      'choice:hold:trigger'
+    ])
+    expect(events.every((event) =>
+      event.action.kind === 'keyboard' && event.action.command.mode === 'hold'
+    )).toBe(true)
+  })
+
   it('auto-repeats a rotary detent only until pointer up', () => {
     vi.useFakeTimers()
     const events: TouchControlActionEvent[] = []

@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
 import type { Dashboard, DashboardElement, DashboardSummary } from '../../../shared/dashboards'
+import type { AlertsConfig } from '../../../shared/alerts'
 import {
   DASHBOARD_AI_CHANNELS,
   type DashboardAiBuildRequest,
@@ -20,6 +21,11 @@ import type { DetailLevel } from '../../../shared/dashboard-nl'
 import { DASHBOARD_BLUEPRINTS, type DashboardArchetype } from '../../../shared/dashboard-blueprints'
 import { OVERLAY_DESIGN_FAMILIES, type OverlayDesignFamily } from '../../../shared/overlays'
 import { CanvasElementVisual } from './dashboard/DashboardCanvasEditor'
+import {
+  TriggerPreviewToggle,
+  useEditorTriggerPreviewPreference
+} from '../components/TriggerPreviewToggle'
+import { useAlertsConfig } from '../lib/alerts-config'
 
 // Warm chrome throughout (Carbon Orange / Amber); green (--accent-success) is
 // reserved for "good" confirmations only, per the dashboard colour rule.
@@ -164,7 +170,8 @@ function archetypeLabel(id: DashboardArchetype): string {
   return ARCHETYPE_OPTIONS.find((o) => o.id === id)?.label ?? id
 }
 
-export default function DashboardBuilderView({ showToast }: AppViewProps): ReactElement {
+export default function DashboardBuilderView({ showToast, language }: AppViewProps): ReactElement {
+  const alertsConfig = useAlertsConfig()
   const [phrase, setPhrase] = useState('')
   const [detail, setDetail] = useState<DetailLevel>('auto')
   const [useLlm, setUseLlm] = useState(true)
@@ -176,6 +183,8 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
   const [family, setFamily] = useState<OverlayDesignFamily | null>(null)
 
   const [adaptiveOn, setAdaptiveOn] = useState(false)
+  const [showTriggerOnlyActive, setShowTriggerOnlyActive] =
+    useEditorTriggerPreviewPreference()
   const [plan, setPlan] = useState<AdaptivePlan | null>(null)
 
   // ── Micro "race moment" layer (anti-flicker state machine) ────────────────
@@ -445,7 +454,18 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
 
           {result?.llmNote && <p style={{ margin: 0, color: AMBER, fontSize: 13 }}>{result.llmNote}</p>}
 
-          <DashboardPreview elements={previewElements} bg={dashboard.bg} />
+          <TriggerPreviewToggle
+            checked={showTriggerOnlyActive}
+            onChange={setShowTriggerOnlyActive}
+            language={language}
+          />
+
+          <DashboardPreview
+            elements={previewElements}
+            bg={dashboard.bg}
+            showTriggerOnlyActive={showTriggerOnlyActive}
+            alertsConfig={alertsConfig}
+          />
 
           {/* ── Adaptive mode ──────────────────────────────────────────── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', borderTop: '1px solid var(--border-subtle)', paddingTop: 'var(--space-4)' }}>
@@ -480,7 +500,17 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
 
 // ─── Preview ───────────────────────────────────────────────────────────────
 
-function DashboardPreview({ elements, bg }: { elements: Array<{ element: DashboardElement; emphasis: Emphasis; moment?: MomentApply }>; bg: string }): ReactElement {
+function DashboardPreview({
+  elements,
+  bg,
+  showTriggerOnlyActive,
+  alertsConfig
+}: {
+  elements: Array<{ element: DashboardElement; emphasis: Emphasis; moment?: MomentApply }>
+  bg: string
+  showTriggerOnlyActive: boolean
+  alertsConfig: AlertsConfig
+}): ReactElement {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(720)
 
@@ -526,7 +556,11 @@ function DashboardPreview({ elements, bg }: { elements: Array<{ element: Dashboa
                 transition: 'transform 200ms ease, opacity 200ms ease, outline-color 200ms ease, box-shadow 200ms ease'
               }}
             >
-              <CanvasElementVisual element={element} />
+              <CanvasElementVisual
+                element={element}
+                showTriggerOnlyActive={showTriggerOnlyActive}
+                alertsConfig={alertsConfig}
+              />
             </div>
           )
         })}

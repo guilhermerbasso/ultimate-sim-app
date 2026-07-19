@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createButtonBoxPanel } from '../../shared/touch-panel'
 import {
   bindTouchActionWindowLifecycle,
+  nextTouchPanelRevision,
   panelFileName,
   publishLiveTouchPanelUpdate,
   touchPanelActionSemanticsChanged
@@ -58,6 +59,15 @@ describe('panelFileName — path-traversal hardening', () => {
     expect(panelFileName('..')).not.toBe('')
   })
 })
+
+describe('touch panel target revisions', () => {
+  it('advances monotonically when multiple saves happen in the same millisecond', () => {
+    expect(nextTouchPanelRevision(undefined, 100)).toBe(100)
+    expect(nextTouchPanelRevision(100, 100)).toBe(101)
+    expect(nextTouchPanelRevision(101, 99)).toBe(102)
+  })
+})
+
 describe('Touch BrowserWindow action lifecycle', () => {
   it('releases its webContents owner on reload/navigation, process loss, destruction, and close', () => {
     const win = new EventEmitter() as EventEmitter & { webContents: EventEmitter & { id: number } }

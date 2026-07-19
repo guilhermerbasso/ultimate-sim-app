@@ -1,187 +1,26 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, ReactElement } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import type { DashboardSummary } from '../../../shared/dashboards'
+import type { AppSettings } from '../../../shared/settings'
 import type { ButtonBoxSummary } from '../../../shared/touch-panel'
 import { STREAMING_CHANNELS, type StreamingAccessMode, type StreamingLayoutKind, type StreamingSelfTestResult, type StreamingStartResult, type StreamingStatus } from '../../../shared/streaming'
+import {
+  addStreamTargetProfile,
+  clearMissingStreamTargetProfiles,
+  deleteStreamTargetProfile,
+  emptyStreamTargetSettings,
+  listUserAddedStreamTargetSources,
+  migrateStreamTargetSettings,
+  moveStreamTargetProfile,
+  renameStreamTargetProfile,
+  resolveStreamTargetProfiles,
+  selectStreamTargetProfile,
+  streamTargetSettingsEqual,
+  type StreamTargetProfile,
+  type StreamTargetSettings
+} from '../../../shared/stream-targets'
 import { tt, type ResolvedLanguage } from '../i18n'
-
-interface StreamTargetOption {
-  kind: StreamingLayoutKind
-  id: string
-  label: string
-  hidden?: boolean
-}
-
-interface StreamTargetComboboxProps {
-  options: StreamTargetOption[]
-  value: string
-  disabled: boolean
-  language?: ResolvedLanguage
-  onChange(value: string): void
-}
-
-function streamTargetValue(option: StreamTargetOption): string {
-  return `${option.kind}:${option.id}`
-}
-
-function StreamTargetCombobox({ options, value, disabled, language, onChange }: StreamTargetComboboxProps): ReactElement {
-  const inputId = useId()
-  const listboxId = `${inputId}-listbox`
-  const rootRef = useRef<HTMLDivElement>(null)
-  const selectedOption = options.find((option) => streamTargetValue(option) === value)
-  const [query, setQuery] = useState(selectedOption?.label ?? '')
-  const [open, setOpen] = useState(false)
-  const [filtering, setFiltering] = useState(false)
-  const [highlight, setHighlight] = useState(0)
-
-  const results = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase()
-    if (!filtering || !normalizedQuery) return options
-    return options.filter((option) => option.label.toLocaleLowerCase().includes(normalizedQuery))
-  }, [filtering, options, query])
-
-  useEffect(() => {
-    setQuery(selectedOption?.label ?? '')
-    setFiltering(false)
-  }, [selectedOption?.label, value])
-
-  useEffect(() => {
-    setHighlight((current) => Math.min(current, Math.max(0, results.length - 1)))
-  }, [results.length])
-
-  useEffect(() => {
-    if (!open || !results[highlight]) return
-    document.getElementById(optionId(highlight))?.scrollIntoView?.({ block: 'nearest' })
-  }, [highlight, open, results])
-
-  function optionId(index: number): string {
-    return `${listboxId}-option-${index}`
-  }
-
-  function restoreSelection(): void {
-    setQuery(selectedOption?.label ?? '')
-    setFiltering(false)
-    setOpen(false)
-  }
-
-  function openList(): void {
-    const selectedIndex = options.findIndex((option) => streamTargetValue(option) === value)
-    setQuery(selectedOption?.label ?? '')
-    setFiltering(false)
-    setHighlight(selectedIndex >= 0 ? selectedIndex : 0)
-    setOpen(true)
-  }
-
-  function selectOption(option: StreamTargetOption): void {
-    onChange(streamTargetValue(option))
-    setQuery(option.label)
-    setFiltering(false)
-    setOpen(false)
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      if (!open) openList()
-      else setHighlight((current) => Math.min(current + 1, Math.max(0, results.length - 1)))
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      if (!open) openList()
-      else setHighlight((current) => Math.max(0, current - 1))
-    } else if (event.key === 'Home' && open) {
-      event.preventDefault()
-      setHighlight(0)
-    } else if (event.key === 'End' && open) {
-      event.preventDefault()
-      setHighlight(Math.max(0, results.length - 1))
-    } else if (event.key === 'Enter' && open) {
-      event.preventDefault()
-      const option = results[highlight]
-      if (option) selectOption(option)
-    } else if (event.key === 'Escape' && open) {
-      event.preventDefault()
-      restoreSelection()
-    } else if (event.key === 'Tab' && open) {
-      restoreSelection()
-    }
-  }
-
-  const activeOptionId = open && results[highlight] ? optionId(highlight) : undefined
-
-  return (
-    <div
-      ref={rootRef}
-      className="designer-field"
-      style={targetComboboxStyle}
-      onBlur={(event) => {
-        const nextFocus = event.relatedTarget
-        if (!nextFocus || !rootRef.current?.contains(nextFocus as Node)) restoreSelection()
-      }}
-    >
-      <label htmlFor={inputId}>{tt(language, 'streaming.target.label')}</label>
-      <input
-        id={inputId}
-        type="search"
-        role="combobox"
-        autoComplete="off"
-        aria-autocomplete="list"
-        aria-expanded={open}
-        aria-controls={listboxId}
-        aria-activedescendant={activeOptionId}
-        aria-label={tt(language, 'streaming.target.search')}
-        value={query}
-        disabled={disabled}
-        placeholder={options.length > 0 ? tt(language, 'streaming.target.search') : tt(language, 'streaming.target.none')}
-        onFocus={(event) => {
-          openList()
-          event.currentTarget.select()
-        }}
-        onChange={(event) => {
-          setQuery(event.target.value)
-          setFiltering(true)
-          setHighlight(0)
-          setOpen(true)
-        }}
-        onKeyDown={handleKeyDown}
-      />
-      {open && !disabled ? (
-        <ul id={listboxId} role="listbox" style={targetListStyle}>
-          {results.length === 0 ? (
-            <li style={targetEmptyStyle}>{tt(language, 'streaming.target.noResults')}</li>
-          ) : results.map((option, index) => {
-            const optionValue = streamTargetValue(option)
-            const selected = optionValue === value
-            const highlighted = index === highlight
-            return (
-              <li
-                id={optionId(index)}
-                key={optionValue}
-                role="option"
-                aria-selected={selected}
-                style={{
-                  ...targetOptionStyle,
-                  ...(highlighted ? targetOptionHighlightStyle : {}),
-                  ...(selected ? targetOptionSelectedStyle : {})
-                }}
-                onMouseEnter={() => setHighlight(index)}
-                onMouseDown={(event) => {
-                  event.preventDefault()
-                  selectOption(option)
-                }}
-                onClick={() => selectOption(option)}
-              >
-                <span>{option.label}{option.hidden ? ` ${tt(language, 'streaming.target.hidden')}` : ''}</span>
-                <small style={targetKindStyle}>
-                  {tt(language, option.kind === 'touch' ? 'streaming.target.touch' : 'streaming.target.dashboard')}
-                </small>
-              </li>
-            )
-          })}
-        </ul>
-      ) : null}
-    </div>
-  )
-}
+import { navigateToView } from '../lib/app-navigation'
 
 function statusAccessMode(status: StreamingStatus): StreamingAccessMode {
   return status.accessMode ?? (status.lanEnabled ? 'lan' : 'local')
@@ -232,52 +71,162 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   const [testResult, setTestResult] = useState<string | null>(null)
   const [dashboards, setDashboards] = useState<DashboardSummary[]>([])
   const [touchPanels, setTouchPanels] = useState<ButtonBoxSummary[]>([])
-  const [selectedTarget, setSelectedTarget] = useState<string>('')
+  const [targetSettings, setTargetSettings] = useState<StreamTargetSettings>(() => emptyStreamTargetSettings())
+  const [targetLoading, setTargetLoading] = useState(true)
+  const [targetSaving, setTargetSaving] = useState(false)
+  const [targetError, setTargetError] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newTargetKind, setNewTargetKind] = useState<StreamingLayoutKind>('dashboard')
+  const [newSourceId, setNewSourceId] = useState('')
+  const [newTargetLabel, setNewTargetLabel] = useState('')
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
+  const [editingLabel, setEditingLabel] = useState('')
 
   const ACCESS_LABELS: Record<StreamingAccessMode, string> = {
     local: tt(language, 'streaming.access.local'),
     lan: tt(language, 'streaming.access.lan'),
     internet: tt(language, 'streaming.access.internet')
   }
+  const targetSources = useMemo(
+    () => listUserAddedStreamTargetSources(dashboards, touchPanels),
+    [dashboards, touchPanels]
+  )
+  const resolvedProfiles = useMemo(
+    () => resolveStreamTargetProfiles(targetSettings, targetSources),
+    [targetSettings, targetSources]
+  )
+  const selectedProfile = resolvedProfiles.find((profile) => profile.id === targetSettings.selectedProfileId) ?? null
+  const missingProfiles = resolvedProfiles.filter((profile) => profile.missing)
+  const newSourceOptions = useMemo(
+    () => targetSources.filter((source) => source.kind === newTargetKind),
+    [newTargetKind, targetSources]
+  )
 
-  async function refreshStatus(): Promise<void> {
-    const nextStatus = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.status)
+  function applyStatus(nextStatus: StreamingStatus): void {
     setStatus(nextStatus)
     setStreamSafe(nextStatus.streamSafe)
     setAccessMode(statusAccessMode(nextStatus))
     setPublicBaseUrl(nextStatus.publicBaseUrl ?? '')
     setAutoTunnel(nextStatus.autoTunnelEnabled)
-    if (nextStatus.running && nextStatus.layoutId) {
-      setSelectedTarget(`${nextStatus.layoutKind ?? 'dashboard'}:${nextStatus.layoutId}`)
+  }
+
+  async function refreshStatus(): Promise<void> {
+    applyStatus(await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.status))
+  }
+
+  async function loadTargetProfiles(): Promise<void> {
+    setTargetLoading(true)
+    setTargetError(null)
+    try {
+      const [dashList, touchList, appSettings, nextStatus] = await Promise.all([
+        window.ipc.invoke<DashboardSummary[]>('app:dash:list'),
+        window.ipc.invoke<ButtonBoxSummary[]>('app:touchpanel:list'),
+        window.ipc.invoke<AppSettings>('app:getSettings'),
+        window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.status).catch(() => null)
+      ])
+      setDashboards(dashList)
+      setTouchPanels(touchList)
+      if (nextStatus) applyStatus(nextStatus)
+      const sources = listUserAddedStreamTargetSources(dashList, touchList)
+      const migrated = migrateStreamTargetSettings(
+        appSettings.streamTargets,
+        sources,
+        nextStatus?.layoutId
+          ? { kind: nextStatus.layoutKind ?? 'dashboard', sourceId: nextStatus.layoutId }
+          : null
+      )
+      setTargetSettings(migrated)
+      if (!streamTargetSettingsEqual(appSettings.streamTargets, migrated)) {
+        const saved = await window.ipc.invoke<AppSettings>('app:setSettings', { streamTargets: migrated })
+        setTargetSettings(saved.streamTargets)
+      }
+    } catch (err) {
+      setTargetError(err instanceof Error ? err.message : tt(language, 'streaming.targets.errorLoad'))
+    } finally {
+      setTargetLoading(false)
     }
   }
 
-  async function refreshTargets(): Promise<void> {
-    const [dashList, touchList, openList] = await Promise.all([
-      window.ipc.invoke<DashboardSummary[]>('app:dash:list').catch(() => [] as DashboardSummary[]),
-      window.ipc.invoke<ButtonBoxSummary[]>('app:touchpanel:list').catch(() => [] as ButtonBoxSummary[]),
-      window.ipc.invoke<Array<{ id: string }>>('app:dash:listOpen').catch(() => [] as Array<{ id: string }>)
-    ])
-    setDashboards(dashList)
-    setTouchPanels(touchList)
-    setSelectedTarget((current) => {
-      if (current) {
-        const [kind, id] = current.split(':', 2)
-        const stillExists = kind === 'touch'
-          ? touchList.some((panel) => panel.id === id)
-          : dashList.some((dash) => dash.id === id)
-        if (stillExists) return current
+  async function persistTargetSettings(next: StreamTargetSettings): Promise<boolean> {
+    if (targetSaving) return false
+    const previous = targetSettings
+    setTargetSaving(true)
+    setTargetError(null)
+    setTargetSettings(next)
+    try {
+      const saved = await window.ipc.invoke<AppSettings>('app:setSettings', { streamTargets: next })
+      setTargetSettings(saved.streamTargets)
+      return true
+    } catch (err) {
+      setTargetSettings(previous)
+      setTargetError(err instanceof Error ? err.message : tt(language, 'streaming.targets.errorSave'))
+      return false
+    } finally {
+      setTargetSaving(false)
+    }
+  }
+
+  function beginCreateTarget(): void {
+    const preferredKind = targetSources.some((source) => source.kind === 'dashboard')
+      ? 'dashboard'
+      : 'touch'
+    const source = targetSources.find((candidate) => candidate.kind === preferredKind) ?? targetSources[0]
+    setNewTargetKind(source?.kind ?? preferredKind)
+    setNewSourceId(source?.id ?? '')
+    setNewTargetLabel(source?.label ?? '')
+    setEditingProfileId(null)
+    setCreateOpen(true)
+  }
+
+  async function createTargetProfile(): Promise<void> {
+    const source = targetSources.find((candidate) =>
+      candidate.kind === newTargetKind && candidate.id === newSourceId
+    )
+    if (!source) {
+      setTargetError(tt(language, 'streaming.targets.sourceRequired'))
+      return
+    }
+    try {
+      const next = addStreamTargetProfile(targetSettings, source, newTargetLabel)
+      if (await persistTargetSettings(next)) {
+        setCreateOpen(false)
+        setNewTargetLabel('')
       }
-      const runningKind = status?.layoutKind ?? 'dashboard'
-      const runningId = status?.layoutId
-      const runningTargetExists = runningKind === 'touch'
-        ? touchList.some((panel) => panel.id === runningId)
-        : dashList.some((dash) => dash.id === runningId)
-      if (runningId && runningTargetExists) return `${runningKind}:${runningId}`
-      const open = openList.find((item) => dashList.some((dash) => dash.id === item.id))
-      const fallback = open?.id ?? dashList.find((dash) => !dash.hidden)?.id ?? dashList[0]?.id
-      return fallback ? `dashboard:${fallback}` : ''
-    })
+    } catch (err) {
+      setTargetError(err instanceof Error ? err.message : tt(language, 'streaming.targets.errorSave'))
+    }
+  }
+
+  function beginRenameTarget(profile: StreamTargetProfile): void {
+    setCreateOpen(false)
+    setEditingProfileId(profile.id)
+    setEditingLabel(profile.label)
+  }
+
+  async function saveRenamedTarget(profileId: string): Promise<void> {
+    try {
+      const next = renameStreamTargetProfile(targetSettings, profileId, editingLabel)
+      if (await persistTargetSettings(next)) setEditingProfileId(null)
+    } catch (err) {
+      setTargetError(err instanceof Error ? err.message : tt(language, 'streaming.targets.errorSave'))
+    }
+  }
+
+  async function removeTargetProfile(profileId: string): Promise<void> {
+    setEditingProfileId((current) => current === profileId ? null : current)
+    await persistTargetSettings(deleteStreamTargetProfile(targetSettings, profileId))
+  }
+
+  async function moveTargetProfile(profileId: string, direction: -1 | 1): Promise<void> {
+    await persistTargetSettings(moveStreamTargetProfile(targetSettings, profileId, direction))
+  }
+
+  async function chooseTargetProfile(profileId: string): Promise<void> {
+    await persistTargetSettings(selectStreamTargetProfile(targetSettings, profileId))
+  }
+
+  async function clearMissingTargets(): Promise<void> {
+    await persistTargetSettings(clearMissingStreamTargetProfiles(targetSettings, targetSources))
   }
 
   async function startStreaming(): Promise<void> {
@@ -286,10 +235,14 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     setCopied(null)
     setTestResult(null)
     try {
-      const [layoutKind, layoutId] = selectedTarget.split(':', 2) as [StreamingLayoutKind | undefined, string | undefined]
+      if (!selectedProfile || selectedProfile.missing) {
+        throw new Error(tt(language, 'streaming.targets.selectAvailable'))
+      }
+      const layoutKind = selectedProfile.kind
+      const layoutId = selectedProfile.sourceId
       await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, {
         streamSafe,
-        layoutKind: layoutKind === 'touch' ? 'touch' : 'dashboard',
+        layoutKind,
         layoutId,
         touchPanelId: layoutKind === 'touch' ? layoutId : undefined,
         accessMode,
@@ -369,9 +322,38 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }
 
   useEffect(() => {
-    void refreshStatus().catch(() => { /* streaming module may be unavailable during startup */ })
-    void refreshTargets().catch(() => undefined)
+    void loadTargetProfiles()
   }, [])
+
+  useEffect(() => {
+    const unsubscribeDashboards = window.ipc.subscribe<DashboardSummary[]>('app:dash:list', setDashboards)
+    const unsubscribeTouchPanels = window.ipc.subscribe<ButtonBoxSummary[]>('app:touchpanel:list', setTouchPanels)
+    const unsubscribeSettings = window.ipc.subscribe<AppSettings>('app:settingsChanged', (settings) => {
+      setTargetSettings(settings.streamTargets)
+    })
+    return () => {
+      unsubscribeDashboards()
+      unsubscribeTouchPanels()
+      unsubscribeSettings()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!status?.running || statusAccessMode(status) !== 'internet' || !status.autoTunnelEnabled) return
+    const timer = setInterval(() => {
+      void refreshStatus().catch(() => undefined)
+    }, 2_000)
+    return () => clearInterval(timer)
+  }, [status?.running, status?.accessMode, status?.autoTunnelEnabled])
+
+  useEffect(() => {
+    if (!createOpen) return
+    const selectedSource = newSourceOptions.find((source) => source.id === newSourceId)
+    if (selectedSource) return
+    const fallback = newSourceOptions[0]
+    setNewSourceId(fallback?.id ?? '')
+    setNewTargetLabel(fallback?.label ?? '')
+  }, [createOpen, newSourceId, newSourceOptions])
 
   const running = Boolean(status?.running)
   const accessDisabled = busy || running
@@ -381,13 +363,8 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   const missingInternetUrl = accessMode === 'internet' &&
     !publicBaseUrl.trim() &&
     (!autoTunnel || !autoTunnelAvailable)
-  const targetOptions = useMemo<StreamTargetOption[]>(() => [
-    ...dashboards.map((dash) => ({ kind: 'dashboard' as const, id: dash.id, label: dash.name, hidden: dash.hidden })),
-    ...touchPanels.map((panel) => ({ kind: 'touch' as const, id: panel.id, label: panel.name, hidden: panel.hidden }))
-  ], [dashboards, touchPanels])
-  const missingTarget = !targetOptions.some((option) => streamTargetValue(option) === selectedTarget)
-  const selectedTouchTarget = selectedTarget.startsWith('touch:')
-  const interactiveTarget = status?.running ? status.interactive : selectedTouchTarget
+  const missingTarget = !selectedProfile || selectedProfile.missing
+  const interactiveTarget = status?.running ? status.interactive : selectedProfile?.kind === 'touch'
 
   return (
     <section className="panel streaming-panel">
@@ -403,17 +380,269 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       </p>
       {error ? <p className="overlay-help" style={{ color: 'var(--accent-danger, #fb7185)' }}>? {error}</p> : null}
       {status?.warning ? <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>? {status.warning}</p> : null}
+      <section aria-labelledby="stream-targets-heading" aria-busy={targetLoading || targetSaving} style={targetManagerStyle}>
+        <div style={targetManagerHeaderStyle}>
+          <div>
+            <h5 id="stream-targets-heading" style={{ margin: 0, color: 'var(--text-primary)' }}>
+              {tt(language, 'streaming.targets.title')}
+            </h5>
+            <p className="overlay-help" style={{ margin: '4px 0 0' }}>
+              {tt(language, 'streaming.targets.help')}
+            </p>
+          </div>
+          <div className="overlay-actions" style={{ margin: 0 }}>
+            {missingProfiles.length > 0 ? (
+              <button
+                className="ghost-action danger"
+                type="button"
+                disabled={running || targetSaving}
+                onClick={() => void clearMissingTargets()}
+              >
+                {tt(language, 'streaming.targets.clearMissing', { count: missingProfiles.length })}
+              </button>
+            ) : null}
+            <button
+              className="ghost-action"
+              type="button"
+              disabled={running || targetLoading || targetSaving || targetSources.length === 0}
+              onClick={beginCreateTarget}
+            >
+              {tt(language, 'streaming.targets.create')}
+            </button>
+          </div>
+        </div>
+
+        {targetError ? (
+          <div role="alert" style={targetErrorStyle}>
+            <span>{targetError}</span>
+            <button className="ghost-action" type="button" disabled={targetLoading} onClick={() => void loadTargetProfiles()}>
+              {tt(language, 'streaming.targets.retry')}
+            </button>
+          </div>
+        ) : null}
+
+        {targetLoading ? (
+          <p role="status" className="overlay-help" style={{ margin: 0 }}>
+            {tt(language, 'streaming.targets.loading')}
+          </p>
+        ) : null}
+
+        {!targetLoading && targetSources.length === 0 ? (
+          <div role="status" style={targetEmptyStyle}>
+            <strong>{tt(language, 'streaming.targets.noSourcesTitle')}</strong>
+            <p className="overlay-help" style={{ margin: 0 }}>{tt(language, 'streaming.targets.noSourcesHelp')}</p>
+            <div className="overlay-actions" style={{ margin: 0 }}>
+              <button className="ghost-action" type="button" onClick={() => navigateToView('dashboards')}>
+                {tt(language, 'streaming.targets.openDashboards')}
+              </button>
+              <button className="ghost-action" type="button" onClick={() => navigateToView('touch-controls')}>
+                {tt(language, 'streaming.targets.openTouch')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {!targetLoading && targetSources.length > 0 && resolvedProfiles.length === 0 ? (
+          <div role="status" style={targetEmptyStyle}>
+            <strong>{tt(language, 'streaming.targets.emptyTitle')}</strong>
+            <p className="overlay-help" style={{ margin: 0 }}>{tt(language, 'streaming.targets.emptyHelp')}</p>
+            <button className="ghost-action" type="button" disabled={running || targetSaving} onClick={beginCreateTarget}>
+              {tt(language, 'streaming.targets.createFirst')}
+            </button>
+          </div>
+        ) : null}
+
+        {resolvedProfiles.length > 0 ? (
+          <ul aria-label={tt(language, 'streaming.targets.listLabel')} style={targetProfileListStyle}>
+            {resolvedProfiles.map((profile, index) => {
+              const selected = profile.id === targetSettings.selectedProfileId
+              const profileDescriptionId = `stream-target-${index}-${profile.id.replace(/[^A-Za-z0-9_-]/g, '-')}-description`
+              return (
+                <li
+                  key={profile.id}
+                  style={{
+                    ...targetProfileStyle,
+                    ...(selected ? targetProfileSelectedStyle : {}),
+                    ...(profile.missing ? targetProfileMissingStyle : {})
+                  }}
+                >
+                  <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+                    {editingProfileId === profile.id ? (
+                      <form
+                        style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          void saveRenamedTarget(profile.id)
+                        }}
+                      >
+                        <label className="designer-field" style={{ flex: '1 1 220px' }}>
+                          {tt(language, 'streaming.targets.displayLabel')}
+                          <input
+                            autoFocus
+                            maxLength={96}
+                            value={editingLabel}
+                            disabled={targetSaving}
+                            onChange={(event) => setEditingLabel(event.currentTarget.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') setEditingProfileId(null)
+                            }}
+                          />
+                        </label>
+                        <button className="ghost-action" type="submit" disabled={targetSaving || !editingLabel.trim()}>
+                          {tt(language, 'streaming.targets.saveRename')}
+                        </button>
+                        <button className="ghost-action" type="button" disabled={targetSaving} onClick={() => setEditingProfileId(null)}>
+                          {tt(language, 'streaming.targets.cancel')}
+                        </button>
+                      </form>
+                    ) : (
+                      <label style={targetProfileLabelStyle}>
+                        <input
+                          type="radio"
+                          name="stream-target-profile"
+                          checked={selected}
+                          disabled={running || targetSaving || profile.missing}
+                          aria-describedby={profileDescriptionId}
+                          onChange={() => void chooseTargetProfile(profile.id)}
+                        />
+                        <span style={{ minWidth: 0 }}>
+                          <strong style={{ display: 'block', color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
+                            {profile.label}
+                          </strong>
+                          <small id={profileDescriptionId} style={targetKindStyle}>
+                            {tt(language, profile.kind === 'touch' ? 'streaming.target.touch' : 'streaming.target.dashboard')}
+                            {' · '}
+                            {profile.missing
+                              ? tt(language, 'streaming.targets.missingSource', { id: profile.sourceId })
+                              : profile.source?.label}
+                          </small>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                  <div role="group" aria-label={tt(language, 'streaming.targets.actionsFor', { label: profile.label })} style={targetProfileActionsStyle}>
+                    <button
+                      className="ghost-action"
+                      type="button"
+                      aria-label={tt(language, 'streaming.targets.moveUpAria', { label: profile.label })}
+                      title={tt(language, 'streaming.targets.moveUp')}
+                      disabled={running || targetSaving || index === 0}
+                      onClick={() => void moveTargetProfile(profile.id, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="ghost-action"
+                      type="button"
+                      aria-label={tt(language, 'streaming.targets.moveDownAria', { label: profile.label })}
+                      title={tt(language, 'streaming.targets.moveDown')}
+                      disabled={running || targetSaving || index === resolvedProfiles.length - 1}
+                      onClick={() => void moveTargetProfile(profile.id, 1)}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      className="ghost-action"
+                      type="button"
+                      disabled={running || targetSaving}
+                      onClick={() => beginRenameTarget(profile)}
+                    >
+                      {tt(language, 'streaming.targets.rename')}
+                    </button>
+                    <button
+                      className="ghost-action danger"
+                      type="button"
+                      disabled={running || targetSaving}
+                      onClick={() => void removeTargetProfile(profile.id)}
+                    >
+                      {profile.missing
+                        ? tt(language, 'streaming.targets.removeMissing')
+                        : tt(language, 'streaming.targets.delete')}
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        ) : null}
+
+        {createOpen ? (
+          <fieldset disabled={running || targetSaving} style={targetCreateStyle}>
+            <legend>{tt(language, 'streaming.targets.createTitle')}</legend>
+            <label className="designer-field">
+              {tt(language, 'streaming.targets.kind')}
+              <select
+                value={newTargetKind}
+                onChange={(event) => {
+                  const kind = event.currentTarget.value as StreamingLayoutKind
+                  const source = targetSources.find((candidate) => candidate.kind === kind)
+                  setNewTargetKind(kind)
+                  setNewSourceId(source?.id ?? '')
+                  setNewTargetLabel(source?.label ?? '')
+                }}
+              >
+                <option value="dashboard">{tt(language, 'streaming.target.dashboard')}</option>
+                <option value="touch">{tt(language, 'streaming.target.touch')}</option>
+              </select>
+            </label>
+            <label className="designer-field">
+              {tt(language, 'streaming.targets.source')}
+              <select
+                value={newSourceId}
+                disabled={newSourceOptions.length === 0}
+                onChange={(event) => {
+                  const source = newSourceOptions.find((candidate) => candidate.id === event.currentTarget.value)
+                  setNewSourceId(event.currentTarget.value)
+                  setNewTargetLabel(source?.label ?? '')
+                }}
+              >
+                {newSourceOptions.length === 0 ? (
+                  <option value="">{tt(language, 'streaming.targets.noSourcesForKind')}</option>
+                ) : newSourceOptions.map((source) => (
+                  <option key={source.id} value={source.id}>{source.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="designer-field">
+              {tt(language, 'streaming.targets.displayLabel')}
+              <input
+                maxLength={96}
+                value={newTargetLabel}
+                placeholder={tt(language, 'streaming.targets.labelPlaceholder')}
+                onChange={(event) => setNewTargetLabel(event.currentTarget.value)}
+              />
+            </label>
+            <div className="overlay-actions" style={{ margin: 0 }}>
+              <button
+                className="primary-action"
+                type="button"
+                disabled={!newSourceId || !newTargetLabel.trim()}
+                onClick={() => void createTargetProfile()}
+              >
+                {tt(language, 'streaming.targets.add')}
+              </button>
+              <button className="ghost-action" type="button" onClick={() => setCreateOpen(false)}>
+                {tt(language, 'streaming.targets.cancel')}
+              </button>
+            </div>
+          </fieldset>
+        ) : null}
+
+        {selectedProfile?.missing ? (
+          <p role="alert" style={targetMissingAlertStyle}>
+            {tt(language, 'streaming.targets.selectedMissing')}
+          </p>
+        ) : null}
+        {running ? (
+          <p className="overlay-help" style={{ margin: 0 }}>
+            {tt(language, 'streaming.targets.lockedWhileRunning')}
+          </p>
+        ) : null}
+      </section>
       <label className="designer-check" style={{ margin: '12px 0' }}>
         <input type="checkbox" checked={streamSafe} disabled={accessDisabled} onChange={(event) => setStreamSafe(event.target.checked)} />
         {tt(language, 'streaming.streamSafe')}
       </label>
-      <StreamTargetCombobox
-        options={targetOptions}
-        value={selectedTarget}
-        disabled={accessDisabled || targetOptions.length === 0}
-        language={language}
-        onChange={setSelectedTarget}
-      />
       <label className="designer-field" style={{ margin: '12px 0' }}>
         {tt(language, 'streaming.networkAccess')}
         <select
@@ -477,7 +706,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
         />
       </label>
       <div className="overlay-actions">
-        <button className="primary-action" disabled={busy || running || missingPassword || missingInternetUrl || missingTarget} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
+        <button className="primary-action" disabled={busy || running || targetLoading || targetSaving || missingPassword || missingInternetUrl || missingTarget} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
         <button className="ghost-action danger" disabled={busy || !running} onClick={() => void stopStreaming()}>{tt(language, 'streaming.stop')}</button>
         <button className="ghost-action" disabled={busy} onClick={() => void refreshStatus()}>{tt(language, 'streaming.refresh')}</button>
       </div>
@@ -544,57 +773,108 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   )
 }
 
-const targetComboboxStyle: CSSProperties = {
-  position: 'relative',
+const targetManagerStyle: CSSProperties = {
   display: 'grid',
-  gap: 6,
-  margin: '12px 0'
-}
-
-const targetListStyle: CSSProperties = {
-  position: 'absolute',
-  zIndex: 20,
-  top: '100%',
-  left: 0,
-  right: 0,
-  maxHeight: 240,
-  overflowY: 'auto',
-  margin: '4px 0 0',
-  padding: 4,
-  listStyle: 'none',
+  gap: 12,
+  margin: '16px 0',
+  padding: 14,
   border: '1px solid var(--border-default)',
-  borderRadius: 10,
-  background: 'var(--surface-base)',
-  boxShadow: '0 14px 32px rgba(0, 0, 0, 0.35)'
+  borderRadius: 'var(--radius-md, 12px)',
+  background: 'var(--surface-sunken, rgba(0, 0, 0, 0.18))'
 }
 
-const targetOptionStyle: CSSProperties = {
+const targetManagerHeaderStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 12,
+  flexWrap: 'wrap'
+}
+
+const targetErrorStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
+  gap: 10,
+  flexWrap: 'wrap',
+  padding: 10,
+  border: '1px solid color-mix(in srgb, var(--accent-danger, #fb7185) 50%, transparent)',
+  borderRadius: 8,
+  color: 'var(--accent-danger, #fb7185)'
+}
+
+const targetEmptyStyle: CSSProperties = {
+  display: 'grid',
+  gap: 8,
+  padding: 12,
+  border: '1px dashed var(--border-default)',
+  borderRadius: 8,
+  color: 'var(--text-muted)'
+}
+
+const targetProfileListStyle: CSSProperties = {
+  display: 'grid',
+  gap: 8,
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+}
+
+const targetProfileStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
+  alignItems: 'center',
   gap: 12,
-  padding: '8px 10px',
-  borderRadius: 7,
-  color: 'var(--text-primary)',
+  padding: 10,
+  border: '1px solid var(--border-default)',
+  borderRadius: 9,
+  background: 'var(--surface-base)'
+}
+
+const targetProfileSelectedStyle: CSSProperties = {
+  borderColor: 'var(--accent-primary, #76f7bd)',
+  boxShadow: '0 0 0 1px color-mix(in srgb, var(--accent-primary, #76f7bd) 35%, transparent)'
+}
+
+const targetProfileMissingStyle: CSSProperties = {
+  borderColor: 'var(--accent-danger, #fb7185)'
+}
+
+const targetProfileLabelStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
   cursor: 'pointer'
 }
 
-const targetOptionHighlightStyle: CSSProperties = {
-  background: 'var(--surface-raised, rgba(255, 255, 255, 0.08))'
-}
-
-const targetOptionSelectedStyle: CSSProperties = {
-  color: 'var(--accent-primary, #76f7bd)',
-  fontWeight: 700
+const targetProfileActionsStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  gap: 6,
+  flexWrap: 'wrap'
 }
 
 const targetKindStyle: CSSProperties = {
   color: 'var(--text-muted)',
   fontWeight: 500,
-  whiteSpace: 'nowrap'
+  overflowWrap: 'anywhere'
 }
 
-const targetEmptyStyle: CSSProperties = {
-  padding: '10px',
-  color: 'var(--text-muted)'
+const targetCreateStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 10,
+  margin: 0,
+  padding: 12,
+  border: '1px solid var(--border-default)',
+  borderRadius: 9
+}
+
+const targetMissingAlertStyle: CSSProperties = {
+  margin: 0,
+  padding: 10,
+  borderRadius: 8,
+  color: 'var(--accent-danger, #fb7185)',
+  background: 'color-mix(in srgb, var(--accent-danger, #fb7185) 10%, transparent)'
 }

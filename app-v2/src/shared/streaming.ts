@@ -17,6 +17,7 @@ export interface StreamingStartArgs {
   streamSafe?: boolean
   layoutId?: string
   layoutKind?: StreamingLayoutKind
+  presentationProfileId?: string
   port?: number
   lanEnabled?: boolean
   accessMode?: StreamingAccessMode
@@ -119,6 +120,7 @@ export interface StreamingStartResult {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  presentationProfileId: string | null
 }
 
 export interface StreamingSelfTestResult {
@@ -138,6 +140,7 @@ export type StreamingSelfTestStage =
   | 'ping'
   | 'authentication'
   | 'target'
+  | 'receiver'
   | 'sse'
   | 'complete'
 
@@ -176,6 +179,7 @@ export interface StreamingStatus {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  presentationProfileId: string | null
   interactive: boolean
   interactionHealth: StreamingTouchHealth
   interactiveCapabilities: number
