@@ -84,6 +84,45 @@ offline race-operation rehearsal.
 - 🧱 Canonical imports enforce an exact 8 MiB limit with bounded single-handle reads and reject
   prototype-sensitive paths or JSON keys before parsing can affect the workspace.
 
+### Zero-egress Social Connector simulations
+- 💬 **Exercise Twitch, YouTube, and Discord workflows deterministically without contacting platform
+  services**, including chat, events, polls, moderation, markers, clips, broadcasts, commands, and
+  room policies.
+- 🚫 These are local mock/conformance connectors only: they accept no live credentials, make zero
+  live network requests, claim no platform certification, and are not production network adapters.
+- 🔐 Capability-specific payload allowlists, provider-aware credential key/value scans, approval and
+  room-policy gates, monotonic consent epochs, replay protection, cross-capability deduplication,
+  and sanitized audit receipts keep simulated workflows fail closed and reproducible.
+- 📦 Fixture bodies, signatures, sanitized JSON depth/count/size, policy allowlists, and exported
+  status snapshots are bounded and validated before simulation.
+
+### Fail-closed Rig Preflight certification
+- ✅ **See a clear pre-session readiness decision from desired-versus-observed hardware and runtime
+  evidence**, with actionable remediation, governed waivers, known-good drift, and expiring
+  certificates instead of an assumed-safe rig.
+- ⏱️ Certification is bounded by the earliest required evidence deadline, while a main-process
+  watchdog can revoke readiness even when renderer evidence collection is blocked or stale.
+- 🔌 Hardware certification requires stable observed USB VID/PID/serial identity; mutable COM paths
+  and runtime IDs cannot certify a device. Audited Arduino replacement invalidates active
+  certification before rebinding, and ESP32 identities are canonicalized collision-safely.
+- 💾 State transactions serialize through an explicit durable commit point. Interrupted
+  `.previous`/`.next` replacement files recover or quarantine fail closed, distinguishing
+  pre-commit rollback from post-commit cleanup warnings.
+- 🧹 **Generated drift exclusion:** pre-existing generated touch-panel snapshots and visual-audit
+  working-tree drift are explicitly outside the Rig Preflight change set and this release-doc
+  update.
+
+### Durable replay, recording, and debrief persistence
+- 💾 **Completed recordings and final `session.json` metadata are written atomically**, with bounded
+  retryable finalization retained after transient storage failures instead of being silently lost.
+- 🔁 Cancellable exponential-backoff retries cover recorder metadata, track sidecars, and pace-model
+  persistence across live, suspended, disconnected, context-transition, and shutdown paths.
+- 📉 Repeated sample-write failures are capped, appends pause safely, and dropped-sample counts remain
+  visible; newer learned pace payloads drain after earlier in-flight writes finish.
+- 🗣️ Persisted Stint Debriefs validate, migrate, reload, and speak in their recorded language, while
+  Coach/Engineer evidence stays scoped to the ended car, track, layout, session type, canonical
+  identity, and track condition.
+
 ### Evidence-safe Steward Desk
 - ⚖️ **League incident review remains explicitly human-owned** through versioned rules, verdicts,
   dissent, appeals, and authoritative local re-adjudication; the app never assigns penalties
@@ -150,10 +189,16 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   reconnects without changing the first pending deadline or legitimate backoff.
 - [#91](https://github.com/guilhermerbasso/ultimate-sim-app/pull/91) — add signed, deterministic
   offline workspace collaboration with transactional and import-boundary safeguards.
+- [#93](https://github.com/guilhermerbasso/ultimate-sim-app/pull/93) — add deterministic,
+  zero-egress Social Connector simulations that are explicitly not production platform adapters.
 - [#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94) — add authenticated,
   lease-bound interactive Touch Controls with fail-closed ownership and teardown.
 - [#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95) — add the local, evidence-safe
   Steward Desk with human-owned verdicts, appeals, privacy, and rights gates.
+- [#96](https://github.com/guilhermerbasso/ultimate-sim-app/pull/96) — add fail-closed Rig Preflight
+  certification with evidence freshness, stable hardware identity, and atomic persistence.
+- [#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97) — make recording, sidecar,
+  pace-model, and language-aware debrief persistence retryable and shutdown-safe.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 

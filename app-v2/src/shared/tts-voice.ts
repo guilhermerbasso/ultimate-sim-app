@@ -8,10 +8,47 @@ import {
 } from './spotter'
 
 export type SpeechLanguage = SpotterLang
+export type AccessibilitySpeechLocale =
+  | 'en-US'
+  | 'pt-BR'
+  | 'es-ES'
+  | 'fr-FR'
+  | 'de-DE'
+  | 'zh-CN'
+  | 'ja-JP'
 
 export const DEFAULT_PIPER_VOICE_BY_LANGUAGE: Readonly<Record<SpeechLanguage, string>> = {
   'pt-BR': 'pt_BR-faber-medium',
   'en-US': 'en_US-lessac-medium'
+}
+
+export function accessibilitySpeechLocale(
+  language: string | null | undefined
+): AccessibilitySpeechLocale {
+  const normalized = (language ?? '').trim().toLowerCase().replace('_', '-')
+  if (normalized === 'pt' || normalized.startsWith('pt-')) return 'pt-BR'
+  if (normalized === 'es' || normalized.startsWith('es-')) return 'es-ES'
+  if (normalized === 'fr' || normalized.startsWith('fr-')) return 'fr-FR'
+  if (normalized === 'de' || normalized.startsWith('de-')) return 'de-DE'
+  if (normalized === 'zh' || normalized.startsWith('zh-')) return 'zh-CN'
+  if (normalized === 'ja' || normalized.startsWith('ja-')) return 'ja-JP'
+  return 'en-US'
+}
+
+export function piperLanguageForAccessibilityLocale(
+  locale: AccessibilitySpeechLocale
+): SpeechLanguage | null {
+  return locale === 'en-US' || locale === 'pt-BR' ? locale : null
+}
+
+export function voiceMatchesAccessibilityLocale(
+  actualLanguage: string | null | undefined,
+  locale: AccessibilitySpeechLocale
+): boolean {
+  const actual = (actualLanguage ?? '').trim().toLowerCase().replace('_', '-')
+  const target = locale.toLowerCase()
+  if (actual === target) return true
+  return actual.slice(0, 2) === target.slice(0, 2)
 }
 
 export function normalizeSpeechLanguage(

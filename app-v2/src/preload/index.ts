@@ -78,6 +78,7 @@ const ALLOWED_PREFIXES = [
   'fuel:',
   'lap:',
   'alerts:',
+  'accessibilityCues:',
   'recording:',
   'actions:',
   'expr:',
