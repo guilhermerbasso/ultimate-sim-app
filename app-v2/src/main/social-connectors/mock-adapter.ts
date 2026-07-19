@@ -1095,7 +1095,11 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     }
     if (
       runtimeIntent.schema !== SOCIAL_CONNECTOR_SCHEMA ||
-      runtimeIntent.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
+      runtimeIntent.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION
+    ) {
+      return this.#actionDenied(baseReceipt, 'validation.malformed_intent')
+    }
+    if (
       runtimeIntent.provider !== this.manifest.provider ||
       !capability ||
       capability.direction !== 'egress' ||

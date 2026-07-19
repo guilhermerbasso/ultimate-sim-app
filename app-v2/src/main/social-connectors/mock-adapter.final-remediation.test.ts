@@ -878,6 +878,26 @@ describe('malformed untrusted adapter inputs', () => {
     expect(invalidIdempotency.reasonCode).toBe('validation.malformed_intent')
   })
 
+  it.each([
+    ['schema', { schema: 'invalid.social.intent' }],
+    ['contract version', { contractVersion: '999.0.0' }]
+  ] as const)('classifies invalid intent %s as malformed', (_label, patch) => {
+    const target = connector('twitch')
+    expect(
+      target.execute(
+        {
+          ...action('twitch', 'twitch.marker.create', { marker: 'safe' }, 'invalid-contract'),
+          ...patch
+        } as unknown as SocialActionIntentV1,
+        OPERATOR
+      )
+    ).toMatchObject({
+      outcome: 'denied',
+      reasonCode: 'validation.malformed_intent',
+      receipt: { decision: 'denied' }
+    })
+  })
+
   it('rejects undocumented credential-bearing envelope fields without leakage', () => {
     const twitch = connector('twitch')
     const intentResult = twitch.execute(
