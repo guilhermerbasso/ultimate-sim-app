@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   findSavedSerialBinding,
   profileCanMigrateWithSerialIdentity,
+  replacementRemovalSelector,
   resolveConnectedSerialIdentityMigration
 } from './identity-migration'
 
@@ -300,5 +301,20 @@ describe('connected serial identity migration', () => {
         serialNumber: 'NEW-DEVICE'
       }
     )).toBeUndefined()
+  })
+
+  it('removes replaced bindings with a selector that cannot delete the new record', () => {
+    expect(replacementRemovalSelector(
+      saved,
+      { id: 'new-runtime-id', path: 'COM7' }
+    )).toEqual({ id: 'iflag' })
+    expect(replacementRemovalSelector(
+      { path: 'COM7' },
+      { id: 'new-runtime-id', path: 'COM11' }
+    )).toEqual({ path: 'COM7' })
+    expect(replacementRemovalSelector(
+      saved,
+      { id: 'iflag', path: 'COM11' }
+    )).toBeNull()
   })
 })

@@ -298,7 +298,7 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
         RIG_PREFLIGHT_CHANNELS.waive,
         {
           checkId: waiverCheckId,
-          reason: waiverReason,
+          reason: waiverReason.trim(),
           owner: draft?.owner || state?.profile.owner || 'Rig owner',
           expiresAt: Date.now() + waiverHours * 60 * 60_000
         }

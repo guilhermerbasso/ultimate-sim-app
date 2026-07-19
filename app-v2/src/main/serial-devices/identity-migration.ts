@@ -70,6 +70,19 @@ export function findSavedSerialBinding(
     configured.find((saved) => saved.path === port.path)
 }
 
+export function replacementRemovalSelector(
+  replaced: SavedSerialIdentity,
+  replacement: SerialIdentityMigrationRecord
+): { id?: string; path?: string } | null {
+  if (replaced.id && replaced.id !== replacement.id) {
+    return { id: replaced.id }
+  }
+  if (!replaced.id && replaced.path !== replacement.path) {
+    return { path: replaced.path }
+  }
+  return null
+}
+
 function serial(value: unknown): string | undefined {
   return cleanText(value)
 }

@@ -64,6 +64,7 @@ import {
 import { SerialDevicesStore, getSerialDevicesStore } from '../serial-devices/store'
 import {
   findSavedSerialBinding,
+  replacementRemovalSelector,
   resolveConnectedSerialIdentityMigration,
   type SavedSerialIdentity,
   type SerialIdentityMigrationRecord
@@ -541,15 +542,9 @@ class ArduinoSetup {
       baud: COMPANION_BAUD,
       autoConnect: true
     })
-    if (
-      replaced &&
-      replaced.id !== identity.id &&
-      replaced.path !== identity.path
-    ) {
-      await this.serialDevicesStore.remove({
-        id: replaced.id,
-        path: replaced.path
-      })
+    if (replaced) {
+      const selector = replacementRemovalSelector(replaced, identity)
+      if (selector) await this.serialDevicesStore.remove(selector)
     }
   }
 
