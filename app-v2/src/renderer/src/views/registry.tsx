@@ -2,6 +2,7 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import type { AppViewProps } from '../App'
 
 const AlertsView = lazy(() => import('./AlertsView'))
+const ContextDebtView = lazy(() => import('./ContextDebtView'))
 const AboutView = lazy(() => import('./AboutView'))
 const ArduinosView = lazy(() => import('./ArduinosView'))
 const ControlsView = lazy(() => import('./ControlsView'))
@@ -36,6 +37,8 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const StoryEngineView = lazy(() => import('./StoryEngineView'))
+const StreamingMobileEditorView = lazy(() => import('./StreamingMobileEditorView'))
 const MissionRehearsalView = lazy(() => import('./MissionRehearsalView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
@@ -56,12 +59,15 @@ export const viewRegistry: ViewDef[] = [
   { id: 'dashboards', group: 'Sim Racing', label: 'Dashboards', eyebrow: 'Monitor', description: 'Windows on displays 1/2, .simhubdash import, and basic builder.', shortcut: 'T0', Component: DashboardsView },
   { id: 'streaming', group: 'Sim Racing', label: 'Streaming', eyebrow: 'Broadcast', description: 'Named read-only dashboard and touch-panel targets for OBS, phones, and tablets.', shortcut: 'TW', Component: StreamingView },
   { id: 'touch-controls', group: 'Sim Racing', label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.', shortcut: 'TT', Component: TouchControlsView },
+  { id: 'streaming-mobile-editor', group: 'Streaming', label: 'Mobile Stream Editor', eyebrow: 'Device preview', description: 'Non-destructive phone and tablet presentation profiles for saved dashboards and Touch Controls.', shortcut: 'TO', Component: StreamingMobileEditorView },
   { id: 'oled-dash', group: 'Sim Racing', label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets on the OLED.', shortcut: 'T2', Component: OledDashboardView },
   { id: 'overlays', group: 'Sim Racing', label: 'Overlays', eyebrow: 'Screen', description: 'Transparent overlays over the game.', shortcut: 'T3', Component: OverlaysView },
   { id: 'fuel', group: 'Sim Racing', label: 'Fuel', eyebrow: 'Strategy', description: 'Fuel calculation and strategy.', shortcut: 'T4', Component: FuelStrategyView },
   { id: 'tire', group: 'Sim Racing', label: 'Tires', eyebrow: 'Strategy', description: 'Tire wear, per-lap rate, and pit window.', shortcut: 'TC', Component: TireStrategyView },
   { id: 'search', group: 'Sim Racing', label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search across setups, ghosts, notes, and findings; keyword fallback.', shortcut: 'TS', Component: SemanticSearchView },
   { id: 'alerts', group: 'Sim Racing', label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, shifting.', shortcut: 'T7', Component: AlertsView },
+  { id: 'story-engine', group: 'Sim Racing', label: 'Story Engine', eyebrow: 'Post-race', description: 'Evidence-linked local story cards with destination previews and mandatory human approval.', shortcut: 'TY', Component: StoryEngineView },
+  { id: 'context-debt', group: 'Sim Racing', label: 'Context-Debt Meter', eyebrow: 'SP-07 · N=0', description: 'Local pre-race audit of competing cues, routes, devices, and controls.', shortcut: 'TQ', Component: ContextDebtView },
   { id: 'expr', group: 'Sim Racing', label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.', shortcut: 'T8', Component: ExpressionsView },
   { id: 'race-profiles', group: 'Sim Racing', label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Profiles by car/track with auto-switching.', shortcut: 'T9', Component: RaceProfilesView },
   { id: 'sounds', group: 'Sim Racing', label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift (shift beep), Incident, ABS, and TCS.', shortcut: 'TA', Component: SoundsView },

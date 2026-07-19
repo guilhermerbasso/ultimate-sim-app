@@ -1,0 +1,368 @@
+asyncapi: 3.0.0
+info:
+  title: Ultimate Sim App local MQTT target
+  version: 1.0.0
+  description: >-
+    Loopback-only MQTT 5 edge contract. CloudEvents 1.0 JSON envelopes carry
+    versioned payloads; the app remains authoritative and broker-independent.
+servers:
+  publisherIpv4:
+    host: 127.0.0.1:1883
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: App publisher listener over IPv4 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  publisherIpv6:
+    host: '[::1]:1883'
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: App publisher listener over IPv6 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  readerIpv4:
+    host: 127.0.0.1:1884
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: Read-only local integration listener over IPv4 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  readerIpv6:
+    host: '[::1]:1884'
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: Read-only local integration listener over IPv6 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  commandIpv4:
+    host: 127.0.0.1:1885
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: Default-off allowlisted command listener over IPv4 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  commandIpv6:
+    host: '[::1]:1885'
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: Default-off allowlisted command listener over IPv6 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+channels:
+  availability:
+    address: ultimate-sim/v1/{instanceId}/availability
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+    messages:
+      availability:
+        $ref: '#/components/messages/availability'
+  telemetry:
+    address: ultimate-sim/v1/{instanceId}/state/telemetry
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+    messages:
+      telemetry:
+        $ref: '#/components/messages/telemetry'
+  session:
+    address: ultimate-sim/v1/{instanceId}/state/session
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+    messages:
+      session:
+        $ref: '#/components/messages/session'
+  event:
+    address: ultimate-sim/v1/{instanceId}/event/{eventType}
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+      eventType:
+        $ref: '#/components/parameters/eventType'
+    messages:
+      event:
+        $ref: '#/components/messages/event'
+  health:
+    address: ultimate-sim/v1/{instanceId}/health
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+    messages:
+      health:
+        $ref: '#/components/messages/health'
+  announcement:
+    address: ultimate-sim/v1/{instanceId}/schema/announcement
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+    messages:
+      announcement:
+        $ref: '#/components/messages/announcement'
+  command:
+    address: ultimate-sim/v1/{instanceId}/command/{capability}
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+      capability:
+        $ref: '#/components/parameters/capability'
+    messages:
+      command:
+        $ref: '#/components/messages/command'
+  result:
+    address: ultimate-sim/v1/{instanceId}/result/{requestId}
+    parameters:
+      instanceId:
+        $ref: '#/components/parameters/instanceId'
+      requestId:
+        $ref: '#/components/parameters/requestId'
+    messages:
+      result:
+        $ref: '#/components/messages/result'
+operations:
+  publishAvailability:
+    action: send
+    channel:
+      $ref: '#/channels/availability'
+  publishTelemetry:
+    action: send
+    channel:
+      $ref: '#/channels/telemetry'
+  publishSession:
+    action: send
+    channel:
+      $ref: '#/channels/session'
+  publishEvent:
+    action: send
+    channel:
+      $ref: '#/channels/event'
+  publishHealth:
+    action: send
+    channel:
+      $ref: '#/channels/health'
+  publishAnnouncement:
+    action: send
+    channel:
+      $ref: '#/channels/announcement'
+  receiveCommand:
+    action: receive
+    channel:
+      $ref: '#/channels/command'
+  publishResult:
+    action: send
+    channel:
+      $ref: '#/channels/result'
+components:
+  securitySchemes:
+    localRolePassword:
+      type: userPassword
+      description: >-
+        App-generated local role access. Password files use PBKDF2-HMAC-SHA512
+        with 210,000 iterations. Publisher access is OS-protected; client role
+        files stay in the owner-local runtime bundle. No secret appears in MQTT
+        payloads or app settings.
+  parameters:
+    instanceId:
+      description: Local app instance identifier.
+    eventType:
+      enum: [flag, pit, warning, disconnect, session]
+    capability:
+      enum: [app.overlay.show, app.overlay.hide]
+    requestId:
+      description: Idempotency key supplied by the command client.
+  messageTraits:
+    qos0:
+      bindings:
+        mqtt:
+          qos: 0
+          retain: false
+          bindingVersion: 0.2.0
+    qos1:
+      bindings:
+        mqtt:
+          qos: 1
+          retain: false
+          bindingVersion: 0.2.0
+    retainedQos1:
+      bindings:
+        mqtt:
+          qos: 1
+          retain: true
+          bindingVersion: 0.2.0
+  schemas:
+    cloudEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - specversion
+        - id
+        - source
+        - type
+        - time
+        - datacontenttype
+        - dataschema
+        - sequence
+        - sourcetick
+        - monotonicns
+        - sessionid
+        - producerid
+        - schemafp
+        - correlationid
+        - causationid
+        - privacyclass
+        - rolepolicyid
+        - capgrantid
+        - consentepoch
+        - approvalid
+        - partitionkey
+        - partitionseq
+        - stale
+        - derived
+        - gap
+        - data
+      properties:
+        specversion:
+          const: '1.0'
+        id:
+          type: string
+        source:
+          type: string
+        type:
+          type: string
+        subject:
+          type: string
+        time:
+          type: string
+          format: date-time
+        datacontenttype:
+          const: application/json
+        dataschema:
+          type: string
+        sequence:
+          type: string
+        sourcetick:
+          type: string
+        monotonicns:
+          type: string
+        sessionid:
+          type: string
+        producerid:
+          const: ultimate-sim.mqtt-target.v1
+        schemafp:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        correlationid:
+          type: string
+        causationid:
+          type: string
+        privacyclass:
+          enum: [D0, D1, D2, D3, D4, D5]
+        rolepolicyid:
+          const: mqtt.local.connector.v1
+        capgrantid:
+          type: string
+        consentepoch:
+          type: string
+        approvalid:
+          type: string
+        partitionkey:
+          type: string
+        partitionseq:
+          type: string
+        stale:
+          type: boolean
+        derived:
+          type: boolean
+        gap:
+          type: boolean
+        data:
+          type: object
+  messages:
+    availability:
+      name: availabilityV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/retainedQos1'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/availability.schema.json'
+    telemetry:
+      name: telemetryStateV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/qos0'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/telemetry-state.schema.json'
+    session:
+      name: sessionStateV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/retainedQos1'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/session-state.schema.json'
+    event:
+      name: raceEventV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/qos1'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/race-event.schema.json'
+    health:
+      name: connectorHealthV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/retainedQos1'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/connector-health.schema.json'
+    announcement:
+      name: schemaAnnouncementV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/retainedQos1'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/schema-announcement.schema.json'
+    command:
+      name: commandRequestV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/qos1'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/command-request.schema.json'
+    result:
+      name: commandResultV1
+      contentType: application/cloudevents+json
+      traits:
+        - $ref: '#/components/messageTraits/qos1'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/cloudEvent'
+          - properties:
+              data:
+                $ref: './schemas/command-result.schema.json'

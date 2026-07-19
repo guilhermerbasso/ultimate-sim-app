@@ -42,6 +42,31 @@ describe('RevLedBar', () => {
     expect(markup).not.toContain(SHIFT_STROBE_BLUE)
   })
 
+  it('uses provider shift state before the percentage fallback', () => {
+    const providerOff = render({
+      pct: 0.999,
+      segments: 8,
+      redlineFlash: true,
+      shiftActive: false
+    })
+    expect(providerOff).toContain('data-rev-shift="normal"')
+    expect(providerOff).not.toContain('repeatCount="indefinite"')
+    expect(providerOff).not.toContain(SHIFT_STROBE_BLUE)
+
+    const providerOn = render({
+      pct: 0.2,
+      segments: 8,
+      redlineFlash: true,
+      shiftActive: true
+    })
+    expect(providerOn).toContain('data-rev-shift="strobe"')
+    expect(providerOn).toContain('repeatCount="indefinite"')
+    expect((providerOn.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length).toBeGreaterThanOrEqual(8)
+
+    expect(render({ pct: 0.999, segments: 8, redlineFlash: true }))
+      .toContain('data-rev-shift="strobe"')
+  })
+
   it('renders cleanly (no NaN/undefined) at null/extreme values', () => {
     for (const pct of [Number.NaN, -5, 0, 1, 99, Infinity]) {
       const markup = render({ pct: pct as number, segments: 15 })

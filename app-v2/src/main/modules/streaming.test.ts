@@ -5,11 +5,15 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE, type StreamingSelfTestResult, type StreamingStartArgs, type StreamingStartResult, type StreamingStatus } from '../../shared/streaming'
+import { createStreamPresentationProfile } from '../../shared/stream-presentation'
 import type { ModuleContext } from '../module-context'
 
 const managerState = vi.hoisted(() => ({
   requestedDashboards: [] as string[],
   requestedPanels: [] as string[]
+}))
+const presentationState = vi.hoisted(() => ({
+  item: null as unknown
 }))
 
 vi.mock('./dashboards', () => ({
@@ -42,6 +46,10 @@ vi.mock('../touchpanel/manager', () => ({
       return id === 'pit' ? { id, name: 'Pit panel', buttons: [] } : null
     }
   })
+}))
+
+vi.mock('./stream-presentation', () => ({
+  getStreamPresentationProfileForRuntime: async () => presentationState.item
 }))
 
 import {
@@ -231,6 +239,7 @@ describe('streaming authenticated server', () => {
     process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = resolve(fixtureRoot, 'stream-renderer')
     managerState.requestedDashboards.length = 0
     managerState.requestedPanels.length = 0
+    presentationState.item = null
   })
 
   afterEach(async () => {
@@ -307,6 +316,92 @@ describe('streaming authenticated server', () => {
 
     const queryTokenWithoutCookie = await httpRequest(`${entryUrl}?token=${encodeURIComponent(started.token)}`)
     expect(queryTokenWithoutCookie.statusCode).toBe(403)
+  })
+
+  it('streams a current presentation profile and exposes only its selected runtime payload', async () => {
+    const profile = createStreamPresentationProfile({
+      kind: 'dashboard',
+      id: 'race',
+      name: 'Race dashboard',
+      revision: 'dashboard:race:1',
+      width: 1024,
+      height: 600,
+      itemCount: 1,
+      hidden: false
+    }, {
+      id: 'stream-profile-race',
+      presetId: 'iphone-15-pro',
+      now: 10
+    })
+    presentationState.item = {
+      profile,
+      target: {
+        kind: 'dashboard',
+        id: 'race',
+        name: 'Race dashboard',
+        revision: profile.target.revision,
+        width: 1024,
+        height: 600,
+        itemCount: 1,
+        hidden: false
+      },
+      targetState: 'current'
+    }
+    ctx = fakeContext()
+    register(ctx)
+
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      presentationProfileId: profile.id
+    })
+    const documentUrl = localDocumentUrl(started)
+    const parsedUrl = new URL(documentUrl)
+    const document = await httpRequest(documentUrl)
+    const cookie = sessionCookie(document)
+    const baseUrl = new URL('../', documentUrl)
+    const presentation = await httpRequest(
+      new URL(`api/presentation/${profile.id}`, baseUrl).toString(),
+      { headers: { Cookie: cookie } }
+    )
+    const dashboard = await httpRequest(
+      new URL('api/dashboard/race', baseUrl).toString(),
+      { headers: { Cookie: cookie } }
+    )
+    const status = await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)
+
+    expect(parsedUrl.searchParams.get('profile')).toBe(profile.id)
+    expect(parsedUrl.searchParams.get('dash')).toBe('race')
+    expect(started.presentationProfileId).toBe(profile.id)
+    expect(status.presentationProfileId).toBe(profile.id)
+    expect(presentation.statusCode).toBe(200)
+    expect(JSON.parse(presentation.body)).toEqual(profile)
+    expect(dashboard.statusCode).toBe(200)
+  })
+
+  it('blocks stale presentation profiles before opening a stream', async () => {
+    const profile = createStreamPresentationProfile({
+      kind: 'dashboard',
+      id: 'race',
+      name: 'Race dashboard',
+      revision: 'dashboard:race:1',
+      width: 1024,
+      height: 600,
+      itemCount: 1,
+      hidden: false
+    }, {
+      id: 'stream-profile-race',
+      now: 10
+    })
+    presentationState.item = {
+      profile,
+      target: { kind: 'dashboard', id: 'race', name: 'Race dashboard', revision: 'dashboard:race:2', itemCount: 1, hidden: false },
+      targetState: 'stale'
+    }
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      presentationProfileId: profile.id
+    })).rejects.toThrow(/target changed/i)
   })
 
   it('preserves a manual HTTPS path prefix and scopes a Secure internet cookie to it', async () => {
@@ -464,6 +559,7 @@ describe('streaming authenticated server', () => {
     expect(authenticated.statusCode).toBe(200)
     cookie = sessionCookie(authenticated)
     expect(await webSocketUpgradeStatus(new URL('ws', baseUrl).toString(), cookie, 'http://sibling.example.test')).toBe(403)
+    expect(await webSocketUpgradeStatus(new URL('ws', baseUrl).toString(), cookie)).toBe(101)
 
     for (let index = 0; index < 12; index += 1) {
       const ping = await httpRequest(new URL('ping', baseUrl).toString(), { headers: { Cookie: cookie } })

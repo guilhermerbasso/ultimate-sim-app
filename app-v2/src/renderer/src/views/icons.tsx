@@ -53,6 +53,13 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M13 13l4 1.5-1.7.8 1.4 2.4-1.4.8-1.4-2.4-1.2 1.4z" fill="currentColor" stroke="none" />
     </Svg>
   ),
+  'streaming-mobile-editor': () => (
+    <Svg>
+      <rect x="6" y="2.5" width="10" height="17" rx="2.2" />
+      <path d="M8.5 6h5M8.5 9h5M8.5 12h3" />
+      <path d="M3 7.5v-3h3M19 14.5v3h-3" />
+    </Svg>
+  ),
   'oled-dash': () => (
     <Svg>
       {/* wide OLED panel with data lines + vertical readout */}
@@ -109,6 +116,23 @@ const iconMap: Record<string, () => ReactElement> = {
       {/* bell body + clapper dome */}
       <path d="M4 17v-7a7 7 0 0 1 14 0v7H4z" />
       <path d="M9 17v1a2 2 0 0 0 4 0v-1" />
+    </Svg>
+  ),
+  'story-engine': () => (
+    <Svg>
+      <rect x="3" y="4" width="16" height="14" rx="2" />
+      <path d="M7 8h8M7 11h6M7 14h4" />
+      <path d="M16 13l1 1 2-3" />
+    </Svg>
+  ),
+  'context-debt': () => (
+    <Svg>
+      {/* signal loom: shared source rail feeding three cue modalities */}
+      <path d="M3 11h7M10 5v12M10 6h5M10 11h7M10 16h4" />
+      <circle cx="16.5" cy="6" r="1.5" />
+      <circle cx="18.5" cy="11" r="1.5" />
+      <circle cx="15.5" cy="16" r="1.5" />
+      <circle cx="3" cy="11" r="1.5" />
     </Svg>
   ),
   expr: () => (

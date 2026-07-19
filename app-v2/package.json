@@ -36,6 +36,7 @@
     "gsap": "^3.15.0",
     "koffi": "^2.14.0",
     "lucide-react": "^1.23.0",
+    "mqtt": "^5.15.2",
     "node-llama-cpp": "^3.18.1",
     "onnxruntime-node": "^1.27.0",
     "pixi.js": "^8.19.0",
