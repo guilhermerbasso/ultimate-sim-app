@@ -21,8 +21,7 @@ import type {
   RecordingStatus
 } from '../../shared/recording'
 import {
-  captureLiveTelemetryContext,
-  type LiveTelemetryContext
+  captureLiveTelemetryContext
 } from '../../shared/replay'
 import {
   DEBRIEF_CHANNELS,
@@ -74,6 +73,18 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
     resolve = done
   })
   return { promise, resolve }
+}
+
+type SessionEnricherInternals = {
+  pending: Map<string, NodeJS.Timeout>
+  cache: Map<string, unknown>
+  writeTails: Map<string, Promise<void>>
+  finalizeRequests: Map<string, Promise<void>>
+  sessionGenerations: Map<string, unknown>
+}
+
+function sessionEnricherInternals(enricher: SessionEnricher): SessionEnricherInternals {
+  return enricher as unknown as SessionEnricherInternals
 }
 
 function snapshot(
@@ -188,11 +199,16 @@ class FakeRecorder implements RecordingLifecycleRecorder {
 }
 
 class FakeEnricher implements RecordingSessionEnricher {
+  readonly activated: string[] = []
   readonly finalized: string[] = []
   readonly forgotten: string[] = []
   readonly observed: Array<{ sessionId: string; trackName?: string }> = []
   finalizeGate: Promise<void> | null = null
   quiesced = false
+
+  activate(sessionId: string): void {
+    this.activated.push(sessionId)
+  }
 
   observe(sessionId: string, snap: TelemetrySnapshot | null): void {
     this.observed.push({ sessionId, trackName: snap?.trackName })
@@ -338,7 +354,7 @@ describe('recording persistence lifecycle', () => {
     expect(harness.enricher.quiesced).toBe(true)
   })
 
-  it('tombstones a deleted session before settling a stale sidecar tail and never recreates it', async () => {
+  it('retires a deleted session after stale timer/tail work drains and never recreates it', async () => {
     vi.useFakeTimers()
     const root = scratch('sidecar-delete-race')
     const sessionId = 'deleted-session'
@@ -365,6 +381,7 @@ describe('recording persistence lifecycle', () => {
       vi.fn()
     )
 
+    enricher.activate(sessionId)
     enricher.observe(sessionId, snapshot('A', 'Track A'))
     await vi.advanceTimersByTimeAsync(500)
     await writeStarted.promise
@@ -389,9 +406,15 @@ describe('recording persistence lifecycle', () => {
 
     expect(writeCount).toBe(1)
     expect(existsSync(sessionDir)).toBe(false)
+    const internals = sessionEnricherInternals(enricher)
+    expect(internals.pending.size).toBe(0)
+    expect(internals.cache.size).toBe(0)
+    expect(internals.writeTails.size).toBe(0)
+    expect(internals.finalizeRequests.size).toBe(0)
+    expect(internals.sessionGenerations.size).toBe(0)
   })
 
-  it('rejects active recording deletion before tombstoning sidecar state', async () => {
+  it('rejects active recording deletion before retiring sidecar state', async () => {
     const harness = coordinatorHarness()
     harness.recorder.active = {
       id: 'active-session',
@@ -451,7 +474,6 @@ describe('recording persistence lifecycle', () => {
     const c = snapshot('C', 'Track C', 2)
     harness.setLatest(a)
     await harness.coordinator.requestUser(target(a), 'start A')
-    harness.coordinator.observeLiveSnapshot(a, captureLiveTelemetryContext(a) as LiveTelemetryContext)
 
     const finalizeGate = deferred()
     harness.enricher.finalizeGate = finalizeGate.promise
@@ -466,6 +488,7 @@ describe('recording persistence lifecycle', () => {
 
     expect(harness.recorder.starts).toEqual(['A', 'C'])
     expect(harness.recorder.status().activeSession?.id).toBe('recording-C')
+    expect(harness.enricher.activated).toEqual(['recording-A', 'recording-C'])
     expect(harness.recorder.samples.map((sample) => sample.trackName)).toEqual(['Track A', 'Track C'])
     expect(harness.enricher.observed.map((sample) => sample.trackName)).toEqual(['Track A', 'Track C'])
   })
@@ -500,7 +523,6 @@ describe('recording persistence lifecycle', () => {
     const c = snapshot('C', 'Track C', 2)
     latest = a
     await coordinator.requestUser(target(a), 'start A')
-    coordinator.observeLiveSnapshot(a, captureLiveTelemetryContext(a) as LiveTelemetryContext)
 
     latest = b
     coordinator.requestAutomatic(target(b), 'rotate B')
@@ -546,6 +568,34 @@ describe('recording persistence lifecycle', () => {
     )).toMatchObject({ trackName: 'Track A', carName: 'GT3 R' })
   })
 
+  it('persists the initial target snapshot when shutdown follows start without another telemetry event', async () => {
+    const root = scratch('initial-snapshot-shutdown')
+    writeFileSync(join(root, 'recording-config.json'), JSON.stringify({ autoRecord: false }), 'utf8')
+    const harness = moduleHarness(root)
+    registerRecordingAnalysis(harness.ctx)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const live = snapshot('A', 'Track A', 0, { timestamp: 2_000, lapDistPct: 0.3 })
+    harness.emit(live)
+
+    await harness.handlers.get('recording:start')?.(undefined, { sampleRateHz: 10 })
+    const sessionId = (harness.handlers.get('recording:status')?.() as RecordingStatus).activeSession?.id
+    expect(sessionId).toBeTruthy()
+
+    await harness.teardown('quiesce')
+    await harness.teardown('persistence')
+
+    const metadata = JSON.parse(
+      readFileSync(join(root, 'recordings', sessionId as string, 'session.json'), 'utf8')
+    ) as RecordingSessionSummary
+    expect(metadata).toMatchObject({
+      endedAt: expect.any(Number),
+      sampleCount: 1
+    })
+    expect(JSON.parse(
+      readFileSync(join(root, 'recordings', sessionId as string, 'track.json'), 'utf8')
+    )).toMatchObject({ trackName: 'Track A', carName: 'GT3 R' })
+  })
+
   it('serializes a fired debounce write before final sidecar state and drains it on quiesce', async () => {
     vi.useFakeTimers()
     const firstWriteStarted = deferred()
@@ -561,6 +611,7 @@ describe('recording persistence lifecycle', () => {
       persistedTrack = entry.trackName
     })
     const sessionId = 'session-sidecar'
+    enricher.activate(sessionId)
     enricher.observe(sessionId, snapshot('A', 'Track A'))
     await vi.advanceTimersByTimeAsync(500)
     await firstWriteStarted.promise
@@ -592,22 +643,105 @@ describe('recording persistence lifecycle', () => {
       writes.push(entry.trackName ?? '')
     })
     const sessionId = 'session-purge'
+    enricher.activate(sessionId)
     enricher.observe(sessionId, snapshot('A', 'Track A'))
 
     await enricher.finalize(sessionId)
-    const internals = enricher as unknown as {
-      pending: Map<string, NodeJS.Timeout>
-      cache: Map<string, unknown>
-      writeTails: Map<string, Promise<void>>
-    }
+    const internals = sessionEnricherInternals(enricher)
     expect(internals.pending.has(sessionId)).toBe(false)
     expect(internals.cache.has(sessionId)).toBe(false)
     expect(internals.writeTails.has(sessionId)).toBe(false)
+    expect(internals.finalizeRequests.has(sessionId)).toBe(false)
+    expect(internals.sessionGenerations.has(sessionId)).toBe(false)
 
     enricher.observe(sessionId, snapshot('A', 'Track B', 1))
     await enricher.quiesce()
     await vi.advanceTimersByTimeAsync(1_000)
     expect(writes).toEqual(['Track A'])
+  })
+
+  it('releases tracking after many finalized and forgotten sidecar generations', async () => {
+    vi.useFakeTimers()
+    const writes: string[] = []
+    const enricher = new SessionEnricher(scratch('sidecar-bounded'), async (sessionId) => {
+      writes.push(sessionId)
+    })
+    const finalized = Array.from({ length: 64 }, (_, index) => `finalized-${index}`)
+    for (const sessionId of finalized) {
+      enricher.activate(sessionId)
+      enricher.observe(sessionId, snapshot(sessionId, `Track ${sessionId}`))
+    }
+    await Promise.all(finalized.map((sessionId) => enricher.finalize(sessionId)))
+
+    const forgotten = Array.from({ length: 64 }, (_, index) => `forgotten-${index}`)
+    for (const sessionId of forgotten) {
+      enricher.activate(sessionId)
+      enricher.observe(sessionId, snapshot(sessionId, `Track ${sessionId}`))
+    }
+    await Promise.all(forgotten.map((sessionId) => enricher.forget(sessionId)))
+    await Promise.resolve()
+
+    const internals = sessionEnricherInternals(enricher)
+    expect(writes).toHaveLength(finalized.length)
+    expect(internals.pending.size).toBe(0)
+    expect(internals.cache.size).toBe(0)
+    expect(internals.writeTails.size).toBe(0)
+    expect(internals.finalizeRequests.size).toBe(0)
+    expect(internals.sessionGenerations.size).toBe(0)
+  })
+
+  it('retains failed finalization state for quiesce retry, then releases it', async () => {
+    const attemptedTracks: Array<string | undefined> = []
+    const enricher = new SessionEnricher(scratch('sidecar-retry-release'), async (_sessionId, entry) => {
+      attemptedTracks.push(entry.trackName)
+      if (attemptedTracks.length === 1) throw new Error('sidecar unavailable')
+    })
+    const sessionId = 'retry-session'
+    enricher.activate(sessionId)
+    enricher.observe(sessionId, snapshot('A', 'Track A'))
+
+    await expect(enricher.finalize(sessionId)).rejects.toThrow('sidecar unavailable')
+    const internals = sessionEnricherInternals(enricher)
+    expect(internals.cache.has(sessionId)).toBe(true)
+    expect(internals.sessionGenerations.has(sessionId)).toBe(true)
+
+    enricher.observe(sessionId, snapshot('A', 'Track B', 1))
+    await expect(enricher.quiesce()).resolves.toBeUndefined()
+    expect(attemptedTracks).toEqual(['Track A', 'Track A'])
+    expect(internals.pending.size).toBe(0)
+    expect(internals.cache.size).toBe(0)
+    expect(internals.writeTails.size).toBe(0)
+    expect(internals.finalizeRequests.size).toBe(0)
+    expect(internals.sessionGenerations.size).toBe(0)
+  })
+
+  it('retries a failed debounced sidecar with the latest accepted state during quiesce', async () => {
+    vi.useFakeTimers()
+    const firstAttempt = deferred()
+    const attemptedTracks: Array<string | undefined> = []
+    const enricher = new SessionEnricher(scratch('sidecar-debounce-retry'), async (_sessionId, entry) => {
+      attemptedTracks.push(entry.trackName)
+      if (attemptedTracks.length === 1) {
+        firstAttempt.resolve()
+        throw new Error('debounced sidecar unavailable')
+      }
+    })
+    const sessionId = 'debounce-retry-session'
+    enricher.activate(sessionId)
+    enricher.observe(sessionId, snapshot('A', 'Track A'))
+    await vi.advanceTimersByTimeAsync(500)
+    await firstAttempt.promise
+
+    enricher.observe(sessionId, snapshot('A', 'Track B', 1))
+    await expect(enricher.quiesce()).resolves.toBeUndefined()
+
+    expect(attemptedTracks).toEqual(['Track A', 'Track B'])
+    const internals = sessionEnricherInternals(enricher)
+    expect(internals.pending.size).toBe(0)
+    expect(internals.cache.size).toBe(0)
+    expect(internals.writeTails.size).toBe(0)
+    expect(internals.finalizeRequests.size).toBe(0)
+    expect(internals.sessionGenerations.size).toBe(0)
   })
 
   it('remembers queued sample loss and rejects shutdown only after sidecar draining completes', async () => {
@@ -628,6 +762,7 @@ describe('recording persistence lifecycle', () => {
       await releaseSidecar.promise
       sidecarDrained = true
     })
+    enricher.activate(sessionId as string)
     enricher.observe(sessionId as string, live)
     const coordinator = new RecordingLifecycleCoordinator(
       recorder,
@@ -689,6 +824,7 @@ describe('recording persistence lifecycle', () => {
       await releaseSidecar.promise
       sidecarDrained = true
     })
+    enricher.activate(sessionId as string)
     enricher.observe(sessionId as string, live)
     const coordinator = new RecordingLifecycleCoordinator(
       recorder,

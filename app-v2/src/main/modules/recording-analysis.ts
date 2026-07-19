@@ -100,7 +100,13 @@ export type RecordingSidecarWriter = (
   entry: Readonly<EnricherEntry>
 ) => Promise<void>
 
+interface EnricherSessionGeneration {
+  closed: boolean
+  forgotten: boolean
+}
+
 export interface RecordingSessionEnricher {
+  activate(sessionId: string): void
   observe(sessionId: string, snapshot: TelemetrySnapshot | null): void
   finalize(sessionId: string): Promise<void>
   forget(sessionId: string): Promise<void>
@@ -115,8 +121,9 @@ export class SessionEnricher implements RecordingSessionEnricher {
   private readonly cache = new Map<string, EnricherEntry>()
   private readonly writeTails = new Map<string, Promise<void>>()
   private readonly finalizeRequests = new Map<string, Promise<void>>()
-  private readonly closedSessions = new Set<string>()
-  private readonly forgottenSessions = new Set<string>()
+  // The generation object is the write capability captured by timers/tails.
+  // Retired IDs can be released because stale callbacks must still match it.
+  private readonly sessionGenerations = new Map<string, EnricherSessionGeneration>()
   private closed = false
 
   constructor(
@@ -128,8 +135,14 @@ export class SessionEnricher implements RecordingSessionEnricher {
     }
   ) {}
 
+  activate(sessionId: string): void {
+    if (this.closed || this.sessionGenerations.has(sessionId)) return
+    this.sessionGenerations.set(sessionId, { closed: false, forgotten: false })
+  }
+
   observe(sessionId: string, snapshot: TelemetrySnapshot | null): void {
-    if (this.closed || this.closedSessions.has(sessionId)) return
+    const generation = this.sessionGenerations.get(sessionId)
+    if (this.closed || !generation || generation.closed) return
     if (!snapshot || !snapshot.connected) return
     const previous = this.cache.get(sessionId) ?? {}
     const next: EnricherEntry = {
@@ -146,18 +159,21 @@ export class SessionEnricher implements RecordingSessionEnricher {
       return
     }
     this.cache.set(sessionId, next)
-    this.scheduleFlush(sessionId)
+    this.scheduleFlush(sessionId, generation)
   }
 
   finalize(sessionId: string): Promise<void> {
+    const generation = this.sessionGenerations.get(sessionId)
+    if (!generation) return Promise.resolve()
     const existing = this.finalizeRequests.get(sessionId)
     if (existing) return existing
-    this.closedSessions.add(sessionId)
-    const request = this.finalizeInternal(sessionId)
+    generation.closed = true
+    const request = this.finalizeInternal(sessionId, generation)
     this.finalizeRequests.set(sessionId, request)
     void request.then(
       () => {
         if (this.finalizeRequests.get(sessionId) === request) this.finalizeRequests.delete(sessionId)
+        this.releaseRetiredSession(sessionId, generation)
       },
       () => {
         if (this.finalizeRequests.get(sessionId) === request) this.finalizeRequests.delete(sessionId)
@@ -167,12 +183,15 @@ export class SessionEnricher implements RecordingSessionEnricher {
   }
 
   async forget(sessionId: string): Promise<void> {
-    this.forgottenSessions.add(sessionId)
-    this.closedSessions.add(sessionId)
+    const generation = this.sessionGenerations.get(sessionId)
+    if (!generation) return
+    generation.forgotten = true
+    generation.closed = true
     this.pause(sessionId)
     await this.finalizeRequests.get(sessionId)?.catch(() => undefined)
     await this.writeTails.get(sessionId)
-    this.purge(sessionId)
+    this.purge(sessionId, generation)
+    this.releaseRetiredSession(sessionId, generation)
   }
 
   pause(sessionId?: string): void {
@@ -185,8 +204,11 @@ export class SessionEnricher implements RecordingSessionEnricher {
   }
 
   resume(sessionId: string): void {
-    if (this.closed || this.closedSessions.has(sessionId)) return
-    if (this.cache.has(sessionId) && !this.pending.has(sessionId)) this.scheduleFlush(sessionId)
+    const generation = this.sessionGenerations.get(sessionId)
+    if (this.closed || !generation || generation.closed) return
+    if (this.cache.has(sessionId) && !this.pending.has(sessionId)) {
+      this.scheduleFlush(sessionId, generation)
+    }
   }
 
   closeIntake(): void {
@@ -197,13 +219,9 @@ export class SessionEnricher implements RecordingSessionEnricher {
 
   async quiesce(): Promise<void> {
     this.closeIntake()
-    const sessionIds = new Set([
-      ...this.cache.keys(),
-      ...this.writeTails.keys(),
-      ...this.finalizeRequests.keys()
-    ])
+    const sessionIds = [...this.sessionGenerations.keys()]
     const results = await Promise.allSettled(
-      [...sessionIds].map((sessionId) => this.finalize(sessionId))
+      sessionIds.map((sessionId) => this.finalize(sessionId))
     )
     const failures = results
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -213,46 +231,58 @@ export class SessionEnricher implements RecordingSessionEnricher {
     }
   }
 
-  private scheduleFlush(sessionId: string): void {
-    if (this.closedSessions.has(sessionId)) return
+  private scheduleFlush(sessionId: string, generation: EnricherSessionGeneration): void {
+    if (this.sessionGenerations.get(sessionId) !== generation || generation.closed) return
     const existing = this.pending.get(sessionId)
     if (existing) clearTimeout(existing)
     const timer = setTimeout(() => {
+      if (this.pending.get(sessionId) !== timer) return
       this.pending.delete(sessionId)
-      void this.enqueueFlush(sessionId, true)
+      if (this.sessionGenerations.get(sessionId) !== generation || generation.closed) return
+      void this.enqueueFlush(sessionId, generation, true)
     }, 500)
     timer.unref?.()
     this.pending.set(sessionId, timer)
   }
 
-  private async finalizeInternal(sessionId: string): Promise<void> {
+  private async finalizeInternal(
+    sessionId: string,
+    generation: EnricherSessionGeneration
+  ): Promise<void> {
     this.pause(sessionId)
     await this.writeTails.get(sessionId)
-    if (this.forgottenSessions.has(sessionId)) {
-      this.purge(sessionId)
+    if (this.sessionGenerations.get(sessionId) !== generation) return
+    if (generation.forgotten) {
+      this.purge(sessionId, generation)
       return
     }
-    await this.enqueueFlush(sessionId, false, true)
+    await this.enqueueFlush(sessionId, generation, false, true)
     await this.writeTails.get(sessionId)
-    this.purge(sessionId)
+    this.purge(sessionId, generation)
   }
 
   private enqueueFlush(
     sessionId: string,
+    generation: EnricherSessionGeneration,
     automatic: boolean,
     allowClosed = false
   ): Promise<void> {
-    if (this.forgottenSessions.has(sessionId)) {
+    if (this.sessionGenerations.get(sessionId) !== generation) return Promise.resolve()
+    if (generation.forgotten) {
       return this.writeTails.get(sessionId) ?? Promise.resolve()
     }
-    if (this.closedSessions.has(sessionId) && !allowClosed) {
+    if (generation.closed && !allowClosed) {
       return this.writeTails.get(sessionId) ?? Promise.resolve()
     }
     const entry = this.cache.get(sessionId)
     if (!entry) return this.writeTails.get(sessionId) ?? Promise.resolve()
     const immutableEntry = { ...entry }
     const operation = (this.writeTails.get(sessionId) ?? Promise.resolve())
-      .then(() => this.writeSidecar(sessionId, immutableEntry))
+      .then(() => {
+        if (this.sessionGenerations.get(sessionId) !== generation || generation.forgotten) return
+        if (generation.closed && !allowClosed) return
+        return this.writeSidecar(sessionId, immutableEntry)
+      })
     const tail = operation.then(
       () => undefined,
       (error: unknown) => {
@@ -267,12 +297,27 @@ export class SessionEnricher implements RecordingSessionEnricher {
     return automatic ? tail : operation
   }
 
-  private purge(sessionId: string): void {
+  private purge(sessionId: string, generation: EnricherSessionGeneration): void {
+    if (this.sessionGenerations.get(sessionId) !== generation) return
     this.pause(sessionId)
     this.cache.delete(sessionId)
     this.writeTails.delete(sessionId)
-    this.closedSessions.delete(sessionId)
-    this.forgottenSessions.delete(sessionId)
+  }
+
+  private releaseRetiredSession(
+    sessionId: string,
+    generation: EnricherSessionGeneration
+  ): void {
+    if (this.sessionGenerations.get(sessionId) !== generation || !generation.closed) return
+    if (
+      this.pending.has(sessionId) ||
+      this.cache.has(sessionId) ||
+      this.writeTails.has(sessionId) ||
+      this.finalizeRequests.has(sessionId)
+    ) {
+      return
+    }
+    this.sessionGenerations.delete(sessionId)
   }
 }
 
@@ -712,7 +757,10 @@ export class RecordingLifecycleCoordinator {
     this.activeContext = { ...context }
     this.recorder.onSnapshot(snapshot)
     const activeSessionId = this.recorder.status().activeSession?.id
-    if (activeSessionId) this.enricher.observe(activeSessionId, snapshot)
+    if (activeSessionId) {
+      this.enricher.activate(activeSessionId)
+      this.enricher.observe(activeSessionId, snapshot)
+    }
   }
 
   observeNonLiveSnapshot(snapshot: TelemetrySnapshot | null): void {
@@ -724,7 +772,10 @@ export class RecordingLifecycleCoordinator {
   resumeActiveEnricher(): void {
     if (this.closed) return
     const activeSessionId = this.recorder.status().activeSession?.id
-    if (activeSessionId) this.enricher.resume(activeSessionId)
+    if (activeSessionId) {
+      this.enricher.activate(activeSessionId)
+      this.enricher.resume(activeSessionId)
+    }
   }
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -901,6 +952,7 @@ export class RecordingLifecycleCoordinator {
     }
     if (!this.targetIsCurrent(target, version)) return
 
+    let startedSession = false
     if (!this.recorder.status().recording) {
       const status = await this.recorder.start(
         target.options,
@@ -908,18 +960,22 @@ export class RecordingLifecycleCoordinator {
         recordingContextKey(target.context)
       )
       if (!status.recording) return
+      startedSession = true
     }
     if (!this.targetIsCurrent(target, version)) return
 
     this.activeContext = { ...target.context }
-    if (this.seedNextStart) {
+    if (startedSession || this.seedNextStart) {
       const latestSnapshot =
         sameLiveTelemetryContext(this.desired.context, target.context) && this.desired.snapshot
           ? this.desired.snapshot
           : target.snapshot
       this.recorder.onSnapshot(latestSnapshot)
       const activeSessionId = this.recorder.status().activeSession?.id
-      if (activeSessionId) this.enricher.observe(activeSessionId, latestSnapshot)
+      if (activeSessionId) {
+        this.enricher.activate(activeSessionId)
+        this.enricher.observe(activeSessionId, latestSnapshot)
+      }
       this.seedNextStart = false
     }
     this.broadcastStatus()

@@ -504,7 +504,8 @@ describe('canonical replay boundaries for live analytics', () => {
 
     harness.emit(snap('replay', 3, { timestamp: 1_200, currentLap: 50, lapDistPct: 0.8 }))
     const saved = await harness.handlers.get('recording:getLap')?.(undefined, sessionId, 0)
-    expect(saved).toHaveLength(1)
+    expect(saved).toHaveLength(2)
+    expect(saved.map((sample: { timestamp: number }) => sample.timestamp)).toEqual([1_000, 1_100])
 
     harness.emit(snap('unknown', 4))
     harness.emit(snap('live', 5, { timestamp: 1_300, currentLap: 2, lapDistPct: 0.3 }))
