@@ -30,6 +30,25 @@ describe('resolveObsEndpoint', () => {
     })
   })
 
+  it.each([
+    '::1',
+    '0:0:0:0:0:0:0:1',
+    '0000:0000:0000:0000:0000:0000:0000:0001'
+  ])('accepts IPv6 loopback form %s', (host) => {
+    expect(resolveObsEndpoint(connectArgs({ host }))).toEqual({
+      endpoint: `ws://[${host}]:${DEFAULT_OBS_WEBSOCKET_PORT}`,
+      host,
+      port: DEFAULT_OBS_WEBSOCKET_PORT,
+      loopback: true,
+      explicitNonLoopback: false
+    })
+  })
+
+  it('rejects whitespace inside an OBS host', () => {
+    expect(() => resolveObsEndpoint(connectArgs({ host: 'local host' })))
+      .toThrow(/hostname or IP address/i)
+  })
+
   it('rejects non-loopback OBS hosts without the explicit override', () => {
     expect(() => resolveObsEndpoint(connectArgs({ host: '192.168.0.24' })))
       .toThrow(/loopback-only/i)
