@@ -1,5 +1,6 @@
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import type { RaceMomentState } from '../../../shared/race-moment'
+import type { TelemetryRequirement } from '../../../shared/sim-coverage'
 import { HIFI_WIDGETS, hifiWidgetTags } from '../hifi/widgets/registry'
 import type { HifiAiContext, HifiWidgetModule } from '../hifi/widgets/types'
 
@@ -39,10 +40,29 @@ function fieldPresent(snapshot: TelemetrySnapshot | null | undefined, field: key
   return Boolean(snapshot && hasValue(snapshot[field]))
 }
 
+function requirementPresent(
+  snapshot: TelemetrySnapshot | null | undefined,
+  requirement: TelemetryRequirement
+): boolean {
+  if (requirement === 'liveTyrePressureKpa') {
+    const tyres = snapshot?.tyres
+    return Boolean(tyres && [tyres.lf, tyres.rf, tyres.lr, tyres.rr].some((tyre) =>
+      typeof tyre.pressureKpa === 'number' && Number.isFinite(tyre.pressureKpa)
+    ))
+  }
+  return fieldPresent(snapshot, requirement)
+}
+
 function requiredPresence(module: HifiWidgetModule, snapshot: TelemetrySnapshot | null | undefined): number {
-  if (module.requires.length === 0) return 1
-  const present = module.requires.filter((field) => fieldPresent(snapshot, field)).length
-  return present / module.requires.length
+  const groups = [module.requires, ...(module.alternativeRequires ?? [])]
+    .filter((group) => group.length > 0)
+  if (groups.length === 0) return 1
+  return Math.max(...groups.map((group) => {
+    const present = group.filter((requirement) =>
+      requirementPresent(snapshot, requirement)
+    ).length
+    return present / group.length
+  }))
 }
 
 function moduleText(module: HifiWidgetModule): string {

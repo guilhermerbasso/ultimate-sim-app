@@ -8,7 +8,11 @@
 //
 // React/Electron/node-free: importable by main, renderer and unit tests.
 
-import type { TelemetrySnapshot } from './telemetry'
+import { DEFAULT_ALERTS_CONFIG } from './alerts'
+import {
+  fuelLapsRemainingOf,
+  type TelemetrySnapshot
+} from './telemetry'
 import type { DashboardElement, DashboardElementType } from './dashboards'
 import type { AdaptiveBlink, AdaptiveElementRule, AdaptiveMomentFrame, DashboardAdaptiveConfig } from './dashboards'
 import { createElementId } from './dashboards'
@@ -219,10 +223,9 @@ function isWet(snapshot: TelemetrySnapshot): boolean {
   return isPositiveNum(snapshot.trackWetnessPct) && (snapshot.trackWetnessPct ?? 0) > 0.1
 }
 
-function fuelIsLow(snapshot: TelemetrySnapshot): boolean {
-  if (!isPositiveNum(snapshot.fuelLiters) || !isPositiveNum(snapshot.fuelPerLap)) return false
-  const lapsLeft = (snapshot.fuelLiters ?? 0) / (snapshot.fuelPerLap ?? 1)
-  return Number.isFinite(lapsLeft) && lapsLeft < 3
+function fuelIsLow(snapshot: TelemetrySnapshot, threshold: number): boolean {
+  const lapsLeft = fuelLapsRemainingOf(snapshot)
+  return lapsLeft !== undefined && lapsLeft < threshold
 }
 
 // ─── Plan builder ────────────────────────────────────────────────────────────
@@ -232,6 +235,8 @@ export interface PlanOptions {
   phase?: AdaptivePhase
   /** Apply live snapshot overrides (flags/rain/low-fuel). Default true. */
   dynamic?: boolean
+  /** Alert policy threshold for the low-fuel emphasis override. */
+  lowFuelLapsThreshold?: number
 }
 
 /**
@@ -257,7 +262,12 @@ export function planAdaptiveDashboard(snapshot: TelemetrySnapshot | null | undef
       hide.delete('weather')
       extras.push('wet track')
     }
-    if (fuelIsLow(liveSnapshot)) {
+    if (
+      fuelIsLow(
+        liveSnapshot,
+        opts.lowFuelLapsThreshold ?? DEFAULT_ALERTS_CONFIG.lowFuel.lapsThreshold
+      )
+    ) {
       emphasize.add('fuel')
       hide.delete('fuel')
       extras.push('low fuel')

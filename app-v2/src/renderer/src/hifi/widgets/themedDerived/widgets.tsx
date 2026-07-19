@@ -17,12 +17,19 @@ import {
   GaugeArc,
   SHIFT_STROBE_BLUE,
   ShiftStrobe,
+  atShiftPoint,
   clamp01,
   fixed,
   legibleStroke,
-  num
+  num,
+  resolveRevLightPct,
+  resolveRpmGaugePct
 } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
+import {
+  fuelLapsRemainingOf,
+  fuelPerLapLitersOf
+} from '../../../../../shared/telemetry'
 
 const W = 420
 const H = 240
@@ -202,19 +209,17 @@ function carAttitude(pal: ThemePal) {
 // ── 5. Fuel laps left ─────────────────────────────────────────────────────────
 function fuelLapsLeft(pal: ThemePal) {
   return function ThemedFuelLapsLeft({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
-    const liters = num(snapshot?.fuelLiters)
-    const perLapKg = num(snapshot?.fuelPerLapKg)
-    const perLapL = perLapKg != null && perLapKg > 0 ? perLapKg / 0.75 : undefined
-    const laps = liters != null && perLapL != null && perLapL > 0 ? liters / perLapL : undefined
+    const laps = fuelLapsRemainingOf(snapshot)
+    const perLapLiters = fuelPerLapLitersOf(snapshot)
     const color = laps == null ? C.dim : laps < 2 ? pal.accent : pal.main
-    const perLapReading = formatMeasurement(perLapKg, 'mass-per-lap-kg', unitSystem, { decimals: 2 })
+    const perLapReading = formatMeasurement(perLapLiters, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
     return (
       <Root width={width} height={height} snapshot={snapshot}>
         <BigNum x={W / 2} y={126} value={laps == null ? '—' : fixed(laps, 1)} color={color} size={104} />
         {laps != null ? <AccentBar pal={pal} cx={W / 2} y={148} w={150} /> : null}
         <Label text="LAPS LEFT" x={W / 2} y={182} />
         <text x={W / 2} y={214} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} stroke="rgba(0,0,0,0.55)" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
-          {perLapKg == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
+          {perLapLiters == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
         </text>
       </Root>
     )
@@ -347,10 +352,12 @@ function shiftPoint(pal: ThemePal) {
     const shiftRpm = num(snapshot?.shiftRpm)
     const rpm = num(snapshot?.rpm)
     const maxRpm = num(snapshot?.maxRpm)
-    const f = rpm != null && maxRpm != null && maxRpm > 0 ? clamp01(rpm / maxRpm) : 0
+    const rpmPct = resolveRpmGaugePct(snapshot)
+    const shiftPct = resolveRevLightPct(snapshot)
+    // Keep the raw DriverCarSLShiftRPM marker authoritative on the tach scale.
     const shiftF = shiftRpm != null && maxRpm != null && maxRpm > 0 ? clamp01(shiftRpm / maxRpm) : undefined
-    const upshift = shiftRpm != null && rpm != null && rpm >= shiftRpm
-    const near = shiftRpm != null && rpm != null && rpm >= shiftRpm * 0.95
+    const upshift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)
+    const near = shiftPct >= 0.95
     const color = upshift ? SHIFT_STROBE_BLUE : near ? pal.accent : pal.main
     const barX = 40
     const barY = 150
@@ -358,12 +365,21 @@ function shiftPoint(pal: ThemePal) {
     const markX = shiftF == null ? undefined : barX + barW * shiftF
     return (
       <Root width={width} height={height} snapshot={snapshot}>
-        <g>
-          {upshift ? <ShiftStrobe active={upshift} /> : null}
-          <BigNum x={W / 2} y={104} value={upshift ? 'SHIFT' : shiftRpm == null ? '—' : fixed(shiftRpm, 0)} unit={upshift ? undefined : 'rpm'} color={color} size={upshift ? 86 : 66} />
+        <g
+          data-shift-cue="themed-derived-rpm-bar-marker-shift"
+          data-shift-active={upshift ? 'true' : 'false'}
+          data-rpm-pct={rpmPct.toFixed(4)}
+          data-shift-rpm-pct={shiftF?.toFixed(4)}
+        >
+          <ShiftStrobe active={upshift} />
+          <g data-shift-part="shift-label">
+            <BigNum x={W / 2} y={104} value={upshift ? 'SHIFT' : shiftRpm == null ? '—' : fixed(shiftRpm, 0)} unit={upshift ? undefined : 'rpm'} color={color} size={upshift ? 86 : 66} />
+          </g>
+          <g data-shift-part="rpm-bar">
+            <Bar x={barX} y={barY} w={barW} h={18} f={rpmPct} color={color} />
+          </g>
+          {markX != null ? <rect data-shift-part="marker" x={markX - 2} y={barY - 8} width={4} height={34} rx={2} fill={SHIFT_STROBE_BLUE} /> : null}
         </g>
-        <Bar x={barX} y={barY} w={barW} h={18} f={f} color={color} />
-        {markX != null ? <rect x={markX - 2} y={barY - 8} width={4} height={34} rx={2} fill={SHIFT_STROBE_BLUE} /> : null}
         <Label text={rpm == null ? 'UPSHIFT' : `${fixed(rpm, 0)} rpm`} x={W / 2} y={206} />
       </Root>
     )
@@ -446,6 +462,7 @@ interface DerivedSpec {
   title: string
   category: string
   requires: TelemetryField[]
+  alternativeRequires?: TelemetryField[][]
   build: (pal: ThemePal) => (props: HifiWidgetProps) => ReactElement
   tags: string[]
 }
@@ -455,11 +472,11 @@ const SPECS: DerivedSpec[] = [
   { base: 'steeringLock', title: 'Steering Lock', category: 'inputs', requires: ['steerAngleDeg', 'steeringAngleMaxDeg'], build: steeringLock, tags: ['steering', 'lock', 'gauge'] },
   { base: 'rotationRates', title: 'Rotation Rates', category: 'chassis', requires: ['yawRateRadSec', 'pitchRateRadSec', 'rollRateRadSec'], build: rotationRates, tags: ['yaw', 'pitch', 'roll', 'rate'] },
   { base: 'carAttitude', title: 'Car Attitude', category: 'chassis', requires: ['pitchRad', 'rollRad', 'yawRad'], build: carAttitude, tags: ['attitude', 'horizon', 'heading'] },
-  { base: 'fuelLapsLeft', title: 'Fuel Laps Left', category: 'fuel', requires: ['fuelLiters', 'fuelPerLapKg'], build: fuelLapsLeft, tags: ['fuel', 'laps', 'range'] },
+  { base: 'fuelLapsLeft', title: 'Fuel Laps Left', category: 'fuel', requires: ['fuelLapsRemaining'], alternativeRequires: [['fuelLiters', 'fuelPerLapLiters']], build: fuelLapsLeft, tags: ['fuel', 'laps', 'range'] },
   { base: 'sunPosition', title: 'Sun Position', category: 'weather', requires: ['solarAltitudeRad', 'solarAzimuthRad'], build: sunPosition, tags: ['sun', 'solar', 'sky'] },
   { base: 'gpsHeading', title: 'GPS & Heading', category: 'map', requires: ['lat', 'lon', 'yawNorth'], build: gpsHeading, tags: ['gps', 'heading', 'compass'] },
   { base: 'raceControlFlags', title: 'Race Control Flags', category: 'session', requires: ['sessionFlagsRaw'], build: raceControlFlags, tags: ['flags', 'race-control'] },
-  { base: 'shiftPoint', title: 'Shift Point', category: 'engine', requires: ['shiftRpm', 'rpm', 'maxRpm'], build: shiftPoint, tags: ['shift', 'upshift', 'rpm'] },
+  { base: 'shiftPoint', title: 'Shift Point', category: 'engine', requires: ['shiftRpm', 'rpm', 'maxRpm', 'revLights'], build: shiftPoint, tags: ['shift', 'upshift', 'rpm'] },
   { base: 'engineTelltale', title: 'Engine Telltale', category: 'engine', requires: ['engineRunning', 'rpm'], build: engineTelltale, tags: ['engine', 'telltale'] },
   { base: 'spotterRaw', title: 'Spotter', category: 'gap', requires: ['carLeftRightRaw'], build: spotterRaw, tags: ['spotter', 'proximity'] },
   { base: 'sessionTag', title: 'Session ID', category: 'session', requires: ['sessionUniqueId'], build: sessionTag, tags: ['session', 'id'] }
@@ -474,6 +491,7 @@ export const THEMED_DERIVED_WIDGETS: HifiWidgetModule[] = CARS.flatMap((car) =>
     category: spec.category,
     tags: [...spec.tags, car.key, 'themed', 'derived', 'clean'],
     requires: spec.requires,
+    alternativeRequires: spec.alternativeRequires,
     defaultSize: { w: W, h: H },
     render: spec.build(car)
   }))

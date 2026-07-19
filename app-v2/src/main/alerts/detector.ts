@@ -7,7 +7,14 @@ import {
   type AlertSeverity,
   type AlertType
 } from '../../shared/alerts'
-import type { Corners, Flags, TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
+import { resolveShiftNow } from '../../shared/revlights'
+import {
+  fuelLapsRemainingOf,
+  type Corners,
+  type Flags,
+  type TelemetrySnapshot,
+  type TyreInfo
+} from '../../shared/telemetry'
 import { formatMeasurement, type UnitSystem } from '../../shared/units'
 
 const FLAG_LABELS: Partial<Record<keyof Flags, string>> = {
@@ -155,7 +162,7 @@ export class AlertsDetector {
 
   private detectLowFuel(snapshot: TelemetrySnapshot, events: AlertEvent[]): void {
     const rule = this.config.lowFuel
-    const fuelLaps = fuelLapsRemaining(snapshot)
+    const fuelLaps = fuelLapsRemainingOf(snapshot)
     const key = 'lowFuel'
     if (fuelLaps === undefined) {
       this.state.fuelLaps = undefined
@@ -188,7 +195,10 @@ export class AlertsDetector {
     const rule = this.config.shiftPoint
     const shiftPct = snapshot.shiftIndicatorPct ?? 0
     const rpmPct = snapshot.maxRpm && snapshot.maxRpm > 0 ? snapshot.rpm / snapshot.maxRpm : 0
-    const active = shiftPct >= rule.shiftIndicatorPct || rpmPct >= rule.rpmPct
+    const active = resolveShiftNow(
+      snapshot.revLights?.blink,
+      shiftPct >= rule.shiftIndicatorPct || rpmPct >= rule.rpmPct
+    )
     const key = 'shiftPoint'
     this.state.activeNow.set(key, rule.enabled && active)
     if (rule.enabled && active && this.state.shiftActive !== true) {
@@ -447,17 +457,4 @@ export class AlertsDetector {
       if (cached) this.lastByKey.set(key, { ...cached, lastMessage: message, lastContext: context })
     }
   }
-}
-
-function fuelLapsRemaining(snapshot: TelemetrySnapshot): number | undefined {
-  if (
-    snapshot.fuelLiters === undefined ||
-    snapshot.fuelPerLap === undefined ||
-    snapshot.fuelPerLap <= 0 ||
-    !Number.isFinite(snapshot.fuelLiters) ||
-    !Number.isFinite(snapshot.fuelPerLap)
-  ) {
-    return undefined
-  }
-  return snapshot.fuelLiters / snapshot.fuelPerLap
 }

@@ -24,6 +24,7 @@ import {
 } from 'react'
 import type { DashboardElement, DashboardElementStyle } from '../../../../shared/dashboards'
 import { sortElementsByZ } from '../../../../shared/dashboards'
+import type { AlertsConfig } from '../../../../shared/alerts'
 import {
   CANVAS_RESIZE_HANDLES,
   computeCanvasMove,
@@ -34,14 +35,10 @@ import {
 } from '../../../../shared/dashboard-layout'
 import { renderGt3Widget } from '../../dashboard/widgets/gt3-widgets'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
+import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { useUnitSystem } from '../../lib/units'
 import { WidgetGallery, variantToElement, type WidgetVariant } from './widget-catalog'
 import { resolveWidgetComponent } from '../../overlay/widgets'
-import {
-  createDefaultOverlayStyle,
-  DEFAULT_OVERLAY_STYLE_PRESET,
-  type OverlayWidgetConfig
-} from '../../../../shared/overlays'
 import '../../dashboard/dashboard-runtime.css'
 
 const CHROME = 'var(--accent-primary)'
@@ -91,36 +88,6 @@ function FallbackTile({ element }: { element: DashboardElement }): ReactElement 
   )
 }
 
-// WS-DASH (editor/preview parity): mount a full-frame overlay widget INSIDE the
-// editor/IA-preview canvas, exactly like DashboardRoot's live `ElementOverlayWidget`.
-// The six "GT3 — …"/"LMU — …" preset dashboards embed a single `overlaywidget`
-// element carrying a `widgetId`; without this the editor canvas fell back to a gray
-// FallbackTile ("dashboards with nothing inside"). Resolve the overlay widget by id
-// and feed it the live/preview snapshot with a locked config stub. Unknown id →
-// labelled tile (never crash a board).
-function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactElement {
-  const widgetId = element.widgetId ?? (element.hifiModuleId ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId']) : undefined)
-  const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
-  if (!widgetId || !Widget) return <FallbackTile element={element} />
-  const config: OverlayWidgetConfig = {
-    id: widgetId,
-    enabled: true,
-    locked: true,
-    favorite: false,
-    position: { x: 0, y: 0, width: element.w, height: element.h },
-    opacity: 100,
-    stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
-    style: createDefaultOverlayStyle(),
-    display: null,
-    hifiModuleId: element.hifiModuleId
-  }
-  return (
-    <div className="dash-overlaywidget" style={{ width: '100%', height: '100%', display: 'block' }}>
-      <Widget snapshot={PREVIEW_SNAPSHOT} config={config} />
-    </div>
-  )
-}
-
 // ─── Single element rendering (shared, read-only) ────────────────────────────
 
 /**
@@ -134,10 +101,34 @@ function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactEl
  * The `overlaywidget` element family is mounted directly (mirroring DashboardRoot)
  * since `renderGt3Widget` dispatches only the semantic GT3 element types.
  */
-export function CanvasElementVisual({ element }: { element: DashboardElement }): ReactElement {
+export function CanvasElementVisual({
+  element,
+  showTriggerOnlyActive = false,
+  alertsConfig
+}: {
+  element: DashboardElement
+  showTriggerOnlyActive?: boolean
+  alertsConfig?: AlertsConfig
+}): ReactElement {
   const unitSystem = useUnitSystem()
-  if (element.type === 'overlaywidget') return <OverlayWidgetEmbed element={element} />
   const norm: DashboardElement = { ...element, x: 0, y: 0 }
+  if (element.type === 'overlaywidget') {
+    const widgetId =
+      element.widgetId ??
+      (element.hifiModuleId
+        ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId'])
+        : undefined)
+    if (!widgetId || !resolveWidgetComponent(widgetId)) {
+      return <FallbackTile element={element} />
+    }
+    return renderDashboardElement({
+      element: norm,
+      snapshot: PREVIEW_SNAPSHOT,
+      preview: 'inert',
+      alertsConfig,
+      forceTriggerActive: showTriggerOnlyActive
+    }) ?? <FallbackTile element={element} />
+  }
   return renderGt3Widget({ element: norm, snapshot: PREVIEW_SNAPSHOT, unitSystem }) ?? <FallbackTile element={element} />
 }
 
@@ -147,10 +138,14 @@ export function CanvasElementVisual({ element }: { element: DashboardElement }):
  */
 export function DashboardCanvasSurface({
   board,
-  maxWidth = 720
+  maxWidth = 720,
+  showTriggerOnlyActive = false,
+  alertsConfig
 }: {
   board: EditableBoard
   maxWidth?: number
+  showTriggerOnlyActive?: boolean
+  alertsConfig?: AlertsConfig
 }): ReactElement {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(maxWidth)
@@ -203,7 +198,11 @@ export function DashboardCanvasSurface({
                 overflow: 'hidden'
               }}
             >
-              <CanvasElementVisual element={el} />
+              <CanvasElementVisual
+                element={el}
+                showTriggerOnlyActive={showTriggerOnlyActive}
+                alertsConfig={alertsConfig}
+              />
             </div>
           ))}
       </div>
@@ -229,12 +228,16 @@ export function DashboardCanvasEditor({
   board,
   onChange,
   maxWidth = 760,
-  maxHeight = 460
+  maxHeight = 460,
+  showTriggerOnlyActive = false,
+  alertsConfig
 }: {
   board: EditableBoard
   onChange: (next: EditableBoard) => void
   maxWidth?: number
   maxHeight?: number
+  showTriggerOnlyActive?: boolean
+  alertsConfig?: AlertsConfig
 }): ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [snapEnabled, setSnapEnabled] = useState(true)
@@ -373,7 +376,11 @@ export function DashboardCanvasEditor({
       {/* Left: widget gallery */}
       <div style={panel}>
         <h3 style={panelTitle}>Add widget</h3>
-        <WidgetGallery onAdd={addVariant} />
+        <WidgetGallery
+          onAdd={addVariant}
+          showTriggerOnlyActive={showTriggerOnlyActive}
+          alertsConfig={alertsConfig}
+        />
       </div>
 
       {/* Center: canvas */}
@@ -433,6 +440,8 @@ export function DashboardCanvasEditor({
                 onPointerMove={moveEdit}
                 onPointerUp={endEdit}
                 onPointerCancel={endEdit}
+                showTriggerOnlyActive={showTriggerOnlyActive}
+                alertsConfig={alertsConfig}
               />
             ))}
           </div>
@@ -469,7 +478,9 @@ function CanvasEditableElement({
   onHandlePointerDown,
   onPointerMove,
   onPointerUp,
-  onPointerCancel
+  onPointerCancel,
+  showTriggerOnlyActive,
+  alertsConfig
 }: {
   element: DashboardElement
   selected: boolean
@@ -480,6 +491,8 @@ function CanvasEditableElement({
   onPointerMove: (e: ReactPointerEvent<HTMLElement>) => void
   onPointerUp: (e: ReactPointerEvent<HTMLElement>) => void
   onPointerCancel: (e: ReactPointerEvent<HTMLElement>) => void
+  showTriggerOnlyActive: boolean
+  alertsConfig?: AlertsConfig
 }): ReactElement {
   const dimmed = element.visible === false
   return (
@@ -505,7 +518,11 @@ function CanvasEditableElement({
         zIndex: element.style.zIndex ?? 0
       }}
     >
-      <CanvasElementVisual element={element} />
+      <CanvasElementVisual
+        element={element}
+        showTriggerOnlyActive={showTriggerOnlyActive}
+        alertsConfig={alertsConfig}
+      />
       {selected &&
         CANVAS_RESIZE_HANDLES.map((h) => (
           <div

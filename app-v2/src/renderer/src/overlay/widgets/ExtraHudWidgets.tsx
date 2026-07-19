@@ -10,12 +10,13 @@
 import type { ReactElement } from 'react'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { formatDelta, formatGear, formatTime, numberOrDash, pct as clampPct } from './format'
+import { formatDelta, formatGear, formatTime, numberOrDash } from './format'
 import { resolveSkin, FitText, makeGrid, zoneColor, type SkinToken } from '../../skins'
 import { RevLedBar, SegmentReadout, TelltaleIcon } from '../../instruments'
 import { DASH, FONT_COND } from './dashboard-tiles'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 // ── Local NaN-safe helpers ────────────────────────────────────────────────────
 
@@ -33,13 +34,7 @@ function dims(config: WidgetProps['config'], fallbackW: number, fallbackH: numbe
 }
 
 function shiftFrac(s: TelemetrySnapshot | null): number {
-  const rpm = safeNum(s?.rpm, 0)
-  const maxRpm = Math.max(1, safeNum(s?.maxRpm, 9000))
-  const raw =
-    typeof s?.shiftIndicatorPct === 'number' && Number.isFinite(s.shiftIndicatorPct)
-      ? s.shiftIndicatorPct
-      : rpm / maxRpm
-  return clampPct(raw)
+  return resolveRevLightPct(s)
 }
 
 function gearFontFor(g: string, skin: SkinToken): string {
@@ -74,7 +69,7 @@ export function NeonGearBarWidget({ snapshot, config }: WidgetProps): ReactEleme
   const { W, H } = dims(config, 600, 120)
 
   const frac = shiftFrac(snapshot)
-  const redline = frac >= 0.97
+  const redline = atShiftPoint(frac, snapshot?.revLights?.blink, 0.97)
   const gear = safeGear(snapshot?.gear)
   const speed = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
   const hasSpeed = speed.value !== undefined
@@ -121,7 +116,7 @@ export function NeonGearBarWidget({ snapshot, config }: WidgetProps): ReactEleme
         y={ledRect.y}
         width={ledRect.w}
         height={ledRect.h}
-        flashOn={redline}
+        shiftActive={redline}
         idPrefix="ehw-neongear-led"
       />
 

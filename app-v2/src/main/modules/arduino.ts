@@ -26,10 +26,17 @@ import type {
   SerialLogEntry,
   SerialTxOrigin
 } from '../../shared/arduino'
+import { DEVICES_CHANNELS, type DeviceProfile } from '../../shared/devices'
 import type { ModuleContext } from '../module-context'
+import { DeviceConfigStore, getDeviceConfigStore } from '../devices/store'
 import type { SerialDevice } from '../serial/device'
 import { CompanionInputTracker } from '../serial-devices/inputs'
 import { SerialDevicesStore, getSerialDevicesStore, serialIdentityMatches, sharesUsbVendorProduct } from '../serial-devices/store'
+import {
+  profileCanMigrateWithSerialIdentity,
+  resolveConnectedSerialIdentityMigration,
+  type SerialIdentityMigrationRecord
+} from '../serial-devices/identity-migration'
 import { saveSimXPrimaryIdentity } from '../serial-devices/simx-identity'
 
 const CONFIG_FILE = 'arduino-runtime.json'
@@ -242,6 +249,7 @@ function emptyMonitor(): DeviceMonitor {
 // for "send raw" / "clear log" parallel to the SIM-X monitor above.
 class FleetManager {
   private readonly store: SerialDevicesStore
+  private readonly profileStore: DeviceConfigStore
   private readonly tracker = new CompanionInputTracker()
   private readonly monitors = new Map<string, DeviceMonitor>()
   private readonly unsubscribers = new Map<string, () => void>()
@@ -250,10 +258,11 @@ class FleetManager {
 
   constructor(private readonly ctx: ModuleContext) {
     this.store = getSerialDevicesStore(ctx.app)
+    this.profileStore = getDeviceConfigStore(ctx.app)
   }
 
   async initialize(): Promise<void> {
-    await this.store.ensureLoaded()
+    await Promise.all([this.store.ensureLoaded(), this.profileStore.ensureLoaded()])
     this.attachHubListeners()
     this.startInputsTimer()
     await this.autoReconnect()
@@ -321,26 +330,34 @@ class FleetManager {
     const label = String(input.label ?? '').trim() || path
     const baud = Number.isFinite(input.baud) && input.baud > 0 ? Math.trunc(input.baud) : 115200
     if (!path) throw new Error('Enter the device serial port.')
+    await this.store.ensureLoaded()
 
     const primaryId = this.ctx.serialHub.getPrimaryId()
     const existingSummary = this.ctx.serialHub.listDevices().find((entry) => entry.path === path)
     if (existingSummary && (existingSummary.kind === 'sim-x' || existingSummary.id === primaryId)) {
       throw new Error('SIM-X is managed under Devices — do not add it as a generic Arduino.')
     }
-    // Capture the port's stable USB identity so the entry can be re-matched even
-    // after Windows moves it to a different COM port (BUG: don't pin the path).
-    const identity = await this.resolvePortIdentity(path)
+    const savedConfig = this.store.list().find(
+      (entry) =>
+        (existingSummary ? entry.id === existingSummary.id : false) ||
+        entry.path === path
+    )
     if (existingSummary) {
+      const migration = await this.resolveConnectedIdentity(
+        existingSummary.id,
+        savedConfig,
+        true
+      )
+      if (!migration.record) throw new Error(migration.message)
       // Already open through some other path — persist the user's metadata
       // (label/baud) and return the live summary.
       await this.store.upsert({
-        id: existingSummary.id,
-        path,
+        ...migration.record,
         label,
         baud: existingSummary.baud,
-        autoConnect: input.autoConnect ?? true,
-        ...identity
+        autoConnect: input.autoConnect ?? true
       })
+      await this.migrateLinkedProfiles(savedConfig, migration.record)
       this.broadcastDevices()
       return existingSummary
     }
@@ -355,14 +372,18 @@ class FleetManager {
       // settle delay so they come up instantly.
       assertSignals: false
     })
+    const migration = await this.resolveConnectedIdentity(device.id, savedConfig, true)
+    if (!migration.record) {
+      await this.ctx.serialHub.disconnectDevice(device.id).catch(() => undefined)
+      throw new Error(migration.message)
+    }
     await this.store.upsert({
-      id: device.id,
-      path,
+      ...migration.record,
       label,
       baud,
-      autoConnect: input.autoConnect ?? true,
-      ...identity
+      autoConnect: input.autoConnect ?? true
     })
+    await this.migrateLinkedProfiles(savedConfig, migration.record)
     return device.getSummary()
   }
 
@@ -392,8 +413,9 @@ class FleetManager {
     if (this.ctx.serialHub.getDevice(id)) {
       await this.ctx.serialHub.disconnectDevice(id).catch(() => undefined)
     }
+    const targetPath = await this.resolveCurrentPath(config)
     const device = await this.ctx.serialHub.connectDevice({
-      path: config.path,
+      path: targetPath,
       id,
       kind: 'generic',
       label: config.label,
@@ -401,6 +423,18 @@ class FleetManager {
       primary: false,
       assertSignals: false
     })
+    const migration = await this.resolveConnectedIdentity(device.id, config, true)
+    if (!migration.record) {
+      await this.ctx.serialHub.disconnectDevice(device.id).catch(() => undefined)
+      throw new Error(migration.message)
+    }
+    await this.store.upsert({
+      ...migration.record,
+      label: config.label,
+      baud: config.baud,
+      autoConnect: config.autoConnect
+    })
+    await this.migrateLinkedProfiles(config, migration.record)
     return device.getSummary()
   }
 
@@ -576,18 +610,23 @@ class FleetManager {
           primary: false,
           assertSignals: false
         })
+        const migration = await this.resolveConnectedIdentity(device.id, config, false)
+        if (!migration.record) {
+          if (migration.state === 'mismatch' || migration.state === 'missing') {
+            await this.ctx.serialHub.disconnectDevice(device.id).catch(() => undefined)
+          }
+          console.warn(`[arduino] ${config.label}: ${migration.message}`)
+          continue
+        }
         // Persist the (possibly new) path + runtime id while keeping the identity
         // as the key, so the next boot finds the same device directly.
         await this.store.upsert({
-          id: device.id,
-          path: targetPath,
+          ...migration.record,
           label: config.label,
           baud: config.baud,
-          autoConnect: config.autoConnect,
-          vendorId: config.vendorId,
-          productId: config.productId,
-          serialNumber: config.serialNumber
+          autoConnect: config.autoConnect
         })
+        await this.migrateLinkedProfiles(config, migration.record)
       } catch (error) {
         console.warn(
           `[arduino] auto-reconnect failed for ${config.label} (${targetPath}):`,
@@ -623,15 +662,39 @@ class FleetManager {
     return config.path
   }
 
-  private async resolvePortIdentity(
-    path: string
-  ): Promise<{ vendorId?: string; productId?: string; serialNumber?: string }> {
-    try {
-      const port = (await this.ctx.serialHub.listPorts()).find((entry) => entry.path === path)
-      if (!port) return {}
-      return { vendorId: port.vendorId, productId: port.productId, serialNumber: port.serialNumber }
-    } catch {
-      return {}
+  private async resolveConnectedIdentity(
+    deviceId: string,
+    saved: GenericSerialDeviceConfig | undefined,
+    allowUnboundMigration: boolean
+  ): Promise<ReturnType<typeof resolveConnectedSerialIdentityMigration>> {
+    const ports = await this.ctx.serialHub.listPorts().catch(() => [])
+    return resolveConnectedSerialIdentityMigration({
+      deviceId,
+      saved,
+      live: this.ctx.serialHub.listDevices(),
+      ports,
+      allowUnboundMigration
+    })
+  }
+
+  private async migrateLinkedProfiles(
+    saved: GenericSerialDeviceConfig | undefined,
+    identity: SerialIdentityMigrationRecord
+  ): Promise<void> {
+    if (!saved) return
+    await this.profileStore.ensureLoaded()
+    const linked = this.profileStore.list().filter((profile) =>
+      profileCanMigrateWithSerialIdentity(profile, saved)
+    )
+    for (const profile of linked) {
+      await this.profileStore.save({
+        ...profile,
+        deviceId: identity.id,
+        port: identity.path
+      } satisfies Partial<DeviceProfile>)
+    }
+    if (linked.length > 0) {
+      this.ctx.broadcast(DEVICES_CHANNELS.changed, this.profileStore.list())
     }
   }
 }

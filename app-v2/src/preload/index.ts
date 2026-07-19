@@ -92,6 +92,7 @@ const ALLOWED_PREFIXES = [
   'app:',
   'soundshift:',
   'setups:',
+  'setupExperiment:',
   'tire:',
   'pinout:',
   'rgbmatrix:',
@@ -111,7 +112,10 @@ const ALLOWED_PREFIXES = [
   'search:',
   'strategy:',
   'incidents:',
+  'steward:',
+  'story:',
   'community:',
+  'collaboration:',
   'dashai:',
   'bio:',
   'hapticsZonal:',
@@ -119,6 +123,8 @@ const ALLOWED_PREFIXES = [
   'spotter3d:',
   'stt:',
   'streaming:',
+  'rigPreflight:',
+  'mqtt:',
   'simhub:',
   // ─── Config EXPORT/IMPORT + saved-state VIEW/DELETE (perfil completo, por
   //     seção, listSaved/deleteSection/resetSection, changed broadcast) ──────────

@@ -5,7 +5,7 @@ import type { ReactElement, ReactNode } from 'react'
 import type { CarLeftRightState } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, FONT_LABEL, LEGIBLE, VBar, clamp01, fixed, legibleStroke, num } from '../kit'
-import { ShiftStrobe, resolveRevLightState, revFill, revLightRowLayout } from '../../../lib/rev-lights'
+import { ShiftStrobe, resolveRevLightPct, resolveRevLightState, revFill, revLightRowLayout } from '../../../lib/rev-lights'
 import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const W = 420
@@ -149,10 +149,7 @@ function Skies({ width, height, snapshot }: HifiWidgetProps): ReactElement {
 }
 
 function RevLightsBar({ width, height, snapshot }: HifiWidgetProps): ReactElement {
-  const state = resolveRevLightState(
-    num(snapshot?.revLights?.pct),
-    snapshot?.revLights?.blink
-  )
+  const state = resolveRevLightState(resolveRevLightPct(snapshot), snapshot?.revLights?.blink)
   const w = width ?? WIDE_W
   const viewH = height ?? WIDE_H
   const layout = revLightRowLayout(w, viewH, 18, {

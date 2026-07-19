@@ -93,4 +93,27 @@ describe('Futuristic overlay widgets instrument conversion', () => {
     expect(shift).toContain('repeatCount="indefinite"')
     expect(shift).toContain('preserveAspectRatio="none"')
   })
+
+  it('strobes the Gear Ring progress and numeral together with one shared animation', () => {
+    const providerOff = renderId('gearRing', {
+      ...sample(),
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot, 'minimal')
+    const providerOn = renderId('gearRing', {
+      ...sample(),
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot, 'minimal')
+
+    expect(providerOff).toContain('data-shift-cue="gear-ring-progress-numeral"')
+    expect(providerOff).toContain('data-shift-active="false"')
+    expect(providerOff).not.toContain('dur="0.14s"')
+
+    expect(providerOn).toContain('data-shift-active="true"')
+    expect(providerOn).toContain('data-shift-part="progress-ring"')
+    expect(providerOn).toContain('data-shift-part="gear-numeral"')
+    expect(providerOn.match(/dur="0\.14s"/g)).toHaveLength(1)
+    expect((providerOn.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length).toBeGreaterThanOrEqual(2)
+  })
 })

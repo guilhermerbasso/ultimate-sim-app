@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { THEMED_DERIVED_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -101,6 +102,49 @@ describe('THEMED_DERIVED_WIDGETS', () => {
     }
   })
 
+  it('keeps RPM calibration and one uniform bar/marker/SHIFT strobe across all variants', () => {
+    const widgets = THEMED_DERIVED_WIDGETS.filter((widget) => widget.id.startsWith('shiftPoint'))
+    expect(widgets).toHaveLength(6)
+
+    for (const widget of widgets) {
+      const providerOff = renderWidget(widget, {
+        ...dataSnapshot(),
+        rpm: 3900,
+        maxRpm: 7800,
+        shiftRpm: 6000,
+        shiftIndicatorPct: 0.999,
+        revLights: { pct: 0.999, blink: false }
+      })
+      expect(providerOff, widget.id).toContain('data-shift-cue="themed-derived-rpm-bar-marker-shift"')
+      expect(providerOff, widget.id).toContain('data-shift-active="false"')
+      expect(providerOff, widget.id).toContain('data-rpm-pct="0.5000"')
+      expect(providerOff, widget.id).toContain('data-shift-rpm-pct="0.7692"')
+      expect(providerOff, widget.id).not.toContain('>SHIFT<')
+      expect(providerOff, widget.id).not.toContain('dur="0.14s"')
+
+      const providerOn = renderWidget(widget, {
+        ...dataSnapshot(),
+        rpm: 3900,
+        maxRpm: 7800,
+        shiftRpm: 6000,
+        shiftIndicatorPct: 0.2,
+        revLights: { pct: 0.2, blink: true }
+      })
+      expect(providerOn, widget.id).toContain('data-shift-active="true"')
+      expect(providerOn, widget.id).toContain('data-rpm-pct="0.5000"')
+      expect(providerOn, widget.id).toContain('data-shift-rpm-pct="0.7692"')
+      for (const part of ['shift-label', 'rpm-bar', 'marker']) {
+        expect(providerOn, widget.id).toContain(`data-shift-part="${part}"`)
+      }
+      expect(providerOn, widget.id).toContain('>SHIFT<')
+      expect(providerOn.match(/dur="0\.14s"/g), widget.id).toHaveLength(1)
+      expect(
+        (providerOn.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length,
+        widget.id
+      ).toBeGreaterThanOrEqual(3)
+    }
+  })
+
   it('shares the fitted six-digit session-id size across all six themes', () => {
     const snapshot = { ...baseSnapshot(), sessionUniqueId: 990217 } as TelemetrySnapshot
     const widgets = THEMED_DERIVED_WIDGETS.filter((widget) => widget.id.startsWith('sessionTag'))
@@ -112,6 +156,25 @@ describe('THEMED_DERIVED_WIDGETS', () => {
       expect(tag, widget.id).toBeTruthy()
       expect(Number(tag?.[1]), widget.id).toBeGreaterThanOrEqual(48)
       expect(Number(tag?.[1]), widget.id).toBeLessThanOrEqual(51)
+    }
+  })
+
+  it('uses canonical litres-per-lap for every themed fuel-range widget', () => {
+    const snapshot = {
+      ...baseSnapshot(),
+      fuelLiters: 10,
+      fuelPerLapKg: 1,
+      fuelPerLapLiters: 2,
+      fuelLapsRemaining: undefined
+    } as TelemetrySnapshot
+    const widgets = THEMED_DERIVED_WIDGETS.filter((widget) => widget.id.startsWith('fuelLapsLeft'))
+    expect(widgets).toHaveLength(6)
+    for (const widget of widgets) {
+      expect(widget.requires).toEqual(['fuelLapsRemaining'])
+      expect(widget.alternativeRequires).toEqual([['fuelLiters', 'fuelPerLapLiters']])
+      const markup = renderWidget(widget, snapshot)
+      expect(markup, widget.id).toContain('5.0')
+      expect(markup, widget.id).not.toContain('7.5')
     }
   })
 })

@@ -12,6 +12,7 @@ import {
   dashboardPlaylistValidationError,
   dashboardStorageValidationResult,
   dashboardValidationError,
+  getDashboardIdentityCatalog,
   isDashboard,
   reorderElements,
   resolveSlotStyle,
@@ -562,6 +563,93 @@ describe('dashboard storage schema compatibility', () => {
     ]))
     expect(dashboardValidationError(result.dashboard)).toBeNull()
     expect(legacy).toEqual(original)
+  })
+
+  it('quarantines wrong-typed overlay identities instead of deriving over them', () => {
+    const invalid = storedDashboard('wrong-overlay-identity-type')
+    invalid.elements = [{
+      id: 'overlay',
+      type: 'overlaywidget',
+      x: 0,
+      y: 0,
+      w: 320,
+      h: 160,
+      widgetId: 42,
+      hifiModuleId: 'speedGear',
+      style: {}
+    } as unknown as DashboardElement]
+
+    expect(dashboardStorageValidationResult(invalid)).toMatchObject({
+      status: 'quarantine',
+      error: expect.stringMatching(/widgetId/)
+    })
+  })
+
+  it('quarantines non-string status labels before they can become React children', () => {
+    for (const key of ['statusOnText', 'statusOffText'] as const) {
+      const invalid = storedDashboard(`invalid-${key}`)
+      ;(invalid.elements[0].style as Record<string, unknown>)[key] = { text: 'unsafe' }
+      expect(dashboardStorageValidationResult(invalid)).toMatchObject({
+        status: 'quarantine',
+        error: expect.stringMatching(new RegExp(key))
+      })
+    }
+  })
+
+  it('requires storage epoch and revision as one non-empty version contract', () => {
+    for (const partial of [
+      { storageEpoch: 'epoch-a', storageRevision: undefined },
+      { storageEpoch: undefined, storageRevision: 'revision-a' },
+      { storageEpoch: '', storageRevision: 'revision-a' }
+    ]) {
+      const invalid = Object.assign(storedDashboard('partial-storage-version'), partial)
+      expect(dashboardStorageValidationResult(invalid).status).toBe('quarantine')
+    }
+  })
+
+  it('rejects non-safe dashboard and playlist timestamps', () => {
+    for (const key of ['createdAt', 'updatedAt'] as const) {
+      const invalid = storedDashboard(`unsafe-${key}`)
+      invalid[key] = 1e16
+      expect(dashboardStorageValidationResult(invalid)).toMatchObject({
+        status: 'quarantine',
+        error: expect.stringMatching(new RegExp(`${key} must be a safe integer`))
+      })
+    }
+    expect(dashboardPlaylistValidationError({
+      items: [],
+      updatedAt: 1e16
+    })).toMatch(/updatedAt must be a safe integer/)
+  })
+
+  it('keeps the generated shared identity catalog aligned with every canonical overlay variant', () => {
+    const expected = ALL_VARIANTS
+      .filter((variant) =>
+        variant.type === 'overlaywidget' &&
+        (typeof variant.widgetId === 'string' || typeof variant.hifiModuleId === 'string')
+      )
+      .flatMap((variant) => {
+        const entry = {
+          id: variant.id,
+          type: 'overlaywidget',
+          label: variant.label,
+          ...(typeof variant.hifiModuleId === 'string' ? { name: variant.hifiModuleId } : {}),
+          ...(typeof variant.binding === 'string' ? { binding: variant.binding } : {}),
+          ...(typeof variant.widgetId === 'string' ? { widgetId: variant.widgetId } : {}),
+          ...(typeof variant.hifiModuleId === 'string' ? { hifiModuleId: variant.hifiModuleId } : {})
+        }
+        if (typeof variant.binding !== 'string') return [entry]
+        const { binding: _binding, ...unbound } = entry
+        return [entry, unbound]
+      })
+      .sort((a, b) => a.id.localeCompare(b.id) || ('binding' in a ? 1 : 0) - ('binding' in b ? 1 : 0))
+    expect(getDashboardIdentityCatalog()).toEqual(expected)
+    expect(getDashboardIdentityCatalog()).toContainEqual(expect.objectContaining({
+      label: 'ABS State',
+      binding: 'absActive',
+      widgetId: 'hifi:absState',
+      hifiModuleId: 'absState'
+    }))
   })
 
   it('accepts exact editor trace bounds and quarantines values immediately outside them', () => {

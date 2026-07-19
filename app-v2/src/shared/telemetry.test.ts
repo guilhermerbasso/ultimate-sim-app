@@ -14,7 +14,9 @@ import {
   TC_SENSITIVITIES,
   TcLatch,
   tcLatchTimingsForSensitivity,
-  TC_ACTIVE_DERIVED
+  TC_ACTIVE_DERIVED,
+  fuelLapsRemainingOf,
+  fuelPerLapLitersOf
 } from './telemetry'
 import type { TelemetrySnapshot } from './telemetry'
 import {
@@ -23,6 +25,40 @@ import {
   renderMatrixFrame,
   type RgbMatrixProfile
 } from './rgb-matrix'
+
+describe('fuel unit helpers', () => {
+  it('uses explicit litre telemetry and rejects the old iRacing kg alias', () => {
+    const explicit = {
+      sim: 'iracing',
+      fuelLiters: 9,
+      fuelPerLapLiters: 2
+    } as TelemetrySnapshot
+    expect(fuelPerLapLitersOf(explicit)).toBe(2)
+    expect(fuelLapsRemainingOf(explicit)).toBe(4.5)
+
+    const massAlias = {
+      sim: 'iracing',
+      fuelLiters: 9,
+      fuelPerLap: 1.5,
+      fuelPerLapKg: 1.5
+    } as TelemetrySnapshot
+    expect(fuelPerLapLitersOf(massAlias)).toBeUndefined()
+    expect(fuelLapsRemainingOf(massAlias)).toBeUndefined()
+  })
+
+  it('keeps missing and invalid inputs unknown', () => {
+    expect(fuelLapsRemainingOf({ sim: 'iracing' } as TelemetrySnapshot)).toBeUndefined()
+    expect(fuelLapsRemainingOf({
+      sim: 'iracing',
+      fuelLapsRemaining: Number.NaN
+    } as TelemetrySnapshot)).toBeUndefined()
+    expect(fuelLapsRemainingOf({
+      sim: 'iracing',
+      fuelLiters: 4,
+      fuelPerLapLiters: 0
+    } as TelemetrySnapshot)).toBeUndefined()
+  })
+})
 
 describe('trackSurfaceMaterialLabel (irsdk_TrkSurf enum)', () => {
   it('collapses each numbered material family to a single readable label', () => {
