@@ -92,6 +92,7 @@ export interface FindingsContext {
   carPath?: string
   trackName?: string
   trackConfigName?: string
+  sessionType?: string
   condition?: CoachTrackCondition
 }
 
@@ -113,13 +114,22 @@ function publishedConditionMatches(
 ): boolean {
   if (condition === undefined) return true
   const direct = coachComparableIdentityFromSnapshot(snapshot).condition
-  if (condition === direct) return true
+  if (publishedContextConditionMatches(condition, direct)) return true
   return (
     condition === 'drying' &&
     snapshot.isRaining !== true &&
     Number.isFinite(snapshot.trackWetnessPct) &&
     (snapshot.trackWetnessPct as number) > 0.03
   )
+}
+
+function publishedContextConditionMatches(
+  published: CoachTrackCondition | undefined,
+  current: CoachTrackCondition | undefined
+): boolean {
+  if (published === undefined) return true
+  if (current === undefined) return false
+  return published === current || (published === 'drying' && current === 'intermediate')
 }
 
 /**
@@ -129,25 +139,48 @@ function publishedConditionMatches(
  * be cited). Empty until a lap completes; cleared on disconnect.
  */
 export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | null): CoachFinding[] {
-  const { findings, carName, carPath, trackName, trackConfigName, condition } = latestCoachFindings
-  if (findings.length === 0) return []
   if (currentSnapshot && !isLiveTelemetrySnapshot(currentSnapshot)) return []
-  if (currentSnapshot && currentSnapshot.connected !== false) {
-    const liveCar = currentSnapshot.carName
-    const liveCarPath = currentSnapshot.carPath
-    const liveTrack = currentSnapshot.trackName
-    const liveTrackConfig = currentSnapshot.trackConfigName
-    if (carPath !== undefined || liveCarPath !== undefined) {
-      if (!samePublishedIdentity(carPath, liveCarPath)) return []
-    } else if (!samePublishedIdentity(carName, liveCar)) {
+  return getLatestCoachFindingsForContext(currentSnapshot && currentSnapshot.connected !== false
+    ? {
+        carName: currentSnapshot.carName,
+        carPath: currentSnapshot.carPath,
+        trackName: currentSnapshot.trackName,
+        trackConfigName: currentSnapshot.trackConfigName,
+        sessionType: currentSnapshot.sessionType,
+        condition: coachComparableIdentityFromSnapshot(currentSnapshot).condition
+      }
+    : undefined)
+}
+
+export function getLatestCoachFindingsForContext(
+  currentContext?: FindingsContext | null
+): CoachFinding[] {
+  const {
+    findings,
+    carName,
+    carPath,
+    trackName,
+    trackConfigName,
+    sessionType,
+    condition
+  } = latestCoachFindings
+  if (findings.length === 0) return []
+  if (currentContext) {
+    if (carPath !== undefined || currentContext.carPath !== undefined) {
+      if (!samePublishedIdentity(carPath, currentContext.carPath)) return []
+    } else if (!samePublishedIdentity(carName, currentContext.carName)) {
       return []
     }
-    if (!samePublishedIdentity(trackName, liveTrack)) return []
+    if (!samePublishedIdentity(trackName, currentContext.trackName)) return []
     if (
-      (trackConfigName !== undefined || liveTrackConfig !== undefined) &&
-      !samePublishedIdentity(trackConfigName, liveTrackConfig)
+      (trackConfigName !== undefined || currentContext.trackConfigName !== undefined) &&
+      !samePublishedIdentity(trackConfigName, currentContext.trackConfigName)
     ) return []
-    if (!publishedConditionMatches(condition, currentSnapshot)) return []
+    if (
+      sessionType !== undefined &&
+      !samePublishedIdentity(sessionType, currentContext.sessionType)
+    ) return []
+    if (!publishedContextConditionMatches(condition, currentContext.condition)) return []
   }
   return findings
 }
@@ -159,6 +192,7 @@ function publishCoachFindings(findings: CoachFinding[], context?: FindingsContex
     carPath: context?.carPath,
     trackName: context?.trackName,
     trackConfigName: context?.trackConfigName,
+    sessionType: context?.sessionType,
     condition: context?.condition
   }
 }
@@ -1059,6 +1093,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       carPath: snapshot.carPath,
       trackName: snapshot.trackName,
       trackConfigName: snapshot.trackConfigName,
+      sessionType: snapshot.sessionType,
       condition: conditionForSnapshot(snapshot)
     }
   }

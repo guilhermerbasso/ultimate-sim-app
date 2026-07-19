@@ -947,7 +947,11 @@ export class RecordingLifecycleCoordinator {
       .then(() => {
         if (this.lifecycleQueue !== queue) return
         if (this.reconciledVersion < this.desiredVersion) {
-          this.lifecycleQueue = this.createWorker()
+          if (this.shouldDeferAutomaticFinalizationRetry()) {
+            this.lifecycleQueue = null
+          } else {
+            this.lifecycleQueue = this.createWorker()
+          }
         } else {
           this.lifecycleQueue = null
         }
@@ -957,6 +961,7 @@ export class RecordingLifecycleCoordinator {
 
   private async runWorker(): Promise<void> {
     while (this.reconciledVersion < this.desiredVersion) {
+      if (this.shouldDeferAutomaticFinalizationRetry()) return
       const version = this.desiredVersion
       const target = this.desired
       let failure: unknown
@@ -971,12 +976,26 @@ export class RecordingLifecycleCoordinator {
     }
   }
 
+  private shouldDeferAutomaticFinalizationRetry(): boolean {
+    return (
+      !this.closed &&
+      this.desired.automatic &&
+      (
+        this.pendingRecorderFailure !== undefined ||
+        this.pendingFinalizationFailure !== undefined
+      ) &&
+      Date.now() < this.nextRecorderFinalizationRetryAt
+    )
+  }
+
   private async reconcile(target: DesiredRecordingTarget, version: number): Promise<void> {
+    let retriedPendingPersistence = false
     if (
       this.pendingRecorderFailure !== undefined ||
       this.pendingFinalizationSessionId
     ) {
       await this.stopAndFinalize()
+      retriedPendingPersistence = true
     }
     if (target.mode === 'suspended') {
       this.recorder.cancelPendingStart()
@@ -985,7 +1004,7 @@ export class RecordingLifecycleCoordinator {
     }
     if (target.mode === 'stopped' || !target.recording) {
       this.seedNextStart = false
-      await this.stopAndFinalize()
+      if (!retriedPendingPersistence) await this.stopAndFinalize()
       return
     }
     if (!target.context || !target.snapshot) return

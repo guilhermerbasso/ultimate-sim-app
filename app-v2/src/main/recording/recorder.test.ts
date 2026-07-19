@@ -171,4 +171,36 @@ describe('TelemetryRecorder stop durability', () => {
     await expect(recorder.stop()).rejects.toThrow('Recording I/O failed')
     expect(recorder.status()).toEqual({ recording: false, activeSession: null })
   })
+
+  it('caps persistent sample-write failures and reports the dropped sample count', async () => {
+    const root = scratch('sample-failure-cap')
+    const recorder = new TelemetryRecorder(root)
+    const started = await recorder.start({ sampleRateHz: 15 })
+    const sessionId = started.activeSession?.id
+    expect(sessionId).toBeTruthy()
+
+    mkdirSync(join(root, 'recordings', sessionId as string, 'samples.jsonl'))
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    recorder.onSnapshot(snapshot('failed-writes', 'Track A', 1_000))
+    await vi.waitFor(() => expect(warning).toHaveBeenCalledTimes(1))
+
+    for (let index = 1; index <= 100; index += 1) {
+      recorder.onSnapshot(snapshot('failed-writes', 'Track A', 1_000 + index * 100))
+    }
+
+    let failure: unknown
+    try {
+      await recorder.stop()
+    } catch (error) {
+      failure = error
+    }
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ message: expect.stringContaining('Recording I/O failed') }),
+      expect.objectContaining({ message: expect.stringContaining('100 subsequent samples') })
+    ]))
+    expect(warning).toHaveBeenCalledTimes(1)
+    expect(recorder.status()).toEqual({ recording: false, activeSession: null })
+  })
 })

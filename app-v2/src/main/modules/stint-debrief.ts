@@ -31,8 +31,16 @@ import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
 import { LiveTelemetryGate } from '../../shared/replay'
 import { speechLanguageFromAppLanguage, type SpeechLanguage } from '../../shared/tts-voice'
+import { coachComparableIdentityFromSnapshot } from '../../shared/coach-racecraft'
 import { getLatestPredictions } from './predictions'
-import { getLatestCoachFindings } from './proactive-engineer'
+import {
+  getLatestLapCoachFindings,
+  type LapCoachFindingsContext
+} from './coach'
+import {
+  getLatestCoachFindingsForContext,
+  type FindingsContext
+} from './proactive-engineer'
 
 const LOG_AREA = 'ai'
 // Hard cap so an optional LLM phrasing stays a SHORT debrief, never an essay.
@@ -45,6 +53,7 @@ export interface StintDebriefDependencies {
   phrase?(system: string, prompt: string): Promise<string | null>
   loadPersisted?(filePath: string): Promise<unknown>
   writePersisted?(filePath: string, payload: string): Promise<void>
+  getFindings?(snapshot?: LapCoachFindingsContext | null): DebriefTriggerPayload['findings']
 }
 
 type DebriefVisibilityState = 'pending' | 'durable' | 'failed' | 'superseded'
@@ -116,10 +125,15 @@ interface BoundaryState {
   lastLap: number
 }
 
-interface DebriefSnapshotMetadata {
+interface DebriefSnapshotMetadata extends LapCoachFindingsContext, FindingsContext {
   trackName?: string
+  trackConfigName?: string
   carName?: string
+  carPath?: string
   sessionType?: string
+  sessionUniqueId?: number
+  sessionIdentity?: string
+  connectionEpoch?: number
   completedLaps?: number
   currentLap?: number
   bestLapTimeSec?: number
@@ -216,11 +230,12 @@ function normalizePersistedStintDebrief(value: unknown): StintDebrief | null {
 
 function triggerPayload(
   reason: Exclude<DebriefReason, 'manual'>,
-  snapshot: DebriefSnapshotMetadata | null
+  snapshot: DebriefSnapshotMetadata | null,
+  findings: DebriefTriggerPayload['findings']
 ): DebriefTriggerPayload {
   return {
     reason,
-    findings: cloneJson(getLatestCoachFindings()),
+    findings: cloneJson(findings),
     predictions: cloneJson(getLatestPredictions()),
     sessionInfo: {
       trackName: snapshot?.trackName,
@@ -236,12 +251,27 @@ function triggerPayload(
 function debriefSnapshotMetadata(snapshot: TelemetrySnapshot): DebriefSnapshotMetadata {
   return {
     trackName: snapshot.trackName,
+    trackConfigName: snapshot.trackConfigName,
     carName: snapshot.carName,
+    carPath: snapshot.carPath,
     sessionType: snapshot.sessionType,
+    sessionUniqueId: snapshot.sessionUniqueId,
+    sessionIdentity: snapshot.replayContext?.sessionIdentity,
+    connectionEpoch: snapshot.replayContext?.connectionEpoch,
+    condition: coachComparableIdentityFromSnapshot(snapshot).condition,
     completedLaps: snapshot.completedLaps,
     currentLap: snapshot.currentLap,
     bestLapTimeSec: snapshot.bestLapTimeSec
   }
+}
+
+function getAutomaticDebriefFindings(
+  snapshot?: DebriefSnapshotMetadata | null
+): DebriefTriggerPayload['findings'] {
+  const coachFindings = getLatestLapCoachFindings(snapshot)
+  return coachFindings.length > 0
+    ? coachFindings
+    : getLatestCoachFindingsForContext(snapshot)
 }
 
 // ─── registration ─────────────────────────────────────────────────────────────
@@ -513,6 +543,11 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   const liveGate = new LiveTelemetryGate()
   let lastLiveSnapshot: DebriefSnapshotMetadata | null = null
   let suspendedTrigger: DebriefTriggerPayload | null = null
+  const getFindings = dependencies.getFindings ?? getAutomaticDebriefFindings
+  const createTriggerPayload = (
+    reason: Exclude<DebriefReason, 'manual'>,
+    snapshot: DebriefSnapshotMetadata | null
+  ): DebriefTriggerPayload => triggerPayload(reason, snapshot, getFindings(snapshot))
   const emitTrigger = (payload: DebriefTriggerPayload): void => {
     if (intakeClosed) return
     const immutable = cloneJson(payload)
@@ -538,11 +573,11 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     if (!live.live) {
       if (live.state === 'disconnected') {
         const reason = detectBoundary(boundary, null)
-        if (reason) emitTrigger(triggerPayload(reason, lastLiveSnapshot))
+        if (reason) emitTrigger(createTriggerPayload(reason, lastLiveSnapshot))
         else if (suspendedTrigger) emitTrigger(suspendedTrigger)
         suspendedTrigger = null
       } else if (live.boundary && boundary.prevConnected && lastLiveSnapshot) {
-        suspendedTrigger = triggerPayload('session-end', lastLiveSnapshot)
+        suspendedTrigger = createTriggerPayload('session-end', lastLiveSnapshot)
       }
       if (live.boundary) Object.assign(boundary, newBoundaryState())
       return
@@ -552,15 +587,15 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
       if (live.sessionChanged) {
         if (suspendedTrigger) emitTrigger(suspendedTrigger)
         else if (boundary.prevConnected && lastLiveSnapshot) {
-          emitTrigger(triggerPayload('session-end', lastLiveSnapshot))
+          emitTrigger(createTriggerPayload('session-end', lastLiveSnapshot))
         }
+        Object.assign(boundary, newBoundaryState())
       }
       suspendedTrigger = null
-      Object.assign(boundary, newBoundaryState())
     }
     const reason = detectBoundary(boundary, snapshot)
     if (reason) {
-      emitTrigger(triggerPayload(
+      emitTrigger(createTriggerPayload(
         reason,
         reason === 'session-end' ? lastLiveSnapshot : debriefSnapshotMetadata(snapshot)
       ))

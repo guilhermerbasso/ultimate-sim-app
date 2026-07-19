@@ -22,6 +22,7 @@ import {
   lapsToCatch,
   equalSectorStarts,
   getLatestCoachFindings,
+  getLatestCoachFindingsForContext,
   getLatestCoachRacecraftContext,
   isRealLapCount,
   type ProactiveConfigView,
@@ -659,6 +660,30 @@ describe('getLatestCoachFindings — car/track scoping', () => {
     engine.onSnapshot(drying)
 
     expect(getLatestCoachRacecraftContext(drying)?.condition).toBe('drying')
+  })
+
+  it('keeps drying findings valid for an independently classified intermediate snapshot', () => {
+    const engine = singletonEngine()
+    engine.setFindings(
+      [makeFinding({ sector: 1, kind: 'brake-late' })],
+      {
+        carName: 'A',
+        carPath: 'a',
+        trackName: 'X',
+        trackConfigName: 'GP',
+        sessionType: 'Race',
+        condition: 'drying'
+      }
+    )
+
+    expect(getLatestCoachFindingsForContext({
+      carName: 'A',
+      carPath: 'a',
+      trackName: 'X',
+      trackConfigName: 'GP',
+      sessionType: 'Race',
+      condition: 'intermediate'
+    })).toHaveLength(1)
   })
 
   it('is cleared on disconnect (publishes [])', () => {

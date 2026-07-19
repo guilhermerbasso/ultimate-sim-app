@@ -81,6 +81,8 @@ export class TelemetryRecorder {
   private writeQueue: Promise<void> = Promise.resolve()
   private metadataQueue: Promise<void> = Promise.resolve()
   private pendingWriteFailures: Error[] = []
+  private sampleWritesBlocked = false
+  private droppedSampleWrites = 0
   private stopping = false
   private boundaryPending = false
   private startGeneration = 0
@@ -194,6 +196,8 @@ export class TelemetryRecorder {
       this.writeQueue = Promise.resolve()
       this.metadataQueue = Promise.resolve()
       this.pendingWriteFailures = []
+      this.sampleWritesBlocked = false
+      this.droppedSampleWrites = 0
       this.finalization = null
       await this.enqueueMetadataPersist(pending)
       if (!this.startIsCurrent(generation, isCurrent)) {
@@ -236,6 +240,11 @@ export class TelemetryRecorder {
       } catch (error) {
         failures.push(recordingFailure('Recording sample queue drain failed', error))
       }
+      if (this.droppedSampleWrites > 0) {
+        failures.push(new Error(
+          `Recording sample persistence paused after failure; ${this.droppedSampleWrites} subsequent samples were not written.`
+        ))
+      }
       finalization = { session, failures, pendingWriteFailures }
       this.finalization = finalization
     }
@@ -276,6 +285,8 @@ export class TelemetryRecorder {
       this.writeQueue = Promise.resolve()
       this.metadataQueue = Promise.resolve()
       this.finalization = null
+      this.sampleWritesBlocked = false
+      this.droppedSampleWrites = 0
     }
     if (this.pendingWriteFailures === pendingWriteFailures) this.pendingWriteFailures = []
     this.stopping = false
@@ -301,6 +312,8 @@ export class TelemetryRecorder {
       this.currentLapIndex = -1
       this.lapStartedAtBoundary.clear()
       this.boundaryPending = false
+      this.sampleWritesBlocked = false
+      this.droppedSampleWrites = 0
       this.stopping = false
     }
     await this.lifecycle.removeSession(this.sessionDir(sessionId)).catch(() => undefined)
@@ -440,16 +453,29 @@ export class TelemetryRecorder {
 
   private enqueueAppend(sample: RecordingSample): void {
     if (!this.active) return
+    if (this.sampleWritesBlocked) {
+      this.droppedSampleWrites += 1
+      return
+    }
     const filePath = join(this.sessionDir(this.active.id), 'samples.jsonl')
     const pendingWriteFailures = this.pendingWriteFailures
     // `.then(append).catch(...)` keeps the promise chain alive after a failed
     // write. The previous version dropped silently on the first rejection and
     // stopped recording without any visible error.
     this.writeQueue = this.writeQueue
-      .then(() => appendFile(filePath, `${JSON.stringify(sample)}\n`, 'utf8'))
+      .then(() => {
+        if (this.sampleWritesBlocked) {
+          this.droppedSampleWrites += 1
+          return
+        }
+        return appendFile(filePath, `${JSON.stringify(sample)}\n`, 'utf8')
+      })
       .catch((error: unknown) => {
-        pendingWriteFailures.push(recordingFailure('Recording I/O failed', error))
-        console.warn('[recording] sample append failed:', errorMessage(error))
+        if (!this.sampleWritesBlocked) {
+          pendingWriteFailures.push(recordingFailure('Recording I/O failed', error))
+          console.warn('[recording] sample append failed:', errorMessage(error))
+        }
+        this.sampleWritesBlocked = true
       })
   }
 

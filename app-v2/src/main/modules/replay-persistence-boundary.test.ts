@@ -20,6 +20,7 @@ import type {
   RecordingStartOptions,
   RecordingStatus
 } from '../../shared/recording'
+import type { CoachFinding } from '../../shared/coach'
 import {
   captureLiveTelemetryContext
 } from '../../shared/replay'
@@ -509,6 +510,57 @@ describe('recording persistence lifecycle', () => {
     expect(harness.recorder.status().recording).toBe(true)
     expect(harness.enricher.finalized).toEqual(['recording-A'])
     harness.coordinator.quiesce()
+  })
+
+  it('defers an in-flight automatic target until the persistence retry deadline', async () => {
+    vi.useFakeTimers()
+    const harness = coordinatorHarness()
+    const live = snapshot('A', 'Track A')
+    harness.setLatest(live)
+    await harness.coordinator.requestUser(target(live), 'user recording start')
+    const stopGate = deferred()
+    harness.recorder.stopGate = stopGate.promise
+    harness.recorder.stopFailures = 2
+
+    harness.coordinator.requestAutomatic(target(live, false), 'automatic recording stop')
+    await vi.waitFor(() => expect(harness.recorder.stopCalls).toBe(1))
+    harness.coordinator.requestAutomatic({
+      ...target(live, false),
+      mode: 'suspended'
+    }, 'queued replay suspension')
+
+    stopGate.resolve()
+    await harness.coordinator.whenIdle()
+    expect(harness.recorder.stopCalls).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(999)
+    await harness.coordinator.whenIdle()
+    expect(harness.recorder.stopCalls).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(1)
+    await harness.coordinator.whenIdle()
+    expect(harness.recorder.stopCalls).toBe(2)
+    harness.coordinator.quiesce()
+  })
+
+  it('bypasses automatic backoff when shutdown must retry retained persistence', async () => {
+    vi.useFakeTimers()
+    const harness = coordinatorHarness()
+    const live = snapshot('A', 'Track A')
+    harness.setLatest(live)
+    await harness.coordinator.requestUser(target(live), 'user recording start')
+    harness.recorder.stopFailures = 1
+
+    harness.coordinator.requestAutomatic(target(live, false), 'automatic recording stop')
+    await harness.coordinator.whenIdle()
+    expect(harness.recorder.stopCalls).toBe(1)
+    expect(harness.recorder.status().recording).toBe(true)
+
+    harness.coordinator.quiesce()
+    await expect(harness.coordinator.shutdown()).resolves.toBeUndefined()
+
+    expect(harness.recorder.stopCalls).toBe(2)
+    expect(harness.recorder.status()).toEqual({ recording: false, activeSession: null })
   })
 
   it('retires a deleted session after stale timer/tail work drains and never recreates it', async () => {
@@ -1334,7 +1386,22 @@ describe('main-owned stint debrief persistence', () => {
   it('uses ended non-iRacing metadata and generates while the Coach view is unmounted', async () => {
     const root = scratch('debrief-main')
     const harness = moduleHarness(root)
-    registerStintDebrief(harness.ctx)
+    const coachFinding: CoachFinding = {
+      id: 'coach-owned-finding',
+      kind: 'brake-late',
+      sector: 1,
+      zonePctStart: 0.1,
+      zonePctEnd: 0.2,
+      severity: 'med',
+      estTimeLossSec: 0.3,
+      title: 'Brake earlier',
+      detail: 'Release the brake before turn-in.',
+      evidence: 'Brake release was late.',
+      metrics: { brakeReleasePct: 0.2 }
+    }
+    registerStintDebrief(harness.ctx, {
+      getFindings: () => [coachFinding]
+    })
     settingsEvents.emitChanged({ ...DEFAULT_APP_SETTINGS, language: 'pt-BR' })
     const ended = {
       ...snapshot('legacy', 'Old Track', 0, {
@@ -1373,6 +1440,7 @@ describe('main-owned stint debrief persistence', () => {
       bestLapTimeSec: 91.2,
       reason: 'session-end'
     })
+    expect(trigger.findings).toEqual([coachFinding])
     expect(updated).toMatchObject({
       reason: 'session-end',
       source: 'deterministic',

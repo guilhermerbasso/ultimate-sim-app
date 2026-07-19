@@ -138,6 +138,58 @@ function moduleHarness(userData: string) {
   }
 }
 describe('canonical replay boundaries for live analytics', () => {
+  it('rejects stale LapCoach findings when track metadata changes under a reused session id', () => {
+    const analyzer = new LapCoachAnalyzer({ broadcast: vi.fn() })
+    const internals = analyzer as unknown as {
+      latestReport: { findings: CoachFinding[] }
+      latestReportContext: {
+        trackName: string
+        trackConfigName: string
+        carName: string
+        sessionType: string
+        sessionUniqueId: number
+      }
+      latestSetup: null
+    }
+    internals.latestReport = { findings: [finding()] }
+    internals.latestReportContext = {
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    }
+    internals.latestSetup = null
+
+    expect(analyzer.lastFindings({
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    }).findings).toHaveLength(1)
+    expect(analyzer.lastFindings({
+      trackName: 'Track B',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    })).toEqual({ findings: [], setup: null })
+    expect(analyzer.lastFindings({
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race',
+      sessionUniqueId: 7
+    })).toEqual({ findings: [], setup: null })
+    expect(analyzer.lastFindings({
+      trackName: 'Track A',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    })).toEqual({ findings: [], setup: null })
+  })
+
   it('clears Coach advice and disabled proactive caches before accepting live telemetry again', () => {
     const coachBroadcast = vi.fn()
     const coach = new LiveCoachEngine({ broadcast: coachBroadcast, now: () => 10_000 })
@@ -613,30 +665,45 @@ describe('canonical replay boundaries for live analytics', () => {
     harness.broadcast.mockClear()
     harness.emit(snap('live', 0, { trackName: 'Track A', fuelLiters: 40, fuelPerLap: 3 }))
     vi.advanceTimersByTime(1_000)
-    findingsPublisher.setFindings([finding()], { trackName: 'Track A', carName: 'GT3 R' })
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
     harness.emit(snap('live', 1, { trackName: 'Track B' }, 'session-b'))
     const firstTrigger = harness.broadcast.mock.calls.find(
       ([channel]) => channel === DEBRIEF_CHANNELS.trigger
     )?.[1] as DebriefTriggerPayload
     expect(firstTrigger).toMatchObject({
       reason: 'session-end',
-      findings: [{ id: 'brake-late-s1' }],
       predictions: expect.any(Object),
       sessionInfo: { trackName: 'Track A', carName: 'GT3 R', reason: 'session-end' }
     })
+    expect(firstTrigger.findings.map((entry) => entry.id)).toEqual(['brake-late-s1'])
     findingsPublisher.setFindings([])
     expect(firstTrigger.findings).toHaveLength(1)
 
     harness.broadcast.mockClear()
     vi.advanceTimersByTime(1_000)
-    findingsPublisher.setFindings([finding()], { trackName: 'Track B', carName: 'GT3 R' })
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track B',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
     harness.emit(snap('replay', 2, { trackName: 'Replay' }, 'session-b'))
     harness.emit(snap('unknown', 3, {}, 'session-b'))
     harness.emit(snap('live', 4, { trackName: 'Track B' }, 'session-b'))
     expect(harness.broadcast).not.toHaveBeenCalledWith(DEBRIEF_CHANNELS.trigger, expect.anything())
 
     vi.advanceTimersByTime(1_000)
-    findingsPublisher.setFindings([finding()], { trackName: 'Track B', carName: 'GT3 R' })
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track B',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
     harness.emit(snap('replay', 5, {}, 'session-b'))
     harness.emit(snap('live', 6, { trackName: 'Track C' }, 'session-c', 2))
     const suspendedTrigger = harness.broadcast.mock.calls.find(
@@ -645,7 +712,12 @@ describe('canonical replay boundaries for live analytics', () => {
     expect(suspendedTrigger.sessionInfo.trackName).toBe('Track B')
     harness.broadcast.mockClear()
     vi.advanceTimersByTime(1_000)
-    findingsPublisher.setFindings([finding()], { trackName: 'Track C', carName: 'GT3 R' })
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track C',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
     harness.emit(null)
     expect(harness.broadcast).toHaveBeenCalledWith(
       DEBRIEF_CHANNELS.trigger,
@@ -657,6 +729,53 @@ describe('canonical replay boundaries for live analytics', () => {
       sessionInfo: { trackName: 'Track C', carName: 'GT3 R', reason: 'session-end' }
     })
     expect(latestDebrief).not.toEqual(generated)
+    await harness.runTeardown('quiesce')
+    await harness.runTeardown('persistence')
+  })
+
+  it('does not reuse findings when the session type changes on the same car and track', async () => {
+    const harness = moduleHarness(scratch('debrief-session-type'))
+    registerStintDebrief(harness.ctx)
+    const findingsPublisher = createProactiveEngine({
+      emit: vi.fn(),
+      getConfig: () => ({
+        enabled: true,
+        proactiveCoaching: true,
+        language: 'en-US',
+        assertiveness: 'assertive',
+        intentSensitivity: 0.6
+      })
+    })
+
+    harness.emit(snap('live', 0, {
+      trackName: 'Track A',
+      sessionType: 'Practice'
+    }, 'legacy-session'))
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice'
+    })
+    harness.emit(snap('live', 1, {
+      trackName: 'Track A',
+      sessionType: 'Qualifying'
+    }, 'legacy-session'))
+    const practiceTrigger = harness.broadcast.mock.calls.find(
+      ([channel]) => channel === DEBRIEF_CHANNELS.trigger
+    )?.[1] as DebriefTriggerPayload
+    expect(practiceTrigger.findings.map((entry) => entry.id)).toEqual(['brake-late-s1'])
+
+    harness.broadcast.mockClear()
+    harness.emit(snap('live', 2, {
+      trackName: 'Track A',
+      sessionType: 'Race'
+    }, 'legacy-session'))
+    const qualifyingTrigger = harness.broadcast.mock.calls.find(
+      ([channel]) => channel === DEBRIEF_CHANNELS.trigger
+    )?.[1] as DebriefTriggerPayload
+    expect(qualifyingTrigger.findings).toEqual([])
+
     await harness.runTeardown('quiesce')
     await harness.runTeardown('persistence')
   })
