@@ -7096,9 +7096,16 @@ export function translateGroupTitle(title: string, language: ResolvedLanguage): 
 }
 
 export function translateView(view: ViewDef, language: ResolvedLanguage): ViewDef {
+  const external: Partial<ViewText> = {}
+  for (const field of ['group', 'label', 'eyebrow', 'description'] as const) {
+    const key = `view.${view.id}.${field}`
+    const value = UI_TEXT[language][key] ?? UI_TEXT.en[key]
+    if (value) external[field] = value
+  }
   return {
     ...view,
     group: translateGroupTitle(view.group, language),
+    ...external,
     ...(VIEW_TEXT[language][view.id] ?? {})
   }
 }
