@@ -50,6 +50,14 @@ const rpmGaugeContracts = [
     required: ['const rpmF = resolveRpmGaugePct(snapshot)', 'f={rpmF}']
   },
   {
+    relativePath: 'hifi/widgets/irDerived/widgets.tsx',
+    required: ['const rpmPct = resolveRpmGaugePct(snapshot)', 'f={rpmPct}', 'data-shift-cue="ir-derived-rpm-bar-marker-shift"']
+  },
+  {
+    relativePath: 'hifi/widgets/themedDerived/widgets.tsx',
+    required: ['const rpmPct = resolveRpmGaugePct(snapshot)', 'f={rpmPct}', 'data-shift-cue="themed-derived-rpm-bar-marker-shift"']
+  },
+  {
     relativePath: 'hifi/widgets/carsReal/corvettegt3r.tsx',
     required: ['return resolveRpmGaugePct(snapshot)', 'data-rpm-gauge="corvette-rpm-bar"']
   },
@@ -102,6 +110,35 @@ const providerBlinkContracts = [
       '<ShiftStrobe active={shiftActive} />',
       'revFill(baseColor, shiftActive)',
       'strobeOnShift />'
+    ]
+  },
+  {
+    relativePath: 'hifi/widgets/irDerived/widgets.tsx',
+    required: [
+      'const upshift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)',
+      'data-shift-cue="ir-derived-rpm-bar-marker-shift"',
+      '<ShiftStrobe active={upshift} />',
+      'data-shift-part="rpm-bar"',
+      'data-shift-part="marker"'
+    ]
+  },
+  {
+    relativePath: 'hifi/widgets/themedDerived/widgets.tsx',
+    required: [
+      'const upshift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)',
+      'data-shift-cue="themed-derived-rpm-bar-marker-shift"',
+      '<ShiftStrobe active={upshift} />',
+      'data-shift-part="rpm-bar"',
+      'data-shift-part="marker"'
+    ]
+  },
+  {
+    relativePath: 'overlay/widgets/FuturisticOverlayWidgets.tsx',
+    required: [
+      'data-shift-cue="gear-ring-progress-numeral"',
+      '<ShiftStrobe active={flash} />',
+      'data-shift-part="progress-ring"',
+      'data-shift-part="gear-numeral"'
     ]
   }
 ] as const

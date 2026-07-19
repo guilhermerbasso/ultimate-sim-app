@@ -35,7 +35,8 @@ import {
   fixed,
   legibleStroke,
   num,
-  resolveRevLightPct
+  resolveRevLightPct,
+  resolveRpmGaugePct
 } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 import {
@@ -329,11 +330,12 @@ function ShiftPoint({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   const shiftRpm = num(snapshot?.shiftRpm)
   const rpm = num(snapshot?.rpm)
   const maxRpm = num(snapshot?.maxRpm)
-  const f = resolveRevLightPct(snapshot)
+  const rpmPct = resolveRpmGaugePct(snapshot)
+  const shiftPct = resolveRevLightPct(snapshot)
   // Keep the raw DriverCarSLShiftRPM marker authoritative on the tach scale.
   const shiftF = shiftRpm != null && maxRpm != null && maxRpm > 0 ? clamp01(shiftRpm / maxRpm) : undefined
-  const upshift = atShiftPoint(f, snapshot?.revLights?.blink)
-  const near = f >= 0.95
+  const upshift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)
+  const near = shiftPct >= 0.95
   const color = upshift ? SHIFT_STROBE_BLUE : near ? C.amber : C.green
   const barX = 40
   const barY = 150
@@ -341,12 +343,21 @@ function ShiftPoint({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   const markX = shiftF == null ? undefined : barX + barW * shiftF
   return (
     <Root width={width} height={height} snapshot={snapshot}>
-      <g>
-        {upshift ? <ShiftStrobe active={upshift} /> : null}
-        <BigNum x={W / 2} y={104} value={upshift ? 'SHIFT' : shiftRpm == null ? '—' : fixed(shiftRpm, 0)} unit={upshift ? undefined : 'rpm'} color={color} size={upshift ? 86 : 66} />
+      <g
+        data-shift-cue="ir-derived-rpm-bar-marker-shift"
+        data-shift-active={upshift ? 'true' : 'false'}
+        data-rpm-pct={rpmPct.toFixed(4)}
+        data-shift-rpm-pct={shiftF?.toFixed(4)}
+      >
+        <ShiftStrobe active={upshift} />
+        <g data-shift-part="shift-label">
+          <BigNum x={W / 2} y={104} value={upshift ? 'SHIFT' : shiftRpm == null ? '—' : fixed(shiftRpm, 0)} unit={upshift ? undefined : 'rpm'} color={color} size={upshift ? 86 : 66} />
+        </g>
+        <g data-shift-part="rpm-bar">
+          <Bar x={barX} y={barY} w={barW} h={18} f={rpmPct} color={color} />
+        </g>
+        {markX != null ? <rect data-shift-part="marker" x={markX - 2} y={barY - 8} width={4} height={34} rx={2} fill={SHIFT_STROBE_BLUE} /> : null}
       </g>
-      <Bar x={barX} y={barY} w={barW} h={18} f={f} color={color} />
-      {markX != null ? <rect x={markX - 2} y={barY - 8} width={4} height={34} rx={2} fill={SHIFT_STROBE_BLUE} /> : null}
       <text x={W / 2} y={206} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={800} letterSpacing={2} {...LEGIBLE}>
         {rpm == null ? 'UPSHIFT' : `${fixed(rpm, 0)} rpm`}
       </text>

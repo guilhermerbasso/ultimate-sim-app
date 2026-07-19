@@ -595,20 +595,7 @@ export function GearRingWidget({ snapshot, config }: WidgetProps): ReactElement 
   return (
     <Root W={W} H={H} ariaLabel="gear ring">
       <Panel W={W} H={H} skin={skin} />
-      <circle cx={cx} cy={cy} r={rOuter} fill="none" stroke={skin.material.border} strokeWidth={6}>
-        <ShiftStrobe active={flash} />
-      </circle>
-      {pct > 0 && sweep < Math.PI * 2 - 0.001 && (
-        <path
-          d={`M ${cx} ${cy - rOuter} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${arcEndX} ${arcEndY}`}
-          fill="none"
-          stroke={color}
-          strokeWidth={6}
-        />
-      )}
-      {sweep >= Math.PI * 2 - 0.001 && (
-        <circle cx={cx} cy={cy} r={rOuter} fill="none" stroke={color} strokeWidth={6} />
-      )}
+      <circle cx={cx} cy={cy} r={rOuter} fill="none" stroke={skin.material.border} strokeWidth={6} />
       <circle cx={cx} cy={cy} r={rInner} fill={skin.material.base} />
       <FitText
         x={cx}
@@ -623,15 +610,30 @@ export function GearRingWidget({ snapshot, config }: WidgetProps): ReactElement 
         weight={700}
         letterSpacing={2}
       />
-      <g transform={`translate(${cx - gearBoxW / 2}, ${cy - gearH / 2 + 4})`}>
-        <SegmentReadout
-          value={gear}
-          height={gearH}
-          width={gearBoxW}
-          align="center"
-          color={color}
-          idPrefix="rd4-gearring"
-        />
+      <g data-shift-cue="gear-ring-progress-numeral" data-shift-active={flash ? 'true' : 'false'}>
+        <ShiftStrobe active={flash} />
+        {pct > 0 && sweep < Math.PI * 2 - 0.001 && (
+          <path
+            data-shift-part="progress-ring"
+            d={`M ${cx} ${cy - rOuter} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${arcEndX} ${arcEndY}`}
+            fill="none"
+            stroke={color}
+            strokeWidth={6}
+          />
+        )}
+        {sweep >= Math.PI * 2 - 0.001 && (
+          <circle data-shift-part="progress-ring" cx={cx} cy={cy} r={rOuter} fill="none" stroke={color} strokeWidth={6} />
+        )}
+        <g data-shift-part="gear-numeral" transform={`translate(${cx - gearBoxW / 2}, ${cy - gearH / 2 + 4})`}>
+          <SegmentReadout
+            value={gear}
+            height={gearH}
+            width={gearBoxW}
+            align="center"
+            color={color}
+            idPrefix="rd4-gearring"
+          />
+        </g>
       </g>
     </Root>
   )

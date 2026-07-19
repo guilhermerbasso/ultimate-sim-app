@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { IR_DERIVED_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -106,25 +107,40 @@ describe('IR_DERIVED_WIDGETS', () => {
     }
   })
 
-  it('uses provider blink for the derived shift-point cue', () => {
+  it('keeps live RPM calibration while uniformly strobing the bar, marker, and SHIFT cue', () => {
     const widget = IR_DERIVED_WIDGETS.find((candidate) => candidate.id === 'shiftPoint')!
     const providerOff = renderWidget(widget, {
       ...dataSnapshot(),
-      rpm: 7300,
-      shiftRpm: 7200,
+      rpm: 3900,
+      maxRpm: 7800,
+      shiftRpm: 6000,
+      shiftIndicatorPct: 0.999,
       revLights: { pct: 0.999, blink: false }
     })
+    expect(providerOff).toContain('data-shift-cue="ir-derived-rpm-bar-marker-shift"')
+    expect(providerOff).toContain('data-shift-active="false"')
+    expect(providerOff).toContain('data-rpm-pct="0.5000"')
+    expect(providerOff).toContain('data-shift-rpm-pct="0.7692"')
     expect(providerOff).not.toContain('>SHIFT<')
-    expect(providerOff).not.toContain('repeatCount="indefinite"')
+    expect(providerOff).not.toContain('dur="0.14s"')
 
     const providerOn = renderWidget(widget, {
       ...dataSnapshot(),
-      rpm: 2000,
-      shiftRpm: 7200,
+      rpm: 3900,
+      maxRpm: 7800,
+      shiftRpm: 6000,
+      shiftIndicatorPct: 0.2,
       revLights: { pct: 0.2, blink: true }
     })
+    expect(providerOn).toContain('data-shift-active="true"')
+    expect(providerOn).toContain('data-rpm-pct="0.5000"')
+    expect(providerOn).toContain('data-shift-rpm-pct="0.7692"')
+    for (const part of ['shift-label', 'rpm-bar', 'marker']) {
+      expect(providerOn).toContain(`data-shift-part="${part}"`)
+    }
     expect(providerOn).toContain('>SHIFT<')
-    expect(providerOn).toContain('repeatCount="indefinite"')
+    expect(providerOn.match(/dur="0\.14s"/g)).toHaveLength(1)
+    expect((providerOn.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length).toBeGreaterThanOrEqual(3)
   })
 
   it('shows expected derived data states and neutral/null states', () => {
