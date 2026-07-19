@@ -333,7 +333,9 @@ describe('StoryEngineStore human decisions and restart', () => {
     const punycodeMailbox = 'racer@example.xn--p1ai'
     const middleDotLocalMailbox = 'josé\u00B7ops@example.com'
     const middleDotDomainMailbox = 'racer@l\u00B7l.cat'
-    const statement = `Alice Example reached the podium. Contact ${smtpUtf8Mailbox}, ${punycodeMailbox}, ${middleDotLocalMailbox}, or ${middleDotDomainMailbox}.`
+    const unicodeAtextMailbox = 'maría\u2019team@example.com'
+    const explicitUnicodeMailbox = 'maría\u2011team@example.com'
+    const statement = `Alice Example reached the podium. Contact ${smtpUtf8Mailbox}, ${punycodeMailbox}, ${middleDotLocalMailbox}, ${middleDotDomainMailbox}, ${unicodeAtextMailbox}, or ${explicitUnicodeMailbox}.`
     const store = new StoryEngineStore(dir, {
       now: () => now,
       approvalId: () => 'approval-export'
@@ -343,7 +345,10 @@ describe('StoryEngineStore human decisions and restart', () => {
       eventType: 'explicit',
       privacyClass: 'D3',
       consent: { state: 'granted', subjectRef: 'driver-1', epoch: 2, checkedAt: 1_000 },
-      pii: [{ kind: 'name', value: 'Alice Example', replacement: '[driver]' }],
+      pii: [
+        { kind: 'name', value: 'Alice Example', replacement: '[driver]' },
+        { kind: 'email', value: explicitUnicodeMailbox }
+      ],
       piiAttestation: { status: 'pii-declared', method: 'fixture-pii-review-v1', checkedAt: 1_000 },
       claim: { subjectRef: 'driver-1', predicate: 'podium', value: true },
       facts: {
@@ -396,9 +401,13 @@ describe('StoryEngineStore human decisions and restart', () => {
     expect(content).not.toContain('josé\u00B7')
     expect(content).not.toContain(middleDotDomainMailbox)
     expect(content).not.toContain('l\u00B7l.cat')
+    expect(content).not.toContain(unicodeAtextMailbox)
+    expect(content).not.toContain('maría\u2019')
+    expect(content).not.toContain(explicitUnicodeMailbox)
+    expect(content).not.toContain('maría\u2011')
     expect(payload.cards[0].title).toContain('[driver]')
     expect(payload.cards[0].body).toBe(
-      '[driver] reached the podium. Contact [email], [email], [email], or [email].'
+      '[driver] reached the podium. Contact [email], [email], [email], [email], [email], or [email].'
     )
     state = store.getState()
     expect(state.cards[0]).toMatchObject({

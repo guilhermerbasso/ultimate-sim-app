@@ -458,6 +458,50 @@ describe('evidence-linked story generation', () => {
     expect(card.body).not.toContain('l\u00B7l.cat')
   })
 
+  it('redacts all UTF8 atext and prioritizes explicit whole mailboxes before internet preview', () => {
+    const unicodeAtextMailbox = 'maría\u2019team@example.com'
+    const explicitUnicodeMailbox = 'maría\u2011team@example.com'
+    const statement = `Alice can be reached at ${unicodeAtextMailbox} or ${explicitUnicodeMailbox}.`
+    const piiEvidence = evidence('evidence-unicode-atext', {
+      statement,
+      eventType: 'explicit',
+      privacyClass: 'D3',
+      consent: { state: 'unknown', subjectRef: 'driver-1', epoch: 1, checkedAt: NOW },
+      pii: [
+        { kind: 'name', value: 'Alice' },
+        { kind: 'email', value: explicitUnicodeMailbox }
+      ],
+      piiAttestation: { status: 'pii-declared', method: 'fixture-unicode-atext-review-v1', checkedAt: NOW },
+      claim: { subjectRef: 'driver-1', predicate: 'unicode-contact-card', value: true },
+      facts: { rank: 0.8, title: 'Contact Alice', statement }
+    })
+    const piiEvent = event('event-unicode-atext', {
+      type: 'explicit',
+      evidenceRefs: ['evidence-unicode-atext'],
+      assertionId: 'unicode-contact-card',
+      claim: { subjectRef: 'driver-1', predicate: 'unicode-contact-card', value: true },
+      facts: { rank: 0.8 },
+      title: 'Contact Alice',
+      statement
+    })
+
+    const [card] = generateStoryCards(timeline([piiEvent], [piiEvidence]), NOW).candidates
+    const expectedBody = '[driver] can be reached at [email] or [email].'
+    const internetPreview = storyPreview(card, 'internet')
+    expect(card.body).toBe(expectedBody)
+    expect(card.body).not.toContain('maría\u2019')
+    expect(card.body).not.toContain('maría\u2011')
+    expect(card.redactions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'email',
+        reason: 'explicit-pii',
+        evidenceRef: expect.stringMatching(/^evidence-/)
+      })
+    ]))
+    expect(internetPreview?.status).toBe('blocked')
+    expect(internetPreview?.body).toBe(expectedBody)
+  })
+
   it('fails closed when evidence has no PII attestation', () => {
     const unattested = evidence('evidence-unattested', {
       piiAttestation: undefined as never

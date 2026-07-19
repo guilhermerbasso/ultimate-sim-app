@@ -996,7 +996,7 @@ function explicitRedactionRules(evidence: readonly StoryEvidence[]): RedactionRu
       replacement,
       reason: 'explicit-pii',
       evidenceRef: opaqueRef('evidence', evidenceId),
-      priority: pii.kind === 'name' || pii.kind === 'other' ? 20 : 80
+      priority: pii.kind === 'email' ? 110 : pii.kind === 'name' || pii.kind === 'other' ? 20 : 80
     })
   }
   return rules
@@ -1058,7 +1058,12 @@ function normalizeAutomaticPiiScanText(text: string): string {
   return text.normalize('NFC').replace(/\p{Pd}/gu, '-')
 }
 
-const EMAIL_ATEXT_SOURCE = String.raw`[\p{L}\p{M}\p{N}\u00B7!#$%&'*+/=?^_\x60{|}~-]`
+const EMAIL_ASCII_ATEXT_SOURCE = String.raw`[A-Z0-9!#$%&'*+/=?^_\x60{|}~-]`
+const EMAIL_UTF8_NON_ASCII_SOURCE = String.raw`[^\x00-\x7F]`
+const EMAIL_ATEXT_SOURCE =
+  String.raw`(?:${EMAIL_ASCII_ATEXT_SOURCE}|${EMAIL_UTF8_NON_ASCII_SOURCE})`
+const EMAIL_LOCAL_BOUNDARY_SOURCE =
+  String.raw`(?:[A-Z0-9!#$%&'*+/=?^_\x60{|}~.-]|${EMAIL_UTF8_NON_ASCII_SOURCE})`
 const EMAIL_DOMAIN_EDGE_SOURCE = String.raw`[\p{L}\p{M}\p{N}]`
 const EMAIL_DOMAIN_INTERIOR_SOURCE =
   String.raw`(?:[\p{L}\p{M}\p{N}-]|(?<=l)\u00B7(?=l))`
@@ -1071,7 +1076,7 @@ const EMAIL_TLD_SOURCE =
 
 function completeMailboxPattern(): RegExp {
   return new RegExp(
-    String.raw`(?<![\p{L}\p{M}\p{N}\u00B7!#$%&'*+/=?^_\x60{|}~.-])${EMAIL_ATEXT_SOURCE}+(?:\.${EMAIL_ATEXT_SOURCE}+)*@(?:${EMAIL_DOMAIN_LABEL_SOURCE}\.)+${EMAIL_TLD_SOURCE}(?![\p{L}\p{M}\p{N}\u00B7-])`,
+    String.raw`(?<!${EMAIL_LOCAL_BOUNDARY_SOURCE})${EMAIL_ATEXT_SOURCE}+(?:\.${EMAIL_ATEXT_SOURCE}+)*@(?:${EMAIL_DOMAIN_LABEL_SOURCE}\.)+${EMAIL_TLD_SOURCE}(?![\p{L}\p{M}\p{N}\u00B7-])`,
     'giu'
   )
 }
