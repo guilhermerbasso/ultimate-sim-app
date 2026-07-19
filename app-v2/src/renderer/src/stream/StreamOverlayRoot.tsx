@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { Dashboard } from '../../../shared/dashboards'
 import type { OverlayWidgetConfig, OverlayWidgetId } from '../../../shared/overlays'
 import { createDefaultOverlaysConfig, createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET } from '../../../shared/overlays'
-import type { StreamingDashboardPayload, StreamingLayoutKind, StreamingTelemetryFrame } from '../../../shared/streaming'
+import type {
+  StreamingDashboardPayload,
+  StreamingLayoutKind,
+  StreamingTelemetryFrame,
+  StreamingTouchInteractionSession
+} from '../../../shared/streaming'
 import { STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../../shared/streaming'
 import {
   normalizeStreamPresentationProfile,
@@ -20,7 +25,14 @@ import { GT3ClusterWidget, GT3_CLUSTER_STREAM_SAFE } from '../overlay/widgets/GT
 import { RelativeWidget } from '../overlay/widgets/RelativeWidget'
 import type { WidgetProps } from '../overlay/widgets/types'
 import { TouchPanelWindowRoot } from '../touchpanel/TouchPanelWindowRoot'
-import { fetchStreamPanel } from '../touchpanel/runtime'
+import {
+  activateStreamInteraction,
+  clearStreamInteraction,
+  executeTouchControlAction,
+  fetchStreamPanel,
+  StreamInteractionRequestError
+} from '../touchpanel/runtime'
+import { useStreamTouchHeartbeat } from '../touchpanel/useStreamTouchHeartbeat'
 import { StreamPresentationRenderer } from '../stream-presentation/StreamPresentationRenderer'
 import { streamEndpoint } from './urls'
 import '../dashboard/dashboard-runtime.css'
@@ -61,9 +73,9 @@ function authSessionUrl(): string {
   return streamEndpoint('auth/session').toString()
 }
 
-function streamTarget(): { kind: StreamingLayoutKind; id: string | null; profileId: string | null } {
+function streamTarget(href: string): { kind: StreamingLayoutKind; id: string | null; profileId: string | null } {
   try {
-    const url = new URL(window.location.href)
+    const url = new URL(href)
     const kind = url.searchParams.get('kind') === 'touch' ? 'touch' : 'dashboard'
     const queryId = kind === 'touch' ? url.searchParams.get('panel') : url.searchParams.get('dash')
     const pathId = url.pathname.match(/\/obs\/([^/]+)$/)?.[1]
@@ -124,13 +136,21 @@ export function StreamOverlayRoot() {
   const [passwordInput, setPasswordInput] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [authenticating, setAuthenticating] = useState(false)
+  const [authGeneration, setAuthGeneration] = useState(0)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [touchPanel, setTouchPanel] = useState<ButtonBoxPanel | null>(null)
+  const [touchInteraction, setTouchInteraction] = useState<StreamingTouchInteractionSession | null>(null)
   const [presentationProfile, setPresentationProfile] = useState<StreamPresentationProfile | null>(null)
   const [expressionNotice, setExpressionNotice] = useState(STREAMING_EXPRESSION_EXCLUSION_MESSAGE)
   const [targetError, setTargetError] = useState<string | null>(null)
-  const target = useMemo(streamTarget, [])
+  const [locationHref, setLocationHref] = useState(() => window.location.href)
+  const [targetGeneration, setTargetGeneration] = useState(0)
+  const target = useMemo(() => streamTarget(locationHref), [locationHref])
+  const touchFetches = useRef(new Map<string, Promise<Awaited<ReturnType<typeof fetchStreamPanel>>>>())
+  const latestTouchFetchKey = useRef<string | null>(null)
+  const presentationFetches = useRef(new Map<string, Promise<unknown>>())
+  const latestPresentationFetchKey = useRef<string | null>(null)
   const configs = useMemo(() => Object.fromEntries(WIDGETS.map((item) => [item.id, widgetConfig(item.id)])) as Record<OverlayWidgetId, OverlayWidgetConfig>, [])
   const shellStyle = {
     '--overlay-bg': 'rgba(5, 10, 18, 0.60)',
@@ -141,22 +161,42 @@ export function StreamOverlayRoot() {
     '--overlay-content-opacity': '1'
   } as CSSProperties
 
+  useEffect(() => {
+    const updateLocation = (): void => {
+      setLocationHref(window.location.href)
+      setTargetGeneration((value) => value + 1)
+    }
+    window.addEventListener('popstate', updateLocation)
+    window.addEventListener('hashchange', updateLocation)
+    return () => {
+      window.removeEventListener('popstate', updateLocation)
+      window.removeEventListener('hashchange', updateLocation)
+    }
+  }, [])
+
   // The document token exchange establishes an HttpOnly bootstrap session before
   // this module loads. Ping reports whether that session still needs a password.
   useEffect(() => {
+    let alive = true
     fetch(pingUrl(), { method: 'GET', cache: 'no-store', credentials: 'same-origin' })
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        if (!res.ok) throw new StreamInteractionRequestError(`HTTP ${res.status}`, res.status)
         return res.json() as Promise<{ passwordRequired: boolean }>
       })
       .then((data) => {
+        if (!alive) return
         if (typeof data?.passwordRequired !== 'boolean') throw new Error('Invalid ping response')
         setPasswordRequired(data.passwordRequired)
+        if (!data.passwordRequired) setAuthGeneration((value) => value + 1)
       })
       .catch((error) => {
+        if (!alive) return
         setSessionError(`Stream authentication failed: ${error instanceof Error ? error.message : String(error)}`)
         setPasswordRequired(false)
       })
+    return () => {
+      alive = false
+    }
   }, [])
 
   useEffect(() => {
@@ -303,17 +343,50 @@ export function StreamOverlayRoot() {
 
   useEffect(() => {
     if (!target.profileId) {
+      latestPresentationFetchKey.current = null
       setPresentationProfile(null)
       return
     }
+    if (target.kind === 'touch' && (passwordRequired !== false || sessionError)) {
+      latestPresentationFetchKey.current = null
+      setPresentationProfile(null)
+      return
+    }
+    const requestKey = [
+      target.kind,
+      target.id ?? '',
+      target.profileId,
+      targetGeneration,
+      target.kind === 'touch' ? authGeneration : 'dashboard'
+    ].join(':')
+    latestPresentationFetchKey.current = requestKey
+    setPresentationProfile(null)
+    setTargetError(null)
     let alive = true
-    fetch(presentationApiUrl(target.profileId), { cache: 'no-store', credentials: 'same-origin' })
+    let request = presentationFetches.current.get(requestKey)
+    if (!request) {
+      request = fetch(presentationApiUrl(target.profileId), { cache: 'no-store', credentials: 'same-origin' })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json() as Promise<unknown>
       })
+      presentationFetches.current.set(requestKey, request)
+      void request.then(
+        () => {
+          if (presentationFetches.current.get(requestKey) === request) {
+            presentationFetches.current.delete(requestKey)
+          }
+        },
+        () => {
+          if (presentationFetches.current.get(requestKey) === request) {
+            presentationFetches.current.delete(requestKey)
+          }
+        }
+      )
+    }
+    void request
       .then((raw) => {
-        if (!alive) return
+        if (!alive || latestPresentationFetchKey.current !== requestKey) return
         const profile = normalizeStreamPresentationProfile(raw)
         if (
           !profile ||
@@ -326,33 +399,125 @@ export function StreamOverlayRoot() {
         setPresentationProfile(profile)
       })
       .catch((err) => {
-        if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load stream presentation profile.')
+        if (alive && latestPresentationFetchKey.current === requestKey) {
+          setTargetError(err instanceof Error ? err.message : 'Failed to load stream presentation profile.')
+          if (
+            target.kind === 'touch' &&
+            err instanceof StreamInteractionRequestError &&
+            (err.status === 401 || err.status === 403)
+          ) {
+            setPasswordError('Stream session expired. Authenticate again.')
+            setPasswordRequired(true)
+          }
+        }
       })
     return () => {
       alive = false
     }
-  }, [target])
+  }, [target, targetGeneration, passwordRequired, sessionError, authGeneration])
+
+  useStreamTouchHeartbeat({
+    enabled: (
+      passwordRequired === false &&
+      !sessionError &&
+      target.kind === 'touch' &&
+      Boolean(target.profileId) &&
+      touchPanel !== null &&
+      touchInteraction !== null
+    ),
+    panelId: target.kind === 'touch' ? target.id : null,
+    interaction: touchInteraction,
+    onHealth: (health) => {
+      setTouchInteraction((current) => current
+        ? {
+            ...current,
+            health: health.health,
+            expiresAt: health.expiresAt,
+            leaseExpiresAt: health.leaseExpiresAt,
+            activeControls: health.activeControls,
+            lastFeedback: health.lastFeedback
+          }
+        : current)
+    },
+    onFailure: () => {
+      setTouchInteraction((current) => current ? { ...current, health: 'degraded' } : current)
+    },
+    onAuthLoss: () => {
+      if (target.id) clearStreamInteraction(target.id)
+      setTouchPanel(null)
+      setTouchInteraction(null)
+      setConnected(false)
+      setTargetError(null)
+      setPasswordError('Stream session expired. Authenticate again.')
+      setPasswordRequired(true)
+    }
+  })
 
   useEffect(() => {
-    if (target.kind !== 'touch' || !target.id || !target.profileId) {
+    if (
+      target.kind !== 'touch' ||
+      !target.id ||
+      !target.profileId ||
+      passwordRequired !== false ||
+      sessionError
+    ) {
+      latestTouchFetchKey.current = null
       setTouchPanel(null)
+      setTouchInteraction(null)
       return
     }
+    const panelId = target.id
+    const requestKey = `${panelId}:${target.profileId}:${targetGeneration}:${authGeneration}`
+    latestTouchFetchKey.current = requestKey
+    setTouchPanel(null)
+    setTouchInteraction(null)
+    setTargetError(null)
     let alive = true
-    fetchStreamPanel(target.id)
-      .then((raw) => {
-        if (!alive) return
-        const panel = parseButtonBoxPanel(raw)
+    let request = touchFetches.current.get(requestKey)
+    if (!request) {
+      request = fetchStreamPanel(panelId, { activate: false })
+      touchFetches.current.set(requestKey, request)
+      void request.then(
+        () => {
+          if (touchFetches.current.get(requestKey) === request) {
+            touchFetches.current.delete(requestKey)
+          }
+        },
+        () => {
+          if (touchFetches.current.get(requestKey) === request) {
+            touchFetches.current.delete(requestKey)
+          }
+        }
+      )
+    }
+    void request
+      .then((payload) => {
+        if (!alive || latestTouchFetchKey.current !== requestKey) return
+        const panel = parseButtonBoxPanel(payload.panel)
         if (!panel) throw new Error('Invalid touch controls panel.')
+        activateStreamInteraction(payload.interaction)
         setTouchPanel(panel)
+        setTouchInteraction(payload.interaction)
       })
       .catch((err) => {
-        if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load touch controls.')
+        if (alive && latestTouchFetchKey.current === requestKey) {
+          clearStreamInteraction(panelId)
+          setTouchInteraction(null)
+          setTargetError(err instanceof Error ? err.message : 'Failed to load touch controls.')
+          if (
+            err instanceof StreamInteractionRequestError &&
+            (err.status === 401 || err.status === 403)
+          ) {
+            setPasswordError('Stream session expired. Authenticate again.')
+            setPasswordRequired(true)
+          }
+        }
       })
     return () => {
       alive = false
+      if (latestTouchFetchKey.current === requestKey) clearStreamInteraction(panelId)
     }
-  }, [target])
+  }, [target, targetGeneration, passwordRequired, sessionError, authGeneration])
 
   useEffect(() => {
     const updateScale = (): void => {
@@ -383,7 +548,10 @@ export function StreamOverlayRoot() {
         throw new Error(response.status === 429 ? 'Too many failed attempts. Try again in one minute.' : 'Incorrect password.')
       }
       setPasswordInput('')
+      setTargetError(null)
+      setSessionError(null)
       setPasswordRequired(false)
+      setAuthGeneration((value) => value + 1)
     } catch (error) {
       setPasswordError(error instanceof Error ? error.message : 'Authentication failed.')
     } finally {
@@ -443,7 +611,7 @@ export function StreamOverlayRoot() {
   }
 
   if (hasSelectedTarget && target.kind === 'touch') {
-    if (!target.profileId) return <TouchPanelWindowRoot />
+    if (!target.profileId) return <TouchPanelWindowRoot panelId={target.id} />
     if (presentationProfile && touchPanel) {
       return (
         <StreamPresentationRenderer
@@ -451,7 +619,12 @@ export function StreamOverlayRoot() {
           touchPanel={touchPanel}
           snapshot={snapshot}
           mode="runtime"
-          interactiveTouch={false}
+          interactiveTouch={
+            touchInteraction?.interactive === true &&
+            touchInteraction.health === 'ready'
+          }
+          onTouchAction={executeTouchControlAction}
+          reportTouchLifecycle
           ariaLabel="Mobile touch controls stream"
         />
       )
@@ -475,6 +648,9 @@ export function StreamOverlayRoot() {
           ) : (
             <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
           )}
+          <div className={connected ? 'stream-status is-live' : 'stream-status'}>
+            {connected ? 'CONNECTED' : 'WAITING'} · READ ONLY · TELEMETRY
+          </div>
           <StreamExpressionNotice message={expressionNotice} />
         </>
       )

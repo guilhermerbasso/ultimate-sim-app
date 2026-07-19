@@ -305,6 +305,32 @@ describe('ButtonBoxRenderer pointer lifecycle', () => {
     expect(events.map((event) => event.zone)).toEqual(['on', 'off'])
     expect(events.every((event) => event.token === 'control-1:latching')).toBe(true)
   })
+  it('releases a keyboard-toggle ON before dispatching a non-toggle OFF', () => {
+    const events: TouchControlActionEvent[] = []
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({
+        kind: 'latching-toggle',
+        onAction: key('H', 'toggle'),
+        offAction: key('O', 'press')
+      }),
+      onAction: (event) => { events.push(event) }
+    }))
+    const hit = screen.getByRole('button', { name: /latching toggle/i })
+    pointerDown(hit)
+    pointerUp(hit)
+    pointerDown(hit)
+    pointerUp(hit)
+    view.unmount()
+
+    expect(events.map(({ zone, phase }) => `${zone}:${phase}`)).toEqual([
+      'on:trigger',
+      'teardown:cancel',
+      'off:trigger'
+    ])
+    expect(events.every((event) => event.token === 'control-1:latching')).toBe(true)
+    expect(events[1].action).toEqual(key('H', 'toggle'))
+    expect(events[2].action).toEqual(key('O', 'press'))
+  })
   it('does not execute through a closed guard on the first tap', () => {
     const events: TouchControlActionEvent[] = []
     render(createElement(ButtonBoxRenderer, {
@@ -334,6 +360,42 @@ describe('ButtonBoxRenderer pointer lifecycle', () => {
     pointerUp(hit)
     expect(events.map((event) => event.zone)).toEqual(['on', 'off'])
     expect(events.map((event) => event.action.kind === 'keyboard' ? event.action.command.keys[0] : '')).toEqual(['1', '0'])
+  })
+
+  it('emits trigger for keyboard holds configured on discrete latch and selector controls', () => {
+    const events: TouchControlActionEvent[] = []
+    const hold = key('H', 'hold')
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({ kind: 'latching-toggle', onAction: hold, offAction: key('O') }),
+      onAction: (event) => { events.push(event) }
+    }))
+    let hit = screen.getByRole('button', { name: /latching toggle/i })
+    pointerDown(hit)
+    pointerUp(hit)
+
+    view.unmount()
+    render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({
+        kind: 'selector',
+        initialChoiceId: 'idle',
+        choices: [
+          { id: 'idle', label: 'Idle', value: 'I', action: key('I') },
+          { id: 'hold', label: 'Hold', value: 'H', action: hold }
+        ]
+      }),
+      onAction: (event) => { events.push(event) }
+    }))
+    hit = screen.getByRole('button', { name: /next choice/i })
+    pointerDown(hit)
+    pointerUp(hit)
+
+    expect(events.map(({ phase, zone }) => `${zone}:${phase}`)).toEqual([
+      'on:trigger',
+      'choice:hold:trigger'
+    ])
+    expect(events.every((event) =>
+      event.action.kind === 'keyboard' && event.action.command.mode === 'hold'
+    )).toBe(true)
   })
 
   it('auto-repeats a rotary detent only until pointer up', () => {

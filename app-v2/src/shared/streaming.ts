@@ -1,5 +1,6 @@
 import type { Dashboard } from './dashboards'
 import type { TelemetrySnapshot } from './telemetry'
+import type { ButtonBoxPanel, TouchActionPhase } from './touch-panel'
 import type { ReceiverV2Status } from './receiver-v2'
 
 export const STREAMING_CHANNELS = {
@@ -29,6 +30,66 @@ export interface StreamingStartArgs {
 }
 
 export type StreamingAccessMode = 'local' | 'lan' | 'internet'
+
+export type StreamingTouchRole = 'viewer' | 'touch-controller'
+export type StreamingTouchHealth = 'read-only' | 'ready' | 'degraded'
+
+export interface StreamingTouchCapability {
+  id: string
+  controlId: string
+  zone: string
+  phases: TouchActionPhase[]
+}
+
+export interface StreamingTouchInteractionSession {
+  interactive: boolean
+  indicator: 'INTERACTIVE TOUCH'
+  role: StreamingTouchRole
+  health: StreamingTouchHealth
+  targetId: string
+  csrfToken: string
+  nonce: string
+  expiresAt: number
+  leaseExpiresAt: number
+  capabilities: StreamingTouchCapability[]
+  activeControls: number
+  lastFeedback: string | null
+}
+
+export interface StreamingTouchPanelPayload {
+  panel: ButtonBoxPanel
+  interaction: StreamingTouchInteractionSession
+}
+
+export interface StreamingTouchActionRequest {
+  targetId: string
+  capabilityId: string
+  phase: TouchActionPhase
+  nonce: string
+}
+
+export interface StreamingTouchActionResponse {
+  ok: boolean
+  message: string
+  health: StreamingTouchHealth
+  nextNonce: string
+  leaseExpiresAt: number
+  controlId?: string
+  phase?: TouchActionPhase
+  activeControls: number
+}
+
+export interface StreamingTouchHealthResponse {
+  interactive: boolean
+  indicator: 'INTERACTIVE TOUCH'
+  role: StreamingTouchRole
+  health: StreamingTouchHealth
+  targetId: string
+  expiresAt: number
+  leaseExpiresAt: number
+  activeControls: number
+  lastFeedback: string | null
+}
 
 export const STREAMING_EXPRESSION_EXCLUSION_MESSAGE =
   'Expression placements and resolved expression values are excluded from browser streaming.'
@@ -123,6 +184,11 @@ export interface StreamingStatus {
   autoTunnelMessage: string | null
   receiverV2: ReceiverV2Status
   presentationProfileId: string | null
+  interactive: boolean
+  interactionHealth: StreamingTouchHealth
+  interactiveCapabilities: number
+  activeInteractions: number
+  lastInteractionFeedback: string | null
 }
 
 export interface StreamingTelemetryFrame {

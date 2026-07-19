@@ -379,6 +379,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     !publicBaseUrl.trim() &&
     (!autoTunnel || !autoTunnelAvailable)
   const missingTarget = !selectedProfile || selectedProfile.missing
+  const interactiveTarget = status?.running ? status.interactive : selectedProfile?.kind === 'touch'
 
   return (
     <section className="panel streaming-panel">
@@ -389,7 +390,9 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
         </span>
       </div>
       <p className="overlay-help">{tt(language, 'streaming.summary')}</p>
-      <p className="overlay-help" style={{ color: '#76f7bd', fontWeight: 800 }}>{tt(language, 'streaming.readOnly')}</p>
+      <p className="overlay-help" style={{ color: interactiveTarget ? '#fbbf24' : '#76f7bd', fontWeight: 800 }}>
+        {interactiveTarget ? tt(language, 'streaming.interactiveTouch') : tt(language, 'streaming.readOnly')}
+      </p>
       {error ? <p className="overlay-help" style={{ color: 'var(--accent-danger, #fb7185)' }}>? {error}</p> : null}
       {status?.warning ? <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>? {status.warning}</p> : null}
       <section aria-labelledby="stream-targets-heading" aria-busy={targetLoading || targetSaving} style={targetManagerStyle}>
@@ -725,6 +728,11 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       {status?.url ? (
         <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
           <p className="overlay-help">{tt(language, 'streaming.mode')}: <strong>{ACCESS_LABELS[statusAccessMode(status)]}</strong></p>
+          <p className="overlay-help" style={{ color: status.interactive ? '#fbbf24' : '#76f7bd', fontWeight: 800 }}>
+            {status.interactive
+              ? `${tt(language, 'streaming.interactiveIndicator')} · ${status.interactionHealth.toUpperCase()} · ${status.interactiveCapabilities} ${tt(language, 'streaming.allowedControls')}`
+              : tt(language, 'streaming.readOnly')}
+          </p>
           {statusAccessMode(status) === 'lan' && status.lanAddress ? <p className="overlay-help">{tt(language, 'streaming.lanDetected')}: <strong>{status.lanAddress}</strong> ? {tt(language, 'streaming.port')}: <strong>{status.port}</strong></p> : null}
           {status.firewallMessage ? <p className="overlay-help">? {status.firewallMessage}</p> : null}
           <label className="designer-field">
