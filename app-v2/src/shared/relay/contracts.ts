@@ -217,6 +217,13 @@ export interface RelayStoredEnvelope {
   admission: RelayAdmissionReceipt
 }
 
+export interface RelayProviderListingRecord {
+  cursor: number
+  storedAt: number
+  envelope: unknown
+  admission?: unknown
+}
+
 export interface RelayProviderHealth {
   providerId: string
   contractVersion: typeof RELAY_PROVIDER_CONTRACT
@@ -251,7 +258,7 @@ export interface RelayProviderAdapter {
     admission: RelayAdmissionReceipt,
     storedAt: number
   ): RelayStoredEnvelope
-  list(tenantId: string): readonly RelayStoredEnvelope[]
+  list(tenantId: string): readonly RelayProviderListingRecord[]
   health(tenantId: string): RelayProviderHealth
   exportSnapshot(tenantId: string, createdAt: number): RelayProviderSnapshot
   importSnapshot(snapshot: RelayProviderSnapshot): RelayProviderImportResult

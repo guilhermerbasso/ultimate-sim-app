@@ -20,6 +20,7 @@ import {
   type RelayProviderAdapter,
   type RelayProviderHealth,
   type RelayProviderImportResult,
+  type RelayProviderListingRecord,
   type RelayProviderSnapshot,
   type RelayQuarantineRecord,
   type RelayQuotaPolicy,
@@ -819,7 +820,7 @@ export class DeterministicRelaySecurity {
 
 export class DeterministicMockRelayProvider implements RelayProviderAdapter {
   readonly contractVersion = RELAY_PROVIDER_CONTRACT
-  private readonly recordsByTenant = new Map<string, RelayStoredEnvelope[]>()
+  private readonly recordsByTenant = new Map<string, RelayProviderListingRecord[]>()
   private nextCursor = 1
   private generation = 1
   private online = true
@@ -847,14 +848,14 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
     envelope: RelaySyncEnvelope,
     storedAt: number,
     admission?: RelayAdmissionReceipt
-  ): RelayStoredEnvelope {
+  ): RelayProviderListingRecord {
     return this.appendRecord(envelope, storedAt, admission)
   }
 
   injectUntrustedListingRecord(
     listedTenantId: string,
-    record: RelayStoredEnvelope
-  ): RelayStoredEnvelope {
+    record: RelayProviderListingRecord
+  ): RelayProviderListingRecord {
     const records = this.recordsByTenant.get(listedTenantId) ?? []
     records.push(cloneJson(record))
     this.recordsByTenant.set(listedTenantId, records)
@@ -864,14 +865,24 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
   private appendRecord(
     envelope: RelaySyncEnvelope,
     storedAt: number,
+    admission: RelayAdmissionReceipt
+  ): RelayStoredEnvelope
+  private appendRecord(
+    envelope: RelaySyncEnvelope,
+    storedAt: number,
     admission?: RelayAdmissionReceipt
-  ): RelayStoredEnvelope {
-    const record = {
+  ): RelayProviderListingRecord
+  private appendRecord(
+    envelope: RelaySyncEnvelope,
+    storedAt: number,
+    admission?: RelayAdmissionReceipt
+  ): RelayProviderListingRecord {
+    const record: RelayProviderListingRecord = {
       cursor: this.nextCursor,
       storedAt,
       envelope: cloneJson(envelope),
       ...(admission ? { admission: cloneJson(admission) } : {})
-    } as RelayStoredEnvelope
+    }
     this.nextCursor += 1
     const records = this.recordsByTenant.get(envelope.tenantId) ?? []
     records.push(record)
@@ -879,7 +890,7 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
     return cloneJson(record)
   }
 
-  list(tenantId: string): readonly RelayStoredEnvelope[] {
+  list(tenantId: string): readonly RelayProviderListingRecord[] {
     return cloneJson(this.recordsByTenant.get(tenantId) ?? [])
   }
 
@@ -906,7 +917,22 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
   }
 
   exportSnapshot(tenantId: string, createdAt: number): RelayProviderSnapshot {
-    const records = this.list(tenantId)
+    const records: RelayStoredEnvelope[] = []
+    for (const record of this.list(tenantId)) {
+      try {
+        assertRelayEnvelopeShape(record.envelope)
+        assertRelayAdmissionReceiptShape(record.admission)
+        assertAdmissionRecordBinding(record.envelope, record.admission, record.storedAt)
+        records.push({
+          cursor: record.cursor,
+          storedAt: record.storedAt,
+          envelope: cloneJson(record.envelope),
+          admission: cloneJson(record.admission)
+        })
+      } catch {
+        // Provider listings are untrusted; invalid/unadmitted records are not exported.
+      }
+    }
     return {
       format: RELAY_BACKUP_FORMAT,
       tenantId,
@@ -993,6 +1019,7 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
     const records = this.recordsByTenant.get(tenantId) ?? []
     const record = records.find((entry) => entry.cursor === cursor)
     if (!record) throw new Error(`No mock relay record at cursor ${cursor}.`)
+    assertRelayEnvelopeShape(record.envelope)
     record.envelope = cloneJson(mutate(cloneJson(record.envelope)))
   }
 }
@@ -1060,16 +1087,19 @@ export class DeterministicRelayGateway {
     const providerRecords = [...this.provider.list(tenantId)].sort((left, right) => left.cursor - right.cursor)
     for (const record of providerRecords) {
       try {
-        const admissionTenantId = record.admission?.tenantId
-        if (record.envelope.tenantId !== tenantId ||
-            (admissionTenantId !== undefined && admissionTenantId !== tenantId)) {
+        assertRelayEnvelopeShape(record.envelope)
+        assertRelayAdmissionReceiptShape(record.admission)
+        const listedEnvelope = record.envelope
+        const listedAdmission = record.admission
+        if (listedEnvelope.tenantId !== tenantId ||
+            listedAdmission.tenantId !== tenantId) {
           throw new RelayPolicyError(
             'tenant-mismatch',
             'Provider record envelope/admission tenant does not match the requested tenant scope.'
           )
         }
-        const envelope = this.security.validateEnvelope(record.envelope, now, 'stored')
-        this.security.validateAdmissionReceipt(record.admission, envelope, record.storedAt)
+        const envelope = this.security.validateEnvelope(listedEnvelope, now, 'stored')
+        this.security.validateAdmissionReceipt(listedAdmission, envelope, record.storedAt)
         const replayKey = `${envelope.documentId}|${envelope.senderSigningKeyId}`
         const priorCounter = replayCounters.get(replayKey) ?? 0
         if (envelopeIds.has(envelope.envelopeId) || envelope.replayCounter <= priorCounter) {
@@ -1082,7 +1112,12 @@ export class DeterministicRelayGateway {
           })
           continue
         }
-        records.push(record)
+        records.push({
+          cursor: record.cursor,
+          storedAt: record.storedAt,
+          envelope,
+          admission: listedAdmission
+        })
         envelopeIds.add(envelope.envelopeId)
         replayCounters.set(replayKey, envelope.replayCounter)
       } catch (error) {
@@ -1092,7 +1127,13 @@ export class DeterministicRelayGateway {
         this.addQuarantine({
           quarantinedAt: now,
           providerId: this.provider.providerId,
-          envelopeId: record.envelope.envelopeId,
+          envelopeId:
+            typeof record.envelope === 'object' &&
+            record.envelope !== null &&
+            'envelopeId' in record.envelope &&
+            typeof record.envelope.envelopeId === 'string'
+              ? record.envelope.envelopeId
+              : `provider-record-${record.cursor}`,
           code: relayError.code,
           detail: relayError.message
         })
@@ -1154,9 +1195,16 @@ export class DeterministicRelayGateway {
     }
     const relayHeads = [...relayHeadSet].sort()
     const latestRelayCursor = health.latestCursor
-    const documentEnvelopeIds = new Set(providerRecords
-      .filter((record) => record.envelope.documentId === documentId)
-      .map((record) => record.envelope.envelopeId))
+    const documentEnvelopeIds = new Set(providerRecords.flatMap((record) => {
+      try {
+        assertRelayEnvelopeShape(record.envelope)
+        return record.envelope.documentId === documentId
+          ? [record.envelope.envelopeId]
+          : []
+      } catch {
+        return []
+      }
+    }))
     if (this.quarantineRecords.some((record) =>
       record.providerId === this.provider.providerId && documentEnvelopeIds.has(record.envelopeId))) {
       return {

@@ -14,12 +14,18 @@ import {
   serializedByteLength,
   type IssueMockCapabilityInput
 } from './mock'
-import { RelayPolicyError } from './policy'
+import {
+  RelayPolicyError,
+  assertRelayAdmissionReceiptShape,
+  assertRelayEnvelopeShape
+} from './policy'
 import type {
   RelayCapabilityEnvelope,
   RelayDocumentDraft,
   RelayIdentityEnvelope,
+  RelayProviderListingRecord,
   RelayQuotaPolicy,
+  RelayStoredEnvelope,
   RelaySyncEnvelope
 } from './contracts'
 
@@ -37,6 +43,17 @@ interface Fixture {
   bob: RelayIdentityEnvelope
   aliceCapability: RelayCapabilityEnvelope
   bobCapability: RelayCapabilityEnvelope
+}
+
+function admittedListing(record: RelayProviderListingRecord): RelayStoredEnvelope {
+  assertRelayEnvelopeShape(record.envelope)
+  assertRelayAdmissionReceiptShape(record.admission)
+  return {
+    cursor: record.cursor,
+    storedAt: record.storedAt,
+    envelope: record.envelope,
+    admission: record.admission
+  }
 }
 
 function createFixture(quotas?: RelayQuotaPolicy, providerId = 'mock-provider-a'): Fixture {
@@ -241,7 +258,8 @@ describe('optional relay foundation deterministic mocks', () => {
     const envelope = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
 
     expect(fixture.gateway.submit(envelope, NOW + 10).code).toBe('accepted')
-    const [record] = fixture.provider.list(TENANT_ID)
+    const [rawRecord] = fixture.provider.list(TENANT_ID)
+    const record = admittedListing(rawRecord)
 
     expect(record.admission).toEqual(expect.objectContaining({
       envelopeId: envelope.envelopeId,
@@ -296,7 +314,9 @@ describe('optional relay foundation deterministic mocks', () => {
     const admissionMismatchEnvelope = seal(fixture, fixture.alice, fixture.aliceCapability, 2)
     expect(fixture.gateway.submit(envelope, NOW + 10).code).toBe('accepted')
     expect(fixture.gateway.submit(admissionMismatchEnvelope, NOW + 11).code).toBe('accepted')
-    const [admitted, admittedForMismatch] = fixture.provider.list(TENANT_ID)
+    const [rawAdmitted, rawAdmittedForMismatch] = fixture.provider.list(TENANT_ID)
+    const admitted = admittedListing(rawAdmitted)
+    const admittedForMismatch = admittedListing(rawAdmittedForMismatch)
 
     fixture.provider.injectUntrustedListingRecord(OTHER_TENANT_ID, admitted)
     fixture.provider.injectUntrustedListingRecord(OTHER_TENANT_ID, {
@@ -430,14 +450,16 @@ describe('optional relay foundation deterministic mocks', () => {
 
     const accepted = fixture.gateway.submit(envelope, NOW + 10)
     expect(accepted.code).toBe('accepted')
-    const admitted = fixture.provider.list(TENANT_ID)
-      .find((record) => record.cursor === accepted.cursor)!
+    const admitted = admittedListing(
+      fixture.provider.list(TENANT_ID)
+        .find((record) => record.cursor === accepted.cursor)!
+    )
     fixture.provider.injectUntrustedEnvelope(envelope, admitted.storedAt, admitted.admission)
     expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 12).map((record) => record.envelope.envelopeId)).toEqual([
       envelope.envelopeId
     ])
     expect(fixture.gateway.quarantine()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'signature-invalid' }),
+      expect.objectContaining({ code: 'admission-proof-invalid' }),
       expect.objectContaining({ code: 'replay' })
     ]))
     expect(fixture.gateway.submit(envelope, NOW + 11)).toEqual(

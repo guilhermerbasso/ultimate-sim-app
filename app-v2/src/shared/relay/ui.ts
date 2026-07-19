@@ -14,15 +14,15 @@ export interface RelayCapabilityMatrixRow {
   detail: string
 }
 
-export const RELAY_FOUNDATION_STATUS = Object.freeze({
-  mode: 'foundation-only' as const,
-  localPrimary: true as const,
-  liveRelayConfigured: false as const,
-  networkEnabled: false as const,
-  credentialsConfigured: false as const,
-  productionCryptoImplemented: false as const,
-  providerContract: 'usa.relay.provider/v1' as const
-})
+export const RELAY_FOUNDATION_STATUS = {
+  mode: 'foundation-only',
+  localPrimary: true,
+  liveRelayConfigured: false,
+  networkEnabled: false,
+  credentialsConfigured: false,
+  productionCryptoImplemented: false,
+  providerContract: RELAY_PROVIDER_CONTRACT
+} as const
 
 export const RELAY_CAPABILITY_STATUS_MATRIX: readonly RelayCapabilityMatrixRow[] = Object.freeze([
   {
@@ -114,3 +114,4 @@ export const RELAY_CAPABILITY_STATUS_MATRIX: readonly RelayCapabilityMatrixRow[]
     detail: 'No server, socket, DNS, port, credential, or external network path exists in this slice.'
   }
 ])
+import { RELAY_PROVIDER_CONTRACT } from './contracts'
