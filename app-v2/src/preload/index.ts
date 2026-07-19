@@ -120,6 +120,7 @@ const ALLOWED_PREFIXES = [
   'spotter3d:',
   'stt:',
   'streaming:',
+  'mqtt:',
   'simhub:',
   // ─── Config EXPORT/IMPORT + saved-state VIEW/DELETE (perfil completo, por
   //     seção, listSaved/deleteSection/resetSection, changed broadcast) ──────────
