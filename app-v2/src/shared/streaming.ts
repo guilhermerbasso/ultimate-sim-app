@@ -60,6 +60,7 @@ export interface StreamingStartResult {
   autoTunnelAvailable: boolean
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
+  autoTunnelMessage: string | null
   receiverV2: ReceiverV2Status
   presentationProfileId: string | null
 }
@@ -119,6 +120,7 @@ export interface StreamingStatus {
   autoTunnelAvailable: boolean
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
+  autoTunnelMessage: string | null
   receiverV2: ReceiverV2Status
   presentationProfileId: string | null
 }
