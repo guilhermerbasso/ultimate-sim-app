@@ -11,6 +11,7 @@ import {
   type CollaborationMockEditInput,
   type CollaborationMockPeerInput,
   type CollaborationSetInput,
+  type CollaborationActor,
   type CollaborationWorkspaceState
 } from '../../shared/local-collaboration'
 import { LocalCollaborationService } from '../collaboration/service'
@@ -19,48 +20,69 @@ import type { ModuleContext } from '../module-context'
 const STORE_FILE = 'local-collaboration-v1.json'
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024
 
-export function register(ctx: ModuleContext): void {
-  const servicePromise = LocalCollaborationService.open(join(ctx.app.getPath('userData'), STORE_FILE))
+export interface LocalCollaborationModuleOptions {
+  openService?: (filePath: string) => Promise<LocalCollaborationService>
+}
+
+export function register(ctx: ModuleContext, options: LocalCollaborationModuleOptions = {}): void {
+  let initializationError: string | undefined
+  const openService = options.openService ?? ((filePath: string) => LocalCollaborationService.open(filePath))
+  const servicePromise = Promise.resolve()
+    .then(() => openService(join(ctx.app.getPath('userData'), STORE_FILE)))
+    .catch((error: unknown) => {
+      initializationError = error instanceof Error ? error.message : String(error)
+      return null
+    })
+  const requireService = async (): Promise<LocalCollaborationService> => {
+    const service = await servicePromise
+    if (!service) {
+      throw new Error(`Local collaboration is unavailable: ${initializationError ?? 'initialization failed'}`)
+    }
+    return service
+  }
   const changed = (state: CollaborationWorkspaceState): CollaborationWorkspaceState => {
     ctx.broadcast(COLLABORATION_CHANNELS.changed, state)
     return state
   }
 
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.state, async () => {
-    return (await servicePromise).getWorkspaceState()
+    const service = await servicePromise
+    return service
+      ? service.getWorkspaceState()
+      : unavailableWorkspaceState(initializationError)
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.getDocument, async (_event, documentId: string) => {
-    return (await servicePromise).getDocument(documentId)
+    return (await requireService()).getDocument(documentId)
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.create, async (_event, input: CollaborationCreateInput) => {
-    const service = await servicePromise
+    const service = await requireService()
     const document = await service.create(input)
     changed(await service.getWorkspaceState())
     return document
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.set, async (_event, input: CollaborationSetInput) => {
-    const service = await servicePromise
+    const service = await requireService()
     const document = await service.set(input)
     changed(await service.getWorkspaceState())
     return document
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.delete, async (_event, input: CollaborationDeleteInput) => {
-    const service = await servicePromise
+    const service = await requireService()
     const document = await service.delete(input)
     changed(await service.getWorkspaceState())
     return document
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.setOnline, async (_event, online: boolean) => {
-    return changed(await (await servicePromise).setOnline(Boolean(online)))
+    return changed(await (await requireService()).setOnline(Boolean(online)))
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.addMockPeer, async (_event, input: CollaborationMockPeerInput) => {
-    return changed(await (await servicePromise).addMockPeer(input))
+    return changed(await (await requireService()).addMockPeer(input))
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.mockEdit, async (_event, input: CollaborationMockEditInput) => {
-    return changed(await (await servicePromise).mockEdit(input))
+    return changed(await (await requireService()).mockEdit(input))
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.sync, async () => {
-    return changed(await (await servicePromise).sync())
+    return changed(await (await requireService()).sync())
   })
   ctx.ipcMain.handle(COLLABORATION_CHANNELS.exportFile, async (): Promise<CollaborationFileResult> => {
     const owner = ctx.getMainWindow()
@@ -76,7 +98,7 @@ export function register(ctx: ModuleContext): void {
       ? await dialog.showSaveDialog(owner, options)
       : await dialog.showSaveDialog(options)
     if (result.canceled || !result.filePath) return { canceled: true }
-    const service = await servicePromise
+    const service = await requireService()
     const bundle = await service.exportBundle()
     await writeFile(result.filePath, `${bundle}\n`, 'utf8')
     return {
@@ -101,7 +123,7 @@ export function register(ctx: ModuleContext): void {
     if (result.canceled || !filePath) return { canceled: true }
     const metadata = await stat(filePath)
     if (metadata.size > MAX_IMPORT_BYTES) throw new Error(`Collaboration import exceeds ${MAX_IMPORT_BYTES} bytes.`)
-    const service = await servicePromise
+    const service = await requireService()
     try {
       const state = await service.importBundle(await readFile(filePath, 'utf8'))
       changed(state)
@@ -112,5 +134,36 @@ export function register(ctx: ModuleContext): void {
     }
   })
 
-  ctx.registerGracefulTeardown(async () => (await servicePromise).flush(), 'persistence')
+  ctx.registerGracefulTeardown(async () => {
+    const service = await servicePromise
+    if (service) await service.flush()
+  }, 'persistence')
+}
+
+const UNAVAILABLE_ACTOR: CollaborationActor = {
+  id: 'collaboration-unavailable',
+  displayName: 'Local owner',
+  deviceId: 'collaboration-unavailable',
+  publicKey: 'unavailable'
+}
+
+function unavailableWorkspaceState(error: string | undefined): CollaborationWorkspaceState {
+  return {
+    status: {
+      authority: 'local-primary',
+      transport: 'in-memory-mock-only',
+      networkEnabled: false,
+      online: false,
+      localActor: UNAVAILABLE_ACTOR,
+      documentCount: 0,
+      peerCount: 0,
+      pendingChangeCount: 0,
+      quarantineCount: 0,
+      lastSavedAt: null,
+      lastError: `Local collaboration is unavailable: ${error ?? 'initialization failed'}`
+    },
+    documents: [],
+    peers: [],
+    quarantine: []
+  }
 }

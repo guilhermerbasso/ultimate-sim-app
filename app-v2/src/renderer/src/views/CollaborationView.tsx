@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   COLLABORATION_CHANNELS,
@@ -103,20 +103,39 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
   const [peerAccess, setPeerAccess] = useState<'viewer' | 'editor'>('editor')
   const [mockPeerId, setMockPeerId] = useState('')
   const [busy, setBusy] = useState(false)
+  const workspaceRequest = useRef(0)
+  const documentRequest = useRef(0)
+  const selectedIdRef = useRef(selectedId)
+  selectedIdRef.current = selectedId
 
   const refresh = useCallback(async (): Promise<CollaborationWorkspaceState> => {
+    const request = ++workspaceRequest.current
     const state = await window.ipc.invoke<CollaborationWorkspaceState>(COLLABORATION_CHANNELS.state)
+    if (request !== workspaceRequest.current) return state
     setWorkspace(state)
-    setSelectedId((current) => current || state.documents[0]?.id || '')
+    setSelectedId((current) => {
+      const next = current || state.documents[0]?.id || ''
+      selectedIdRef.current = next
+      return next
+    })
     return state
   }, [])
 
   const loadDocument = useCallback(async (id: string): Promise<void> => {
+    if (id && selectedIdRef.current !== id) return
+    const request = ++documentRequest.current
     if (!id) {
       setDocument(null)
       return
     }
-    const next = await window.ipc.invoke<CollaborationDocumentView>(COLLABORATION_CHANNELS.getDocument, id)
+    let next: CollaborationDocumentView
+    try {
+      next = await window.ipc.invoke<CollaborationDocumentView>(COLLABORATION_CHANNELS.getDocument, id)
+    } catch (error) {
+      if (request !== documentRequest.current || selectedIdRef.current !== id) return
+      throw error
+    }
+    if (request !== documentRequest.current || selectedIdRef.current !== id) return
     setDocument(next)
     setEditTitle(next.title)
     const patch = defaultPatch(next.kind)
@@ -126,9 +145,15 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
 
   useEffect(() => {
     void refresh().catch((error) => showToast(errorMessage(error), 'error'))
-    return window.ipc.subscribe<CollaborationWorkspaceState>(COLLABORATION_CHANNELS.changed, (state) => {
+    const off = window.ipc.subscribe<CollaborationWorkspaceState>(COLLABORATION_CHANNELS.changed, (state) => {
+      workspaceRequest.current += 1
       setWorkspace(state)
     })
+    return () => {
+      workspaceRequest.current += 1
+      documentRequest.current += 1
+      off()
+    }
   }, [refresh, showToast])
 
   useEffect(() => {
@@ -163,6 +188,7 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
         kind,
         title
       })
+      selectedIdRef.current = created.id
       setSelectedId(created.id)
       setDocument(created)
       showToast('Local-primary collaboration document created.', 'success')
@@ -171,66 +197,70 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
 
   const saveTitle = (): void => {
     if (!document) return
+    const documentId = document.id
     void run(async () => {
       const updated = await window.ipc.invoke<CollaborationDocumentView>(COLLABORATION_CHANNELS.set, {
-        documentId: document.id,
+        documentId,
         path: collaborationTitlePath(document.kind),
         value: editTitle,
         message: 'Renamed document'
       })
-      setDocument(updated)
+      if (selectedIdRef.current === documentId) setDocument(updated)
       showToast('Document title saved locally.', 'success')
     })
   }
 
   const applyPatch = (asMock: boolean): void => {
     if (!document) return
+    const documentId = document.id
     void run(async () => {
       const operation: CollaborationOperation = { type: 'set', path, value: parseValue(value) }
       if (asMock) {
         if (!mockPeerId) throw new Error('Add or select an editor mock peer first.')
         const input: CollaborationMockEditInput = {
           peerId: mockPeerId,
-          documentId: document.id,
+          documentId,
           operation,
           message: message || 'In-memory peer edit'
         }
         await window.ipc.invoke(COLLABORATION_CHANNELS.mockEdit, input)
       } else {
         const updated = await window.ipc.invoke<CollaborationDocumentView>(COLLABORATION_CHANNELS.set, {
-          documentId: document.id,
+          documentId,
           path,
           value: operation.value,
           message: message || undefined
         })
-        setDocument(updated)
+        if (selectedIdRef.current === documentId) setDocument(updated)
       }
       await refresh()
-      await loadDocument(document.id)
+      if (selectedIdRef.current === documentId) await loadDocument(documentId)
       showToast(asMock ? 'Mock peer edit recorded.' : 'Local edit saved.', 'success')
     })
   }
 
   const deletePath = (asMock: boolean): void => {
     if (!document) return
+    const documentId = document.id
     void run(async () => {
       if (asMock) {
         if (!mockPeerId) throw new Error('Add or select an editor mock peer first.')
         await window.ipc.invoke(COLLABORATION_CHANNELS.mockEdit, {
           peerId: mockPeerId,
-          documentId: document.id,
+          documentId,
           operation: { type: 'delete', path },
           message: message || 'In-memory peer tombstone'
         } satisfies CollaborationMockEditInput)
       } else {
-        setDocument(await window.ipc.invoke<CollaborationDocumentView>(COLLABORATION_CHANNELS.delete, {
-          documentId: document.id,
+        const updated = await window.ipc.invoke<CollaborationDocumentView>(COLLABORATION_CHANNELS.delete, {
+          documentId,
           path,
           message: message || undefined
-        }))
+        })
+        if (selectedIdRef.current === documentId) setDocument(updated)
       }
       await refresh()
-      await loadDocument(document.id)
+      if (selectedIdRef.current === documentId) await loadDocument(documentId)
       showToast('Tombstone saved.', 'success')
     })
   }
@@ -291,7 +321,12 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
                 style={button}
                 disabled={busy}
                 onClick={() => void run(async () => {
-                  setWorkspace(await window.ipc.invoke(COLLABORATION_CHANNELS.setOnline, !workspace.status.online))
+                  const request = ++workspaceRequest.current
+                  const state = await window.ipc.invoke<CollaborationWorkspaceState>(
+                    COLLABORATION_CHANNELS.setOnline,
+                    !workspace.status.online
+                  )
+                  if (request === workspaceRequest.current) setWorkspace(state)
                 })}
               >
                 Go {workspace.status.online ? 'offline' : 'online'}
@@ -301,8 +336,11 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
                 style={button}
                 disabled={busy || !workspace.status.online}
                 onClick={() => void run(async () => {
-                  setWorkspace(await window.ipc.invoke(COLLABORATION_CHANNELS.sync))
-                  if (selectedId) await loadDocument(selectedId)
+                  const request = ++workspaceRequest.current
+                  const state = await window.ipc.invoke<CollaborationWorkspaceState>(COLLABORATION_CHANNELS.sync)
+                  if (request === workspaceRequest.current) setWorkspace(state)
+                  const currentId = selectedIdRef.current
+                  if (currentId) await loadDocument(currentId)
                 })}
               >
                 Sync mock peers
@@ -350,7 +388,10 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
               <button
                 type="button"
                 key={item.id}
-                onClick={() => setSelectedId(item.id)}
+                onClick={() => {
+                  selectedIdRef.current = item.id
+                  setSelectedId(item.id)
+                }}
                 style={{
                   ...button,
                   textAlign: 'left',
@@ -378,10 +419,12 @@ export default function CollaborationView({ showToast }: AppViewProps): ReactEle
                 style={button}
                 disabled={busy}
                 onClick={() => void run(async () => {
-                  setWorkspace(await window.ipc.invoke(COLLABORATION_CHANNELS.addMockPeer, {
+                  const request = ++workspaceRequest.current
+                  const state = await window.ipc.invoke<CollaborationWorkspaceState>(COLLABORATION_CHANNELS.addMockPeer, {
                     displayName: peerName,
                     access: peerAccess
-                  }))
+                  })
+                  if (request === workspaceRequest.current) setWorkspace(state)
                 })}
               >
                 Add mock

@@ -29,6 +29,7 @@ export interface CollaborationActor {
   id: string
   displayName: string
   deviceId: string
+  publicKey: string
 }
 
 export interface CollaborationPeer {
@@ -59,6 +60,7 @@ export interface CollaborationChangeBody {
 export interface CollaborationChange extends CollaborationChangeBody {
   id: string
   hash: string
+  signature: string
 }
 
 export interface CollaborationSerializedDocument {

@@ -1,35 +1,62 @@
-import { describe, expect, it } from 'vitest'
+import { createPrivateKey, sign, type KeyObject } from 'node:crypto'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   COLLABORATION_DOCUMENT_KINDS,
   collaborationCapability,
   type CollaborationActor,
   type CollaborationCapability,
+  type CollaborationChange,
+  type CollaborationChangeBody,
   type CollaborationExportBody,
   type CollaborationExportBundle
 } from '../../shared/local-collaboration'
 import { InMemoryCollaborationTransport } from './in-memory-transport'
 import {
+  assertCollaborationCausalGraphAcyclic,
   canonicalStringify,
+  createCollaborationSigningIdentity,
   hashCanonical,
-  LocalCollaborationReplica
+  LocalCollaborationReplica,
+  CollaborationValidationError
 } from './replica'
 
-const ACTOR_A: CollaborationActor = {
+const IDENTITY_A = createCollaborationSigningIdentity({
   id: 'actor-a',
   displayName: 'Alice',
   deviceId: 'device-a'
-}
-const ACTOR_B: CollaborationActor = {
+})
+const IDENTITY_B = createCollaborationSigningIdentity({
   id: 'actor-b',
   displayName: 'Bob',
   deviceId: 'device-b'
-}
-const ACTOR_C: CollaborationActor = {
+})
+const IDENTITY_C = createCollaborationSigningIdentity({
   id: 'actor-c',
   displayName: 'Casey',
   deviceId: 'device-c'
-}
+})
+const IDENTITY_D = createCollaborationSigningIdentity({
+  id: 'actor-d',
+  displayName: 'Devon',
+  deviceId: 'device-d'
+})
+const ACTOR_A: CollaborationActor = IDENTITY_A.actor
+const ACTOR_B: CollaborationActor = IDENTITY_B.actor
+const ACTOR_C: CollaborationActor = IDENTITY_C.actor
+const ACTOR_D: CollaborationActor = IDENTITY_D.actor
+const PRIVATE_KEYS = new Map([
+  [ACTOR_A.id, IDENTITY_A.privateKey],
+  [ACTOR_B.id, IDENTITY_B.privateKey],
+  [ACTOR_C.id, IDENTITY_C.privateKey],
+  [ACTOR_D.id, IDENTITY_D.privateKey]
+])
+const PRIVATE_KEY_OBJECTS = new Map(
+  [...PRIVATE_KEYS].map(([id, privateKey]) => [
+    id,
+    createPrivateKey({ key: Buffer.from(privateKey, 'base64'), format: 'der', type: 'pkcs8' })
+  ])
+)
 
 function allCapabilities(): CollaborationCapability[] {
   return [
@@ -46,6 +73,7 @@ function allCapabilities(): CollaborationCapability[] {
 function replica(actor: CollaborationActor, documentId: string): LocalCollaborationReplica {
   let now = actor.id.charCodeAt(actor.id.length - 1) * 1_000
   return new LocalCollaborationReplica(actor, {
+    privateKey: PRIVATE_KEYS.get(actor.id)!,
     now: () => ++now,
     documentId: () => documentId
   })
@@ -84,6 +112,21 @@ function rewriteBundle(
   }
   bundle.checksum.value = hashCanonical(body)
   return canonicalStringify(bundle)
+}
+
+function changeBody(change: CollaborationChange): CollaborationChangeBody {
+  const { id: _id, hash: _hash, signature: _signature, ...body } = change
+  return body
+}
+
+function signedChange(body: CollaborationChangeBody, privateKey: KeyObject): CollaborationChange {
+  const hash = hashCanonical(body)
+  return {
+    ...body,
+    id: `${body.author.id}:${body.sequence}:${hash.slice(0, 16)}`,
+    hash,
+    signature: sign(null, Buffer.from(hash, 'hex'), privateKey).toString('base64')
+  }
 }
 
 describe('LocalCollaborationReplica', () => {
@@ -269,15 +312,105 @@ describe('LocalCollaborationReplica', () => {
       for (const item of bundle.documents) item.changes.reverse()
     })
     const first = replica(ACTOR_C, 'unused-c')
-    const second = replica(
-      { id: 'actor-d', displayName: 'Devon', deviceId: 'device-d' },
-      'unused-d'
-    )
+    const second = replica(ACTOR_D, 'unused-d')
     first.importBundle(canonical)
     second.importBundle(reversed)
 
     expect(second.getDocument(document.id)).toEqual(first.getDocument(document.id))
     expect(second.exportBundle()).toBe(first.exportBundle())
     expect(first.exportBundle()).toBe(canonical)
+  })
+
+  it('rejects forged authorship even when the outer checksum and known actor metadata are valid', () => {
+    const { a, b, transport } = pair()
+    const document = a.createDocument({ kind: 'race-notes', title: 'Signed plan', createdAt: 70 })
+    transport.synchronizeAll()
+    transport.setOnline('a', false)
+    a.setValue(document.id, '/entries/alice', note('alice', 'Alice-authored'), undefined, 71)
+    b.setValue(document.id, '/entries/bob', note('bob', 'Bob-authored'), undefined, 72)
+    transport.setOnline('a', true)
+    transport.synchronizeAll()
+
+    const forged = rewriteBundle(a.exportBundle(), (bundle) => {
+      const alice = bundle.documents[0].changes.find((change) => change.operation.path === '/entries/alice')!
+      alice.signature = sign(
+        null,
+        Buffer.from(alice.hash, 'hex'),
+        PRIVATE_KEY_OBJECTS.get(ACTOR_B.id)!
+      ).toString('base64')
+    })
+    const target = replica(ACTOR_C, 'unused-c')
+
+    expect(() => target.importBundle(forged)).toThrow(/signature does not authenticate author actor-a/)
+    expect(target.listDocuments()).toEqual([])
+    expect(target.getQuarantine()).toHaveLength(1)
+  })
+
+  it('uses locale-independent canonical ordering', () => {
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(() => {
+      throw new Error('locale-dependent ordering was used')
+    })
+    let serialized = ''
+    try {
+      const { a, b, transport } = pair()
+      const document = a.createDocument({ kind: 'race-notes', title: 'Canonical order', createdAt: 80 })
+      transport.synchronizeAll()
+      b.setValue(document.id, '/entries/z', note('z', 'Zulu'), undefined, 81)
+      a.setValue(document.id, '/entries/a', note('a', 'Alpha'), undefined, 82)
+      transport.synchronizeAll()
+      serialized = a.exportBundle()
+      a.getDocument(document.id)
+    } finally {
+      localeCompare.mockRestore()
+    }
+    expect(serialized).toContain('"documents"')
+  })
+
+  it('rejects signed Lamport gaps and extreme clocks instead of accepting causal jumps', () => {
+    const source = replica(ACTOR_A, 'lamport-doc')
+    const document = source.createDocument({ kind: 'race-notes', title: 'Clock plan', createdAt: 90 })
+    source.setValue(document.id, '/summary', 'Second change', undefined, 91)
+    const target = replica(ACTOR_C, 'unused-c')
+
+    for (const maliciousLamport of [4, Number.MAX_SAFE_INTEGER]) {
+      const tampered = rewriteBundle(source.exportBundle(), (bundle) => {
+        const child = bundle.documents[0].changes.find((change) => change.sequence === 2)!
+        Object.assign(child, signedChange(
+          { ...changeBody(child), lamport: maliciousLamport },
+          PRIVATE_KEY_OBJECTS.get(ACTOR_A.id)!
+        ))
+      })
+      expect(() => target.importBundle(tampered)).toThrow(/Lamport clock must be exactly 2/)
+    }
+    expect(target.listDocuments()).toEqual([])
+  })
+
+  it('rejects a 10,000-level JSON value without recursive stack exhaustion', () => {
+    const target = replica(ACTOR_A, 'deep-json')
+    const document = target.createDocument({ kind: 'accessibility-profile', title: 'Deep value', createdAt: 100 })
+    let value: unknown = 'leaf'
+    for (let depth = 0; depth < 10_000; depth += 1) value = { child: value }
+
+    let thrown: unknown
+    try {
+      target.setValue(document.id, '/preferences/deep', value as never)
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(CollaborationValidationError)
+    expect(thrown).not.toBeInstanceOf(RangeError)
+    expect((thrown as Error).message).toMatch(/nesting is too deep/)
+  })
+
+  it('validates a maximum-depth 10,000-change causal chain iteratively', () => {
+    const changes = new Map<string, Pick<CollaborationChange, 'parents'>>()
+    for (let index = 0; index < 10_000; index += 1) {
+      changes.set(`change-${index}`, {
+        parents: index === 0 ? [] : [`change-${index - 1}`]
+      })
+    }
+    expect(() => assertCollaborationCausalGraphAcyclic(changes, 'max-chain')).not.toThrow()
+    changes.get('change-0')!.parents = ['change-9999']
+    expect(() => assertCollaborationCausalGraphAcyclic(changes, 'max-chain')).toThrow(/causal cycle/)
   })
 })

@@ -1,4 +1,12 @@
-import { createHash } from 'node:crypto'
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  verify,
+  type KeyObject
+} from 'node:crypto'
 
 import {
   COLLABORATION_DOCUMENT_KINDS,
@@ -28,6 +36,10 @@ const MAX_CHANGES_PER_DOCUMENT = 10_000
 const MAX_VALUE_BYTES = 256 * 1024
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 const MAX_QUARANTINE_ENTRIES = 100
+const MAX_JSON_DEPTH = 20
+const MAX_JSON_NODES = 100_000
+const MAX_CANONICAL_DEPTH = 64
+const MAX_CANONICAL_NODES = 1_000_000
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9._-]{1,128}$/
 const DOCUMENT_KIND_SET = new Set<string>(COLLABORATION_DOCUMENT_KINDS)
@@ -101,14 +113,25 @@ interface ReplicaSnapshot {
   documents: Map<string, DocumentState>
 }
 
+export interface CollaborationReplicaState extends ReplicaSnapshot {
+  peers: Map<string, CollaborationPeer>
+  quarantineEntries: CollaborationQuarantineEntry[]
+}
+
 export interface CollaborationMergeResult {
   accepted: number
   replayed: number
 }
 
 export interface CollaborationReplicaOptions {
+  privateKey: string
   now?: () => number
   documentId?: () => string
+}
+
+export interface CollaborationSigningIdentity {
+  actor: CollaborationActor
+  privateKey: string
 }
 
 export class CollaborationValidationError extends Error {
@@ -122,8 +145,22 @@ export class CollaborationValidationError extends Error {
   }
 }
 
+export function createCollaborationSigningIdentity(
+  actor: Omit<CollaborationActor, 'publicKey'>
+): CollaborationSigningIdentity {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+  return {
+    actor: validateActor({
+      ...actor,
+      publicKey: exportPublicKey(publicKey)
+    }),
+    privateKey: exportPrivateKey(privateKey)
+  }
+}
+
 export class LocalCollaborationReplica {
   private readonly localIdentity: CollaborationActor
+  private readonly signingPrivateKey: KeyObject
   private readonly now: () => number
   private readonly documentId: () => string
   private actors = new Map<string, CollaborationActor>()
@@ -131,8 +168,9 @@ export class LocalCollaborationReplica {
   private readonly peers = new Map<string, CollaborationPeer>()
   private readonly quarantineEntries: CollaborationQuarantineEntry[] = []
 
-  constructor(localActor: CollaborationActor, options: CollaborationReplicaOptions = {}) {
+  constructor(localActor: CollaborationActor, options: CollaborationReplicaOptions) {
     this.localIdentity = validateActor(localActor)
+    this.signingPrivateKey = validateSigningPrivateKey(options.privateKey, this.localIdentity.publicKey)
     this.now = options.now ?? (() => Date.now())
     this.documentId = options.documentId ?? (() => cryptoSafeDocumentId(this.localIdentity.id, this.now()))
     this.actors.set(this.localIdentity.id, this.localIdentity)
@@ -178,7 +216,7 @@ export class LocalCollaborationReplica {
   }
 
   listPeers(): CollaborationPeer[] {
-    return [...this.peers.values()].map(clonePeer).sort((left, right) => left.id.localeCompare(right.id))
+    return [...this.peers.values()].map(clonePeer).sort((left, right) => compareText(left.id, right.id))
   }
 
   hasPeerCapability(peerId: string, capability: CollaborationCapability): boolean {
@@ -248,7 +286,7 @@ export class LocalCollaborationReplica {
     const normalizedMessage = normalizeMessage(message)
     const sequence = nextSequence(document, this.localActor.id)
     const parents = documentHeads(document)
-    const lamport = Math.max(0, ...parents.map((id) => document.changes.get(id)?.lamport ?? 0)) + 1
+    const lamport = nextLamport(document.changes, parents, document.id)
     const body: CollaborationChangeBody = {
       version: COLLABORATION_VERSION,
       documentId,
@@ -261,12 +299,7 @@ export class LocalCollaborationReplica {
       operation: normalizedOperation,
       ...(normalizedMessage ? { message: normalizedMessage } : {})
     }
-    const hash = hashCanonical(body)
-    const change: CollaborationChange = {
-      ...body,
-      id: changeId(body.author.id, body.sequence, hash),
-      hash
-    }
+    const change = signChangeBody(body, this.signingPrivateKey)
     this.validateAndAddChanges(document, [change], { trustedImport: true })
     return cloneChange(change)
   }
@@ -289,7 +322,7 @@ export class LocalCollaborationReplica {
           updatedAt: view.history[0]?.createdAt ?? view.createdAt
         }
       })
-      .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
+      .sort((left, right) => right.updatedAt - left.updatedAt || compareText(left.id, right.id))
   }
 
   getChangeIds(): Set<string> {
@@ -300,6 +333,25 @@ export class LocalCollaborationReplica {
 
   getQuarantine(): CollaborationQuarantineEntry[] {
     return this.quarantineEntries.map((entry) => ({ ...entry }))
+  }
+
+  captureState(): CollaborationReplicaState {
+    const snapshot = this.captureSnapshot()
+    return {
+      ...snapshot,
+      peers: new Map([...this.peers].map(([id, peer]) => [id, clonePeer(peer)])),
+      quarantineEntries: this.getQuarantine()
+    }
+  }
+
+  restoreState(snapshot: CollaborationReplicaState): void {
+    this.restoreSnapshot({
+      actors: new Map([...snapshot.actors].map(([id, actor]) => [id, cloneActor(actor)])),
+      documents: cloneDocuments(snapshot.documents)
+    })
+    this.peers.clear()
+    for (const [id, peer] of snapshot.peers) this.peers.set(id, clonePeer(peer))
+    this.quarantineEntries.splice(0, this.quarantineEntries.length, ...snapshot.quarantineEntries.map((entry) => ({ ...entry })))
   }
 
   exportBundle(documentIds?: readonly string[]): string {
@@ -330,7 +382,7 @@ export class LocalCollaborationReplica {
     }
     const documents = [...this.documents.values()]
       .filter((document) => !requested || requested.has(document.id))
-      .sort((left, right) => left.id.localeCompare(right.id))
+      .sort((left, right) => compareText(left.id, right.id))
       .map(serializeDocument)
     const authorIds = new Set(
       documents.flatMap((document) => document.changes.map((change) => change.author.id))
@@ -338,7 +390,7 @@ export class LocalCollaborationReplica {
     const actors = [...this.actors.values()]
       .filter((actor) => authorIds.has(actor.id))
       .map(cloneActor)
-      .sort((left, right) => left.id.localeCompare(right.id))
+      .sort((left, right) => compareText(left.id, right.id))
     return {
       format: COLLABORATION_FORMAT,
       version: COLLABORATION_VERSION,
@@ -542,7 +594,7 @@ export class LocalCollaborationReplica {
             change.id
           )
         }
-        if (parent.documentId !== document.id || parent.lamport >= change.lamport) {
+        if (parent.documentId !== document.id) {
           throw new CollaborationValidationError(
             `Change ${change.id} has invalid causal ordering.`,
             document.id,
@@ -550,8 +602,16 @@ export class LocalCollaborationReplica {
           )
         }
       }
+      const expectedLamport = nextLamport(combined, change.parents, document.id, change.id)
+      if (change.lamport !== expectedLamport) {
+        throw new CollaborationValidationError(
+          `Change ${change.id} Lamport clock must be exactly ${expectedLamport}.`,
+          document.id,
+          change.id
+        )
+      }
     }
-    assertAcyclic(combined, document.id)
+    assertCollaborationCausalGraphAcyclic(combined, document.id)
 
     for (const change of changes) document.changes.set(change.id, cloneChange(change))
   }
@@ -580,17 +640,7 @@ export class LocalCollaborationReplica {
   private captureSnapshot(): ReplicaSnapshot {
     return {
       actors: new Map([...this.actors].map(([id, actor]) => [id, cloneActor(actor)])),
-      documents: new Map(
-        [...this.documents].map(([id, document]) => [
-          id,
-          {
-            id: document.id,
-            kind: document.kind,
-            createdAt: document.createdAt,
-            changes: new Map([...document.changes].map(([changeIdValue, change]) => [changeIdValue, cloneChange(change)]))
-          }
-        ])
-      )
+      documents: cloneDocuments(this.documents)
     }
   }
 
@@ -641,7 +691,12 @@ function parseBundle(serialized: string): CollaborationExportBundle {
   if (expected !== parsed.checksum.value) {
     throw new CollaborationValidationError('Collaboration bundle checksum mismatch.')
   }
-  return { ...body, checksum: { algorithm: 'sha256', value: expected } }
+  const normalized: CollaborationExportBundle = {
+    ...body,
+    checksum: { algorithm: 'sha256', value: expected }
+  }
+  assertSerializedSize(canonicalStringify(normalized), MAX_BUNDLE_BYTES, 'Collaboration bundle')
+  return normalized
 }
 
 function serializeBundle(body: CollaborationExportBody): string {
@@ -649,7 +704,9 @@ function serializeBundle(body: CollaborationExportBody): string {
     ...body,
     checksum: { algorithm: 'sha256', value: hashCanonical(body) }
   }
-  return canonicalStringify(bundle)
+  const serialized = canonicalStringify(bundle)
+  assertSerializedSize(serialized, MAX_BUNDLE_BYTES, 'Collaboration bundle')
+  return serialized
 }
 
 function serializeDocument(document: DocumentState): CollaborationSerializedDocument {
@@ -705,7 +762,7 @@ function validateChange(input: CollaborationChange, document: DocumentState): Co
     author,
     sequence: input.sequence,
     lamport: input.lamport,
-    parents: [...input.parents].sort(),
+    parents: [...input.parents].sort(compareText),
     createdAt: input.createdAt,
     operation,
     ...(message ? { message } : {})
@@ -715,7 +772,15 @@ function validateChange(input: CollaborationChange, document: DocumentState): Co
   if (input.hash !== hash || input.id !== expectedId) {
     throw new CollaborationValidationError('Change hash or id mismatch.', document.id, input.id)
   }
-  return { ...body, id: expectedId, hash }
+  const signature = validateSignature(input.signature)
+  if (!verifyChangeSignature(hash, signature, author.publicKey)) {
+    throw new CollaborationValidationError(
+      `Change ${input.id} signature does not authenticate author ${author.id}.`,
+      document.id,
+      input.id
+    )
+  }
+  return { ...body, id: expectedId, hash, signature }
 }
 
 function validateOperation(
@@ -889,39 +954,70 @@ function validateCue(value: CollaborationJson, id: string): void {
 }
 
 function validateJsonValue(value: unknown): asserts value is CollaborationJson {
+  inspectJson(value)
   const serialized = canonicalStringify(value)
   if (Buffer.byteLength(serialized, 'utf8') > MAX_VALUE_BYTES) {
     throw new CollaborationValidationError(`Collaboration value exceeds ${MAX_VALUE_BYTES} bytes.`)
   }
-  inspectJson(value, 0)
 }
 
-function inspectJson(value: unknown, depth: number): void {
-  if (depth > 20) throw new CollaborationValidationError('Collaboration value nesting is too deep.')
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new CollaborationValidationError('Collaboration numbers must be finite.')
-    return
-  }
-  if (Array.isArray(value)) {
-    if (value.length > 1_000) throw new CollaborationValidationError('Collaboration arrays are too large.')
-    for (const entry of value) inspectJson(entry, depth + 1)
-    return
-  }
-  if (!isRecord(value)) throw new CollaborationValidationError('Collaboration values must be JSON-safe.')
-  const keys = Object.keys(value)
-  if (keys.length > 200) throw new CollaborationValidationError('Collaboration objects have too many fields.')
-  let telemetrySignals = 0
-  for (const key of keys) {
-    const normalized = normalizeKey(key)
-    if (FORBIDDEN_KEYS.has(normalized)) {
-      throw new CollaborationValidationError(`Field ${key} is not allowed in collaboration documents.`)
+function inspectJson(root: unknown): void {
+  type Task =
+    | { type: 'value'; value: unknown; depth: number }
+    | { type: 'leave'; value: object }
+  const tasks: Task[] = [{ type: 'value', value: root, depth: 0 }]
+  const active = new Set<object>()
+  let inspected = 0
+
+  while (tasks.length > 0) {
+    const task = tasks.pop()!
+    if (task.type === 'leave') {
+      active.delete(task.value)
+      continue
     }
-    if (TELEMETRY_SIGNAL_KEYS.has(normalized)) telemetrySignals += 1
-    inspectJson(value[key], depth + 1)
-  }
-  if (telemetrySignals >= 3) {
-    throw new CollaborationValidationError('Telemetry-shaped records are not allowed in collaboration documents.')
+    inspected += 1
+    if (inspected > MAX_JSON_NODES) {
+      throw new CollaborationValidationError('Collaboration value is too complex.')
+    }
+    if (task.depth > MAX_JSON_DEPTH) {
+      throw new CollaborationValidationError('Collaboration value nesting is too deep.')
+    }
+    const value = task.value
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') continue
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) throw new CollaborationValidationError('Collaboration numbers must be finite.')
+      continue
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 1_000) throw new CollaborationValidationError('Collaboration arrays are too large.')
+      if (active.has(value)) throw new CollaborationValidationError('Collaboration values cannot contain cycles.')
+      active.add(value)
+      tasks.push({ type: 'leave', value })
+      for (let index = value.length - 1; index >= 0; index -= 1) {
+        tasks.push({ type: 'value', value: value[index], depth: task.depth + 1 })
+      }
+      continue
+    }
+    if (!isRecord(value)) throw new CollaborationValidationError('Collaboration values must be JSON-safe.')
+    if (active.has(value)) throw new CollaborationValidationError('Collaboration values cannot contain cycles.')
+    const keys = Object.keys(value)
+    if (keys.length > 200) throw new CollaborationValidationError('Collaboration objects have too many fields.')
+    let telemetrySignals = 0
+    for (const key of keys) {
+      const normalized = normalizeKey(key)
+      if (FORBIDDEN_KEYS.has(normalized)) {
+        throw new CollaborationValidationError(`Field ${key} is not allowed in collaboration documents.`)
+      }
+      if (TELEMETRY_SIGNAL_KEYS.has(normalized)) telemetrySignals += 1
+    }
+    if (telemetrySignals >= 3) {
+      throw new CollaborationValidationError('Telemetry-shaped records are not allowed in collaboration documents.')
+    }
+    active.add(value)
+    tasks.push({ type: 'leave', value })
+    for (let index = keys.length - 1; index >= 0; index -= 1) {
+      tasks.push({ type: 'value', value: value[keys[index]], depth: task.depth + 1 })
+    }
   }
 }
 
@@ -959,7 +1055,7 @@ function materializeDocument(document: DocumentState): CollaborationDocumentView
   })
   winners.sort((left, right) => {
     const depth = parsePath(left.operation.path).length - parsePath(right.operation.path).length
-    return depth || left.operation.path.localeCompare(right.operation.path)
+    return depth || compareText(left.operation.path, right.operation.path)
   })
   for (const winner of winners) {
     if (winner.operation.type === 'delete') {
@@ -976,12 +1072,12 @@ function materializeDocument(document: DocumentState): CollaborationDocumentView
     kind: document.kind,
     title: typeof title === 'string' && title ? title : `Untitled ${document.kind}`,
     createdAt: document.createdAt,
-    revision: hashCanonical([...document.changes.keys()].sort()),
+    revision: hashCanonical([...document.changes.keys()].sort(compareText)),
     heads: documentHeads(document),
     data,
     changeCount: document.changes.size,
     tombstoneCount,
-    conflicts: conflicts.sort((left, right) => left.path.localeCompare(right.path)),
+    conflicts: conflicts.sort((left, right) => compareText(left.path, right.path)),
     history: [...document.changes.values()]
       .sort((left, right) => compareChanges(right, left))
       .map((change) => ({
@@ -997,7 +1093,7 @@ function materializeDocument(document: DocumentState): CollaborationDocumentView
 
 function documentHeads(document: DocumentState): string[] {
   const parentIds = new Set([...document.changes.values()].flatMap((change) => change.parents))
-  return [...document.changes.keys()].filter((id) => !parentIds.has(id)).sort()
+  return [...document.changes.keys()].filter((id) => !parentIds.has(id)).sort(compareText)
 }
 
 function isAncestor(document: DocumentState, ancestorId: string, descendantId: string): boolean {
@@ -1013,35 +1109,97 @@ function isAncestor(document: DocumentState, ancestorId: string, descendantId: s
   return false
 }
 
-function assertAcyclic(changes: Map<string, CollaborationChange>, documentId: string): void {
+export function assertCollaborationCausalGraphAcyclic(
+  changes: ReadonlyMap<string, Pick<CollaborationChange, 'parents'>>,
+  documentId: string
+): void {
   const visiting = new Set<string>()
   const visited = new Set<string>()
-  const visit = (id: string): void => {
-    if (visiting.has(id)) {
-      throw new CollaborationValidationError(`Document ${documentId} contains a causal cycle.`, documentId, id)
+  for (const startId of changes.keys()) {
+    if (visited.has(startId)) continue
+    const stack: Array<{ id: string; parents: readonly string[]; index: number }> = [{
+      id: startId,
+      parents: changes.get(startId)?.parents ?? [],
+      index: 0
+    }]
+    visiting.add(startId)
+    while (stack.length > 0) {
+      const frame = stack.at(-1)!
+      if (frame.index >= frame.parents.length) {
+        visiting.delete(frame.id)
+        visited.add(frame.id)
+        stack.pop()
+        continue
+      }
+      const parentId = frame.parents[frame.index]
+      frame.index += 1
+      if (visiting.has(parentId)) {
+        throw new CollaborationValidationError(
+          `Document ${documentId} contains a causal cycle.`,
+          documentId,
+          parentId
+        )
+      }
+      if (visited.has(parentId)) continue
+      visiting.add(parentId)
+      stack.push({
+        id: parentId,
+        parents: changes.get(parentId)?.parents ?? [],
+        index: 0
+      })
     }
-    if (visited.has(id)) return
-    visiting.add(id)
-    for (const parent of changes.get(id)?.parents ?? []) visit(parent)
-    visiting.delete(id)
-    visited.add(id)
   }
-  for (const id of changes.keys()) visit(id)
 }
 
 function compareChanges(left: CollaborationChange, right: CollaborationChange): number {
   return (
     left.lamport - right.lamport ||
-    left.author.id.localeCompare(right.author.id) ||
+    compareText(left.author.id, right.author.id) ||
     left.sequence - right.sequence ||
-    left.id.localeCompare(right.id)
+    compareText(left.id, right.id)
   )
 }
 
 function nextSequence(document: DocumentState, actorId: string): number {
-  return Math.max(0, ...[...document.changes.values()]
-    .filter((change) => change.author.id === actorId)
-    .map((change) => change.sequence)) + 1
+  let maximum = 0
+  for (const change of document.changes.values()) {
+    if (change.author.id === actorId && change.sequence > maximum) maximum = change.sequence
+  }
+  if (maximum >= Number.MAX_SAFE_INTEGER) {
+    throw new CollaborationValidationError(
+      `Author ${actorId} sequence cannot advance beyond ${Number.MAX_SAFE_INTEGER}.`,
+      document.id
+    )
+  }
+  return maximum + 1
+}
+
+function nextLamport(
+  changes: ReadonlyMap<string, CollaborationChange>,
+  parents: readonly string[],
+  documentId: string,
+  changeIdValue?: string
+): number {
+  let maximum = 0
+  for (const parentId of parents) {
+    const parent = changes.get(parentId)
+    if (!parent) {
+      throw new CollaborationValidationError(
+        `Change ${changeIdValue ?? '(local)'} references missing parent ${parentId}.`,
+        documentId,
+        changeIdValue
+      )
+    }
+    if (parent.lamport > maximum) maximum = parent.lamport
+  }
+  if (maximum >= Number.MAX_SAFE_INTEGER) {
+    throw new CollaborationValidationError(
+      `Change ${changeIdValue ?? '(local)'} Lamport clock cannot advance beyond ${Number.MAX_SAFE_INTEGER}.`,
+      documentId,
+      changeIdValue
+    )
+  }
+  return maximum + 1
 }
 
 function counterKey(change: Pick<CollaborationChange, 'author' | 'sequence'>): string {
@@ -1050,6 +1208,25 @@ function counterKey(change: Pick<CollaborationChange, 'author' | 'sequence'>): s
 
 function changeId(actorId: string, sequence: number, hash: string): string {
   return `${actorId}:${sequence}:${hash.slice(0, 16)}`
+}
+
+function signChangeBody(body: CollaborationChangeBody, privateKey: KeyObject): CollaborationChange {
+  const hash = hashCanonical(body)
+  return {
+    ...body,
+    id: changeId(body.author.id, body.sequence, hash),
+    hash,
+    signature: sign(null, Buffer.from(hash, 'hex'), privateKey).toString('base64')
+  }
+}
+
+function verifyChangeSignature(hash: string, signature: string, publicKey: string): boolean {
+  return verify(
+    null,
+    Buffer.from(hash, 'hex'),
+    parsePublicKey(publicKey),
+    Buffer.from(signature, 'base64')
+  )
 }
 
 function assertSafeChangeId(value: unknown): asserts value is string {
@@ -1065,7 +1242,75 @@ function validateActor(input: CollaborationActor): CollaborationActor {
   if (typeof input.displayName !== 'string' || !input.displayName.trim() || input.displayName.length > 80) {
     throw new CollaborationValidationError('Actor display name must be 1-80 characters.')
   }
-  return { id: input.id, displayName: input.displayName.trim(), deviceId: input.deviceId }
+  return {
+    id: input.id,
+    displayName: input.displayName.trim(),
+    deviceId: input.deviceId,
+    publicKey: validatePublicKey(input.publicKey)
+  }
+}
+
+function validatePublicKey(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new CollaborationValidationError('Actor public key must be an Ed25519 SPKI key.')
+  }
+  parsePublicKey(value)
+  return value
+}
+
+function parsePublicKey(value: string): KeyObject {
+  const bytes = decodeCanonicalBase64(value, 'Actor public key', 256)
+  try {
+    const key = createPublicKey({ key: bytes, format: 'der', type: 'spki' })
+    if (key.asymmetricKeyType !== 'ed25519') throw new Error('not Ed25519')
+    return key
+  } catch {
+    throw new CollaborationValidationError('Actor public key must be an Ed25519 SPKI key.')
+  }
+}
+
+function validateSigningPrivateKey(value: unknown, expectedPublicKey: string): KeyObject {
+  if (typeof value !== 'string') {
+    throw new CollaborationValidationError('A matching Ed25519 private key is required for local authorship.')
+  }
+  const bytes = decodeCanonicalBase64(value, 'Actor private key', 512)
+  try {
+    const key = createPrivateKey({ key: bytes, format: 'der', type: 'pkcs8' })
+    if (key.asymmetricKeyType !== 'ed25519' || exportPublicKey(createPublicKey(key)) !== expectedPublicKey) {
+      throw new Error('key mismatch')
+    }
+    return key
+  } catch {
+    throw new CollaborationValidationError('A matching Ed25519 private key is required for local authorship.')
+  }
+}
+
+function validateSignature(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new CollaborationValidationError('Change signature must be canonical base64.')
+  }
+  const bytes = decodeCanonicalBase64(value, 'Change signature', 128)
+  if (bytes.length !== 64) throw new CollaborationValidationError('Change signature must be a 64-byte Ed25519 signature.')
+  return value
+}
+
+function decodeCanonicalBase64(value: string, label: string, maxBytes: number): Buffer {
+  if (!value || value.length > maxBytes * 2 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+    throw new CollaborationValidationError(`${label} must be canonical base64.`)
+  }
+  const bytes = Buffer.from(value, 'base64')
+  if (bytes.length === 0 || bytes.length > maxBytes || bytes.toString('base64') !== value) {
+    throw new CollaborationValidationError(`${label} must be canonical base64.`)
+  }
+  return bytes
+}
+
+function exportPublicKey(key: KeyObject): string {
+  return (key.export({ format: 'der', type: 'spki' }) as Buffer).toString('base64')
+}
+
+function exportPrivateKey(key: KeyObject): string {
+  return (key.export({ format: 'der', type: 'pkcs8' }) as Buffer).toString('base64')
 }
 
 function validateKind(value: unknown): CollaborationDocumentKind {
@@ -1127,7 +1372,7 @@ function normalizeCapabilities(capabilities: readonly CollaborationCapability[])
   for (const capability of unique) {
     if (!allowed.has(capability)) throw new CollaborationValidationError(`Unknown capability ${capability}.`)
   }
-  return unique.sort()
+  return unique.sort(compareText)
 }
 
 function setAtPath(target: Record<string, CollaborationJson>, path: string, value: CollaborationJson): void {
@@ -1162,7 +1407,10 @@ function valueAtPath(target: Record<string, CollaborationJson>, path: string): C
 }
 
 function sameActor(left: CollaborationActor, right: CollaborationActor): boolean {
-  return left.id === right.id && left.displayName === right.displayName && left.deviceId === right.deviceId
+  return left.id === right.id &&
+    left.displayName === right.displayName &&
+    left.deviceId === right.deviceId &&
+    left.publicKey === right.publicKey
 }
 
 function cloneActor(actor: CollaborationActor): CollaborationActor {
@@ -1186,6 +1434,22 @@ function cloneChange(change: CollaborationChange): CollaborationChange {
     parents: [...change.parents],
     operation: cloneOperation(change.operation)
   }
+}
+
+function cloneDocuments(documents: ReadonlyMap<string, DocumentState>): Map<string, DocumentState> {
+  return new Map(
+    [...documents].map(([id, document]) => [
+      id,
+      {
+        id: document.id,
+        kind: document.kind,
+        createdAt: document.createdAt,
+        changes: new Map(
+          [...document.changes].map(([changeIdValue, change]) => [changeIdValue, cloneChange(change)])
+        )
+      }
+    ])
+  )
 }
 
 function cloneJson<T extends CollaborationJson>(value: T): T {
@@ -1224,17 +1488,83 @@ export function hashCanonical(value: unknown): string {
   return createHash('sha256').update(canonicalStringify(value)).digest('hex')
 }
 
-export function canonicalStringify(value: unknown): string {
-  if (value === null) return 'null'
-  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new CollaborationValidationError('Canonical JSON rejects non-finite numbers.')
-    return JSON.stringify(value)
+export function canonicalStringify(root: unknown): string {
+  type Task =
+    | { type: 'value'; value: unknown; depth: number }
+    | { type: 'raw'; value: string }
+    | { type: 'leave'; value: object }
+  const tasks: Task[] = [{ type: 'value', value: root, depth: 0 }]
+  const chunks: string[] = []
+  const active = new Set<object>()
+  let visited = 0
+
+  while (tasks.length > 0) {
+    const task = tasks.pop()!
+    if (task.type === 'raw') {
+      chunks.push(task.value)
+      continue
+    }
+    if (task.type === 'leave') {
+      active.delete(task.value)
+      continue
+    }
+    visited += 1
+    if (visited > MAX_CANONICAL_NODES) {
+      throw new CollaborationValidationError('Canonical JSON value is too complex.')
+    }
+    if (task.depth > MAX_CANONICAL_DEPTH) {
+      throw new CollaborationValidationError('Canonical JSON nesting is too deep.')
+    }
+    const value = task.value
+    if (value === null) {
+      chunks.push('null')
+      continue
+    }
+    if (typeof value === 'string' || typeof value === 'boolean') {
+      chunks.push(JSON.stringify(value))
+      continue
+    }
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) throw new CollaborationValidationError('Canonical JSON rejects non-finite numbers.')
+      chunks.push(JSON.stringify(value))
+      continue
+    }
+    if (Array.isArray(value)) {
+      if (active.has(value)) throw new CollaborationValidationError('Canonical JSON rejects cyclic values.')
+      active.add(value)
+      tasks.push({ type: 'leave', value })
+      tasks.push({ type: 'raw', value: ']' })
+      for (let index = value.length - 1; index >= 0; index -= 1) {
+        tasks.push({ type: 'value', value: value[index], depth: task.depth + 1 })
+        if (index > 0) tasks.push({ type: 'raw', value: ',' })
+      }
+      tasks.push({ type: 'raw', value: '[' })
+      continue
+    }
+    if (!isRecord(value)) throw new CollaborationValidationError('Canonical JSON accepts JSON-safe values only.')
+    if (active.has(value)) throw new CollaborationValidationError('Canonical JSON rejects cyclic values.')
+    active.add(value)
+    const keys = Object.keys(value).sort(compareText)
+    tasks.push({ type: 'leave', value })
+    tasks.push({ type: 'raw', value: '}' })
+    for (let index = keys.length - 1; index >= 0; index -= 1) {
+      const key = keys[index]
+      tasks.push({ type: 'value', value: value[key], depth: task.depth + 1 })
+      tasks.push({ type: 'raw', value: ':' })
+      tasks.push({ type: 'raw', value: JSON.stringify(key) })
+      if (index > 0) tasks.push({ type: 'raw', value: ',' })
+    }
+    tasks.push({ type: 'raw', value: '{' })
   }
-  if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(',')}]`
-  if (!isRecord(value)) throw new CollaborationValidationError('Canonical JSON accepts JSON-safe values only.')
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalStringify(value[key])}`)
-    .join(',')}}`
+  return chunks.join('')
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function assertSerializedSize(serialized: string, maximum: number, label: string): void {
+  if (Buffer.byteLength(serialized, 'utf8') > maximum) {
+    throw new CollaborationValidationError(`${label} exceeds ${maximum} bytes after canonical serialization.`)
+  }
 }

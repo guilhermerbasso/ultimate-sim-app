@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rename as renameAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -44,6 +45,15 @@ describe('LocalCollaborationService', () => {
     expect(state.status.localActor).toEqual(initial.status.localActor)
     expect(restored.data.entries).toEqual({ start: { id: 'start', text: 'Start from pit lane' } })
     expect(restored.history.some((entry) => entry.author.id === initial.status.localActor.id)).toBe(true)
+
+    await reopened.set({
+      documentId: document.id,
+      path: '/summary',
+      value: 'Signed after restart'
+    })
+    const reopenedAgain = await LocalCollaborationService.open(file)
+    expect((await reopenedAgain.getWorkspaceState()).status.localActor).toEqual(initial.status.localActor)
+    expect((await reopenedAgain.getDocument(document.id)).data.summary).toBe('Signed after restart')
   })
 
   it('queues offline edits and visualizes the conflict after in-memory reconnection', async () => {
@@ -129,5 +139,57 @@ describe('LocalCollaborationService', () => {
     await recovered.flush()
     const reopened = await LocalCollaborationService.open(file)
     expect((await reopened.getWorkspaceState()).status.lastError).toBeUndefined()
+  })
+
+  it('rolls back every replica and preserves the durable file when a save fails', async () => {
+    const directory = mkdtempSync(join(process.cwd(), 'collaboration-service-test-'))
+    cleanup.push(directory)
+    const file = join(directory, 'workspace.json')
+    let failNextReplace = false
+    const service = await LocalCollaborationService.open(file, {
+      persistence: {
+        replace: async (from, to) => {
+          if (failNextReplace) {
+            failNextReplace = false
+            throw new Error('simulated durable replace failure')
+          }
+          await renameAsync(from, to)
+        }
+      }
+    })
+    const document = await service.create({ kind: 'race-notes', title: 'Durable plan' })
+
+    failNextReplace = true
+    await expect(service.set({
+      documentId: document.id,
+      path: '/entries/rollback',
+      value: { id: 'rollback', text: 'Must not survive' }
+    })).rejects.toThrow(/simulated durable replace failure/)
+    expect((await service.getWorkspaceState()).status.lastError).toMatch(/save failed/i)
+    expect((await service.getDocument(document.id)).data.entries).toBeUndefined()
+
+    await service.sync()
+    expect((await service.getDocument(document.id)).data.entries).toBeUndefined()
+    const reopened = await LocalCollaborationService.open(file)
+    expect((await reopened.getDocument(document.id)).data.entries).toBeUndefined()
+  })
+
+  it('enforces the final serialized workspace size and rolls back oversized mutations', async () => {
+    const directory = mkdtempSync(join(process.cwd(), 'collaboration-service-test-'))
+    cleanup.push(directory)
+    const file = join(directory, 'workspace.json')
+    const maximum = 8 * 1024
+    const service = await LocalCollaborationService.open(file, { maxPersistedBytes: maximum })
+    const document = await service.create({ kind: 'race-notes', title: 'Bounded plan' })
+
+    await expect(service.set({
+      documentId: document.id,
+      path: '/entries/oversized',
+      value: { id: 'oversized', text: 'x'.repeat(20_000) }
+    })).rejects.toThrow(`exceeds ${maximum} bytes after serialization`)
+    expect((await service.getDocument(document.id)).data.entries).toBeUndefined()
+
+    const reopened = await LocalCollaborationService.open(file, { maxPersistedBytes: maximum })
+    expect((await reopened.getDocument(document.id)).data.entries).toBeUndefined()
   })
 })

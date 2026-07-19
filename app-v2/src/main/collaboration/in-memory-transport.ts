@@ -6,6 +6,10 @@ interface TransportNode {
   online: boolean
 }
 
+export interface InMemoryCollaborationTransportState {
+  nodes: Array<{ peerId: string; replica: LocalCollaborationReplica; online: boolean }>
+}
+
 export interface CollaborationSyncResult extends CollaborationMergeResult {
   attempts: number
 }
@@ -45,7 +49,7 @@ export class InMemoryCollaborationTransport {
     let accepted = 0
     let replayed = 0
     let attempts = 0
-    const ids = [...this.nodes.keys()].sort()
+    const ids = [...this.nodes.keys()].sort(compareText)
     const maxRounds = Math.max(1, ids.length)
     for (let round = 0; round < maxRounds; round += 1) {
       let roundAccepted = 0
@@ -80,6 +84,23 @@ export class InMemoryCollaborationTransport {
     return pending.size
   }
 
+  captureState(): InMemoryCollaborationTransportState {
+    return {
+      nodes: [...this.nodes].map(([peerId, node]) => ({
+        peerId,
+        replica: node.replica,
+        online: node.online
+      }))
+    }
+  }
+
+  restoreState(state: InMemoryCollaborationTransportState): void {
+    this.nodes.clear()
+    for (const node of state.nodes) {
+      this.nodes.set(node.peerId, { replica: node.replica, online: node.online })
+    }
+  }
+
   private requireNode(peerId: string): TransportNode {
     const node = this.nodes.get(peerId)
     if (!node) throw new Error(`Unknown transport node ${peerId}.`)
@@ -89,4 +110,8 @@ export class InMemoryCollaborationTransport {
 
 function hasPeer(replica: LocalCollaborationReplica, peerId: string): boolean {
   return replica.listPeers().some((peer) => peer.id === peerId)
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
 }

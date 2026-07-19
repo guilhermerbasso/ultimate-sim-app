@@ -19,22 +19,41 @@ import {
   type CollaborationStatus,
   type CollaborationWorkspaceState
 } from '../../shared/local-collaboration'
-import { InMemoryCollaborationTransport } from './in-memory-transport'
+import {
+  InMemoryCollaborationTransport,
+  type InMemoryCollaborationTransportState
+} from './in-memory-transport'
 import {
   canonicalStringify,
+  createCollaborationSigningIdentity,
   hashCanonical,
-  LocalCollaborationReplica
+  LocalCollaborationReplica,
+  type CollaborationReplicaState
 } from './replica'
 
 const WORKSPACE_FORMAT = 'ultimate-sim-local-collaboration-workspace' as const
 const LOCAL_PEER_ID = 'local-owner'
-const DEFAULT_MOCK_PEER_ID = 'mock-crew-editor'
+const MAX_STORED_WORKSPACE_BYTES = 16 * 1024 * 1024
+
+interface CollaborationPersistence {
+  readText(path: string): Promise<string>
+  ensureDirectory(path: string): Promise<void>
+  writeText(path: string, value: string): Promise<void>
+  replace(from: string, to: string): Promise<void>
+  remove(path: string): Promise<void>
+}
+
+export interface LocalCollaborationServiceOptions {
+  persistence?: Partial<CollaborationPersistence>
+  maxPersistedBytes?: number
+}
 
 interface StoredWorkspaceBody {
   format: typeof WORKSPACE_FORMAT
   version: typeof COLLABORATION_VERSION
   savedAt: number
   localActor: CollaborationActor
+  localPrivateKey: string
   online: boolean
   bundle: string
 }
@@ -44,6 +63,14 @@ interface StoredWorkspace extends StoredWorkspaceBody {
     algorithm: 'sha256'
     value: string
   }
+}
+
+interface ServiceRuntimeSnapshot {
+  replica: CollaborationReplicaState
+  mockReplicas: Map<string, { replica: LocalCollaborationReplica; state: CollaborationReplicaState }>
+  transport: InMemoryCollaborationTransportState
+  online: boolean
+  lastSavedAt: number | null
 }
 
 export class LocalCollaborationService {
@@ -58,11 +85,15 @@ export class LocalCollaborationService {
   private constructor(
     private readonly filePath: string,
     localActor: CollaborationActor,
+    private readonly localPrivateKey: string,
     online: boolean,
     lastSavedAt: number | null,
+    private readonly persistence: CollaborationPersistence,
+    private readonly maxPersistedBytes: number,
     lastError?: string
   ) {
     this.replica = new LocalCollaborationReplica(localActor, {
+      privateKey: localPrivateKey,
       documentId: () => `doc-${randomUUID()}`
     })
     this.online = online
@@ -71,27 +102,59 @@ export class LocalCollaborationService {
     this.transport.attach(LOCAL_PEER_ID, this.replica, online)
   }
 
-  static async open(filePath: string): Promise<LocalCollaborationService> {
+  static async open(
+    filePath: string,
+    options: LocalCollaborationServiceOptions = {}
+  ): Promise<LocalCollaborationService> {
+    const persistence = collaborationPersistence(options.persistence)
+    const maxPersistedBytes = normalizePersistedLimit(options.maxPersistedBytes)
     let stored: StoredWorkspace | null = null
     let loadError: string | undefined
     try {
-      stored = parseStoredWorkspace(await readFile(filePath, 'utf8'))
+      stored = parseStoredWorkspace(await persistence.readText(filePath), maxPersistedBytes)
     } catch (error) {
       if (!isMissingFileError(error)) loadError = errorMessage(error)
     }
 
-    const actor = stored?.localActor ?? {
-      id: `actor-${randomUUID()}`,
-      displayName: 'Local owner',
-      deviceId: `device-${randomUUID()}`
+    let identity = stored
+      ? { actor: stored.localActor, privateKey: stored.localPrivateKey }
+      : createCollaborationSigningIdentity({
+          id: `actor-${randomUUID()}`,
+          displayName: 'Local owner',
+          deviceId: `device-${randomUUID()}`
+        })
+    let service: LocalCollaborationService
+    try {
+      service = new LocalCollaborationService(
+        filePath,
+        identity.actor,
+        identity.privateKey,
+        stored?.online ?? true,
+        stored?.savedAt ?? null,
+        persistence,
+        maxPersistedBytes,
+        loadError
+      )
+    } catch (error) {
+      if (!stored) throw error
+      loadError = errorMessage(error)
+      stored = null
+      identity = createCollaborationSigningIdentity({
+        id: `actor-${randomUUID()}`,
+        displayName: 'Local owner',
+        deviceId: `device-${randomUUID()}`
+      })
+      service = new LocalCollaborationService(
+        filePath,
+        identity.actor,
+        identity.privateKey,
+        true,
+        null,
+        persistence,
+        maxPersistedBytes,
+        loadError
+      )
     }
-    const service = new LocalCollaborationService(
-      filePath,
-      actor,
-      stored?.online ?? true,
-      stored?.savedAt ?? null,
-      loadError
-    )
     if (stored) {
       try {
         service.replica.importBundle(stored.bundle)
@@ -99,18 +162,18 @@ export class LocalCollaborationService {
         service.lastError = `Local collaboration store was ignored: ${errorMessage(error)}`
       }
     }
-    service.addMockPeerInternal(
-      {
-        id: DEFAULT_MOCK_PEER_ID,
-        actor: {
-          id: 'actor-mock-crew-editor',
-          displayName: 'Crew mock',
-          deviceId: 'memory-crew-editor'
-        },
-        capabilities: capabilitiesForAccess('editor')
-      },
-      true
-    )
+    const defaultMockSuffix = randomUUID()
+    const defaultMockIdentity = createCollaborationSigningIdentity({
+      id: `actor-mock-crew-editor-${defaultMockSuffix}`,
+      displayName: 'Crew mock',
+      deviceId: `memory-crew-editor-${defaultMockSuffix}`
+    })
+    service.addMockPeerInternal({
+      id: `mock-crew-editor-${defaultMockSuffix}`,
+      actor: defaultMockIdentity.actor,
+      privateKey: defaultMockIdentity.privateKey,
+      capabilities: capabilitiesForAccess('editor')
+    }, true)
     if (service.online) service.transport.synchronizeAll()
     if (!stored) {
       await service.persist()
@@ -135,66 +198,60 @@ export class LocalCollaborationService {
   }
 
   create(input: CollaborationCreateInput): Promise<CollaborationDocumentView> {
-    return this.mutate(async () => {
+    let documentId = ''
+    return this.mutateDurably(() => {
       const document = this.replica.createDocument({
         kind: input.kind,
         title: input.title,
         createdAt: Date.now()
       })
+      documentId = document.id
       this.syncIfOnline()
-      await this.persist()
-      return this.replica.getDocument(document.id)
-    })
+    }, () => this.replica.getDocument(documentId))
   }
 
   set(input: CollaborationSetInput): Promise<CollaborationDocumentView> {
-    return this.mutate(async () => {
+    return this.mutateDurably(() => {
       this.replica.setValue(input.documentId, input.path, input.value, input.message)
       this.syncIfOnline()
-      await this.persist()
-      return this.replica.getDocument(input.documentId)
-    })
+    }, () => this.replica.getDocument(input.documentId))
   }
 
   delete(input: CollaborationDeleteInput): Promise<CollaborationDocumentView> {
-    return this.mutate(async () => {
+    return this.mutateDurably(() => {
       this.replica.deleteValue(input.documentId, input.path, input.message)
       this.syncIfOnline()
-      await this.persist()
-      return this.replica.getDocument(input.documentId)
-    })
+    }, () => this.replica.getDocument(input.documentId))
   }
 
   setOnline(online: boolean): Promise<CollaborationWorkspaceState> {
-    return this.mutate(async () => {
+    return this.mutateDurably(() => {
       this.online = Boolean(online)
       this.transport.setOnline(LOCAL_PEER_ID, this.online)
       this.syncIfOnline()
-      await this.persist()
-      return this.workspaceStateNow()
-    })
+    }, () => this.workspaceStateNow())
   }
 
   addMockPeer(input: CollaborationMockPeerInput): Promise<CollaborationWorkspaceState> {
-    return this.mutate(async () => {
+    return this.mutateDurably(() => {
       const suffix = randomUUID()
+      const identity = createCollaborationSigningIdentity({
+        id: `actor-mock-${suffix}`,
+        displayName: normalizePeerName(input.displayName),
+        deviceId: `memory-${suffix}`
+      })
       this.addMockPeerInternal({
         id: `mock-${suffix}`,
-        actor: {
-          id: `actor-mock-${suffix}`,
-          displayName: normalizePeerName(input.displayName),
-          deviceId: `memory-${suffix}`
-        },
+        actor: identity.actor,
+        privateKey: identity.privateKey,
         capabilities: capabilitiesForAccess(input.access)
       }, true)
       this.syncIfOnline()
-      await this.persist()
-      return this.workspaceStateNow()
-    })
+    }, () => this.workspaceStateNow())
   }
 
   mockEdit(input: CollaborationMockEditInput): Promise<CollaborationWorkspaceState> {
-    return this.mutate(async () => {
+    return this.mutateDurably(() => {
       const mock = this.mockReplicas.get(input.peerId)
       if (!mock) throw new Error(`Unknown mock peer ${input.peerId}.`)
       const document = this.replica.getDocument(input.documentId)
@@ -209,18 +266,14 @@ export class LocalCollaborationService {
         mock.setValue(input.documentId, input.operation.path, input.operation.value, input.message)
       }
       this.syncIfOnline()
-      await this.persist()
-      return this.workspaceStateNow()
-    })
+    }, () => this.workspaceStateNow())
   }
 
   sync(): Promise<CollaborationWorkspaceState> {
-    return this.mutate(async () => {
+    return this.mutateDurably(() => {
       if (!this.online) throw new Error('Local collaboration is offline.')
       this.transport.synchronizeAll()
-      await this.persist()
-      return this.workspaceStateNow()
-    })
+    }, () => this.workspaceStateNow())
   }
 
   async exportBundle(): Promise<string> {
@@ -229,12 +282,10 @@ export class LocalCollaborationService {
   }
 
   importBundle(serialized: string): Promise<CollaborationWorkspaceState> {
-    return this.mutate(async () => {
+    return this.mutateDurably(() => {
       this.replica.importBundle(serialized)
       this.syncIfOnline()
-      await this.persist()
-      return this.workspaceStateNow()
-    })
+    }, () => this.workspaceStateNow())
   }
 
   flush(): Promise<void> {
@@ -242,12 +293,14 @@ export class LocalCollaborationService {
   }
 
   private addMockPeerInternal(
-    peer: Omit<CollaborationPeer, 'connected' | 'mock'>,
+    peer: Omit<CollaborationPeer, 'connected' | 'mock'> & { privateKey: string },
     mockOnline: boolean
   ): void {
     const existingPeers = this.replica.listPeers()
-    this.replica.registerPeer({ ...peer, connected: this.online && mockOnline })
+    const { privateKey, ...descriptor } = peer
+    this.replica.registerPeer({ ...descriptor, connected: this.online && mockOnline })
     const mock = new LocalCollaborationReplica(peer.actor, {
+      privateKey,
       documentId: () => `mock-doc-${randomUUID()}`
     })
     mock.registerPeer({
@@ -314,6 +367,7 @@ export class LocalCollaborationService {
       version: COLLABORATION_VERSION,
       savedAt,
       localActor: { ...this.replica.localActor },
+      localPrivateKey: this.localPrivateKey,
       online: this.online,
       bundle: this.replica.exportBundle()
     }
@@ -323,16 +377,64 @@ export class LocalCollaborationService {
     }
     const temporaryPath = `${this.filePath}.${randomUUID()}.next`
     try {
-      await mkdir(dirname(this.filePath), { recursive: true })
-      await writeFile(temporaryPath, `${canonicalStringify(stored)}\n`, 'utf8')
-      await rename(temporaryPath, this.filePath)
+      const serialized = `${canonicalStringify(stored)}\n`
+      assertPersistedSize(serialized, this.maxPersistedBytes)
+      await this.persistence.ensureDirectory(dirname(this.filePath))
+      await this.persistence.writeText(temporaryPath, serialized)
+      await this.persistence.replace(temporaryPath, this.filePath)
       this.lastSavedAt = savedAt
       this.lastError = undefined
     } catch (error) {
-      await rm(temporaryPath, { force: true }).catch(() => {})
+      await this.persistence.remove(temporaryPath).catch(() => {})
       this.lastError = `Local collaboration save failed: ${errorMessage(error)}`
       throw error
     }
+  }
+
+  private mutateDurably<T>(
+    operation: () => void | Promise<void>,
+    result: () => T
+  ): Promise<T> {
+    return this.mutate(async () => {
+      const snapshot = this.captureRuntimeState()
+      await operation()
+      try {
+        await this.persist()
+      } catch (error) {
+        const saveError = this.lastError
+        this.restoreRuntimeState(snapshot)
+        this.lastError = saveError
+        throw error
+      }
+      return result()
+    })
+  }
+
+  private captureRuntimeState(): ServiceRuntimeSnapshot {
+    return {
+      replica: this.replica.captureState(),
+      mockReplicas: new Map(
+        [...this.mockReplicas].map(([id, replica]) => [
+          id,
+          { replica, state: replica.captureState() }
+        ])
+      ),
+      transport: this.transport.captureState(),
+      online: this.online,
+      lastSavedAt: this.lastSavedAt
+    }
+  }
+
+  private restoreRuntimeState(snapshot: ServiceRuntimeSnapshot): void {
+    this.replica.restoreState(snapshot.replica)
+    this.mockReplicas.clear()
+    for (const [id, item] of snapshot.mockReplicas) {
+      item.replica.restoreState(item.state)
+      this.mockReplicas.set(id, item.replica)
+    }
+    this.transport.restoreState(snapshot.transport)
+    this.online = snapshot.online
+    this.lastSavedAt = snapshot.lastSavedAt
   }
 
   private mutate<T>(operation: () => Promise<T>): Promise<T> {
@@ -342,7 +444,8 @@ export class LocalCollaborationService {
   }
 }
 
-function parseStoredWorkspace(serialized: string): StoredWorkspace {
+function parseStoredWorkspace(serialized: string, maxPersistedBytes: number): StoredWorkspace {
+  assertPersistedSize(serialized, maxPersistedBytes)
   const parsed = JSON.parse(serialized) as unknown
   if (!isRecord(parsed) || parsed.format !== WORKSPACE_FORMAT || parsed.version !== COLLABORATION_VERSION) {
     throw new Error('Unsupported local collaboration workspace.')
@@ -352,6 +455,7 @@ function parseStoredWorkspace(serialized: string): StoredWorkspace {
     !Number.isSafeInteger(parsed.savedAt) ||
     !isRecord(parsed.localActor) ||
     !validStoredActor(parsed.localActor) ||
+    typeof parsed.localPrivateKey !== 'string' ||
     typeof parsed.online !== 'boolean' ||
     typeof parsed.bundle !== 'string' ||
     !isRecord(parsed.checksum) ||
@@ -365,13 +469,19 @@ function parseStoredWorkspace(serialized: string): StoredWorkspace {
     version: COLLABORATION_VERSION,
     savedAt: parsed.savedAt,
     localActor: parsed.localActor as unknown as CollaborationActor,
+    localPrivateKey: parsed.localPrivateKey,
     online: parsed.online,
     bundle: parsed.bundle
   }
   if (hashCanonical(body) !== parsed.checksum.value) {
     throw new Error('Local collaboration workspace checksum mismatch.')
   }
-  return { ...body, checksum: { algorithm: 'sha256', value: parsed.checksum.value } }
+  const normalized: StoredWorkspace = {
+    ...body,
+    checksum: { algorithm: 'sha256', value: parsed.checksum.value }
+  }
+  assertPersistedSize(`${canonicalStringify(normalized)}\n`, maxPersistedBytes)
+  return normalized
 }
 
 function validStoredActor(value: Record<string, unknown>): boolean {
@@ -382,7 +492,10 @@ function validStoredActor(value: Record<string, unknown>): boolean {
     value.displayName.trim().length > 0 &&
     value.displayName.length <= 80 &&
     typeof value.deviceId === 'string' &&
-    /^[A-Za-z0-9._-]{1,128}$/.test(value.deviceId)
+    /^[A-Za-z0-9._-]{1,128}$/.test(value.deviceId) &&
+    typeof value.publicKey === 'string' &&
+    value.publicKey.length > 0 &&
+    value.publicKey.length <= 512
   )
 }
 
@@ -410,6 +523,34 @@ function normalizePeerName(value: string): string {
   const normalized = typeof value === 'string' ? value.trim() : ''
   if (!normalized || normalized.length > 80) throw new Error('Peer name must be 1-80 characters.')
   return normalized
+}
+
+function collaborationPersistence(overrides: Partial<CollaborationPersistence> = {}): CollaborationPersistence {
+  return {
+    readText: overrides.readText ?? ((path) => readFile(path, 'utf8')),
+    ensureDirectory: overrides.ensureDirectory ?? (async (path) => {
+      await mkdir(path, { recursive: true })
+    }),
+    writeText: overrides.writeText ?? (async (path, value) => {
+      await writeFile(path, value, 'utf8')
+    }),
+    replace: overrides.replace ?? ((from, to) => rename(from, to)),
+    remove: overrides.remove ?? (async (path) => {
+      await rm(path, { force: true })
+    })
+  }
+}
+
+function normalizePersistedLimit(value: number | undefined): number {
+  if (value === undefined) return MAX_STORED_WORKSPACE_BYTES
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error('Persisted collaboration size limit must be positive.')
+  return value
+}
+
+function assertPersistedSize(serialized: string, maximum: number): void {
+  if (Buffer.byteLength(serialized, 'utf8') > maximum) {
+    throw new Error(`Local collaboration workspace exceeds ${maximum} bytes after serialization.`)
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
