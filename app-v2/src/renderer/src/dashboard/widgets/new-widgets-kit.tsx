@@ -341,7 +341,14 @@ export function DialInstrument({ element, value, min, max, unit, label, decimals
 }
 
 // Linear bar / shift / rev → RevLedBar (individually-modelled LEDs + bloom glow).
-export function RevInstrument({ element, frac }: { element: DashboardElement; frac: number }): ReactElement {
+function isShiftBinding(binding: string | undefined): boolean {
+  return binding === 'shiftPct' ||
+    binding === 'shiftIndicatorPct' ||
+    binding === 'ShiftIndicatorPct' ||
+    binding === 'ir:ShiftIndicatorPct'
+}
+
+export function RevInstrument({ element, frac, snapshot }: { element: DashboardElement; frac: number; snapshot: TelemetrySnapshot | null }): ReactElement {
   const s = element.style
   const inst = s.instrument
   const led = inst?.parts?.led
@@ -360,6 +367,7 @@ export function RevInstrument({ element, frac }: { element: DashboardElement; fr
         flashAt={led?.flashAt ?? s.flashAt}
         bloom={led?.bloom}
         glow={inst?.glow ?? s.glow}
+        shiftActive={isShiftBinding(element.binding) ? snapshot?.revLights?.blink : undefined}
         colors={instColors(s)}
         idPrefix={`rev-${element.id}`}
       />

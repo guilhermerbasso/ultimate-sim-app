@@ -96,6 +96,10 @@ interface DriveableModule {
   allOff(): Promise<void>
   profiles: DeviceProfile[]
   loaded: boolean
+  iflagDynamic?: {
+    isEnabled(): boolean
+    getHexGrid(): string[][]
+  }
 }
 
 function internals(mod: RgbMatrixModule): DriveableModule {
@@ -150,6 +154,37 @@ const flush = async (): Promise<void> => {
 describe('RgbMatrixModule live drive (keyframe + quick retry)', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
+
+  it('keeps provider shift blink above the dynamic/status/gear frame', async () => {
+    const mod = makeModule()
+    const { device, sent } = makeDevice()
+    internals(mod).iflagDynamic = {
+      isEnabled: () => true,
+      getHexGrid: () => Array.from({ length: 8 }, () => new Array<string>(8).fill('#ff0000'))
+    }
+    const snapshot = {
+      sim: 'iracing',
+      connected: true,
+      timestamp: 1,
+      speedKmh: 0,
+      rpm: 2000,
+      gear: 6,
+      throttle: 0,
+      brake: 0,
+      clutch: 0,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+    const onAt = 1_000_080
+
+    internals(mod).driveMatrix(device, deviceProfile, component, defaultRgbMatrixProfile(), snapshot, onAt)
+    await flush()
+    expect(sent.filter((frame) => frame.startsWith('P')).at(-1)).toMatch(/^P(?:1f8dff){64}$/)
+
+    internals(mod).driveMatrix(device, deviceProfile, component, defaultRgbMatrixProfile(), snapshot, onAt + 90)
+    await flush()
+    expect(sent.filter((frame) => frame.startsWith('P')).at(-1)).toMatch(/^P0{384}$/)
+  })
 
   it('(d) a calibration hold suppresses sends (incl. keyframes) until it expires', () => {
     const mod = makeModule()

@@ -7,12 +7,13 @@
 // while the structure is a single overflow-proof HUD scene. A null snapshot shows "—".
 import type { ReactElement } from 'react'
 import type { WidgetProps } from './types'
-import { formatGear, pct } from './format'
+import { formatGear } from './format'
 import { overlayDesignFamily, type OverlayDesignFamily } from '../../../../shared/overlays'
 import { resolveSkin, FitText, zoneColor } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const COMPACT_HUD_STREAM_SAFE = true
 
@@ -66,9 +67,8 @@ export function CompactHudWidget({ snapshot, config }: WidgetProps): ReactElemen
   const family = overlayDesignFamily(config?.stylePreset)
   const accent = familyAccent(family, palette.accent)
 
-  const rpm = s?.rpm ?? 0
-  const shiftPct = pct(s?.shiftIndicatorPct ?? rpm / (s?.maxRpm ?? 9000))
-  const redline = shiftPct >= 0.95
+  const shiftPct = resolveRevLightPct(s)
+  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
   const trackTemp = formatMeasurement(s?.trackTempC, 'temperature-c', unitSystem, { decimals: 0 })
@@ -99,7 +99,7 @@ export function CompactHudWidget({ snapshot, config }: WidgetProps): ReactElemen
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
         <rect x={0} y={0} width={W} height={H} rx={skin.material.radius} fill={palette.bg} />
 
-        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={ledY} width={innerW} height={ledH} flashOn={redline} />
+        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={ledY} width={innerW} height={ledH} shiftActive={redline} />
 
         <rect x={P} y={bodyY} width={gw} height={bodyH} rx={skin.material.radius} fill={palette.bg} stroke={redline ? palette.crit : accent} strokeWidth={Math.max(1, skin.material.borderWidth)} />
         <FitText x={P + gw / 2} y={bodyY + bodyH / 2} boxW={gw * 0.8} boxH={bodyH * 0.82} text={gear} anchor="middle" baseline="middle" fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha} fill={gearColor} minFontPx={20} maxFontPx={bodyH * 0.82} weight={700} />
