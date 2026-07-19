@@ -421,7 +421,9 @@ describe('evidence-linked story generation', () => {
   it('redacts complete SMTPUTF8 and punycode mailbox tokens from destination previews', () => {
     const smtpUtf8Mailbox = 'josé/ops@example.com'
     const punycodeMailbox = 'racer@example.xn--p1ai'
-    const statement = `Alice can be reached at ${smtpUtf8Mailbox} or ${punycodeMailbox}.`
+    const middleDotLocalMailbox = 'josé\u00B7ops@example.com'
+    const middleDotDomainMailbox = 'racer@l\u00B7l.cat'
+    const statement = `Alice can be reached at ${smtpUtf8Mailbox}, ${punycodeMailbox}, ${middleDotLocalMailbox}, or ${middleDotDomainMailbox}.`
     const piiEvidence = evidence('evidence-mailboxes', {
       statement,
       eventType: 'explicit',
@@ -443,13 +445,17 @@ describe('evidence-linked story generation', () => {
     })
 
     const [card] = generateStoryCards(timeline([piiEvent], [piiEvidence]), NOW).candidates
-    const expectedBody = '[driver] can be reached at [email] or [email].'
+    const expectedBody = '[driver] can be reached at [email], [email], [email], or [email].'
     expect(card.body).toBe(expectedBody)
     expect(storyPreview(card, 'local')?.body).toBe(expectedBody)
     expect(card.body).not.toContain(smtpUtf8Mailbox)
     expect(card.body).not.toContain('josé/')
     expect(card.body).not.toContain(punycodeMailbox)
     expect(card.body).not.toContain('--p1ai')
+    expect(card.body).not.toContain(middleDotLocalMailbox)
+    expect(card.body).not.toContain('josé\u00B7')
+    expect(card.body).not.toContain(middleDotDomainMailbox)
+    expect(card.body).not.toContain('l\u00B7l.cat')
   })
 
   it('fails closed when evidence has no PII attestation', () => {
@@ -495,6 +501,69 @@ describe('evidence-linked story generation', () => {
     expect(result.issues.some((issue) =>
       issue.code === 'invalid-evidence' && issue.message.includes('failed PII attestation')
     )).toBe(true)
+  })
+
+  it('fails a none-detected attestation for contextual middle-dot mailboxes', () => {
+    const claim = { subjectRef: 'driver-1', predicate: 'contact-attestation', value: true }
+    const statement = 'Contact josé\u00B7ops@example.com or racer@l\u00B7l.cat.'
+    const facts = { rank: 0.5, title: 'Contact card', statement }
+    const result = generateStoryCards(
+      timeline(
+        [event('event-unattested-middle-dot-mailboxes', {
+          type: 'explicit',
+          assertionId: 'caller-middle-dot-mailboxes',
+          evidenceRefs: ['evidence-unattested-middle-dot-mailboxes'],
+          claim,
+          facts: { rank: 0.5 },
+          title: 'Contact card',
+          statement
+        })],
+        [evidence('evidence-unattested-middle-dot-mailboxes', {
+          eventType: 'explicit',
+          claim,
+          facts,
+          statement,
+          piiAttestation: { status: 'none-detected', method: 'incorrect-review-v1', checkedAt: NOW }
+        })]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) =>
+      issue.code === 'invalid-evidence' && issue.message.includes('email detected')
+    )).toBe(true)
+  })
+
+  it('does not redact a middle dot outside its valid IDNA label context', () => {
+    const claim = { subjectRef: 'driver-1', predicate: 'identifier-attestation', value: true }
+    const statement = 'The identifier racer@a\u00B7b.cat is not an IDNA-valid mailbox.'
+    const facts = { rank: 0.5, title: 'Identifier card', statement }
+    const result = generateStoryCards(
+      timeline(
+        [event('event-invalid-middle-dot-domain', {
+          type: 'explicit',
+          assertionId: 'invalid-middle-dot-domain',
+          evidenceRefs: ['evidence-invalid-middle-dot-domain'],
+          claim,
+          facts: { rank: 0.5 },
+          title: 'Identifier card',
+          statement
+        })],
+        [evidence('evidence-invalid-middle-dot-domain', {
+          eventType: 'explicit',
+          claim,
+          facts,
+          statement,
+          piiAttestation: { status: 'none-detected', method: 'fixture-review-v1', checkedAt: NOW }
+        })]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0].body).toContain('racer@a\u00B7b.cat')
+    expect(result.candidates[0].redactions.some((redaction) => redaction.kind === 'email')).toBe(false)
   })
 
   it('fails a none-detected attestation for an international phone using non-breaking hyphens', () => {

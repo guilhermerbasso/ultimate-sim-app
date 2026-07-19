@@ -1058,30 +1058,37 @@ function normalizeAutomaticPiiScanText(text: string): string {
   return text.normalize('NFC').replace(/\p{Pd}/gu, '-')
 }
 
-const EMAIL_ATEXT_SOURCE = String.raw`[\p{L}\p{M}\p{N}!#$%&'*+/=?^_\x60{|}~-]`
-const EMAIL_DOMAIN_CHAR_SOURCE = String.raw`[\p{L}\p{M}\p{N}]`
+const EMAIL_ATEXT_SOURCE = String.raw`[\p{L}\p{M}\p{N}\u00B7!#$%&'*+/=?^_\x60{|}~-]`
+const EMAIL_DOMAIN_EDGE_SOURCE = String.raw`[\p{L}\p{M}\p{N}]`
+const EMAIL_DOMAIN_INTERIOR_SOURCE =
+  String.raw`(?:[\p{L}\p{M}\p{N}-]|(?<=l)\u00B7(?=l))`
 const EMAIL_DOMAIN_LABEL_SOURCE =
-  String.raw`${EMAIL_DOMAIN_CHAR_SOURCE}(?:[\p{L}\p{M}\p{N}-]{0,61}${EMAIL_DOMAIN_CHAR_SOURCE})?`
+  String.raw`${EMAIL_DOMAIN_EDGE_SOURCE}(?:${EMAIL_DOMAIN_INTERIOR_SOURCE}{0,61}${EMAIL_DOMAIN_EDGE_SOURCE})?`
+const EMAIL_U_LABEL_TLD_SOURCE =
+  String.raw`${EMAIL_DOMAIN_EDGE_SOURCE}${EMAIL_DOMAIN_INTERIOR_SOURCE}{0,61}${EMAIL_DOMAIN_EDGE_SOURCE}`
 const EMAIL_TLD_SOURCE =
-  String.raw`(?:xn--${EMAIL_DOMAIN_CHAR_SOURCE}(?:[\p{L}\p{M}\p{N}-]{0,57}${EMAIL_DOMAIN_CHAR_SOURCE})?|[\p{L}\p{M}]{2,})`
+  String.raw`(?:xn--[A-Z0-9](?:[A-Z0-9-]{0,57}[A-Z0-9])?|${EMAIL_U_LABEL_TLD_SOURCE})`
 
 function completeMailboxPattern(): RegExp {
   return new RegExp(
-    String.raw`(?<![\p{L}\p{M}\p{N}!#$%&'*+/=?^_\x60{|}~.-])${EMAIL_ATEXT_SOURCE}+(?:\.${EMAIL_ATEXT_SOURCE}+)*@(?:${EMAIL_DOMAIN_LABEL_SOURCE}\.)+${EMAIL_TLD_SOURCE}(?![\p{L}\p{M}\p{N}-])`,
+    String.raw`(?<![\p{L}\p{M}\p{N}\u00B7!#$%&'*+/=?^_\x60{|}~.-])${EMAIL_ATEXT_SOURCE}+(?:\.${EMAIL_ATEXT_SOURCE}+)*@(?:${EMAIL_DOMAIN_LABEL_SOURCE}\.)+${EMAIL_TLD_SOURCE}(?![\p{L}\p{M}\p{N}\u00B7-])`,
     'giu'
   )
 }
 
 function automaticRedactionRules(text = ''): RedactionRule[] {
   const normalized = text.normalize('NFC')
+  const emailRules: RedactionRule[] = normalized.includes('@')
+    ? [{
+        kind: 'email',
+        pattern: completeMailboxPattern(),
+        replacement: '[email]',
+        reason: 'pattern-detected',
+        priority: 90
+      }]
+    : []
   return [
-    {
-      kind: 'email',
-      pattern: completeMailboxPattern(),
-      replacement: '[email]',
-      reason: 'pattern-detected',
-      priority: 90
-    },
+    ...emailRules,
     ...ipv6RedactionRules(normalized),
     {
       kind: 'ip',

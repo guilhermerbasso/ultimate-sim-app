@@ -331,7 +331,9 @@ describe('StoryEngineStore human decisions and restart', () => {
     let now = 20_000
     const smtpUtf8Mailbox = 'josé/ops@example.com'
     const punycodeMailbox = 'racer@example.xn--p1ai'
-    const statement = `Alice Example reached the podium. Contact ${smtpUtf8Mailbox} or ${punycodeMailbox}.`
+    const middleDotLocalMailbox = 'josé\u00B7ops@example.com'
+    const middleDotDomainMailbox = 'racer@l\u00B7l.cat'
+    const statement = `Alice Example reached the podium. Contact ${smtpUtf8Mailbox}, ${punycodeMailbox}, ${middleDotLocalMailbox}, or ${middleDotDomainMailbox}.`
     const store = new StoryEngineStore(dir, {
       now: () => now,
       approvalId: () => 'approval-export'
@@ -390,8 +392,14 @@ describe('StoryEngineStore human decisions and restart', () => {
     expect(content).not.toContain('josé/')
     expect(content).not.toContain(punycodeMailbox)
     expect(content).not.toContain('--p1ai')
+    expect(content).not.toContain(middleDotLocalMailbox)
+    expect(content).not.toContain('josé\u00B7')
+    expect(content).not.toContain(middleDotDomainMailbox)
+    expect(content).not.toContain('l\u00B7l.cat')
     expect(payload.cards[0].title).toContain('[driver]')
-    expect(payload.cards[0].body).toBe('[driver] reached the podium. Contact [email] or [email].')
+    expect(payload.cards[0].body).toBe(
+      '[driver] reached the podium. Contact [email], [email], [email], or [email].'
+    )
     state = store.getState()
     expect(state.cards[0]).toMatchObject({
       status: 'exported',
