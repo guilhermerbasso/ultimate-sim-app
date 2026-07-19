@@ -4,6 +4,7 @@ import {
   SOCIAL_CONNECTOR_CONTRACT_VERSION,
   SOCIAL_CONNECTOR_MANIFESTS,
   SOCIAL_CONNECTOR_SCHEMA,
+  buildMockCapabilityMatrix,
   createMockConnectorStatus,
   socialCapabilityFor,
   type MockWebhookFixtureV1,
@@ -22,7 +23,7 @@ import {
   type DeterministicMockSocialConnector,
   type MockSocialConnectorOptions
 } from './mock-adapter'
-import { findCredentialMaterial, socialHash } from './security'
+import { findCredentialMaterial, socialHash, stableSocialJson } from './security'
 
 const NOW = 1_800_000_000_000
 const KEY_ID = 'fixture-key-v1'
@@ -186,6 +187,14 @@ describe('bounded credential value scanner', () => {
     expect(
       findCredentialMaterial({ message: 'x'.repeat(100) }, { maxStringLength: 32 })
     ).toBe('$.message')
+  })
+
+  it('rejects circular arrays with the controlled stable-serialization error', () => {
+    const circular: unknown[] = []
+    circular.push(circular)
+    expect(() => stableSocialJson(circular)).toThrow(
+      'Circular social connector values cannot be serialized'
+    )
   })
 })
 
@@ -872,6 +881,24 @@ describe('malformed untrusted adapter inputs', () => {
 })
 
 describe('authority-clock status refresh', () => {
+  it('preserves revoked scope truth in the capability matrix', () => {
+    const twitch = createMockConnectorStatus('twitch', NOW)
+    const capability = socialCapabilityFor('twitch', 'twitch.marker.create')!
+    const scope = capability.requiredScopes[0]
+    const matrix = buildMockCapabilityMatrix([
+      {
+        ...twitch,
+        scopes: { ...twitch.scopes, [scope]: 'revoked' as const }
+      },
+      createMockConnectorStatus('youtube', NOW),
+      createMockConnectorStatus('discord', NOW)
+    ])
+
+    expect(
+      matrix.find((row) => row.capabilityId === capability.id)?.scopeState
+    ).toBe('revoked')
+  })
+
   it('refreshes consent, policy, quota, lifecycle and updatedAtMs before returning status', () => {
     const clock = new ManualSocialClock(NOW)
     const target = connector('twitch', { clock })

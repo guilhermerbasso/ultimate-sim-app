@@ -493,15 +493,20 @@ export const MOCK_SOCIAL_CONNECTOR_STATUSES: readonly SocialConnectorStatusV1[] 
   ['twitch', 'youtube', 'discord'] as const
 ).map((provider) => createMockConnectorStatus(provider))
 
-export function buildMockCapabilityMatrix(): readonly SocialCapabilityMatrixRowV1[] {
+export function buildMockCapabilityMatrix(
+  statuses: readonly SocialConnectorStatusV1[] = MOCK_SOCIAL_CONNECTOR_STATUSES
+): readonly SocialCapabilityMatrixRowV1[] {
   return SOCIAL_CAPABILITIES.map((capability) => {
-    const status = MOCK_SOCIAL_CONNECTOR_STATUSES.find(
-      (entry) => entry.provider === capability.provider
-    )
+    const status = statuses.find((entry) => entry.provider === capability.provider)
     if (!status) throw new Error(`Missing mock connector status for ${capability.provider}`)
-    const scopeState = capability.requiredScopes.some((scope) => status.scopes[scope] !== 'granted')
-      ? 'missing'
-      : 'granted'
+    const scopeStates = capability.requiredScopes.map(
+      (scope) => status.scopes[scope] ?? 'missing'
+    )
+    const scopeState = scopeStates.includes('revoked')
+      ? 'revoked'
+      : scopeStates.every((state) => state === 'granted')
+        ? 'granted'
+        : 'missing'
 
     return {
       provider: capability.provider,

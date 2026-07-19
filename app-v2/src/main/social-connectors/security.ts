@@ -258,11 +258,15 @@ function normalizeForStableJson(value: unknown, seen: Set<object>): unknown {
   if (typeof value === 'number') return Number.isFinite(value) ? value : String(value)
   if (typeof value === 'bigint') return value.toString(10)
   if (typeof value === 'undefined') return null
-  if (Array.isArray(value)) return value.map((entry) => normalizeForStableJson(entry, seen))
   if (typeof value !== 'object') return String(value)
   if (seen.has(value)) throw new Error('Circular social connector values cannot be serialized')
 
   seen.add(value)
+  if (Array.isArray(value)) {
+    const normalized = value.map((entry) => normalizeForStableJson(entry, seen))
+    seen.delete(value)
+    return normalized
+  }
   const normalized = Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
