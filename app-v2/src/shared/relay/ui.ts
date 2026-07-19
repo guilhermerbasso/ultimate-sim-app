@@ -1,3 +1,5 @@
+import { RELAY_PROVIDER_CONTRACT } from './contracts'
+
 export type RelayUiCapabilityStatus =
   | 'available-local'
   | 'mock-verified'
@@ -114,4 +116,3 @@ export const RELAY_CAPABILITY_STATUS_MATRIX: readonly RelayCapabilityMatrixRow[]
     detail: 'No server, socket, DNS, port, credential, or external network path exists in this slice.'
   }
 ])
-import { RELAY_PROVIDER_CONTRACT } from './contracts'
