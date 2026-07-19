@@ -58,6 +58,7 @@ import { register as proactiveEngineer } from './proactive-engineer'
 import { register as strategy } from './strategy'
 import { register as stintDebrief } from './stint-debrief'
 import { register as incidentRecorder } from './incident-recorder'
+import { register as storyEngine } from './story-engine'
 import { register as communityLocal } from './community-local'
 import { register as semanticSearch } from './semantic-search'
 import { register as dashboardAi } from './dashboard-ai'
@@ -126,6 +127,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   strategy,
   stintDebrief,
   incidentRecorder,
+  storyEngine,
   communityLocal,
   semanticSearch,
   dashboardAi,
