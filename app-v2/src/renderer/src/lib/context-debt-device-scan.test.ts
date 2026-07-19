@@ -82,4 +82,15 @@ describe('SP-07 hardware scan truth', () => {
 
     expect(ids).toEqual(['primary', 'shaker-live'])
   })
+
+  it('does not inventory a disconnected primary device', () => {
+    expect(contextDebtSerialDeviceIds([{
+      id: 'simx',
+      path: 'COM1',
+      label: 'SIM-X',
+      kind: 'sim-x',
+      baud: 115_200,
+      connected: false
+    }], null)).toEqual([])
+  })
 })

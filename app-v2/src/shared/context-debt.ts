@@ -329,7 +329,6 @@ const OVERLAY_SIGNAL_BY_EXACT_METADATA = new Map<string, string>([
   ['stint', 'fuel'],
   ['flag', 'flags'],
   ['flags', 'flags'],
-  ['pace', 'flags'],
   ['race-control', 'flags'],
   ['shift', 'shift'],
   ['rev', 'shift'],
@@ -379,7 +378,8 @@ const OVERLAY_SIGNAL_BY_EXACT_ID = new Map<string, string>([
   ['braketempcorners', 'brake-temperature'],
   ['fueldeltatile', 'fuel'],
   ['shiftpointbar', 'shift'],
-  ['enginevitalsdial', 'engine']
+  ['enginevitalsdial', 'engine'],
+  ['predpaceprojected', 'pace']
 ])
 
 const CRITICAL_SIGNAL_IDS = new Set([
@@ -618,6 +618,8 @@ function signalFromOverlayTrigger(trigger: OverlayTrigger | null | undefined): s
     switch (trigger.semantic) {
       case 'paceFlags':
       case 'raceControlFlags':
+      case 'paceMode':
+      case 'paceFormation':
         return 'flags'
       case 'pitFuelToAdd':
         return 'fuel'
@@ -1192,7 +1194,7 @@ function deviceIds(inventory: ContextDebtDeviceInventory | undefined, kind: Cont
 function deviceIsImplicitlyKnown(kind: ContextDebtDeviceKind, id: string): boolean {
   const normalized = id.trim().toLowerCase()
   if (kind === 'audio') return normalized === '' || normalized === 'default' || normalized === 'system-default'
-  if (kind === 'serial') return normalized === '' || normalized === 'primary'
+  if (kind === 'serial') return normalized === ''
   return false
 }
 

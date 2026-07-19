@@ -209,6 +209,33 @@ describe('SP-07 context-debt analysis', () => {
     })
   })
 
+  it('keeps race-control and projected-pace ids distinct without promoting bare pace to flags', () => {
+    const overlays = createDefaultOverlaysConfig()
+    overlays.widgets.paceRestart = { ...overlays.widgets.paceRestart, enabled: true }
+    overlays.widgets.predPaceProjected = { ...overlays.widgets.predPaceProjected, enabled: true }
+    overlays.customOverlays = [{
+      ...overlays.widgets.customValue,
+      id: 'custom:pace',
+      title: 'Pace',
+      enabled: true,
+      elements: []
+    }]
+
+    const report = analyzeContextDebt(baseInput({ overlays }))
+    const routes = Object.fromEntries(
+      report.routes
+        .filter((route) => route.source === 'overlay')
+        .map((route) => [route.sourceId, route])
+    )
+
+    expect(routes.paceRestart).toMatchObject({ signalId: 'flags', critical: true })
+    expect(routes.predPaceProjected).toMatchObject({ signalId: 'pace', critical: false })
+    expect(routes['custom:pace']).toMatchObject({
+      signalId: 'overlay-custom-pace',
+      critical: false
+    })
+  })
+
   it('reports configured routes that target an unknown device without disabling them', () => {
     const report = analyzeContextDebt(baseInput({
       sounds: {
@@ -226,6 +253,44 @@ describe('SP-07 context-debt analysis', () => {
     const repair = report.suggestions.find((suggestion) => suggestion.kind === 'repair-device')
     expect(repair?.routeIds).toEqual([])
     expect(repair?.navigateTo).toBe('sounds')
+  })
+
+  it('requires the primary serial target to be present in connected inventory', () => {
+    const alerts = disabledAlerts()
+    alerts.audioEnabled = false
+    alerts.shiftPoint = {
+      ...alerts.shiftPoint,
+      enabled: true,
+      outputs: [{ kind: 'serial', deviceId: 'primary', template: 'SHIFT' }]
+    }
+    const disconnected = analyzeContextDebt(baseInput({
+      alerts,
+      devices: {
+        audioOutputIds: [],
+        serialDeviceIds: [],
+        displayIds: [],
+        gamepadIds: [],
+        scanStatus: { audio: 'success', serial: 'success', display: 'success', gamepad: 'success' }
+      }
+    }))
+    const connected = analyzeContextDebt(baseInput({
+      alerts,
+      devices: {
+        audioOutputIds: [],
+        serialDeviceIds: ['primary'],
+        displayIds: [],
+        gamepadIds: [],
+        scanStatus: { audio: 'success', serial: 'success', display: 'success', gamepad: 'success' }
+      }
+    }))
+
+    expect(disconnected.issues).toContainEqual(expect.objectContaining({
+      kind: 'unknown-device',
+      details: expect.objectContaining({ kind: 'serial', deviceId: 'primary' })
+    }))
+    expect(connected.issues.some((issue) =>
+      issue.kind === 'unknown-device' && issue.details.deviceId === 'primary'
+    )).toBe(false)
   })
 
   it('detects duplicate routes and previews removal of only the extra copy', () => {
