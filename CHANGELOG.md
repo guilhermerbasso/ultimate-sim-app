@@ -17,6 +17,9 @@
 - **Mobile presentation editor** for saved dashboards and Touch Controls, with phone/tablet presets,
   orientation, safe areas, fit/fill rules, minimum touch sizing, and revision-bound profiles that do
   not modify the source layout.
+- **Secure interactive Touch Controls receivers** for allowlisted pit, radio, toggle, selector,
+  rotary, and simulator actions, using authenticated target-bound capabilities, CSRF protection,
+  one-time nonces, origin binding, rate limits, and a live controller lease.
 - **Editor-only trigger previews** that reveal inactive trigger-only overlays and dashboard widgets
   for positioning without changing their live visibility rules.
 - **Experimental local Context-Debt meter** for auditing competing cues, invalid routes, and
@@ -25,6 +28,9 @@
 - **Local Setup Experiment Twin** for controlled one-variable A-B-A/B-A-B setup comparisons, with
   manual setup confirmation, matched-block evidence, uncertainty reporting, persistence recovery,
   and honest abstention instead of automatic setup application or causal claims.
+- **Local-first Steward Desk** for evidence-backed league incident review, versioned rules, human
+  verdicts, dissent, appeals, and rights-gated case exchange. Penalties and final decisions remain
+  explicitly human-owned.
 - **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
   runs, repeat comparisons, and scored blameless debriefs.
 
@@ -38,6 +44,13 @@
   suggestions respect per-cue route and modality limits.
 - PWA receiver reconnects preserve the first pending 250 ms deadline, deduplicate overlapping
   close/online triggers and metrics, and cancel pending reconnects while offline or unmounted.
+- Interactive Touch ownership drains safely on disconnect or stop: holds and mixed latches release
+  in order, configured OFF runs exactly once, cleanup is idempotent, admission is revoked
+  synchronously, and auth, target, connectivity, or teardown changes fail closed.
+- Steward evidence uses a canonical verified event chain, session-bound atomic clip storage,
+  fail-closed corruption/decrypt/hash quarantine, allowlisted anonymization, provenance and
+  redistribution-rights gates, and trusted local re-review before imported verdicts become
+  authoritative.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 

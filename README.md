@@ -38,6 +38,8 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Audit cockpit Context-Debt experimentally** ([#76](https://github.com/guilhermerbasso/ultimate-sim-app/pull/76)): a local pre-race meter finds competing cues, invalid routes, and unavailable devices. It remains an N=0 experiment—not a validated demand or predictive-accuracy claim.
 - **Compare one setup change with evidence instead of guesswork** ([#88](https://github.com/guilhermerbasso/ultimate-sim-app/pull/88)): the local Setup Experiment Twin guides manual A-B-A/B-A-B comparisons, reports uncertainty and conflicting evidence honestly, and never applies a setup automatically.
 - **Reconnect the local PWA receiver without duplicate sockets or metrics** ([#90](https://github.com/guilhermerbasso/ultimate-sim-app/pull/90)): duplicate close/online triggers preserve the first pending 250 ms reconnect deadline, while offline and unmount cleanup still cancel pending work.
+- **Use saved Touch Controls securely from a phone or tablet** ([#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94)): authenticated, target-bound capabilities allow only governed simulator actions, require CSRF/nonces/origin checks and a live controller lease, and fail closed while releasing every hold or latch safely.
+- **Review league incidents with evidence and human-owned verdicts** ([#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95)): the local Steward Desk preserves verified case history, rules, dissent and appeals, anonymizes exported evidence, gates redistribution rights, and never adjudicates or applies penalties automatically.
 - **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
 
 ### 2.53.1 — SerialPort startup hotfix
@@ -96,6 +98,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Restart-safe persistence** validates and migrates dashboard identities, preserves invalid bytes in quarantine, resolves duplicate/version conflicts, restores saved windows atomically, and reports storage/render failures instead of leaving a black dashboard.
 - **Race playlist** support can interleave dashboards and Touch Controls panels and cycle them from mapped hardware buttons.
 - **Read-only dashboard streaming** in local, LAN, or Internet mode, with a dedicated Streaming area, persistent user-managed dashboard and Touch Controls targets, revision-bound phone/tablet presentation profiles, HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, debounced PWA receiver reconnects, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
+- **Authenticated interactive Touch Controls streaming** for allowlisted pit, radio, toggle, selector, rotary, and simulator actions, with target-bound capabilities, CSRF/replay protection, origin binding, rate limits, a live receiver lease, generation-fenced heartbeat recovery, and fail-closed ownership cleanup.
 - **Adaptive dashboards** that show/hide or emphasize widgets according to session phase and live race context.
 - **AI dashboard builder** that assembles a preview from a plain-English description, with an offline keyword fallback when the local model is unavailable.
 - **OLED Dashboard** presets for 128x64 ButtonBox displays.
@@ -134,6 +137,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Mission Rehearsal** for authoring and running branching offline race-operation scenarios with roles, checkpoints, resume/archive recovery, repeat comparisons, and scored blameless debriefs. Synthetic events stay out of real telemetry and session history.
 - **Experimental Context-Debt meter** for local pre-race audits of competing cues, invalid routes, and unavailable devices, with fail-closed inventory checks and no claim of validated player demand or prediction.
 - **Setup Experiment Twin** for local, manual one-variable A-B-A/B-A-B comparisons with matched-block contrasts, uncertainty, rollback/drift checks, persistence recovery, and abstention when the evidence is incomplete or conflicting.
+- **Steward Desk** for local-first, evidence-backed league incident cases with versioned rules, human verdicts, dissent, appeals, canonical provenance, privacy-aware exchange, and authoritative local re-review.
 - **Career and ratings** views for iRating, Safety Rating, licenses, incidents, and result history.
 - **Biometrics** for heart rate and stress-vs-pace exploration.
 - **Community sharing** through local-first ghosts, telemetry, setups, and `.simshare` files.

@@ -45,6 +45,18 @@ offline race-operation rehearsal.
 - ▶️ Saved profiles can start streaming directly, while dirty-draft conflict protection prevents
   accidental overwrites. Interactive preview remains local and adds no remote command capability.
 
+### Secure interactive Touch Controls
+- 🎛️ **Authenticated phones and tablets can operate saved Touch Controls** for allowlisted pit,
+  radio-hold, toggle, selector, rotary, and simulator actions, while ordinary dashboard telemetry
+  remains read-only.
+- 🔐 Server-issued target-bound capabilities require CSRF protection, one-time nonces, origin
+  binding, rate limits, and a live receiver lease before an interactive action is admitted.
+- 💓 Profile and standard Touch rendering share abortable, timeout-bounded heartbeat requests with
+  generation-fenced offline and authentication recovery.
+- 🛑 Disconnect and stop paths fail closed: admission is revoked synchronously, listeners and
+  sessions drain, holds and mixed latches release in the correct order, configured OFF executes
+  exactly once, and repeated cleanup remains idempotent.
+
 ### Safe trigger-only editor previews
 - 👁️ **An editor-only toggle reveals inactive trigger-only overlays and dashboard widgets** so they
   can be positioned without waiting for their race condition to occur.
@@ -61,6 +73,19 @@ offline race-operation rehearsal.
   sensitivity, and direction agreement keep exploratory evidence separate from confirmation.
 - 🛑 The Twin abstains when evidence is incomplete or conflicting, retains unsaved laps through
   persistence failures, and exposes paused/recovered state instead of overstating causality.
+
+### Evidence-safe Steward Desk
+- ⚖️ **League incident review remains explicitly human-owned** through versioned rules, verdicts,
+  dissent, appeals, and authoritative local re-adjudication; the app never assigns penalties
+  automatically.
+- 🔗 Cases preserve a canonical verified event chain, while incident clips are bound to debounced
+  provider session epochs and stored atomically with fail-closed corruption, decrypt, and hash
+  quarantine.
+- 🛡️ Stable main-process actor identities remain authoritative; renderer labels are untrusted notes,
+  and imported or legacy-unconfirmed verdicts stay non-authoritative until trusted local review.
+- 🔏 Export/import uses schema-allowlisted anonymization, canonical provenance, and explicit
+  redistribution-rights gates. Windows `safeStorage` is treated as local-user sealing, not
+  same-user process authentication.
 
 ### Experimental Context-Debt audit
 - 🧪 **The local pre-race meter highlights competing cues, invalid routes, and unavailable devices**
@@ -113,6 +138,10 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   Setup Experiment Twin for controlled one-variable comparisons.
 - [#90](https://github.com/guilhermerbasso/ultimate-sim-app/pull/90) — debounce PWA receiver
   reconnects without changing the first pending deadline or legitimate backoff.
+- [#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94) — add authenticated,
+  lease-bound interactive Touch Controls with fail-closed ownership and teardown.
+- [#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95) — add the local, evidence-safe
+  Steward Desk with human-owned verdicts, appeals, privacy, and rights gates.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 
