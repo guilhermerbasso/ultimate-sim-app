@@ -349,6 +349,10 @@ describe('local MQTT v1 contracts', () => {
       const schemas = data.schemas as Array<Record<string, unknown>>
       delete schemas[0].fingerprint
     })
+    rejectMutation('announcement', (data) => {
+      const schemas = data.schemas as Array<Record<string, unknown>>
+      schemas[0].kind = schemas[1].kind
+    })
     rejectMutation('command', (data) => { data.args = { id: { nested: true } } })
     rejectMutation('result', (data) => { data.duplicate = 'false' })
     rejectMutation('result', (data) => { data.message = 'x'.repeat(513) })
@@ -471,7 +475,16 @@ describe('local MQTT v1 contracts', () => {
       }
     }
     expect(document.asyncapi).toBe('3.0.0')
-    expect(Object.values(document.servers ?? {}).every((server) => server.host?.startsWith('127.0.0.1:'))).toBe(true)
+    const hosts = Object.values(document.servers ?? {}).map((server) => server.host)
+    expect(hosts).toEqual(expect.arrayContaining([
+      '127.0.0.1:1883',
+      '[::1]:1883',
+      '127.0.0.1:1884',
+      '[::1]:1884',
+      '127.0.0.1:1885',
+      '[::1]:1885'
+    ]))
+    expect(hosts.every((host) => /^(127\.0\.0\.1|\[::1\]):\d+$/.test(host ?? ''))).toBe(true)
     expect(document.channels?.telemetry?.address).toContain('/v1/')
     expect(document.channels?.event?.address).toContain('/event/')
     expect(source).not.toContain('0.0.0.0')

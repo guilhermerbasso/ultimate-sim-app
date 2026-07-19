@@ -682,8 +682,16 @@ export class MqttCertificationTarget {
 
   private insertQueueEntry(entry: QueuedPublication, front = false): boolean {
     const critical = CRITICAL_QUEUE_KINDS.has(entry.kind)
-    const limit = critical ? MQTT_MAX_QUEUE_DEPTH : NONCRITICAL_QUEUE_LIMIT
-    if (this.queue.length >= limit) {
+    const noncriticalDepth = critical
+      ? 0
+      : this.queue.reduce(
+          (count, queued) => count + (CRITICAL_QUEUE_KINDS.has(queued.kind) ? 0 : 1),
+          0
+        )
+    const limitReached = critical
+      ? this.queue.length >= MQTT_MAX_QUEUE_DEPTH
+      : noncriticalDepth >= NONCRITICAL_QUEUE_LIMIT
+    if (limitReached) {
       if (critical) {
         const replaceable = this.queue.findIndex(
           (queued) => !CRITICAL_QUEUE_KINDS.has(queued.kind)

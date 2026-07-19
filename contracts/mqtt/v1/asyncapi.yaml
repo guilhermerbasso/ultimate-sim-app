@@ -6,25 +6,46 @@ info:
     Loopback-only MQTT 5 edge contract. CloudEvents 1.0 JSON envelopes carry
     versioned payloads; the app remains authoritative and broker-independent.
 servers:
-  publisher:
+  publisherIpv4:
     host: 127.0.0.1:1883
     protocol: mqtt
     protocolVersion: '5.0'
-    description: App publisher listener.
+    description: App publisher listener over IPv4 loopback.
     security:
       - $ref: '#/components/securitySchemes/localRolePassword'
-  reader:
+  publisherIpv6:
+    host: '[::1]:1883'
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: App publisher listener over IPv6 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  readerIpv4:
     host: 127.0.0.1:1884
     protocol: mqtt
     protocolVersion: '5.0'
-    description: Read-only local integration listener.
+    description: Read-only local integration listener over IPv4 loopback.
     security:
       - $ref: '#/components/securitySchemes/localRolePassword'
-  command:
+  readerIpv6:
+    host: '[::1]:1884'
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: Read-only local integration listener over IPv6 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  commandIpv4:
     host: 127.0.0.1:1885
     protocol: mqtt
     protocolVersion: '5.0'
-    description: Default-off allowlisted command listener.
+    description: Default-off allowlisted command listener over IPv4 loopback.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
+  commandIpv6:
+    host: '[::1]:1885'
+    protocol: mqtt
+    protocolVersion: '5.0'
+    description: Default-off allowlisted command listener over IPv6 loopback.
     security:
       - $ref: '#/components/securitySchemes/localRolePassword'
 channels:

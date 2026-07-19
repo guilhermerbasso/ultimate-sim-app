@@ -1385,6 +1385,7 @@ function validatePayloadData(kind: MqttSchemaKind, data: Record<string, unknown>
       throw new MqttContractError('Invalid schema announcement list.', 'invalid-payload')
     }
     const schemaKeys = new Set(['kind', 'id', 'fingerprint'])
+    const announcedKinds = new Set<MqttSchemaKind>()
     for (const schema of schemas) {
       if (!isRecord(schema)) {
         throw new MqttContractError('Invalid schema announcement entry.', 'invalid-payload')
@@ -1394,8 +1395,15 @@ function validatePayloadData(kind: MqttSchemaKind, data: Record<string, unknown>
       if (!MQTT_SCHEMA_KINDS.has(schemaKind as MqttSchemaKind)) {
         throw new MqttContractError('Unknown announced schema kind.', 'schema-drift')
       }
+      if (announcedKinds.has(schemaKind as MqttSchemaKind)) {
+        throw new MqttContractError('Duplicate announced schema kind.', 'invalid-payload')
+      }
+      announcedKinds.add(schemaKind as MqttSchemaKind)
       stringField(schema, 'id', { minLength: 1, maxLength: 128 })
       stringField(schema, 'fingerprint', { pattern: /^[a-f0-9]{64}$/ })
+    }
+    if (announcedKinds.size !== MQTT_SCHEMA_KINDS.size) {
+      throw new MqttContractError('Incomplete schema announcement list.', 'invalid-payload')
     }
     return
   }

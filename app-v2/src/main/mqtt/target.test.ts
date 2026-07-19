@@ -579,4 +579,91 @@ describe('MQTT certification target conformance', () => {
       broker.publishedPackets(mqttTopics(configB.instanceId).result('epoch-command'))
     ).toHaveLength(0)
   })
+
+  it('reserves noncritical queue capacity independently from queued critical publications', () => {
+    const target = new MqttCertificationTarget(() => {
+      throw new Error('transport should not be created in queue-limit test')
+    })
+    const targetState = target as any
+    targetState.queue = [
+      {
+        kind: 'availability',
+        envelope: {} as never,
+        packet: {
+          topic: 'ultimate-sim/v1/simrig/availability',
+          payload: new Uint8Array(),
+          qos: 0,
+          retain: false
+        },
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        epoch: 0
+      },
+      {
+        kind: 'session',
+        envelope: {} as never,
+        packet: {
+          topic: 'ultimate-sim/v1/simrig/state/session',
+          payload: new Uint8Array(),
+          qos: 0,
+          retain: false
+        },
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        epoch: 0
+      },
+      {
+        kind: 'health',
+        envelope: {} as never,
+        packet: {
+          topic: 'ultimate-sim/v1/simrig/health',
+          payload: new Uint8Array(),
+          qos: 0,
+          retain: false
+        },
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        epoch: 0
+      },
+      {
+        kind: 'announcement',
+        envelope: {} as never,
+        packet: {
+          topic: 'ultimate-sim/v1/simrig/schema/announcement',
+          payload: new Uint8Array(),
+          qos: 0,
+          retain: false
+        },
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        epoch: 0
+      },
+      ...Array.from({ length: 59 }, (_, index) => ({
+        kind: 'event' as const,
+        envelope: {} as never,
+        packet: {
+          topic: `ultimate-sim/v1/simrig/event/warning-${index + 1}`,
+          payload: new Uint8Array(),
+          qos: 0 as const,
+          retain: false
+        },
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        epoch: 0
+      }))
+    ]
+
+    const inserted = targetState.insertQueueEntry({
+      kind: 'event',
+      envelope: {} as never,
+      packet: {
+        topic: 'ultimate-sim/v1/simrig/event/warning-60',
+        payload: new Uint8Array(),
+        qos: 0,
+        retain: false
+      },
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      epoch: 0
+    })
+
+    expect(inserted).toBe(true)
+    expect(targetState.queue).toHaveLength(64)
+    expect(targetState.status.queueDepth).toBe(64)
+    expect(targetState.status.metrics.overloadDropped).toBe(0)
+  })
 })

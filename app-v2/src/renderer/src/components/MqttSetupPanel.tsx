@@ -3,6 +3,7 @@ import {
   DEFAULT_MQTT_LOCAL_CONFIG,
   MQTT_CHANNELS,
   MQTT_INSTANCE_ID_PATTERN,
+  mqttBrokerUrls,
   stableMqttJson,
   type MqttContractSummary,
   type MqttLocalConfig,
@@ -71,6 +72,7 @@ export function MqttSetupPanel({ language, showToast }: MqttSetupPanelProps): Re
     () => stableMqttJson(config) !== stableMqttJson(savedConfig),
     [config, savedConfig]
   )
+  const fallbackUrls = useMemo(() => mqttBrokerUrls(config), [config])
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -353,13 +355,13 @@ export function MqttSetupPanel({ language, showToast }: MqttSetupPanelProps): Re
       <div style={{ display: 'grid', gap: 7 }}>
         <div className="field-label" style={{ margin: 0 }}>{tt(language, 'mqtt.endpoints')}</div>
         <code style={{ color: 'var(--muted)', fontSize: 12, overflowWrap: 'anywhere' }}>
-          {status?.brokerUrl ?? `mqtt://${config.host}:${config.port}`} · {tt(language, 'mqtt.publisher')}
+          {status?.brokerUrl ?? fallbackUrls.publisher} · {tt(language, 'mqtt.publisher')}
         </code>
         <code style={{ color: 'var(--muted)', fontSize: 12, overflowWrap: 'anywhere' }}>
-          {status?.readerUrl ?? `mqtt://${config.host}:${config.port + 1}`} · {tt(language, 'mqtt.reader')}
+          {status?.readerUrl ?? fallbackUrls.reader} · {tt(language, 'mqtt.reader')}
         </code>
         <code style={{ color: 'var(--muted)', fontSize: 12, overflowWrap: 'anywhere' }}>
-          {status?.commandUrl ?? `mqtt://${config.host}:${config.port + 2}`} · {tt(language, 'mqtt.commandListener')}
+          {status?.commandUrl ?? fallbackUrls.command} · {tt(language, 'mqtt.commandListener')}
         </code>
         {status?.setupDirectory && (
           <code style={{ color: 'var(--muted)', fontSize: 12, overflowWrap: 'anywhere' }}>
