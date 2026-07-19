@@ -27,6 +27,13 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
+### 2.54.0 — managed streaming, secure Internet sharing, and offline Mission Rehearsal
+
+- **Choose and keep your own Streaming targets** ([#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71)): the dedicated Streaming area stores dashboard and Touch Controls profiles, and edited dashboard copies remain available after migration and restart.
+- **Share securely over the Internet without manual tunnel setup** ([#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72)): Internet mode can start the bundled checksum-verified Cloudflare quick tunnel, establish the authenticated viewer session, show receiver health, and reconnect with bounded retries.
+- **Practice race operations completely offline** ([#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73)): Mission Rehearsal supports branching scenarios, assigned roles, checkpoints, resume/archive recovery, repeat comparisons, and scored blameless debriefs.
+- **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
+
 ### 2.53.1 — SerialPort startup hotfix
 
 - Fixes the v2.53.0 packaged-app startup error where Electron could not resolve `serialport` from
@@ -82,7 +89,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **336 built-in dashboard presets**, including 50 dense 1024×600 GT3 layouts for qualifying, sprint, race, and endurance use.
 - **Restart-safe persistence** validates and migrates dashboard identities, preserves invalid bytes in quarantine, resolves duplicate/version conflicts, restores saved windows atomically, and reports storage/render failures instead of leaving a black dashboard.
 - **Race playlist** support can interleave dashboards and Touch Controls panels and cycle them from mapped hardware buttons.
-- **Read-only dashboard streaming** in local, LAN, or Internet mode, with HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, a selectable dashboard or Touch Controls target, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
+- **Read-only dashboard streaming** in local, LAN, or Internet mode, with a dedicated Streaming area, persistent user-managed dashboard and Touch Controls targets, HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
 - **Adaptive dashboards** that show/hide or emphasize widgets according to session phase and live race context.
 - **AI dashboard builder** that assembles a preview from a plain-English description, with an offline keyword fallback when the local model is unavailable.
 - **OLED Dashboard** presets for 128x64 ButtonBox displays.
@@ -117,6 +124,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **AI Engineer** for fuel, tyres, gaps, strategy, and race questions using local telemetry context.
 - **AI Coach** for lap analysis, corner findings, and improvement points — intent- and racecraft-aware for overtaking, defending, general improvement, and qualifying context; honest when opponent controls are unavailable; and cleared outside confirmed live telemetry.
 - **Semantic Search** across setups, ghosts, notes, and coach findings with a keyword fallback.
+- **Mission Rehearsal** for authoring and running branching offline race-operation scenarios with roles, checkpoints, resume/archive recovery, repeat comparisons, and scored blameless debriefs. Synthetic events stay out of real telemetry and session history.
 - **Career and ratings** views for iRating, Safety Rating, licenses, incidents, and result history.
 - **Biometrics** for heart rate and stress-vs-pace exploration.
 - **Community sharing** through local-first ghosts, telemetry, setups, and `.simshare` files.

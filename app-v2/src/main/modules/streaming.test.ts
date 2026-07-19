@@ -271,6 +271,17 @@ describe('streaming authenticated server', () => {
     expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).running).toBe(false)
   })
 
+  it('exposes auto-tunnel diagnostics in start and status contracts', async () => {
+    ctx = fakeContext()
+    register(ctx)
+
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, { layoutId: 'race' })
+    const status = await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)
+
+    expect(started.autoTunnelMessage).toBeNull()
+    expect(status.autoTunnelMessage).toBeNull()
+  })
+
   it('requires passwords for LAN/internet and a public HTTPS URL for manual internet mode', async () => {
     ctx = fakeContext()
     register(ctx)
