@@ -16,6 +16,7 @@ import {
   RECEIVER_PROTOCOL_VERSION,
   RECEIVER_SCHEMA_VERSION
 } from '../../../shared/receiver-v2'
+import type { ReceiverTelemetryData } from '../../../shared/receiver-v2'
 
 const serviceWorkerPath = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -23,12 +24,90 @@ const serviceWorkerPath = resolve(
 )
 const receiverRootPath = resolve(dirname(fileURLToPath(import.meta.url)), 'ReceiverPwaRoot.tsx')
 
+const telemetryData: ReceiverTelemetryData = {
+  connected: true,
+  sim: 'iracing',
+  sampleTimestamp: 1,
+  speedKmh: 120,
+  rpm: 6_000,
+  gear: 3,
+  throttle: 0.5,
+  brake: 0,
+  clutch: 0,
+  fuelLiters: 20,
+  fuelLapsRemaining: 10,
+  lap: 2,
+  position: 1,
+  classPosition: 1,
+  deltaToBestSec: 0.1,
+  sessionTimeRemainingSec: 600,
+  pitLimiter: false,
+  onPitRoad: false,
+  carLeftRight: 'clear',
+  flags: {
+    green: true,
+    yellow: false,
+    blue: false,
+    white: false,
+    checkered: false,
+    red: false
+  }
+}
+
+class MockWebSocket {
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+  static readonly instances: MockWebSocket[] = []
+
+  readyState = MockWebSocket.CONNECTING
+  readonly sent: string[] = []
+  private readonly listeners = new Map<string, Set<(event: Event) => void>>()
+
+  constructor(
+    readonly url: string,
+    readonly protocol: string
+  ) {
+    MockWebSocket.instances.push(this)
+  }
+
+  addEventListener(type: string, listener: (event: Event) => void): void {
+    const listeners = this.listeners.get(type) ?? new Set()
+    listeners.add(listener)
+    this.listeners.set(type, listeners)
+  }
+
+  send(data: string): void {
+    this.sent.push(data)
+  }
+
+  close(code = 1000, reason = ''): void {
+    this.readyState = MockWebSocket.CLOSED
+    this.emit('close', new CloseEvent('close', { code, reason }))
+  }
+
+  open(): void {
+    this.readyState = MockWebSocket.OPEN
+    this.emit('open', new Event('open'))
+  }
+
+  message(body: unknown): void {
+    this.emit('message', new MessageEvent('message', { data: JSON.stringify(body) }))
+  }
+
+  private emit(type: string, event: Event): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
+}
+
 afterEach(() => {
   cleanup()
   sessionStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.resetModules()
+  MockWebSocket.instances.length = 0
 })
 
 describe('receiver PWA recovery', () => {
@@ -38,6 +117,84 @@ describe('receiver PWA recovery', () => {
     expect(RECEIVER_MAX_CLIENT_MESSAGE_BYTES).toBeGreaterThan(0)
     expect(source).toMatch(/TextEncoder\(\)\.encode\(serialized\)\.length > RECEIVER_MAX_CLIENT_MESSAGE_BYTES/)
     expect(source).not.toMatch(/TextEncoder\(\)\.encode\(serialized\)\.length > 4_096/)
+  })
+
+  it('preserves a reverse-proxy prefix when the receiver URL has no trailing slash', async () => {
+    const { receiverBaseUrl } = await import('./ReceiverPwaRoot')
+
+    expect(receiverBaseUrl('https://example.test/sim/proxy/receiver/v2').toString())
+      .toBe('https://example.test/sim/proxy/receiver/v2/')
+    expect(receiverBaseUrl('https://example.test/sim/proxy/receiver/v2/assets/app.js').toString())
+      .toBe('https://example.test/sim/proxy/receiver/v2/')
+  })
+
+  it('sends only one gap resync until the server completes it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        authenticated: true,
+        passwordRequired: false,
+        protocolVersion: RECEIVER_PROTOCOL_VERSION,
+        schemaVersion: RECEIVER_SCHEMA_VERSION,
+        capabilities: [...RECEIVER_CAPABILITIES],
+        minHz: RECEIVER_MIN_HZ,
+        maxHz: RECEIVER_MAX_HZ,
+        maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+        heartbeatMs: RECEIVER_HEARTBEAT_MS,
+        transportProfile: 'local-development',
+        readOnly: true,
+        commandsEnabled: false
+      })
+    }))
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+
+    const { ReceiverPwaRoot } = await import('./ReceiverPwaRoot')
+    render(createElement(ReceiverPwaRoot))
+
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+    const socket = MockWebSocket.instances[0]
+    socket.open()
+    socket.message({
+      type: 'welcome',
+      protocolVersion: RECEIVER_PROTOCOL_VERSION,
+      schemaVersion: RECEIVER_SCHEMA_VERSION,
+      capabilities: [...RECEIVER_CAPABILITIES],
+      sessionId: 'receiver-session',
+      rateHz: 20,
+      maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+      heartbeatMs: RECEIVER_HEARTBEAT_MS,
+      highWater: 0,
+      serverTime: 1,
+      readOnly: true,
+      commands: false
+    })
+
+    const telemetry = (sequence: number, replay = false): void => socket.message({
+      type: 'telemetry',
+      sequence,
+      sentAt: Date.now(),
+      replay,
+      data: telemetryData
+    })
+    const resyncs = (): Array<Record<string, unknown>> => socket.sent
+      .map((message) => JSON.parse(message) as Record<string, unknown>)
+      .filter((message) => message.type === 'resync')
+
+    telemetry(2)
+    telemetry(3)
+    expect(resyncs()).toEqual([{ type: 'resync', afterSequence: 0, reason: 'gap' }])
+
+    telemetry(1, true)
+    telemetry(2, true)
+    telemetry(3, true)
+    socket.message({ type: 'resync-complete', highWater: 3, replayed: 3, snapshot: false })
+    telemetry(5)
+
+    expect(resyncs()).toEqual([
+      { type: 'resync', afterSequence: 0, reason: 'gap' },
+      { type: 'resync', afterSequence: 3, reason: 'gap' }
+    ])
   })
 
   it('retries initial authorization when an offline browser comes back online', async () => {

@@ -43,10 +43,10 @@ interface LocalMetrics {
   lastFrameAgeMs: number | null
 }
 
-function receiverBaseUrl(href = window.location.href): URL {
+export function receiverBaseUrl(href = window.location.href): URL {
   const current = new URL(href)
-  const match = current.pathname.match(/^(.*\/receiver\/v2\/)/)
-  return new URL(match?.[1] ?? '/receiver/v2/', current.origin)
+  const match = current.pathname.match(/^(.*\/receiver\/v2)(?:\/|$)/)
+  return new URL(`${match?.[1] ?? '/receiver/v2'}/`, current.origin)
 }
 
 function endpoint(path: string): URL {
@@ -239,6 +239,7 @@ export function ReceiverPwaRoot(): ReactElement {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let reconnectAttempt = 0
     let messageCountSinceAck = 0
+    let resyncInFlight = false
 
     const scheduleReconnect = (): void => {
       if (stopped || !navigator.onLine) {
@@ -264,6 +265,7 @@ export function ReceiverPwaRoot(): ReactElement {
 
     const connect = (): void => {
       if (stopped || !navigator.onLine) return
+      resyncInFlight = false
       setPhase(reconnectAttempt > 0 ? 'reconnecting' : 'connecting')
       socket = new WebSocket(websocketUrl(), RECEIVER_SUBPROTOCOL)
       socket.addEventListener('open', () => {
@@ -316,6 +318,7 @@ export function ReceiverPwaRoot(): ReactElement {
           return
         }
         if (message.type === 'resync-complete') {
+          resyncInFlight = false
           setMetrics((current) => ({ ...current, resyncs: current.resyncs + 1 }))
           return
         }
@@ -332,8 +335,11 @@ export function ReceiverPwaRoot(): ReactElement {
         }
         if (message.sequence <= lastSequence.current) return
         if (message.sequence !== lastSequence.current + 1) {
-          setMetrics((current) => ({ ...current, gaps: current.gaps + 1 }))
-          send({ type: 'resync', afterSequence: lastSequence.current, reason: 'gap' })
+          if (!resyncInFlight) {
+            resyncInFlight = true
+            setMetrics((current) => ({ ...current, gaps: current.gaps + 1 }))
+            send({ type: 'resync', afterSequence: lastSequence.current, reason: 'gap' })
+          }
           return
         }
         lastSequence.current = message.sequence
