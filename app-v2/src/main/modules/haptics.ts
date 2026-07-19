@@ -26,6 +26,7 @@ import {
   isActuatingHapticIntensity,
   type CueHapticPattern
 } from '../../shared/accessibility-cues'
+import { isAccessibilityCueRendererHapticAvailable } from './accessibility-cues'
 import {
   DEFAULT_HAPTICS_CONFIG,
   HAPTICS_CHANNELS,
@@ -62,21 +63,61 @@ type HapticsConfigPatch = {
 let config: HapticsConfig = DEFAULT_HAPTICS_CONFIG
 let previousSnapshot: TelemetrySnapshot | null = null
 const lastBuzzAt: Partial<Record<HapticsEffectId, number>> = {}
+const accessibilityBuzzTimers = new Set<ReturnType<typeof setTimeout>>()
+let accessibilityBuzzPriority = -1
+let accessibilityBuzzGeneration = 0
 
 export function isAccessibilityHapticsEnabled(): boolean {
-  return config.enabled && !config.muted
+  return (
+    config.enabled &&
+    !config.muted &&
+    isActuatingHapticIntensity(config.masterGain)
+  )
+}
+
+export function canDeliverAccessibilityHaptic(
+  hapticsConfig: HapticsConfig,
+  profileIntensity: number,
+  rendererAvailable: boolean,
+  actuatorAvailable: boolean
+): boolean {
+  return (
+    hapticsConfig.enabled &&
+    !hapticsConfig.muted &&
+    isActuatingHapticIntensity(hapticsConfig.masterGain) &&
+    isActuatingHapticIntensity(profileIntensity) &&
+    (rendererAvailable || actuatorAvailable)
+  )
+}
+
+export function isAccessibilityHapticsAvailable(
+  ctx: ModuleContext,
+  profileIntensity: number
+): boolean {
+  return canDeliverAccessibilityHaptic(
+    config,
+    profileIntensity,
+    isAccessibilityCueRendererHapticAvailable(),
+    Boolean(config.arduino.enabled && resolveArduinoDevice(ctx))
+  )
 }
 
 export function dispatchAccessibilityCueHaptic(
   ctx: ModuleContext,
   pattern: CueHapticPattern,
-  intensity: number
+  intensity: number,
+  priority = 0
 ): boolean {
   if (!isActuatingHapticIntensity(intensity)) return false
   if (!isAccessibilityHapticsEnabled()) return false
-  if (!config.arduino.enabled) return true
+  const rendererAvailable = isAccessibilityCueRendererHapticAvailable()
+  if (!config.arduino.enabled) return rendererAvailable
   const device = resolveArduinoDevice(ctx)
-  if (!device) return true
+  if (!device) return rendererAvailable
+  if (priority < accessibilityBuzzPriority) return rendererAvailable
+  cancelAccessibilityBuzz()
+  accessibilityBuzzPriority = priority
+  const generation = ++accessibilityBuzzGeneration
 
   const effect = config.effects.impact
   const safeIntensity = clamp(intensity, 0, 1, 0.7)
@@ -87,18 +128,40 @@ export function dispatchAccessibilityCueHaptic(
   const spacingMs = pulseDuration + 70
 
   for (let index = 0; index < pulseCount; index += 1) {
-    setTimeout(() => {
-      if (!device.isOpen()) return
+    const timer = setTimeout(() => {
+      accessibilityBuzzTimers.delete(timer)
+      if (
+        generation !== accessibilityBuzzGeneration ||
+        !device.isOpen()
+      ) {
+        return
+      }
       void device
         .sendRaw(formatBuzzer(effect.frequencyHz, pulseDuration))
         .catch(() => undefined)
     }, index * spacingMs)
+    accessibilityBuzzTimers.add(timer)
   }
+  const releaseTimer = setTimeout(() => {
+    accessibilityBuzzTimers.delete(releaseTimer)
+    if (generation === accessibilityBuzzGeneration) {
+      accessibilityBuzzPriority = -1
+    }
+  }, pulseCount * spacingMs)
+  accessibilityBuzzTimers.add(releaseTimer)
   return true
+}
+
+function cancelAccessibilityBuzz(): void {
+  accessibilityBuzzGeneration += 1
+  for (const timer of accessibilityBuzzTimers) clearTimeout(timer)
+  accessibilityBuzzTimers.clear()
+  accessibilityBuzzPriority = -1
 }
 
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
+  cancelAccessibilityBuzz()
 
   void loadConfig(configPath).then((loaded) => {
     config = loaded
@@ -113,6 +176,7 @@ export function register(ctx: ModuleContext): void {
 
   ctx.ipcMain.handle(HAPTICS_CHANNELS.setConfig, async (_event, patch: HapticsConfigPatch) => {
     config = mergeConfig(config, patch)
+    if (!isAccessibilityHapticsEnabled()) cancelAccessibilityBuzz()
     await saveConfig(configPath, config)
     ctx.broadcast(HAPTICS_CHANNELS.configEvent, config)
     return config
@@ -129,6 +193,7 @@ export function register(ctx: ModuleContext): void {
     })
     return true
   })
+  ctx.app.once('before-quit', cancelAccessibilityBuzz)
 }
 
 // ─── Telemetry → optional Arduino buzzes ──────────────────────────────────────

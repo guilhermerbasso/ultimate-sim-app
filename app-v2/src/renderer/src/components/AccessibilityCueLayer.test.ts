@@ -2,14 +2,23 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_VISUAL_CUE_ENTRIES,
   appendVisualCue,
+  isCueRouteCurrent,
+  reconcileVisualCuesForProfile,
+  relocalizeVisualCues,
   visualCueAccessibility,
   visualCueEntry
 } from './AccessibilityCueLayer'
-import type {
-  CueModality,
-  CueRoute,
-  RoutedCueOutput
+import {
+  STANDARD_CUE_PROFILE,
+  cloneCueProfile,
+  type CueModality,
+  type CueProfile,
+  type CueRoute,
+  type RoutedCueOutput
 } from '../../../shared/accessibility-cues'
+import type {
+  AlertEventContext
+} from '../../../shared/alerts'
 
 function output(modality: CueModality): RoutedCueOutput {
   return {
@@ -40,7 +49,8 @@ function route(
   persistentCaptions = false,
   timestamp = 1,
   eventId = 'alert.flag',
-  messageKey = 'accessibilityCues.live.alert.flag.yellow'
+  messageKey = 'accessibilityCues.live.alert.flag.yellow',
+  context?: AlertEventContext
 ): CueRoute {
   return {
     status: 'routed',
@@ -50,6 +60,7 @@ function route(
     severity,
     timestamp,
     messageKey,
+    context,
     outputs: modalities.map(output),
     issues: [],
     conflicts: [],
@@ -169,5 +180,94 @@ describe('AccessibilityCueLayer per-modality visual arbitration', () => {
         (_, index) => `cue-${index + 3}`
       )
     )
+  })
+
+  it('does not evict a critical cue during a bounded warning burst', () => {
+    const critical = visualCueEntry(
+      route(
+        'critical',
+        'critical',
+        ['caption'],
+        true,
+        1,
+        'alert.lowFuel',
+        'accessibilityCues.live.alert.lowFuel'
+      ),
+      'Critical fuel',
+      undefined
+    )!
+    let entries = appendVisualCue([], critical)
+    for (let index = 0; index < MAX_VISUAL_CUE_ENTRIES + 4; index += 1) {
+      entries = appendVisualCue(
+        entries,
+        visualCueEntry(
+          route(`warning-${index}`, 'warning', ['caption'], false, index + 2),
+          `Warning ${index}`,
+          undefined
+        )!
+      )
+    }
+
+    expect(entries).toHaveLength(MAX_VISUAL_CUE_ENTRIES)
+    expect(entries[0].id).toBe('critical')
+  })
+
+  it('removes persistent captions when the active profile disables captions', () => {
+    const entry = visualCueEntry(
+      route('persistent', 'warning', ['caption', 'symbol'], true),
+      'Yellow flag',
+      'Race flag symbol'
+    )!
+    const profile: CueProfile = {
+      ...cloneCueProfile(STANDARD_CUE_PROFILE),
+      persistentCaptions: false,
+      modalities: {
+        ...STANDARD_CUE_PROFILE.modalities,
+        caption: 'off'
+      }
+    }
+
+    expect(reconcileVisualCuesForProfile([entry], profile)).toEqual([])
+  })
+
+  it('rejects queued routes from an older profile generation', () => {
+    const stale = route('stale', 'warning', ['caption'])
+    stale.presentation.profileRevision = 4
+
+    expect(isCueRouteCurrent(stale, 'standard', 5)).toBe(false)
+    expect(isCueRouteCurrent(stale, 'standard', 4)).toBe(true)
+    expect(isCueRouteCurrent(stale, 'deaf-hoh', 4)).toBe(false)
+  })
+
+  it('relocalizes active persistent captions when language and units change', () => {
+    const entry = visualCueEntry(
+      route(
+        'pressure',
+        'warning',
+        ['caption', 'symbol'],
+        true,
+        1,
+        'alert.tyrePressure',
+        'accessibilityCues.live.alert.tyrePressure.low',
+        {
+          corner: 'lf',
+          direction: 'low',
+          value: 149.6,
+          unit: 'kPa'
+        }
+      ),
+      'Low tyre pressure at front left: 150 kPa.',
+      'Tyre pressure symbol'
+    )!
+
+    const [localized] = relocalizeVisualCues(
+      [entry],
+      'pt-BR',
+      'imperial'
+    )
+
+    expect(localized.message).toContain('dianteiro esquerdo')
+    expect(localized.message.toLowerCase()).toContain('psi')
+    expect(localized.message).not.toBe(entry.message)
   })
 })

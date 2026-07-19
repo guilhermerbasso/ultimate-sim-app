@@ -7,6 +7,7 @@ import {
   type ConfigSectionReloadCallback,
   type ConfigSectionReloadResult
 } from '../../shared/config-io'
+import { AccessibilityCueCapabilityLeaseRegistry } from './accessibility-cue-capability-leases'
 import {
   ACCESSIBILITY_CUE_CHANNELS,
   ACCESSIBILITY_CUE_PROTOCOL_VERSION,
@@ -22,8 +23,9 @@ import {
   type AccessibilityCueStateEnvelope,
   type AccessibilityCueStore,
   type CueProfile,
+  type CueCapabilityLeaseAck,
   type SaveCueProfileRequest,
-  type SetCueAudioAvailabilityRequest,
+  type SetCueCapabilityLeaseRequest,
   type SelectCueProfileRequest
 } from '../../shared/accessibility-cues'
 
@@ -33,7 +35,7 @@ let state: AccessibilityCueStore = cloneAccessibilityCueStore(
   DEFAULT_ACCESSIBILITY_CUE_STORE
 )
 let ready = false
-let audioAvailable = false
+let capabilityLeases = new AccessibilityCueCapabilityLeaseRegistry()
 let resolveReady: (() => void) | null = null
 let readyPromise: Promise<void> = new Promise<void>((resolve) => {
   resolveReady = resolve
@@ -69,12 +71,20 @@ export function getAccessibilityCueStateEnvelope(): AccessibilityCueStateEnvelop
   return createAccessibilityCueStateEnvelope(state, ready)
 }
 
+export function getAccessibilityCueProfileRevision(): number {
+  return state.revision
+}
+
 export function getActiveAccessibilityCueProfile(): CueProfile | null {
   return ready ? getActiveCueProfile(state) : null
 }
 
 export function isAccessibilityCueAudioAvailable(): boolean {
-  return audioAvailable
+  return capabilityLeases.available('audio')
+}
+
+export function isAccessibilityCueRendererHapticAvailable(): boolean {
+  return capabilityLeases.available('haptic')
 }
 
 function revisionConflict(expected: number): Error {
@@ -113,7 +123,8 @@ function assertExpectedRevision(value: unknown): number {
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), ACCESSIBILITY_CUES_CONFIG_FILE)
   state = cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE)
-  audioAvailable = false
+  capabilityLeases.dispose()
+  capabilityLeases = new AccessibilityCueCapabilityLeaseRegistry()
   resetReadiness()
   ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.stateEvent, getAccessibilityCueStateEnvelope())
 
@@ -190,20 +201,28 @@ export function register(ctx: ModuleContext): void {
   )
 
   ctx.ipcMain.handle(
-    ACCESSIBILITY_CUE_CHANNELS.setAudioAvailability,
-    async (_event, request: SetCueAudioAvailabilityRequest) => {
+    ACCESSIBILITY_CUE_CHANNELS.setCapabilityLease,
+    async (event, request: SetCueCapabilityLeaseRequest): Promise<CueCapabilityLeaseAck> => {
       if (
         !request ||
         request.protocolVersion !== ACCESSIBILITY_CUE_PROTOCOL_VERSION ||
-        typeof request.available !== 'boolean'
+        typeof request.leaseId !== 'string' ||
+        request.leaseId.length < 8 ||
+        request.leaseId.length > 128 ||
+        (request.modality !== 'audio' && request.modality !== 'haptic') ||
+        !Number.isInteger(request.generation) ||
+        request.generation <= 0 ||
+        typeof request.available !== 'boolean' ||
+        typeof request.ttlMs !== 'number' ||
+        !Number.isFinite(request.ttlMs) ||
+        request.ttlMs <= 0
       ) {
         throw Object.assign(
-          new Error('Invalid accessibility cue audio availability envelope.'),
-          { code: 'ACCESSIBILITY_CUE_INVALID_AUDIO_AVAILABILITY' }
+          new Error('Invalid accessibility cue capability lease envelope.'),
+          { code: 'ACCESSIBILITY_CUE_INVALID_CAPABILITY_LEASE' }
         )
       }
-      audioAvailable = request.available
-      return audioAvailable
+      return capabilityLeases.update(event.sender, request)
     }
   )
 
@@ -273,6 +292,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.on(CONFIG_SECTION_RELOAD_SIGNAL, onSectionReload)
   ctx.ipcMain.on(CONFIG_SECTION_RESET_SIGNAL, onSectionReset)
   ctx.app.once('before-quit', () => {
+    capabilityLeases.dispose()
     ctx.ipcMain.off(CONFIG_SECTION_RELOAD_SIGNAL, onSectionReload)
     ctx.ipcMain.off(CONFIG_SECTION_RESET_SIGNAL, onSectionReset)
   })

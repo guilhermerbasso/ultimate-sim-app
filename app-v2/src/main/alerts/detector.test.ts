@@ -57,6 +57,77 @@ describe('AlertsDetector threshold truth', () => {
     })
   })
 
+  describe('AlertsDetector repeat severity', () => {
+    it.each([
+      ['black', 'critical'],
+      ['meatball', 'critical'],
+      ['yellow', 'warning']
+    ] as const)('preserves %s flag severity from initial event to repeat', (flag, severity) => {
+      const detector = new AlertsDetector(config({
+        flags: {
+          ...DEFAULT_ALERTS_CONFIG.flags,
+          enabled: true,
+          cooldownMs: 0,
+          repeatMs: 1_000
+        }
+      }))
+      const flags = {
+        green: false,
+        yellow: false,
+        blue: false,
+        white: false,
+        checkered: false,
+        red: false,
+        black: false,
+        meatball: false,
+        repair: false,
+        disqualify: false,
+        greenWhiteCheckered: false,
+        [flag]: true
+      }
+
+      const initial = detector.process(snapshot(1_000, { flags }))
+      const repeat = detector.process(snapshot(2_000, { flags }))
+
+      expect(initial).toHaveLength(1)
+      expect(repeat).toHaveLength(1)
+      expect(initial[0].severity).toBe(severity)
+      expect(repeat[0].severity).toBe(severity)
+    })
+
+    it.each([
+      [1, 'critical'],
+      [3, 'warning']
+    ] as const)(
+      'preserves incident-limit severity with %i remaining from initial event to repeat',
+      (remaining, severity) => {
+        const detector = new AlertsDetector(config({
+          incidentLimit: {
+            ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+            enabled: true,
+            remainingThreshold: 4,
+            cooldownMs: 0,
+            repeatMs: 1_000
+          }
+        }))
+        const incidentLimit = 10
+        const incidentCount = incidentLimit - remaining
+
+        const initial = detector.process(
+          snapshot(1_000, { incidentCount, incidentLimit })
+        )
+        const repeat = detector.process(
+          snapshot(2_000, { incidentCount, incidentLimit })
+        )
+
+        expect(initial).toHaveLength(1)
+        expect(repeat).toHaveLength(1)
+        expect(initial[0].severity).toBe(severity)
+        expect(repeat[0].severity).toBe(severity)
+      }
+    )
+  })
+
   it('does not treat kg/lap as litres/lap and hides missing or invalid fuel data', () => {
     const detector = new AlertsDetector(config({
       lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, enabled: true, lapsThreshold: 3 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { tt } from './i18n'
+import { ACCESSIBILITY_CUE_REQUIRED_TRANSLATED_KEYS } from './i18n-extra/accessibility-cues'
 
 describe('i18n-extra merge', () => {
   it('merges per-zone modules into UI_TEXT', () => {
@@ -30,5 +31,27 @@ describe('i18n-extra merge', () => {
         'accessibilityCues.pattern.led.steadyActual'
       )
     }
+  })
+
+  it('does not accept English fallback for required accessibility controls and live alerts', () => {
+    for (const language of ['es', 'fr', 'de', 'zh', 'ja'] as const) {
+      for (const key of ACCESSIBILITY_CUE_REQUIRED_TRANSLATED_KEYS) {
+        expect(tt(language, key), `${language}:${key}`).not.toBe(tt('en', key))
+      }
+    }
+  })
+
+  it('renders representative translated alert and control copy', () => {
+    expect(tt('es', 'accessibilityCues.live.alert.flag.black')).toBe(
+      'Bandera negra activa.'
+    )
+    expect(tt('fr', 'accessibilityCues.resetProfile')).toBe(
+      'Réinitialiser ce profil'
+    )
+    expect(tt('de', 'accessibilityCues.live.alert.lowFuel', {
+      remaining: 2
+    })).toContain('2 Runden')
+    expect(tt('zh', 'accessibilityCues.persistentCaptions')).toContain('字幕')
+    expect(tt('ja', 'accessibilityCues.live.alert.blueFlag')).toContain('青旗')
   })
 })

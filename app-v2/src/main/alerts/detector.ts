@@ -427,7 +427,7 @@ export class AlertsDetector {
         key,
         now,
         events,
-        undefined,
+        ruleInfo.lastSeverity,
         ruleInfo.lastContext,
         true
       )
@@ -438,12 +438,26 @@ export class AlertsDetector {
   // shows the same message/context as the original event.
   private lastByKey = new Map<
     string,
-    { rule: AlertRuleConfig; type: AlertType; lastMessage: string; lastContext?: AlertEventContext; repeatMessage?: string }
+    {
+      rule: AlertRuleConfig
+      type: AlertType
+      lastMessage: string
+      lastSeverity: AlertSeverity
+      lastContext?: AlertEventContext
+      repeatMessage?: string
+    }
   >()
 
   private lookupRuleByKey(
     key: string
-  ): { rule: AlertRuleConfig; type: AlertType; lastMessage?: string; lastContext?: AlertEventContext; repeatMessage?: string } | undefined {
+  ): {
+    rule: AlertRuleConfig
+    type: AlertType
+    lastMessage?: string
+    lastSeverity: AlertSeverity
+    lastContext?: AlertEventContext
+    repeatMessage?: string
+  } | undefined {
     return this.lastByKey.get(key)
   }
 
@@ -475,10 +489,23 @@ export class AlertsDetector {
     events.push(event)
     this.state.lastFiredAt.set(key, timestamp)
     if (!isRepeat) {
-      this.lastByKey.set(key, { rule, type, lastMessage: message, lastContext: context })
+      this.lastByKey.set(key, {
+        rule,
+        type,
+        lastMessage: message,
+        lastSeverity: severity,
+        lastContext: context
+      })
     } else {
       const cached = this.lastByKey.get(key)
-      if (cached) this.lastByKey.set(key, { ...cached, lastMessage: message, lastContext: context })
+      if (cached) {
+        this.lastByKey.set(key, {
+          ...cached,
+          lastMessage: message,
+          lastSeverity: severity,
+          lastContext: context
+        })
+      }
     }
   }
 }

@@ -7,18 +7,31 @@ import {
 } from 'react'
 import {
   ACCESSIBILITY_CUE_CHANNELS,
+  cueRouteSemanticKey,
+  cueSeverityPriority,
+  effectiveCueModalities,
+  getActiveCueProfile,
   isActuatingHapticIntensity,
+  type AccessibilityCueStateEnvelope,
   type CueHapticPattern,
+  type CueProfile,
   type CueRoute
 } from '../../../shared/accessibility-cues'
+import type { UnitSystem } from '../../../shared/units'
 import { tt, type ResolvedLanguage } from '../i18n'
 import {
   localizeCueMessage,
   localizeCueSymbolLabel
 } from '../lib/accessibility-cue-localization'
 import { CueModalityDeliveryQueue } from '../lib/accessibility-cue-arbiter'
-import { playAccessibilityHaptic } from '../lib/haptics-runtime'
-import { speakViaIsolatedTts } from '../lib/tts-runtime'
+import {
+  playAccessibilityHaptic,
+  stopAccessibilityHaptic
+} from '../lib/haptics-runtime'
+import {
+  speakViaIsolatedTts,
+  stopIsolatedTts
+} from '../lib/tts-runtime'
 import { useUnitSystem } from '../lib/units'
 
 export interface VisualCueEntry {
@@ -36,15 +49,7 @@ export interface VisualCueEntry {
 export const MAX_VISUAL_CUE_ENTRIES = 8
 
 export function visualCueSemanticKey(route: CueRoute): string {
-  const context = route.context
-  return [
-    route.source,
-    route.eventId,
-    route.messageKey,
-    context?.corner ?? '',
-    context?.flag ?? '',
-    context?.direction ?? ''
-  ].join('|')
+  return cueRouteSemanticKey(route)
 }
 
 export function visualCueEntry(
@@ -117,6 +122,94 @@ export function appendVisualCue(
   return sortVisualCues(next.filter((entry) => retainedIds.has(entry.id)))
 }
 
+export function relocalizeVisualCues(
+  entries: readonly VisualCueEntry[],
+  language: ResolvedLanguage,
+  unitSystem: UnitSystem
+): VisualCueEntry[] {
+  return entries.map((entry) => {
+    const symbol = entry.route.outputs.find(
+      (output) => output.modality === 'symbol'
+    )
+    return {
+      ...entry,
+      message: localizeCueMessage(entry.route, language, unitSystem),
+      symbolLabel: symbol
+        ? localizeCueSymbolLabel(symbol, language)
+        : undefined
+    }
+  })
+}
+
+export function reconcileVisualCuesForProfile(
+  entries: readonly VisualCueEntry[],
+  profile: CueProfile,
+  profileRevision?: number
+): VisualCueEntry[] {
+  return entries.flatMap((entry) => {
+    const enabled = effectiveCueModalities(profile, entry.route.eventId)
+    if (
+      entry.persistentCaption &&
+      (!enabled.caption || !profile.persistentCaptions)
+    ) {
+      return []
+    }
+    const hasCaption = entry.hasCaption && enabled.caption
+    const symbol = enabled.symbol ? entry.symbol : undefined
+    if (!hasCaption && !symbol) return []
+    return [{
+      ...entry,
+      hasCaption,
+      symbol,
+      persistentCaption: entry.persistentCaption && hasCaption,
+      route: {
+        ...entry.route,
+        presentation: {
+          profileId: profile.id,
+          profileKind: profile.kind,
+          profileRevision,
+          textScale: profile.textScale,
+          highContrast: profile.highContrast,
+          persistentCaptions: profile.persistentCaptions,
+          captionDurationMs: profile.captionDurationMs,
+          reducedMotion: profile.reducedMotion
+        }
+      }
+    }]
+  })
+}
+
+export function isCueRouteCurrent(
+  route: CueRoute,
+  activeProfileId: string | null,
+  profileRevision: number | null
+): boolean {
+  if (
+    activeProfileId &&
+    route.presentation.profileId !== activeProfileId
+  ) {
+    return false
+  }
+  return !(
+    profileRevision !== null &&
+    route.presentation.profileRevision !== undefined &&
+    route.presentation.profileRevision !== profileRevision
+  )
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    const finish = (): void => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, ms)
+    signal.addEventListener('abort', finish, { once: true })
+  })
+}
+
 export function visualCueAccessibility(entry: VisualCueEntry): {
   role: 'alert' | 'status' | 'group'
   ariaLive?: 'assertive' | 'polite'
@@ -150,27 +243,135 @@ export function AccessibilityCueLayer({
   const [entries, setEntries] = useState<VisualCueEntry[]>([])
   const languageRef = useRef(language)
   const unitSystemRef = useRef(unitSystem)
+  const settingsKeyRef = useRef(`${language}:${unitSystem}`)
+  const lifecycleGenerationRef = useRef(0)
+  const profileRevisionRef = useRef<number | null>(null)
+  const activeProfileIdRef = useRef<string | null>(null)
   const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const audioQueueRef = useRef<CueModalityDeliveryQueue<{
+    generation: number
+    route: CueRoute
+    message: string
+    language: ResolvedLanguage
+    spatialPan?: number
+  }> | null>(null)
   const hapticQueueRef = useRef<CueModalityDeliveryQueue<{
+    generation: number
     pattern: CueHapticPattern
     intensity: number
   }> | null>(null)
+  if (!audioQueueRef.current) {
+    audioQueueRef.current = new CueModalityDeliveryQueue(
+      async (next, signal) => {
+        if (
+          signal.aborted ||
+          next.generation !== lifecycleGenerationRef.current
+        ) {
+          return
+        }
+        await speakViaIsolatedTts(
+          'accessibility-live',
+          next.message,
+          {
+            lang: next.language,
+            source: 'accessibility-cue',
+            tipId: next.route.instanceId,
+            spatialPan: next.spatialPan
+          }
+        )
+      },
+      {
+        maxPending: 8,
+        onPreempt: () => stopIsolatedTts('accessibility-live')
+      }
+    )
+  }
   if (!hapticQueueRef.current) {
-    hapticQueueRef.current = new CueModalityDeliveryQueue(async (next) => {
-      playAccessibilityHaptic(next.pattern, next.intensity)
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, hapticSpacing(next.pattern))
-      )
-    })
+    hapticQueueRef.current = new CueModalityDeliveryQueue(
+      async (next, signal) => {
+        if (
+          signal.aborted ||
+          next.generation !== lifecycleGenerationRef.current
+        ) {
+          return
+        }
+        playAccessibilityHaptic(next.pattern, next.intensity)
+        await abortableDelay(hapticSpacing(next.pattern), signal)
+      },
+      {
+        maxPending: 8,
+        onPreempt: () => stopAccessibilityHaptic()
+      }
+    )
   }
 
   useEffect(() => {
+    const settingsKey = `${language}:${unitSystem}`
+    const changed = settingsKeyRef.current !== settingsKey
+    settingsKeyRef.current = settingsKey
     languageRef.current = language
-  }, [language])
+    unitSystemRef.current = unitSystem
+    if (!changed) return
+    lifecycleGenerationRef.current += 1
+    audioQueueRef.current?.clear()
+    hapticQueueRef.current?.clear()
+    stopIsolatedTts('accessibility-live')
+    stopAccessibilityHaptic()
+    setEntries((current) =>
+      relocalizeVisualCues(current, language, unitSystem)
+    )
+  }, [language, unitSystem])
 
   useEffect(() => {
-    unitSystemRef.current = unitSystem
-  }, [unitSystem])
+    let disposed = false
+    const applyEnvelope = (envelope: AccessibilityCueStateEnvelope): void => {
+      if (
+        disposed ||
+        !envelope.ready ||
+        (profileRevisionRef.current !== null &&
+          envelope.revision <= profileRevisionRef.current)
+      ) {
+        return
+      }
+      profileRevisionRef.current = envelope.revision
+      const profile = getActiveCueProfile(envelope.state)
+      activeProfileIdRef.current = profile.id
+      lifecycleGenerationRef.current += 1
+      audioQueueRef.current?.clear()
+      hapticQueueRef.current?.clear()
+      stopIsolatedTts('accessibility-live')
+      stopAccessibilityHaptic()
+      setEntries((current) => {
+        const next = reconcileVisualCuesForProfile(
+          current,
+          profile,
+          envelope.revision
+        )
+        const retainedIds = new Set(next.map((entry) => entry.id))
+        for (const entry of current) {
+          if (retainedIds.has(entry.id)) continue
+          const timer = timersRef.current.get(entry.id)
+          if (timer) clearTimeout(timer)
+          timersRef.current.delete(entry.id)
+        }
+        return next
+      })
+    }
+    void window.ipc
+      .invoke<AccessibilityCueStateEnvelope>(
+        ACCESSIBILITY_CUE_CHANNELS.getState
+      )
+      .then(applyEnvelope)
+      .catch(() => undefined)
+    const off = window.ipc.subscribe<AccessibilityCueStateEnvelope>(
+      ACCESSIBILITY_CUE_CHANNELS.stateEvent,
+      applyEnvelope
+    )
+    return () => {
+      disposed = true
+      off()
+    }
+  }, [])
 
   useEffect(() => {
     const dismiss = (id: string): void => {
@@ -184,6 +385,16 @@ export function AccessibilityCueLayer({
       ACCESSIBILITY_CUE_CHANNELS.routedEvent,
       (route) => {
         if (route.source !== 'live' || route.status === 'blocked') return
+        if (!isCueRouteCurrent(
+          route,
+          activeProfileIdRef.current,
+          profileRevisionRef.current
+        )) {
+          return
+        }
+        const generation = lifecycleGenerationRef.current
+        const semanticKey = visualCueSemanticKey(route)
+        const priority = cueSeverityPriority(route.severity)
         const localizedMessage = localizeCueMessage(
           route,
           languageRef.current,
@@ -192,15 +403,15 @@ export function AccessibilityCueLayer({
 
         const audio = route.outputs.find((output) => output.modality === 'audio')
         if (audio) {
-          void speakViaIsolatedTts(
-            'accessibility-live',
-            localizedMessage,
+          audioQueueRef.current?.enqueue(
             {
-              lang: languageRef.current,
-              source: 'accessibility-cue',
-              tipId: route.instanceId,
+              generation,
+              route,
+              message: localizedMessage,
+              language: languageRef.current,
               spatialPan: audio.spatialPan
-            }
+            },
+            { key: semanticKey, priority }
           )
         }
 
@@ -217,9 +428,10 @@ export function AccessibilityCueLayer({
           isActuatingHapticIntensity(hapticIntensity)
         ) {
           hapticQueueRef.current?.enqueue({
+            generation,
             pattern: haptic.pattern,
             intensity: hapticIntensity
-          })
+          }, { key: semanticKey, priority })
         }
 
         const symbol = route.outputs.find((output) => output.modality === 'symbol')
@@ -259,7 +471,10 @@ export function AccessibilityCueLayer({
       off()
       for (const timer of timersRef.current.values()) clearTimeout(timer)
       timersRef.current.clear()
+      audioQueueRef.current?.clear()
       hapticQueueRef.current?.clear()
+      stopIsolatedTts('accessibility-live')
+      stopAccessibilityHaptic()
     }
   }, [])
 

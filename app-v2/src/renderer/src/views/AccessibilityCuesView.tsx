@@ -21,6 +21,7 @@ import {
   effectiveCueModalities,
   getActiveCueProfile,
   getCueManifest,
+  isActuatingHapticIntensity,
   routeSemanticCue,
   type AccessibilityCueStateEnvelope,
   type CueModality,
@@ -41,8 +42,10 @@ import {
 import { CueProfileMutationQueue } from '../lib/accessibility-cue-profile-client'
 import {
   speakViaIsolatedTts,
+  stopIsolatedTts,
   useTtsAudioAvailability
 } from '../lib/tts-runtime'
+import { isAccessibilityHapticRendererAvailable } from '../lib/haptics-runtime'
 import { useUnitSystem } from '../lib/units'
 
 function errorMessage(error: unknown): string {
@@ -128,6 +131,12 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
 
   const store = envelope.state
   const activeProfile = useMemo(() => getActiveCueProfile(store), [store])
+  const hapticAvailable =
+    haptics.enabled &&
+    !haptics.muted &&
+    isActuatingHapticIntensity(haptics.masterGain) &&
+    isActuatingHapticIntensity(activeProfile.hapticIntensity) &&
+    isAccessibilityHapticRendererAvailable()
   const activeProfileRef = useRef(activeProfile)
   useEffect(() => {
     activeProfileRef.current = activeProfile
@@ -141,9 +150,9 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
       ...DEFAULT_CUE_CAPABILITIES,
       audio: audioAvailable,
       led: Boolean(connectedDevice),
-      haptic: haptics.enabled && !haptics.muted
+      haptic: hapticAvailable
     }),
-    [audioAvailable, connectedDevice, haptics.enabled, haptics.muted]
+    [audioAvailable, connectedDevice, hapticAvailable]
   )
 
   async function persistProfile(nextProfile: CueProfile): Promise<void> {
@@ -246,12 +255,18 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
       source: 'preview',
       position: 'center'
     }
-    const route = routeSemanticCue(event, activeProfile, capabilities)
+    const route = routeSemanticCue(
+      event,
+      activeProfile,
+      capabilities,
+      envelope.revision
+    )
     setPreview(route)
     const localizedMessage = localizeCueMessage(route, language ?? 'en', unitSystem)
 
     const audio = route.outputs.find((output) => output.modality === 'audio')
     if (audio) {
+      stopIsolatedTts('accessibility-preview')
       void speakViaIsolatedTts(
         'accessibility-preview',
         localizedMessage,
@@ -485,7 +500,7 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
             <br />
             {tt(language, 'accessibilityCues.hapticStatus', {
               status:
-                haptics.enabled && !haptics.muted
+                hapticAvailable
                   ? tt(language, 'accessibilityCues.available')
                   : tt(language, 'accessibilityCues.unavailable')
             })}

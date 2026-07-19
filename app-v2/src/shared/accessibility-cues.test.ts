@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AlertEvent } from './alerts'
 import {
   CUE_MANIFESTS,
+  CueRouteAdmissionController,
   DEAF_HOH_CUE_PROFILE,
   DEFAULT_ACCESSIBILITY_CUE_STORE,
   LOW_VISION_BLIND_CUE_PROFILE,
@@ -203,6 +204,68 @@ describe('boundaries, hardware availability, and semantic payloads', () => {
     expect(previewLed?.pattern).toBe(liveLed?.pattern)
     expect(previewLed?.color).toBe(liveLed?.color)
     expect(previewLed?.hardwareTextToken).toBe(liveLed?.hardwareTextToken)
+  })
+
+  describe('main cue route admission', () => {
+    it('deduplicates warning bursts without suppressing a critical escalation', () => {
+      const admission = new CueRouteAdmissionController(500, 4)
+      const warning = routeSemanticCue(
+        event('alert.flag', 'live', {
+          severity: 'warning',
+          timestamp: 1_000,
+          messageKey: 'accessibilityCues.live.alert.flag.black',
+          context: { flag: 'black' }
+        }),
+        STANDARD_CUE_PROFILE,
+        allAvailable
+      )
+      const duplicate = {
+        ...warning,
+        instanceId: 'duplicate',
+        timestamp: 1_100
+      }
+      const critical = {
+        ...warning,
+        instanceId: 'critical',
+        severity: 'critical' as const,
+        timestamp: 1_200
+      }
+
+      expect(admission.admit(warning)).toBe(true)
+      expect(admission.admit(duplicate)).toBe(false)
+      expect(admission.admit(critical)).toBe(true)
+    })
+
+    it('bounds semantic dedupe history and evicts the oldest key', () => {
+      const admission = new CueRouteAdmissionController(500, 2)
+      const makeRoute = (instanceId: string, messageKey: string) =>
+        routeSemanticCue(
+          event('alert.flag', 'live', {
+            instanceId,
+            timestamp: 1_000,
+            messageKey
+          }),
+          STANDARD_CUE_PROFILE,
+          allAvailable
+        )
+      const oldest = makeRoute(
+        'oldest',
+        'accessibilityCues.live.alert.flag.yellow'
+      )
+
+      expect(admission.admit(oldest)).toBe(true)
+      expect(admission.admit(makeRoute(
+        'second',
+        'accessibilityCues.live.alert.flag.blue'
+      ))).toBe(true)
+      expect(admission.admit(makeRoute(
+        'third',
+        'accessibilityCues.live.alert.flag.black'
+      ))).toBe(true)
+      expect(admission.admit({ ...oldest, instanceId: 'oldest-again' })).toBe(
+        true
+      )
+    })
   })
 
   it('keeps preview audio availability truthful while hardware remains simulated', () => {

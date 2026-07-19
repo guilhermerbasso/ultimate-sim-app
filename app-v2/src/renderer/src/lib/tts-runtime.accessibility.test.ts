@@ -176,4 +176,37 @@ describe('accessibility TTS audio availability', () => {
       ).available
     ).toBe(false)
   })
+
+  it('does not lease Piper audio when the live engine probe is failing and no fallback exists', async () => {
+    const installedVoice = {
+      id: 'en_US-lessac-medium',
+      installed: true
+    } as PiperVoiceInfo
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'tts:listVoices') return [installedVoice]
+      if (channel === 'tts:engineStatus') {
+        return { engine: 'sherpa', ok: false, reason: 'probe failed' }
+      }
+      return null
+    })
+    installRendererMocks(invoke)
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: undefined
+    })
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: class FakeAudioContext {}
+    })
+    vi.stubGlobal('SpeechSynthesisUtterance', undefined)
+    savePref('piper')
+    const { detectTtsAudioAvailability } = await import('./tts-runtime')
+
+    await expect(detectTtsAudioAvailability('en')).resolves.toMatchObject({
+      available: false,
+      selectedEngine: 'piper',
+      piperAvailable: false,
+      webSpeechAvailable: false
+    })
+  })
 })

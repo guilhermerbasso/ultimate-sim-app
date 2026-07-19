@@ -21,9 +21,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  ACCESSIBILITY_CUE_CHANNELS,
-  ACCESSIBILITY_CUE_PROTOCOL_VERSION,
-  type SetCueAudioAvailabilityRequest
+  ACCESSIBILITY_CUE_CAPABILITY_HEARTBEAT_MS,
+  type CueCapabilityLeaseAck
 } from '../../../shared/accessibility-cues'
 import {
   TTS_CHANNELS,
@@ -32,6 +31,7 @@ import {
   fallbackVoiceProsody,
   piperVoiceLang,
   type EnsureVoiceResult,
+  type TtsEngineStatus,
   type PiperVoiceInfo,
   type PiperVoiceProgress
 } from '../../../shared/spotter'
@@ -39,6 +39,7 @@ import {
   defaultPiperVoiceIdForLanguage,
   resolvePiperVoice
 } from '../../../shared/tts-voice'
+import { CueCapabilityLeasePublisher } from './accessibility-cue-capability-client'
 import { logClient } from './log-client'
 
 // ─── Renderer-local config (PURE helpers — unit-tested in node) ──────────────────
@@ -900,6 +901,22 @@ export async function listPiperVoices(): Promise<PiperVoiceInfo[]> {
   }
 }
 
+export async function getTtsEngineStatus(): Promise<TtsEngineStatus> {
+  try {
+    const status = await window.ipc.invoke<TtsEngineStatus>(
+      TTS_CHANNELS.engineStatus
+    )
+    if (status && typeof status.ok === 'boolean') return status
+    return { engine: 'none', ok: false, reason: 'Invalid TTS engine status.' }
+  } catch (error) {
+    return {
+      engine: 'none',
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
 /** Trigger a download of `voiceId` (idempotent; single-flight in main). Never throws. */
 export async function ensurePiperVoice(voiceId: string): Promise<EnsureVoiceResult> {
   try {
@@ -922,13 +939,34 @@ export async function detectTtsAudioAvailability(
   language?: string
 ): Promise<TtsAudioAvailability> {
   const pref = getTtsPref()
-  const voices = pref.engine === 'piper' ? await listPiperVoices() : []
+  const webSpeechAvailable = isWebSpeechAvailable()
+  if (pref.engine === 'webspeech') {
+    return resolveTtsAudioAvailability(
+      pref,
+      language,
+      [],
+      webSpeechAvailable,
+      false
+    )
+  }
+  if (webSpeechAvailable) {
+    return {
+      available: true,
+      selectedEngine: pref.engine,
+      piperAvailable: false,
+      webSpeechAvailable: true
+    }
+  }
+  const [voices, engineStatus] = await Promise.all([
+    listPiperVoices(),
+    getTtsEngineStatus()
+  ])
   return resolveTtsAudioAvailability(
     pref,
     language,
     voices,
-    isWebSpeechAvailable(),
-    isAudioContextAvailable()
+    webSpeechAvailable,
+    isAudioContextAvailable() && engineStatus.ok
   )
 }
 
@@ -937,9 +975,13 @@ export function useTtsAudioAvailability(language?: string): boolean {
 
   useEffect(() => {
     let active = true
+    let requestGeneration = 0
     const refresh = (): void => {
+      const generation = ++requestGeneration
       void detectTtsAudioAvailability(language).then((next) => {
-        if (active) setAvailable(next.available)
+        if (active && generation === requestGeneration) {
+          setAvailable(next.available)
+        }
       })
     }
     refresh()
@@ -949,6 +991,7 @@ export function useTtsAudioAvailability(language?: string): boolean {
     })
     return () => {
       active = false
+      requestGeneration += 1
       offPref()
       offProgress()
     }
@@ -964,7 +1007,6 @@ let mountCount = 0
 /** Mount ONCE (App.tsx). Warms the config cache + cleans up audio on teardown or language changes. */
 export function useTtsRuntime(language?: string): void {
   const previousLanguage = useRef(language)
-  const accessibilityAudioAvailable = useTtsAudioAvailability(language)
 
   useEffect(() => {
     mountCount += 1
@@ -987,12 +1029,30 @@ export function useTtsRuntime(language?: string): void {
   }, [language])
 
   useEffect(() => {
-    const request: SetCueAudioAvailabilityRequest = {
-      protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
-      available: accessibilityAudioAvailable
+    const publisher = new CueCapabilityLeasePublisher(
+      'audio',
+      (channel, request) =>
+        window.ipc.invoke<CueCapabilityLeaseAck>(channel, request)
+    )
+    const refresh = (): void => {
+      void publisher.refresh(async () =>
+        (await detectTtsAudioAvailability(language)).available
+      )
     }
-    void window.ipc
-      .invoke(ACCESSIBILITY_CUE_CHANNELS.setAudioAvailability, request)
-      .catch(() => undefined)
-  }, [accessibilityAudioAvailable])
+    refresh()
+    const timer = setInterval(
+      refresh,
+      ACCESSIBILITY_CUE_CAPABILITY_HEARTBEAT_MS
+    )
+    const offPref = subscribeTtsPref(refresh)
+    const offProgress = subscribeVoiceProgress((progress) => {
+      if (progress.phase === 'done' || progress.phase === 'error') refresh()
+    })
+    return () => {
+      clearInterval(timer)
+      offPref()
+      offProgress()
+      publisher.dispose()
+    }
+  }, [language])
 }

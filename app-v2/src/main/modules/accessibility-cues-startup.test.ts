@@ -40,6 +40,7 @@ vi.mock('./accessibility-cues', async () => {
           ? shared.DEAF_HOH_CUE_PROFILE
           : shared.STANDARD_CUE_PROFILE
         : null,
+    getAccessibilityCueProfileRevision: () => 1,
     isAccessibilityCueAudioAvailable: () => readiness.audioAvailable,
     whenAccessibilityCueProfileReady: () => readiness.promise
   }
@@ -47,7 +48,7 @@ vi.mock('./accessibility-cues', async () => {
 
 vi.mock('./haptics', () => ({
   dispatchAccessibilityCueHaptic: vi.fn(),
-  isAccessibilityHapticsEnabled: () => false
+  isAccessibilityHapticsAvailable: () => false
 }))
 
 vi.mock('../settings/events', () => ({

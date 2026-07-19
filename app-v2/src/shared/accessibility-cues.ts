@@ -7,13 +7,15 @@ import type {
 
 export const ACCESSIBILITY_CUE_PROTOCOL_VERSION = 1 as const
 export const ACCESSIBILITY_CUE_STORE_VERSION = 2 as const
+export const ACCESSIBILITY_CUE_CAPABILITY_TTL_MS = 6_000
+export const ACCESSIBILITY_CUE_CAPABILITY_HEARTBEAT_MS = 2_000
 
 export const ACCESSIBILITY_CUE_CHANNELS = {
   getState: 'accessibilityCues:getState',
   saveProfile: 'accessibilityCues:saveProfile',
   setActiveProfile: 'accessibilityCues:setActiveProfile',
   resetProfile: 'accessibilityCues:resetProfile',
-  setAudioAvailability: 'accessibilityCues:setAudioAvailability',
+  setCapabilityLease: 'accessibilityCues:setCapabilityLease',
   stateEvent: 'accessibilityCues:state',
   routedEvent: 'accessibilityCues:routed'
 } as const
@@ -314,9 +316,21 @@ export interface SelectCueProfileRequest {
   profileId: string
 }
 
-export interface SetCueAudioAvailabilityRequest {
+export type CueCapabilityLeaseModality = 'audio' | 'haptic'
+
+export interface SetCueCapabilityLeaseRequest {
   protocolVersion: typeof ACCESSIBILITY_CUE_PROTOCOL_VERSION
+  leaseId: string
+  modality: CueCapabilityLeaseModality
+  generation: number
   available: boolean
+  ttlMs: number
+}
+
+export interface CueCapabilityLeaseAck {
+  accepted: boolean
+  generation: number
+  expiresAt: number
 }
 
 export const STANDARD_CUE_PROFILE: CueProfile = {
@@ -480,6 +494,7 @@ export interface CueProfileConflict {
 export interface CuePresentation {
   profileId: string
   profileKind: CueProfileKind
+  profileRevision?: number
   textScale: number
   highContrast: boolean
   persistentCaptions: boolean
@@ -500,6 +515,65 @@ export interface CueRoute {
   issues: CueRouteIssue[]
   conflicts: CueProfileConflict[]
   presentation: CuePresentation
+}
+
+export function cueSeverityPriority(severity: AlertSeverity): number {
+  return severity === 'critical' ? 2 : severity === 'warning' ? 1 : 0
+}
+
+export function cueRouteSemanticKey(
+  route: Pick<CueRoute, 'source' | 'eventId' | 'messageKey' | 'context'>
+): string {
+  const context = route.context
+  return [
+    route.source,
+    route.eventId,
+    route.messageKey,
+    context?.corner ?? '',
+    context?.flag ?? '',
+    context?.direction ?? ''
+  ].join('|')
+}
+
+export class CueRouteAdmissionController {
+  private readonly recent = new Map<
+    string,
+    { timestamp: number; priority: number }
+  >()
+
+  constructor(
+    private readonly dedupeWindowMs = 300,
+    private readonly maxEntries = 64
+  ) {}
+
+  admit(route: CueRoute): boolean {
+    const key = `${cueRouteSemanticKey(route)}|profile:${
+      route.presentation.profileRevision ?? route.presentation.profileId
+    }`
+    const priority = cueSeverityPriority(route.severity)
+    const previous = this.recent.get(key)
+    const elapsed = previous ? route.timestamp - previous.timestamp : Infinity
+    if (
+      previous &&
+      elapsed >= 0 &&
+      elapsed < this.dedupeWindowMs &&
+      priority <= previous.priority
+    ) {
+      return false
+    }
+    this.recent.delete(key)
+    this.recent.set(key, { timestamp: route.timestamp, priority })
+    while (this.recent.size > this.maxEntries) {
+      const oldest = this.recent.keys().next().value
+      if (oldest === undefined) break
+      this.recent.delete(oldest)
+    }
+    return true
+  }
+
+  reset(): void {
+    this.recent.clear()
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1044,10 +1118,14 @@ function buildOutput(
   return base
 }
 
-function presentationFor(profile: CueProfile): CuePresentation {
+function presentationFor(
+  profile: CueProfile,
+  profileRevision?: number
+): CuePresentation {
   return {
     profileId: profile.id,
     profileKind: profile.kind,
+    profileRevision,
     textScale: profile.textScale,
     highContrast: profile.highContrast,
     persistentCaptions: profile.persistentCaptions,
@@ -1059,7 +1137,8 @@ function presentationFor(profile: CueProfile): CuePresentation {
 function blockedRoute(
   event: SemanticCueEvent,
   profile: CueProfile,
-  issue: CueRouteIssue
+  issue: CueRouteIssue,
+  profileRevision?: number
 ): CueRoute {
   return {
     status: 'blocked',
@@ -1073,28 +1152,29 @@ function blockedRoute(
     outputs: [],
     issues: [issue],
     conflicts: analyzeCueProfile(profile),
-    presentation: presentationFor(profile)
+    presentation: presentationFor(profile, profileRevision)
   }
 }
 
 export function routeSemanticCue(
   event: SemanticCueEvent,
   profileValue: unknown,
-  capabilitiesValue: Partial<CueCapabilities> = DEFAULT_CUE_CAPABILITIES
+  capabilitiesValue: Partial<CueCapabilities> = DEFAULT_CUE_CAPABILITIES,
+  profileRevision?: number
 ): CueRoute {
   const profile = normalizeCueProfile(profileValue)
   if (!isCueSource(event.source)) {
     return blockedRoute(event, profile, {
       code: 'unknown-source',
       detail: String(event.source)
-    })
+    }, profileRevision)
   }
   const manifestEntry = getCueManifest(event.id)
   if (!manifestEntry) {
     return blockedRoute(event, profile, {
       code: 'unknown-event',
       detail: event.id
-    })
+    }, profileRevision)
   }
 
   const capabilities: CueCapabilities = {
@@ -1204,7 +1284,7 @@ export function routeSemanticCue(
     outputs,
     issues,
     conflicts,
-    presentation: presentationFor(profile)
+    presentation: presentationFor(profile, profileRevision)
   }
 }
 

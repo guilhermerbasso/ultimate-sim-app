@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModuleContext } from '../module-context'
 import {
@@ -43,6 +44,7 @@ function harness(userData = 'C:\\cue-profile-user') {
   const handlers = new Map<string, (...args: any[]) => any>()
   const listeners = new Map<string, Set<(...args: any[]) => void>>()
   const broadcast = vi.fn()
+  const sender = Object.assign(new EventEmitter(), { id: 42 })
   const emit = (
     channel: string,
     event: unknown,
@@ -69,7 +71,7 @@ function harness(userData = 'C:\\cue-profile-user') {
     },
     broadcast
   } as unknown as ModuleContext
-  return { ctx, handlers, broadcast, emit }
+  return { ctx, handlers, broadcast, emit, sender }
 }
 
 function blockRead(): () => void {
@@ -262,30 +264,40 @@ describe('accessibility cue profile readiness and versioning', () => {
     )
   })
 
-  it('accepts only versioned renderer audio availability reports', async () => {
+  it('accepts only versioned sender-scoped capability leases', async () => {
     const testHarness = harness()
     const module = await import('./accessibility-cues')
     module.register(testHarness.ctx)
-    const setAvailability = testHarness.handlers.get(
-      ACCESSIBILITY_CUE_CHANNELS.setAudioAvailability
+    const setLease = testHarness.handlers.get(
+      ACCESSIBILITY_CUE_CHANNELS.setCapabilityLease
     )
 
     expect(module.isAccessibilityCueAudioAvailable()).toBe(false)
     await expect(
-      setAvailability?.(undefined, {
+      setLease?.({ sender: testHarness.sender }, {
         protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
-        available: true
+        leaseId: 'renderer-document-a',
+        modality: 'audio',
+        generation: 1,
+        available: true,
+        ttlMs: 1_000
       })
-    ).resolves.toBe(true)
+    ).resolves.toMatchObject({ accepted: true, generation: 1 })
     expect(module.isAccessibilityCueAudioAvailable()).toBe(true)
     await expect(
-      setAvailability?.(undefined, {
+      setLease?.({ sender: testHarness.sender }, {
         protocolVersion: 999,
-        available: false
+        leaseId: 'renderer-document-a',
+        modality: 'audio',
+        generation: 2,
+        available: false,
+        ttlMs: 1_000
       })
     ).rejects.toMatchObject({
-      code: 'ACCESSIBILITY_CUE_INVALID_AUDIO_AVAILABILITY'
+      code: 'ACCESSIBILITY_CUE_INVALID_CAPABILITY_LEASE'
     })
     expect(module.isAccessibilityCueAudioAvailable()).toBe(true)
+    testHarness.sender.emit('destroyed')
+    expect(module.isAccessibilityCueAudioAvailable()).toBe(false)
   })
 })

@@ -18,6 +18,8 @@ import {
 } from '../../shared/alerts'
 import {
   ACCESSIBILITY_CUE_CHANNELS,
+  CueRouteAdmissionController,
+  cueSeverityPriority,
   hardwareOutputsForCueRoute,
   routeSemanticCue,
   semanticCueEventFromAlert,
@@ -40,12 +42,13 @@ import {
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
   getActiveAccessibilityCueProfile,
+  getAccessibilityCueProfileRevision,
   isAccessibilityCueAudioAvailable,
   whenAccessibilityCueProfileReady
 } from './accessibility-cues'
 import {
   dispatchAccessibilityCueHaptic,
-  isAccessibilityHapticsEnabled
+  isAccessibilityHapticsAvailable
 } from './haptics'
 
 const CONFIG_FILE = 'alerts-config.json'
@@ -133,6 +136,7 @@ const lastSerialSendAt = new Map<string, number>()
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
   const detector = new AlertsDetector(config)
+  const cueAdmission = new CueRouteAdmissionController()
   const liveGate = new LiveTelemetryGate()
   let lastLiveContext: LiveTelemetryContext | null = null
   let observedLive = false
@@ -165,7 +169,7 @@ export function register(ctx: ModuleContext): void {
     const profile = getActiveAccessibilityCueProfile()
     if (!profile) return
     for (const event of pendingAccessibilityEvents.splice(0)) {
-      dispatchAccessibilityCue(ctx, event, profile)
+      dispatchAccessibilityCue(ctx, event, profile, cueAdmission)
     }
   })
 
@@ -186,6 +190,7 @@ export function register(ctx: ModuleContext): void {
     if (boundary) {
       releaseAllHardwareLeases(ctx)
       detector.reset()
+      cueAdmission.reset()
       lastSerialSendAt.clear()
       pendingAccessibilityEvents.length = 0
     }
@@ -213,7 +218,9 @@ export function register(ctx: ModuleContext): void {
         pendingAccessibilityEvents.push(eventWithSound)
       } else {
         const profile = getActiveAccessibilityCueProfile()
-        if (profile) dispatchAccessibilityCue(ctx, eventWithSound, profile)
+        if (profile) {
+          dispatchAccessibilityCue(ctx, eventWithSound, profile, cueAdmission)
+        }
       }
     }
   })
@@ -343,7 +350,8 @@ function dispatchOutputs(ctx: ModuleContext, event: AlertEvent): void {
 function dispatchAccessibilityCue(
   ctx: ModuleContext,
   event: AlertEvent,
-  profile: CueProfile
+  profile: CueProfile,
+  admission: CueRouteAdmissionController
 ): void {
   const route = routeSemanticCue(
     semanticCueEventFromAlert(event, 'live'),
@@ -353,9 +361,11 @@ function dispatchAccessibilityCue(
       audio: isAccessibilityCueAudioAvailable(),
       symbol: true,
       led: Boolean(ctx.serialHub.getPrimary()?.isOpen()),
-      haptic: isAccessibilityHapticsEnabled()
-    }
+      haptic: isAccessibilityHapticsAvailable(ctx, profile.hapticIntensity)
+    },
+    getAccessibilityCueProfileRevision()
   )
+  if (!admission.admit(route)) return
   ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.routedEvent, route)
   dispatchAccessibilityCueHardware(ctx, event, route)
 }
@@ -396,7 +406,8 @@ function dispatchAccessibilityCueHardware(
       dispatchAccessibilityCueHaptic(
         ctx,
         output.pattern,
-        output.intensity ?? 0.7
+        output.intensity ?? 0.7,
+        cueSeverityPriority(route.severity)
       )
     }
   }
