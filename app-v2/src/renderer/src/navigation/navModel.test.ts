@@ -40,3 +40,12 @@ describe('Streaming navigation', () => {
     expect(drive?.viewIds.indexOf('streaming')).toBe((drive?.viewIds.indexOf('dashboards') ?? -2) + 1)
   })
 })
+
+describe('Garage and League Ops merge preservation', () => {
+  it('keeps Setup Experiment in Garage and Steward Desk in League Ops', () => {
+    expect(navSections.find((section) => section.title === 'Garage')?.viewIds).toContain('setup-experiment')
+    expect(navSections.find((section) => section.title === 'League Ops')?.viewIds).toContain('steward-desk')
+    expect(viewRegistry.filter((view) => view.id === 'setup-experiment')).toHaveLength(1)
+    expect(viewRegistry.filter((view) => view.id === 'steward-desk')).toHaveLength(1)
+  })
+})

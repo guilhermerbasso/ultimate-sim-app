@@ -28,6 +28,7 @@ const EngineerView = lazy(() => import('./EngineerView'))
 const CoachView = lazy(() => import('./CoachView'))
 const StrategyView = lazy(() => import('./StrategyView'))
 const CommunityView = lazy(() => import('./CommunityView'))
+const StewardDeskView = lazy(() => import('./StewardDeskView'))
 const DashboardBuilderView = lazy(() => import('./DashboardBuilderView'))
 const AdaptiveDashboardView = lazy(() => import('./AdaptiveDashboardView'))
 const BiometricsView = lazy(() => import('./BiometricsView'))
@@ -39,9 +40,11 @@ const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
 const RigPreflightView = lazy(() => import('./RigPreflightView'))
+const CollaborationView = lazy(() => import('./CollaborationView'))
 const StoryEngineView = lazy(() => import('./StoryEngineView'))
 const StreamingMobileEditorView = lazy(() => import('./StreamingMobileEditorView'))
 const MissionRehearsalView = lazy(() => import('./MissionRehearsalView'))
+const SocialConnectorsView = lazy(() => import('./SocialConnectorsView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
 export interface ViewDef {
@@ -85,9 +88,11 @@ export const viewRegistry: ViewDef[] = [
   { id: 'dashboard-adaptive', group: 'Sim Racing', label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'Single panel that reorganizes itself by session phase and lap moment.', shortcut: 'TN', Component: AdaptiveDashboardView },
   { id: 'biometrics', group: 'Sim Racing', label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress × pace, and AR HUD.', shortcut: 'TJ', Component: BiometricsView },
   { id: 'community', group: 'Sim Racing', label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files; compare where you gain/lose.', shortcut: 'TK', Component: CommunityView },
+  { id: 'steward-desk', group: 'League Ops', label: 'Steward Desk', eyebrow: 'Human decision', description: 'Local evidence cases with rule versions, dissent, appeals, and anonymized export.', shortcut: 'TO', Component: StewardDeskView },
   { id: 'haptics-zonal', group: 'Sim Racing', label: 'Haptics Zonal', eyebrow: 'Zones', description: 'Events→zones (seat/pedals/wheel) + visual simulator.', shortcut: 'TL', Component: HapticsZonalView },
   { id: 'spotter-3d', group: 'Sim Racing', label: '3D Spotter', eyebrow: 'Spatial audio', description: 'Positional HRTF cues for nearby cars.', shortcut: 'TM', Component: Spotter3DView },
   { id: 'rig-preflight', group: 'ButtonBox', label: 'Rig Preflight', eyebrow: 'Evidence', description: 'Local desired/reported/delta readiness with expiring certificates, waivers, and fault drills.', shortcut: '0R', Component: RigPreflightView },
+  { id: 'social-connectors', group: 'Broadcast', label: 'Social Connectors', eyebrow: 'Mock conformance', description: 'Capability, policy and readiness matrix for Twitch, YouTube and Discord connector fixtures.', shortcut: 'SO', Component: SocialConnectorsView },
   { id: 'devices', group: 'ButtonBox', label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.', shortcut: '01', Component: DevicesView },
   { id: 'arduinos', group: 'ButtonBox', label: 'Arduinos', eyebrow: 'Hardware', description: 'SimHub-style hub: RGB, matrix, screens, gauges, controls, pinout, and firmware.', shortcut: '00', Component: ArduinosView },
   { id: 'revlights', group: 'ButtonBox', label: 'Rev Lights', eyebrow: 'LEDs', description: 'Rev lights configuration and presets.', shortcut: '06', Component: RevlightsView },
@@ -96,6 +101,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'controls', group: 'ButtonBox', label: 'Controls & Keyboard', eyebrow: 'Bindings', description: 'Button → key, virtual gamepad, iRacing command, or app action (dashboard/OLED/overlay).', shortcut: '08', Component: ControlsView },
   { id: 'pinout', group: 'ButtonBox', label: 'Pinout Designer', eyebrow: 'Low-code', description: 'Drag-and-drop pin map (LEDs, mux, encoders) + firmware generation.', shortcut: '0P', Component: PinoutDesignerView },
   { id: 'settings', group: 'App', label: 'Settings', eyebrow: 'App', description: 'Auto-start, telemetry source, theme.', shortcut: '09', Component: SettingsView },
+  { id: 'collaboration', group: 'App', label: 'Collaboration', eyebrow: 'Local primary', description: 'Offline document collaboration with deterministic merge, authorship, conflicts, and local export/import.', shortcut: '0C', Component: CollaborationView },
   { id: 'about', group: 'App', label: 'About / Credits', eyebrow: 'Open source', description: 'Licenses, sources, and third-party components.', shortcut: '0A', Component: AboutView },
   { id: 'voice', group: 'Sim Racing', label: 'Voice / TTS', eyebrow: 'TTS local', description: 'Offline neural voices for Engineer/Spotter, on-demand download; system voice fallback; wake word "Hey, Engineer".', shortcut: 'TL', Component: VoiceSettingsView }
 ]

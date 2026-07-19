@@ -44,6 +44,12 @@ describe('i18n text helpers', () => {
   it('translates known navigation section titles', () => {
     expect(translateNavTitle('IA & Coaching', 'en')).toBe('AI & Coaching')
     expect(translateNavTitle('Strategy', 'es')).toBe('Estrategia')
+    expect(translateNavTitle('League Ops', 'pt-BR')).toBe('Operações da liga')
+  })
+
+  it('loads Steward Desk translations from the per-zone catalog', () => {
+    expect(tt('en', 'steward.owner.title')).toBe('Human decision owner')
+    expect(tt('pt-BR', 'steward.owner.title')).toBe('Decisão sob responsabilidade humana')
   })
 })
 
@@ -71,6 +77,7 @@ describe('migrated view i18n coverage', () => {
       'AlertsView.tsx',
       'DevicesView.tsx',
       'CommunityView.tsx',
+      'StewardDeskView.tsx',
       'ControlsView.tsx',
       'ContextDebtView.tsx',
       'CoachView.tsx',
