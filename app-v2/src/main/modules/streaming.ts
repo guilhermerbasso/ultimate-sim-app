@@ -85,6 +85,12 @@ interface SseClient {
 
 type StreamingSessionAccess = 'bootstrap' | 'authenticated'
 
+interface StreamingLatchState {
+  offCapability: StreamingTouchCapabilityEntry
+  teardownCapability: StreamingTouchCapabilityEntry | null
+  teardownComplete: boolean
+}
+
 interface StreamingSession {
   access: StreamingSessionAccess
   role: StreamingTouchRole
@@ -96,7 +102,7 @@ interface StreamingSession {
   csrfToken: string
   replayNonce: string
   activeTokens: Set<string>
-  activeLatches: Map<string, StreamingTouchCapabilityEntry>
+  activeLatches: Map<string, StreamingLatchState>
   lastFeedback: string | null
   expiryTimer: ReturnType<typeof setTimeout> | null
   receiverLeaseExpiresAt: number
@@ -961,15 +967,14 @@ async function releaseSessionInteraction(sessionId: string, session: StreamingSe
       ])
       const cleanupFailures: string[] = []
       let executedLatchCleanup = false
-      for (const [token, offCapability] of [...session.activeLatches]) {
-        if (session.activeLatches.get(token) !== offCapability) continue
+      for (const [token, latch] of [...session.activeLatches]) {
+        if (session.activeLatches.get(token) !== latch) continue
         executedLatchCleanup = true
-        const result = await executeCapabilityOperation(
+        const result = await executeLogicalLatchCleanup(
           sessionId,
           session,
-          offCapability,
-          'trigger',
-          offCapability.action,
+          token,
+          latch,
           true
         )
         if (!result.ok) cleanupFailures.push(result.message)
@@ -1561,13 +1566,33 @@ function updateActiveInteraction(
     const offCapability = [...state.touchCapabilities.values()].find((candidate) =>
       candidate.token === capability.token && candidate.zone === 'off'
     )
-    if (offCapability) session.activeLatches.set(capability.token, offCapability)
+    const teardownCapability = [...state.touchCapabilities.values()].find((candidate) =>
+      candidate.token === capability.token && candidate.zone === 'teardown'
+    ) ?? null
+    const needsSeparateTeardown = capability.action.kind === 'keyboard' &&
+      capability.action.command.mode === 'toggle' &&
+      !(
+        offCapability?.action.kind === 'keyboard' &&
+        offCapability.action.command.mode === 'toggle'
+      )
+    if (offCapability) {
+      session.activeLatches.set(capability.token, {
+        offCapability,
+        teardownCapability: needsSeparateTeardown ? teardownCapability : null,
+        teardownComplete: false
+      })
+    }
     session.activeTokens.add(capability.token)
     return
   }
-  if (capability.zone === 'off' || capability.zone === 'teardown') {
+  if (capability.zone === 'off') {
     session.activeLatches.delete(capability.token)
     session.activeTokens.delete(capability.token)
+    return
+  }
+  if (capability.zone === 'teardown') {
+    const latch = session.activeLatches.get(capability.token)
+    if (latch) latch.teardownComplete = true
     return
   }
   if (capability.action.kind !== 'keyboard') return
@@ -1657,6 +1682,37 @@ async function executeCapabilityOperation(
   session.lastFeedback = result.message
   state.lastInteractionFeedback = result.message
   return result
+}
+
+async function executeLogicalLatchCleanup(
+  sessionId: string,
+  session: StreamingSession,
+  token: string,
+  latch: StreamingLatchState,
+  cleanupDuringTeardown: boolean
+): Promise<{ ok: boolean; message: string }> {
+  if (latch.teardownCapability && !latch.teardownComplete) {
+    const teardownResult = await executeCapabilityOperation(
+      sessionId,
+      session,
+      latch.teardownCapability,
+      'cancel',
+      latch.teardownCapability.action,
+      cleanupDuringTeardown
+    )
+    if (!teardownResult.ok) return teardownResult
+  }
+  if (session.activeLatches.get(token) !== latch) {
+    return { ok: true, message: `${latch.offCapability.controlId} is already released.` }
+  }
+  return executeCapabilityOperation(
+    sessionId,
+    session,
+    latch.offCapability,
+    'trigger',
+    latch.offCapability.action,
+    cleanupDuringTeardown
+  )
 }
 
 function isStreamingTouchActionRequest(value: unknown): value is StreamingTouchActionRequest {
@@ -1753,15 +1809,16 @@ async function executeTouchInteraction(
       if (session.deleted || session.ownershipClosing || !session.activeTokens.has(capability.token)) {
         return { ok: true, message: `${capability.controlId} is already released.` }
       }
-      const logicalOff = session.activeLatches.get(capability.token)
-      const cleanupCapability = logicalOff ?? capability
-      return executeCapabilityOperation(
-        active.id,
-        session,
-        cleanupCapability,
-        logicalOff ? 'trigger' : body.phase,
-        logicalOff?.action ?? currentAction ?? capability.action
-      )
+      const latch = session.activeLatches.get(capability.token)
+      return latch
+        ? executeLogicalLatchCleanup(active.id, session, capability.token, latch, false)
+        : executeCapabilityOperation(
+            active.id,
+            session,
+            capability,
+            body.phase,
+            currentAction ?? capability.action
+          )
     })
     const payload = touchActionPayload(active.id, session, result, capability, body.phase)
     sendJsonStatus(response, result.ok ? 200 : 422, payload)

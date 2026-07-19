@@ -1177,6 +1177,67 @@ describe('streaming authenticated server', () => {
     }
   })
 
+  it('releases mixed keyboard-toggle ON before logical OFF and keeps repeated cleanup idempotent', async () => {
+    const lights = managerState.panel.buttons.find((button) => button.id === 'lights-toggle')
+    if (!lights || lights.control.kind !== 'latching-toggle') throw new Error('lights fixture missing')
+    const onAction: ButtonAction = {
+      kind: 'keyboard',
+      command: { mode: 'toggle', keys: ['H'] }
+    }
+    const offAction: ButtonAction = {
+      kind: 'keyboard',
+      command: { mode: 'press', keys: ['O'] }
+    }
+    lights.control.onAction = onAction
+    lights.control.offAction = offAction
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const on = touchCapability(session, 'lights-toggle', 'on', 'trigger')
+    const teardown = touchCapability(session, 'lights-toggle', 'teardown', 'cancel')
+    const off = touchCapability(session, 'lights-toggle', 'off', 'trigger')
+    const staleNonce = session.payload.interaction.nonce
+
+    const enabled = await postTouchAction(session, {
+      capabilityId: on.id,
+      phase: 'trigger',
+      nonce: staleNonce
+    })
+    expect(enabled.statusCode).toBe(200)
+    expect((JSON.parse(enabled.body) as StreamingTouchActionResponse).activeControls).toBe(1)
+    const cleaned = await postTouchAction(session, {
+      capabilityId: teardown.id,
+      phase: 'cancel',
+      nonce: staleNonce
+    })
+    expect(cleaned.statusCode).toBe(200)
+    expect((JSON.parse(cleaned.body) as StreamingTouchActionResponse).activeControls).toBe(0)
+    expect((await postTouchAction(session, {
+      capabilityId: off.id,
+      phase: 'trigger',
+      nonce: staleNonce
+    })).statusCode).toBe(200)
+    expect((await postTouchAction(session, {
+      capabilityId: teardown.id,
+      phase: 'cancel',
+      nonce: staleNonce
+    })).statusCode).toBe(200)
+
+    expect(managerState.semanticCalls.map(({ request }) => ({
+      action: request.action,
+      phase: request.phase,
+      zone: request.zone
+    }))).toEqual([
+      { action: onAction, phase: 'trigger', zone: 'on' },
+      { action: onAction, phase: 'cancel', zone: 'teardown' },
+      { action: offAction, phase: 'trigger', zone: 'off' }
+    ])
+  })
+
   it('rate-limits a valid control flood without accepting receiver-supplied actions', async () => {
     ctx = fakeContext()
     register(ctx)

@@ -590,7 +590,7 @@ export function ButtonBoxKey({
                 emit(control.offAction, 'trigger', 'off', 'latching')
               } else {
                 if (activeToggle) emit(activeToggle.action, 'cancel', 'teardown', 'latching')
-                emit(control.offAction, 'trigger', 'off')
+                emit(control.offAction, 'trigger', 'off', 'latching')
               }
             })}
           />
