@@ -285,6 +285,14 @@ describe('Steward Desk IPC trust boundary', () => {
       text: 'Rule text',
       source: 'local'
     }) as StewardCase
+    const details = test.handlers.get(STEWARD_CHANNELS.getEvidenceDetails)!(test.event, {
+      caseId: `  ${created.caseId}  `,
+      evidenceId: `  ${withEvidence.evidence[0].evidenceId}  `
+    })
+    expect(details).toMatchObject({
+      caseId: created.caseId,
+      evidence: { evidenceId: withEvidence.evidence[0].evidenceId }
+    })
 
     const decided = await test.handlers.get(STEWARD_CHANNELS.recordVerdict)!(test.event, {
       caseId: created.caseId,

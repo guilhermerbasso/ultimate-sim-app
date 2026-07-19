@@ -3,7 +3,7 @@
 import { createElement } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { INCIDENT_CHANNELS } from '../../../shared/incidents'
+import { INCIDENT_CHANNELS, type IncidentClipMeta } from '../../../shared/incidents'
 import {
   STEWARD_CHANNELS,
   type StewardCase,
@@ -135,6 +135,29 @@ function fixture(caseId: string, title: string, appealed = false): StewardCase {
   }
 }
 
+function incidentMeta(): IncidentClipMeta {
+  return {
+    id: 'incident-stale',
+    type: 'contact',
+    severity: 'moderate',
+    at: 500,
+    metrics: { speedDropKmh: 20 },
+    summary: 'Contact.',
+    triggerIndex: 0,
+    createdAt: 501,
+    sampleCount: 2,
+    captureSession: {
+      schemaVersion: 1,
+      captureSessionId: 'capture-acc-stale',
+      sim: 'acc',
+      startedAt: 100,
+      lifecycleGeneration: 1,
+      sessionType: 'Race',
+      trackName: 'Spa'
+    }
+  }
+}
+
 function renderDesk(cases: StewardCase[], invokeExtra?: (channel: string, args: unknown[]) => unknown): ReturnType<typeof vi.fn> {
   const invoke = vi.fn(async (channel: string, ...args: unknown[]) => {
     if (channel === STEWARD_CHANNELS.listCases) return cases
@@ -166,6 +189,67 @@ describe('StewardDeskView', () => {
     expect(screen.getByRole('complementary', { name: 'Local steward case queue' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create case' })).toBeTruthy()
     await waitFor(() => expect(screen.getByText('No local cases yet.')).toBeTruthy())
+  })
+
+  it('fails closed when a selected recorder clip disappears before case creation', async () => {
+    let clips = [incidentMeta()]
+    let changed: (() => void) | undefined
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === STEWARD_CHANNELS.listCases) return []
+      if (channel === INCIDENT_CHANNELS.list) return clips
+      throw new Error(`Unexpected channel ${channel}`)
+    })
+    Object.defineProperty(window, 'ipc', {
+      configurable: true,
+      value: {
+        invoke,
+        subscribe: (channel: string, callback: () => void) => {
+          if (channel === STEWARD_CHANNELS.changed) changed = callback
+          return () => undefined
+        }
+      }
+    })
+    render(createElement(StewardDeskView, {
+      connectedDevice: null,
+      mapping: null,
+      config: null,
+      setConnectedDevice: vi.fn(),
+      refreshDeviceState: vi.fn(async () => undefined),
+      showToast,
+      language: 'en'
+    }))
+
+    await screen.findByText('No local cases yet.')
+    fireEvent.change(screen.getByLabelText(/Incident recorder clip/), {
+      target: { value: 'incident-stale' }
+    })
+    for (const [label, value] of [
+      ['Case title', 'Stale clip case'],
+      ['League id', 'league'],
+      ['League name', 'League'],
+      ['Event id', 'event'],
+      ['Event name', 'Event'],
+      ['Incident label', 'Contact']
+    ]) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    }
+
+    clips = []
+    act(() => changed?.())
+    await waitFor(() => {
+      expect(screen.queryByRole('option', { name: /contact/i })).toBeNull()
+    })
+    fireEvent.change(screen.getByLabelText('Session id'), {
+      target: { value: 'manual-fallback-session' }
+    })
+    fireEvent.change(screen.getByLabelText('Track'), {
+      target: { value: 'Manual fallback track' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create case' }))
+
+    expect(showToast).toHaveBeenCalledWith('The incident clip is no longer available.', 'error')
+    expect(invoke).not.toHaveBeenCalledWith(STEWARD_CHANNELS.createCase, expect.anything())
   })
 
   it('confirms and clears case-scoped drafts before switching cases', async () => {

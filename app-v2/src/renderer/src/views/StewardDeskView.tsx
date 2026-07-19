@@ -172,6 +172,15 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     () => incidentClips.find((entry) => entry.id === create.incidentId),
     [create.incidentId, incidentClips]
   )
+  const selectedSyncKey = useMemo(() => selected
+    ? [
+        selected.history.length,
+        selected.rules.map((entry) => entry.citationId).join(','),
+        selected.evidence.map((entry) => `${entry.evidenceId}:${entry.state}:${entry.contentHash}`).join(','),
+        selected.verdicts.map((entry) => `${entry.verdictId}:${entry.authority ?? 'legacy'}`).join(','),
+        selected.appeals.map((entry) => `${entry.appealId}:${entry.status}:${entry.authority ?? 'legacy'}`).join(',')
+      ].join('|')
+    : '', [selected])
   const healthy = selected?.integrity.state === 'unanchored'
   const openAppeals = selected?.appeals.filter((entry) =>
     (entry.authority === undefined || entry.authority === 'local-trusted') &&
@@ -299,6 +308,9 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   useEffect(() => {
     setEvidenceDetails({})
     setEvidenceLoadingId('')
+  }, [selectedId, selected?.integrity.checkedAt])
+
+  useEffect(() => {
     if (!selected) {
       setSelectedRuleIds([])
       setSelectedEvidenceIds([])
@@ -308,10 +320,13 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     setSelectedEvidenceIds(selected.evidence.filter((entry) => entry.state === 'available').map((entry) => entry.evidenceId))
     setReferencesDirty(false)
     const latestVerdict = latestTrustedVerdictId(selected)
+    const firstOpenAppeal = selected.appeals.find((entry) =>
+      (entry.authority === undefined || entry.authority === 'local-trusted') &&
+      entry.status === 'open')?.appealId ?? ''
     setDissent((current) => ({ ...current, verdictId: latestVerdict }))
     setAppeal((current) => ({ ...current, verdictId: latestVerdict }))
-    setResolution((current) => ({ ...current, appealId: openAppeals[0]?.appealId ?? '' }))
-  }, [selectedId, selected?.history.length])
+    setResolution((current) => ({ ...current, appealId: firstOpenAppeal }))
+  }, [selectedId, selectedSyncKey])
 
   const upsert = useCallback((next: StewardCase): void => {
     setCases((current) => [next, ...current.filter((entry) => entry.caseId !== next.caseId)])
@@ -340,6 +355,10 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   async function createCase(event: FormEvent): Promise<void> {
     event.preventDefault()
     if (selected && !confirmDraftDiscard()) return
+    if (create.incidentId && !selectedClip) {
+      showToast(tt(language, 'steward.error.incidentMissing'), 'error')
+      return
+    }
     const incident = selectedClip
       ? {
           source: 'incident-recorder' as const,

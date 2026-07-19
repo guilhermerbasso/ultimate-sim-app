@@ -44,7 +44,7 @@ function requiredId(value: unknown, field: 'case' | 'evidence'): string {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`A steward ${field} id is required.`)
   }
-  return value
+  return value.trim()
 }
 
 const caseId = (value: unknown): string => requiredId(value, 'case')
