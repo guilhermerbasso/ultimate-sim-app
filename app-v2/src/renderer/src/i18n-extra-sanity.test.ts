@@ -9,8 +9,14 @@ describe('i18n-extra merge', () => {
     expect(tt('ja', '_i18nExtraSanity')).toBe('OK')
   })
 
-  it('loads accessibility cue copy for every supported language', () => {
+  it('loads Mission Rehearsal and accessibility copy for every supported language', () => {
     for (const language of ['en', 'pt-BR', 'es', 'fr', 'de', 'zh', 'ja'] as const) {
+      expect(tt(language, 'view.mission-rehearsal.label')).not.toBe('view.mission-rehearsal.label')
+      expect(tt(language, 'mission.watermarkAria')).not.toBe('mission.watermarkAria')
+      expect(tt(language, 'mission.reset.body')).not.toBe('mission.reset.body')
+      expect(tt(language, 'mission.debrief.blameless')).not.toBe('mission.debrief.blameless')
+      expect(tt(language, 'mission.debrief.blamelessStatement')).not.toBe('mission.debrief.blamelessStatement')
+      expect(tt(language, 'mission.tabs.lockedDuringRun')).not.toBe('mission.tabs.lockedDuringRun')
       expect(tt(language, 'accessibilityCues.title')).not.toBe(
         'accessibilityCues.title'
       )
