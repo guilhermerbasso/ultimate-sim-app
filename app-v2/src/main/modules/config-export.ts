@@ -1,5 +1,16 @@
 import { dialog, type OpenDialogOptions, type SaveDialogOptions } from 'electron'
-import { lstat, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  unlink,
+  writeFile
+} from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import {
@@ -80,6 +91,41 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
 }
 
+const configFileLocks = new Map<string, Promise<void>>()
+
+async function withConfigFileLock<T>(
+  path: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = configFileLocks.get(path) ?? Promise.resolve()
+  const ready = previous.catch(() => undefined)
+  let release!: () => void
+  const current = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const tail = ready.then(() => current)
+  configFileLocks.set(path, tail)
+  await ready
+  try {
+    return await operation()
+  } finally {
+    release()
+    if (configFileLocks.get(path) === tail) {
+      configFileLocks.delete(path)
+    }
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (isMissing(error)) return false
+    throw error
+  }
+}
+
 // Serialized on-disk footprint of a value, matching writeFileJson's exact format
 // (pretty JSON + trailing newline). Used by the in-memory storage to report a
 // size that mirrors what the file store would write.
@@ -118,17 +164,81 @@ export function createFileStorage(baseDir: string): ConfigStorage {
 
   return {
     async readFileJson(relPath) {
-      try {
-        return JSON.parse(await readFile(resolveSafe(relPath), 'utf8')) as unknown
-      } catch (error) {
-        if (isMissing(error)) return undefined
-        throw error
-      }
+      const full = resolveSafe(relPath)
+      return withConfigFileLock(full, async () => {
+        const staging = `${full}.staging`
+        const previous = `${full}.previous`
+        let liveError: unknown
+        try {
+          const parsed = JSON.parse(await readFile(full, 'utf8')) as unknown
+          await rm(staging, { force: true }).catch(() => undefined)
+          await rm(previous, { force: true }).catch(() => undefined)
+          return parsed
+        } catch (error) {
+          liveError = error
+        }
+
+        try {
+          const rawPrevious = await readFile(previous, 'utf8')
+          const parsedPrevious = JSON.parse(rawPrevious) as unknown
+          if (await pathExists(full)) {
+            await rm(full, { force: true })
+          }
+          await rename(previous, full)
+          await rm(staging, { force: true }).catch(() => undefined)
+          return parsedPrevious
+        } catch (recoveryError) {
+          if (isMissing(liveError) && isMissing(recoveryError)) return undefined
+          throw liveError
+        }
+      })
     },
     async writeFileJson(relPath, data) {
       const full = resolveSafe(relPath)
-      await mkdir(dirname(full), { recursive: true })
-      await writeFile(full, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+      await withConfigFileLock(full, async () => {
+        const staging = `${full}.staging`
+        const previous = `${full}.previous`
+        const payload = `${JSON.stringify(data, null, 2)}\n`
+        let previousMoved = false
+        let committed = false
+        await mkdir(dirname(full), { recursive: true })
+        try {
+          await rm(staging, { force: true })
+          await writeFile(staging, payload, 'utf8')
+          const handle = await open(staging, 'r+')
+          try {
+            await handle.sync()
+          } finally {
+            await handle.close()
+          }
+          const stagedPayload = await readFile(staging, 'utf8')
+          JSON.parse(stagedPayload)
+          if (stagedPayload !== payload) {
+            throw new Error(`Atomic configuration staging verification failed: ${relPath}`)
+          }
+          if (await pathExists(full)) {
+            await rm(previous, { force: true })
+            await rename(full, previous)
+            previousMoved = true
+          }
+          await rename(staging, full)
+          committed = true
+          if (previousMoved) {
+            await rm(previous, { force: true }).catch(() => undefined)
+          }
+        } catch (error) {
+          await rm(staging, { force: true }).catch(() => undefined)
+          if (
+            !committed &&
+            previousMoved &&
+            (await pathExists(previous)) &&
+            !(await pathExists(full))
+          ) {
+            await rename(previous, full).catch(() => undefined)
+          }
+          throw error
+        }
+      })
     },
     async readDirJson(relDir) {
       const dir = resolveSafe(relDir)
@@ -332,15 +442,55 @@ function prepareSectionData(sectionId: string, data: unknown): PreparedSectionDa
   }
 }
 
-function validateAccessibilityImportContainer(payload: unknown): unknown {
-  if (isConfigSectionExport(payload)) {
-    if (payload.sectionId !== 'accessibility-cues') return payload
+function assertExactContainerKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  label: string
+): void {
+  const allowedKeys = new Set(allowed)
+  const unexpected = Object.keys(value).filter((key) => !allowedKeys.has(key))
+  if (unexpected.length > 0) {
+    throw new Error(
+      `Invalid accessibility cue import ${label}: unsupported field "${unexpected[0]}".`
+    )
+  }
+}
+
+export function validateAccessibilityImportContainer(payload: unknown): unknown {
+  if (isPlainObject(payload) && ('sectionId' in payload || 'data' in payload)) {
+    assertExactContainerKeys(
+      payload,
+      ['app', 'version', 'exportedAt', 'sectionId', 'data'],
+      'section wrapper'
+    )
+    if (
+      payload.app !== CONFIG_BUNDLE_APP_ID ||
+      payload.version !== CONFIG_BUNDLE_VERSION ||
+      typeof payload.exportedAt !== 'string' ||
+      payload.sectionId !== 'accessibility-cues' ||
+      !('data' in payload)
+    ) {
+      throw new Error('Invalid accessibility cue import section wrapper.')
+    }
     return {
       ...payload,
       data: validateAccessibilityCueStoreImport(payload.data)
     }
   }
-  if (isConfigBundle(payload)) {
+  if (isPlainObject(payload) && ('sections' in payload || 'app' in payload)) {
+    assertExactContainerKeys(
+      payload,
+      ['app', 'version', 'exportedAt', 'sections'],
+      'bundle wrapper'
+    )
+    if (
+      payload.app !== CONFIG_BUNDLE_APP_ID ||
+      payload.version !== CONFIG_BUNDLE_VERSION ||
+      typeof payload.exportedAt !== 'string' ||
+      !isPlainObject(payload.sections)
+    ) {
+      throw new Error('Invalid accessibility cue import bundle wrapper.')
+    }
     if (!('accessibility-cues' in payload.sections)) return payload
     return {
       ...payload,

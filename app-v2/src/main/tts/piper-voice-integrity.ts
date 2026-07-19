@@ -140,6 +140,31 @@ export interface VoiceDirectoryPayload {
   tokens: Uint8Array
 }
 
+const voiceDirectoryLocks = new Map<string, Promise<void>>()
+
+async function withVoiceDirectoryLock<T>(
+  key: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = voiceDirectoryLocks.get(key) ?? Promise.resolve()
+  const ready = previous.catch(() => undefined)
+  let release!: () => void
+  const current = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const tail = ready.then(() => current)
+  voiceDirectoryLocks.set(key, tail)
+  await ready
+  try {
+    return await operation()
+  } finally {
+    release()
+    if (voiceDirectoryLocks.get(key) === tail) {
+      voiceDirectoryLocks.delete(key)
+    }
+  }
+}
+
 export async function verifyTrustedVoiceDirectory(
   directory: string,
   voiceId: string,
@@ -219,9 +244,36 @@ export async function recoverAtomicVoiceDirectory(
   dependencies: VoiceDirectoryDependencies
 ): Promise<VoiceDirectoryVerification> {
   const live = join(root, voiceId)
+  return withVoiceDirectoryLock(live, () =>
+    recoverAtomicVoiceDirectoryUnlocked(
+      live,
+      voiceId,
+      trusted,
+      dependencies
+    )
+  )
+}
+
+async function recoverAtomicVoiceDirectoryUnlocked(
+  live: string,
+  voiceId: string,
+  trusted: TrustedPiperVoiceDigest | null,
+  dependencies: VoiceDirectoryDependencies
+): Promise<VoiceDirectoryVerification> {
   const staging = `${live}.staging`
   const previous = `${live}.previous`
-  await dependencies.remove(staging).catch(() => undefined)
+  try {
+    if (await dependencies.exists(staging)) {
+      await dependencies.remove(staging)
+    }
+  } catch (error) {
+    return {
+      verified: false,
+      reason: `Voice ${voiceId} staging recovery failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    }
+  }
   if (await dependencies.exists(live)) {
     const verified = await verifyTrustedVoiceDirectory(
       live,
@@ -242,8 +294,34 @@ export async function recoverAtomicVoiceDirectory(
       dependencies
     )
     if (previousVerified.verified) {
-      await dependencies.remove(live).catch(() => undefined)
-      await dependencies.rename(previous, live)
+      try {
+        if (await dependencies.exists(live)) {
+          await dependencies.remove(live)
+        }
+      } catch (error) {
+        return {
+          verified: false,
+          reason: `Voice ${voiceId} previous installation is verified but the invalid live directory could not be removed: ${
+            error instanceof Error ? error.message : String(error)
+          }. The previous directory was preserved for retry.`
+        }
+      }
+      if (await dependencies.exists(live)) {
+        return {
+          verified: false,
+          reason: `Voice ${voiceId} previous installation is verified but the invalid live directory still exists. The previous directory was preserved for retry.`
+        }
+      }
+      try {
+        await dependencies.rename(previous, live)
+      } catch (error) {
+        return {
+          verified: false,
+          reason: `Voice ${voiceId} previous installation could not be restored: ${
+            error instanceof Error ? error.message : String(error)
+          }. The previous directory was preserved for retry.`
+        }
+      }
       return {
         verified: true,
         reason: `Recovered previous verified voice ${voiceId}.`
@@ -264,6 +342,24 @@ export async function installTrustedVoiceDirectory(
   dependencies: VoiceDirectoryDependencies
 ): Promise<void> {
   const live = join(root, voiceId)
+  return withVoiceDirectoryLock(live, () =>
+    installTrustedVoiceDirectoryUnlocked(
+      live,
+      voiceId,
+      payload,
+      trusted,
+      dependencies
+    )
+  )
+}
+
+async function installTrustedVoiceDirectoryUnlocked(
+  live: string,
+  voiceId: string,
+  payload: VoiceDirectoryPayload,
+  trusted: TrustedPiperVoiceDigest,
+  dependencies: VoiceDirectoryDependencies
+): Promise<void> {
   const staging = `${live}.staging`
   const previous = `${live}.previous`
   let previousMoved = false

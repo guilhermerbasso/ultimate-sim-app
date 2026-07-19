@@ -181,6 +181,57 @@ describe('trusted existing Piper voices', () => {
 })
 
 describe('atomic complete Piper voice publication', () => {
+  it('serializes recovery behind an active install without deleting its staging directory', async () => {
+    const root = 'voices'
+    const live = join(root, voiceId)
+    const staging = `${live}.staging`
+    const fs = new MemoryVoiceFs()
+    fs.seedVerified(live)
+    const originalWrite = fs.writeFile.bind(fs)
+    let releaseWrite!: () => void
+    let markWriteStarted!: () => void
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve
+    })
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve
+    })
+    fs.writeFile = async (path, bytes) => {
+      if (path === join(staging, PIPER_VOICE_MODEL_FILE)) {
+        markWriteStarted()
+        await writeGate
+      }
+      await originalWrite(path, bytes)
+    }
+
+    const install = installTrustedVoiceDirectory(
+      root,
+      voiceId,
+      payload,
+      trusted,
+      fs
+    )
+    await writeStarted
+    let recoverySettled = false
+    const recovery = recoverAtomicVoiceDirectory(
+      root,
+      voiceId,
+      trusted,
+      fs
+    ).finally(() => {
+      recoverySettled = true
+    })
+    await Promise.resolve()
+
+    expect(recoverySettled).toBe(false)
+    expect(await fs.exists(staging)).toBe(true)
+
+    releaseWrite()
+    await install
+    await expect(recovery).resolves.toMatchObject({ verified: true })
+    expect(await fs.exists(staging)).toBe(false)
+  })
+
   it.each([
     'remove-staging',
     'mkdir-staging',
@@ -305,5 +356,28 @@ describe('atomic complete Piper voice publication', () => {
     await expect(
       verifyTrustedVoiceDirectory(live, voiceId, trusted, fs)
     ).resolves.toMatchObject({ verified: true })
+  })
+
+  it('preserves a verified previous directory when the invalid live directory cannot be removed', async () => {
+    const root = 'voices'
+    const live = join(root, voiceId)
+    const previous = `${live}.previous`
+    const fs = new MemoryVoiceFs(
+      (operation, first) => operation === 'remove' && first === live
+    )
+    fs.seedVerified(previous)
+    fs.directories.add(live)
+    fs.files.set(
+      join(live, PIPER_VOICE_MODEL_FILE),
+      new TextEncoder().encode('invalid live model')
+    )
+
+    await expect(
+      recoverAtomicVoiceDirectory(root, voiceId, trusted, fs)
+    ).resolves.toMatchObject({
+      verified: false,
+      reason: expect.stringMatching(/preserved for retry/)
+    })
+    expect(await fs.exists(previous)).toBe(true)
   })
 })

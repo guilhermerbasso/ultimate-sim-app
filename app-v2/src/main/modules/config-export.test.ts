@@ -41,7 +41,8 @@ import {
   createFileStorage,
   createMemoryStorage,
   readImportPayload,
-  register
+  register,
+  validateAccessibilityImportContainer
 } from './config-export'
 import {
   CONFIG_BUNDLE_APP_ID,
@@ -315,6 +316,61 @@ describe('section registry round-trip (export -> import)', () => {
 // fresh `createConfigEngine` over the SAME storage models the live module
 // re-reading its file after the import-reload signal fires.
 describe('import hot-apply round-trip (a fresh read returns the imported data, not stale)', () => {
+  it('rejects unsupported accessibility wrapper versions and unknown wrapper fields', () => {
+    const exportedAt = new Date().toISOString()
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION + 1,
+        exportedAt,
+        sectionId: 'accessibility-cues',
+        data: DEFAULT_ACCESSIBILITY_CUE_STORE
+      })
+    ).toThrow(/section wrapper/)
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION,
+        exportedAt,
+        sectionId: 'accessibility-cues',
+        data: DEFAULT_ACCESSIBILITY_CUE_STORE,
+        unexpected: true
+      })
+    ).toThrow(/unsupported field/)
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION + 1,
+        exportedAt,
+        sections: {
+          'accessibility-cues': DEFAULT_ACCESSIBILITY_CUE_STORE
+        }
+      })
+    ).toThrow(/bundle wrapper/)
+    expect(() =>
+      validateAccessibilityImportContainer({
+        app: CONFIG_BUNDLE_APP_ID,
+        version: CONFIG_BUNDLE_VERSION,
+        exportedAt,
+        sections: {
+          'accessibility-cues': DEFAULT_ACCESSIBILITY_CUE_STORE
+        },
+        extra: 'refused'
+      })
+    ).toThrow(/unsupported field/)
+  })
+
+  it('strictly validates and preserves a supported accessibility section wrapper', () => {
+    const payload = {
+      app: CONFIG_BUNDLE_APP_ID,
+      version: CONFIG_BUNDLE_VERSION,
+      exportedAt: new Date().toISOString(),
+      sectionId: 'accessibility-cues',
+      data: DEFAULT_ACCESSIBILITY_CUE_STORE
+    }
+    expect(validateAccessibilityImportContainer(payload)).toEqual(payload)
+  })
+
   it.each([
     {},
     { version: 2, activeProfileId: 'standard', profiles: [], unknown: true },
@@ -1003,6 +1059,47 @@ describe('saved-config deletion on real files (file storage)', () => {
     const serialized = JSON.stringify(await engine.listSavedSections())
     expect(serialized).not.toContain('TOPSECRET')
     expect(serialized).not.toContain('iracing-oauth')
+  })
+
+  it('atomically replaces a file section and removes staging residue', async () => {
+    const storage = createFileStorage(root)
+    await storage.writeFileJson('accessibility-cues.json', {
+      ...DEFAULT_ACCESSIBILITY_CUE_STORE,
+      revision: 2
+    })
+    await storage.writeFileJson('accessibility-cues.json', {
+      ...DEFAULT_ACCESSIBILITY_CUE_STORE,
+      revision: 3
+    })
+
+    await expect(
+      storage.readFileJson('accessibility-cues.json')
+    ).resolves.toMatchObject({ revision: 3 })
+    expect(existsSync(join(root, 'accessibility-cues.json.staging'))).toBe(false)
+    expect(existsSync(join(root, 'accessibility-cues.json.previous'))).toBe(false)
+  })
+
+  it('recovers the previous valid file after an interrupted replacement', async () => {
+    const storage = createFileStorage(root)
+    const previous = {
+      ...DEFAULT_ACCESSIBILITY_CUE_STORE,
+      revision: 7
+    }
+    writeFileSync(
+      join(root, 'accessibility-cues.json.previous'),
+      `${JSON.stringify(previous, null, 2)}\n`
+    )
+    writeFileSync(join(root, 'accessibility-cues.json'), '{broken')
+    writeFileSync(join(root, 'accessibility-cues.json.staging'), '{"partial":true}')
+
+    await expect(
+      storage.readFileJson('accessibility-cues.json')
+    ).resolves.toMatchObject({ revision: 7 })
+    expect(
+      JSON.parse(readFileSync(join(root, 'accessibility-cues.json'), 'utf8'))
+    ).toMatchObject({ revision: 7 })
+    expect(existsSync(join(root, 'accessibility-cues.json.previous'))).toBe(false)
+    expect(existsSync(join(root, 'accessibility-cues.json.staging'))).toBe(false)
   })
 })
 
