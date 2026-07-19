@@ -52,7 +52,8 @@ function readyObservation(): RigPreflightObservation {
         desiredIdentity: 'serial:iflag-001',
         observedIdentity: 'vid=2341;pid=0043;serial=iflag-001',
         state: 'verified',
-        reason: 'Observed VID, PID, and serial match the saved hardware identity.'
+        reason: 'Observed VID, PID, and serial match the saved hardware identity.',
+        sources: ['serial-store:iflag-001']
       }],
       esp32RequiredIdentities: ['profile:esp32-s3'],
       esp32ConnectedIdentities: ['profile:esp32-s3']
@@ -146,7 +147,8 @@ describe('rig preflight evidence evaluation', () => {
       desiredIdentity: 'serial:iflag-001',
       observedIdentity: 'vid=1a86;pid=7523;serial=?',
       state: 'unknown',
-      reason: 'This hardware exposes no USB serial identity; use an existing governed preflight waiver if operation is explicitly approved.'
+      reason: 'This hardware exposes no USB serial identity; use an existing governed preflight waiver if operation is explicitly approved.',
+      sources: ['serial-store:iflag-001']
     }]
     const profile = fullProfile()
     let check = evaluateRigPreflightChecks(profile, observation, [], NOW)
@@ -247,7 +249,8 @@ describe('rig preflight evidence evaluation', () => {
       desiredIdentity: 'serial:iflag-001',
       observedIdentity: 'vid=2341;pid=0043;serial=iflag-replacement',
       state: 'verified',
-      reason: 'Observed identity changed.'
+      reason: 'Observed identity changed.',
+      sources: ['serial-store:iflag-001']
     }]
     replaced.haptics!.outputDeviceId = 'replacement-bass-shaker'
     const replacedChecks = evaluateRigPreflightChecks(profile, replaced, [], NOW)
@@ -288,6 +291,13 @@ describe('rig preflight evidence evaluation', () => {
     expect(arduinoCheckA?.state).toBe('verified')
     expect(arduinoCheckB?.state).toBe('verified')
     expect(arduinoCheckA?.signatureMaterial).not.toBe(arduinoCheckB?.signatureMaterial)
+
+    const profileLinked = readyObservation()
+    profileLinked.serial!.configuredIdentityStatuses[0].sources.push('profile:iflag-profile')
+    const profileLinkedCheck = evaluateRigPreflightChecks(profile, profileLinked, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial)
+    expect(profileLinkedCheck?.state).toBe('verified')
+    expect(profileLinkedCheck?.signatureMaterial).not.toBe(initialSerial?.signatureMaterial)
   })
 
   it('downgrades otherwise-good stale evidence to unknown', () => {

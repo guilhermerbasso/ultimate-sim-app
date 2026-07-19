@@ -138,6 +138,7 @@ export interface RigConfiguredSerialIdentityStatus {
   observedIdentity: string
   state: 'verified' | 'unknown' | 'fail'
   reason: string
+  sources: string[]
 }
 
 export interface RigSerialObservation {
@@ -809,7 +810,8 @@ export function evaluateRigPreflightChecks(
             identity.startsWith(`${desiredIdentity}=>`)
           )?.slice(desiredIdentity.length + 2) ?? 'unobserved',
         state: 'unknown',
-        reason: 'Stable USB identity evidence was not reported for this configured device.'
+        reason: 'Stable USB identity evidence was not reported for this configured device.',
+        sources: []
       }
   )
   const failedConfigured = configuredIdentityStatuses.filter((status) => status.state === 'fail')
@@ -822,7 +824,7 @@ export function evaluateRigPreflightChecks(
         : 'verified'
   const configuredStatusMaterial = configuredIdentityStatuses.map(
     (status) =>
-      `${status.desiredIdentity}=>${status.state}:${status.observedIdentity}:${status.reason}`
+      `${status.desiredIdentity}=>${status.state}:${status.observedIdentity}:${stableSortedIdentities(status.sources).join(',')}:${status.reason}`
   )
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.configuredSerial,
@@ -1280,7 +1282,8 @@ export function applyRigPreflightFault(
           desiredIdentity: 'serial:seeded-arduino',
           observedIdentity: 'unobserved',
           state: 'fail',
-          reason: 'Device disconnected by fault injection.'
+          reason: 'Device disconnected by fault injection.',
+          sources: ['fault:serial-disconnect']
         }],
         esp32RequiredIdentities: [],
         esp32ConnectedIdentities: []
@@ -1299,7 +1302,8 @@ export function applyRigPreflightFault(
         desiredIdentity,
         observedIdentity: 'unobserved',
         state: 'fail' as const,
-        reason: 'Device disconnected by fault injection.'
+        reason: 'Device disconnected by fault injection.',
+        sources: ['fault:serial-disconnect']
       }))
     }
   } else if (faultId === 'stale-evidence') {

@@ -31,8 +31,7 @@ import { probePortOwnership } from '../rig-preflight/port-owner'
 import { RigPreflightExpiryScheduler } from '../rig-preflight/expiry-scheduler'
 import { FileRigPreflightPersistence } from '../rig-preflight/file-persistence'
 import {
-  desiredSerialIdentity,
-  resolveConfiguredSerialEvidence
+  buildConfiguredSerialInventory
 } from '../rig-preflight/serial-evidence'
 
 const STORE_FILE = 'rig-preflight.json'
@@ -160,54 +159,39 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
   const ports = await ctx.serialHub.listPorts().catch(() => [])
   const configured = serialStore.list()
   const profiles = deviceStore.list()
-  const configuredEvidence = configured.map((entry) => {
-    const desired = desiredSerialIdentity(entry)
-    const evidence = resolveConfiguredSerialEvidence(entry, live, ports)
-    return { desired, ...evidence }
-  })
-  const profileEvidence = profiles
-    .filter((profile) => profile.deviceId !== 'simx' && (profile.deviceId || profile.port))
-    .map((profile) => {
-      const desired = `profile:${profile.id}`
-      const evidence = resolveConfiguredSerialEvidence(
-        {
-          id: profile.deviceId,
-          path: profile.port ?? ''
-        },
-        live,
-        ports
-      )
-      return { desired, ...evidence }
-    })
-  const activeConfiguredEvidence = configured.length > 0
-    ? configuredEvidence
-    : profileEvidence
-  const configuredIdentities = configured.length > 0
-    ? configuredEvidence.map((entry) => entry.desired)
-    : profileEvidence.map((entry) => entry.desired)
-  const connectedConfiguredIdentities = activeConfiguredEvidence
+  const profileInventory = profiles
+    .filter((profile) => profile.deviceId !== 'simx')
+    .map((profile) => ({
+      id: profile.id,
+      deviceId: profile.deviceId,
+      port: profile.port
+    }))
+  const inventory = buildConfiguredSerialInventory(configured, profileInventory, live, ports)
+  const configuredIdentities = inventory.map((entry) => entry.desiredIdentity)
+  const connectedConfiguredIdentities = inventory
     .filter((entry) => entry.state === 'verified')
-    .map((entry) => entry.desired)
-  const observedConfiguredIdentities = activeConfiguredEvidence.map(
-    (entry) => `${entry.desired}=>${entry.observedIdentity}`
+    .map((entry) => entry.desiredIdentity)
+  const observedConfiguredIdentities = inventory.map(
+    (entry) => `${entry.desiredIdentity}=>${entry.observedIdentity}`
   )
-  const configuredIdentityStatuses = activeConfiguredEvidence.map((entry) => ({
-    desiredIdentity: entry.desired,
+  const configuredIdentityStatuses = inventory.map((entry) => ({
+    desiredIdentity: entry.desiredIdentity,
     observedIdentity: entry.observedIdentity,
     state: entry.state,
-    reason: entry.reason
+    reason: entry.reason,
+    sources: entry.sources
   }))
   const esp32Profiles = profiles.filter((profile) => profile.board === 'esp32' || profile.board === 'esp32s3')
   const esp32RequiredIdentities = esp32Profiles
     .map((profile) => canonicalRigEsp32Identity(`profile:${profile.id}`))
     .filter((identity): identity is string => identity !== null)
+  const verifiedProfileIds = new Set(
+    inventory
+      .filter((entry) => entry.state === 'verified')
+      .flatMap((entry) => entry.profileIds)
+  )
   const esp32SerialConnectedIdentities = esp32Profiles
-    .filter((profile) =>
-      live.some((device) =>
-        device.connected &&
-        ((profile.deviceId && profile.deviceId === device.id) || (profile.port && profile.port === device.path))
-      )
-    )
+    .filter((profile) => verifiedProfileIds.has(profile.id))
     .map((profile) => canonicalRigEsp32Identity(`profile:${profile.id}`))
     .filter((identity): identity is string => identity !== null)
   const esp32ConnectedIdentities = stableSortedIdentities([

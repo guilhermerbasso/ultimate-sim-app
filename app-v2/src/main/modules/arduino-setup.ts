@@ -63,6 +63,10 @@ import {
 } from '../devices/flasher'
 import { SerialDevicesStore, getSerialDevicesStore } from '../serial-devices/store'
 import {
+  resolveConnectedSerialIdentityMigration,
+  type SerialIdentityMigrationRecord
+} from '../serial-devices/identity-migration'
+import {
   matchesSimXPrimaryIdentity,
   readSimXPrimaryIdentity,
   saveSimXPrimaryIdentity
@@ -307,12 +311,27 @@ class ArduinoSetup {
       })
 
       emit({ phase: 'profile', message: 'Creating the device in Hardware Hub…', percent: 94 })
-      const profile = await this.createProfile(module, board.profileBoard, port, verify.deviceId, verify.caps)
-      await this.persistSerialDevice(module, port, verify.deviceId)
+      const migration = await this.resolveConnectedIdentity(verify.deviceId)
+      if (!migration.record) {
+        await this.disconnectQuietly(verify.deviceId)
+        throw new SetupError(migration.message)
+      }
+      const profile = await this.createProfile(
+        module,
+        board.profileBoard,
+        migration.record.path,
+        verify.deviceId,
+        verify.caps
+      )
+      await this.persistSerialDevice(module, migration.record)
       result.profileId = profile.id
       result.deviceId = verify.deviceId
       result.verified = true
-      result.message = `${module.name} is ready! Component created and verified (${formatCaps(verify.caps)}).`
+      result.message = `${module.name} is ready! Component created and verified (${formatCaps(verify.caps)}). ${
+        migration.state === 'verified'
+          ? 'Stable VID/PID/serial identity was recorded.'
+          : migration.message
+      }`
       emit({ phase: 'done', message: result.message, percent: 100, tone: 'success' })
       return result
     } catch (error) {
@@ -447,14 +466,27 @@ class ArduinoSetup {
     return saved
   }
 
-  private async persistSerialDevice(module: SetupModule, port: string, deviceId: string): Promise<void> {
-    if (!deviceId) return
+  private async persistSerialDevice(
+    module: SetupModule,
+    identity: SerialIdentityMigrationRecord
+  ): Promise<void> {
     await this.serialDevicesStore.upsert({
-      id: deviceId,
-      path: port,
+      ...identity,
       label: module.name,
       baud: COMPANION_BAUD,
       autoConnect: true
+    })
+  }
+
+  private async resolveConnectedIdentity(
+    deviceId: string
+  ): Promise<ReturnType<typeof resolveConnectedSerialIdentityMigration>> {
+    const ports = await this.ctx.serialHub.listPorts().catch(() => [])
+    return resolveConnectedSerialIdentityMigration({
+      deviceId,
+      live: this.ctx.serialHub.listDevices(),
+      ports,
+      allowUnboundMigration: true
     })
   }
 

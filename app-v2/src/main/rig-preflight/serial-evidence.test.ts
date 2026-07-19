@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildConfiguredSerialInventory,
   desiredSerialIdentity,
   resolveConfiguredSerialEvidence
 } from './serial-evidence'
@@ -152,5 +153,116 @@ describe('rig preflight configured serial identity evidence', () => {
 
     expect(evidence.state).toBe('unknown')
     expect(evidence.reason).toContain('governed preflight waiver')
+  })
+
+  it('unions and deduplicates serial-store and profile-backed inventories', () => {
+    const configured = [
+      config,
+      {
+        id: 'wheel-display',
+        path: 'COM12',
+        vendorId: '1209',
+        productId: '0001',
+        serialNumber: 'DISPLAY-001'
+      }
+    ]
+    const profiles = [
+      { id: 'iflag-profile', deviceId: 'iflag', port: 'COM7' },
+      { id: 'missing-profile', deviceId: 'missing', port: 'COM99' },
+      { id: 'empty-profile' }
+    ]
+    const inventory = buildConfiguredSerialInventory(
+      configured,
+      profiles,
+      [
+        { id: 'iflag', path: 'COM7', connected: true },
+        { id: 'wheel-display', path: 'COM12', connected: true }
+      ],
+      [
+        { path: 'COM7', vendorId: '2341', productId: '0043', serialNumber: 'IFLAG-001' },
+        { path: 'COM12', vendorId: '1209', productId: '0001', serialNumber: 'DISPLAY-001' }
+      ]
+    )
+
+    expect(inventory).toHaveLength(4)
+    const iflag = inventory.find((entry) => entry.profileIds.includes('iflag-profile'))
+    expect(iflag?.state).toBe('verified')
+    expect(iflag?.sources).toEqual(['profile:iflag-profile', 'serial-store:iflag'])
+    expect(inventory.find((entry) => entry.desiredIdentity === 'profile:missing-profile')).toMatchObject({
+      state: 'unknown',
+      profileIds: ['missing-profile']
+    })
+    expect(inventory.find((entry) => entry.desiredIdentity === 'profile:empty-profile')).toMatchObject({
+      state: 'unknown',
+      profileIds: ['empty-profile']
+    })
+  })
+
+  it('fails closed when a profile deviceId and path point at different configured hardware', () => {
+    const configured = [
+      config,
+      {
+        id: 'other-device',
+        path: 'COM12',
+        vendorId: '1209',
+        productId: '0001',
+        serialNumber: 'OTHER-001'
+      }
+    ]
+    const inventory = buildConfiguredSerialInventory(
+      configured,
+      [{ id: 'swapped-profile', deviceId: 'iflag', port: 'COM12' }],
+      live,
+      [{ path: 'COM7', vendorId: '2341', productId: '0043', serialNumber: 'IFLAG-001' }]
+    )
+    const swapped = inventory.find((entry) => entry.desiredIdentity === 'profile:swapped-profile')
+
+    expect(swapped?.state).toBe('unknown')
+    expect(swapped?.reason).toContain('different stable serial-store devices')
+  })
+
+  it('deduplicates duplicate stable configs while retaining every inventory source', () => {
+    const duplicate = {
+      ...config,
+      id: 'iflag-duplicate',
+      path: 'COM11'
+    }
+    const inventory = buildConfiguredSerialInventory(
+      [config, duplicate],
+      [
+        { id: 'profile-a', deviceId: 'iflag', port: 'COM7' },
+        { id: 'profile-b', deviceId: 'iflag', port: 'COM11' }
+      ],
+      [{ id: 'runtime-iflag', path: 'COM15', connected: true }],
+      [{ path: 'COM15', vendorId: '2341', productId: '0043', serialNumber: 'IFLAG-001' }]
+    )
+
+    expect(inventory).toHaveLength(1)
+    expect(inventory[0].state).toBe('verified')
+    expect(inventory[0].profileIds).toEqual(['profile-a', 'profile-b'])
+    expect(inventory[0].sources).toEqual([
+      'profile:profile-a',
+      'profile:profile-b',
+      'serial-store:iflag',
+      'serial-store:iflag-duplicate'
+    ])
+  })
+
+  it('does not let an ESP32 profile pass through mutable path or hub-id evidence', () => {
+    const inventory = buildConfiguredSerialInventory(
+      [config],
+      [{ id: 'esp32-profile', deviceId: 'iflag', port: 'COM7' }],
+      [{ id: 'iflag', path: 'COM7', connected: true }],
+      [{ path: 'COM7', vendorId: '9999', productId: '9999', serialNumber: 'IMPOSTOR' }]
+    )
+    const profileEntry = inventory.find((entry) => entry.profileIds.includes('esp32-profile'))
+
+    expect(profileEntry?.state).toBe('fail')
+    expect(profileEntry?.reason).toContain('VID/PID')
+    expect(
+      inventory
+        .filter((entry) => entry.state === 'verified')
+        .flatMap((entry) => entry.profileIds)
+    ).not.toContain('esp32-profile')
   })
 })

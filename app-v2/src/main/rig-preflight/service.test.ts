@@ -37,6 +37,38 @@ class MemoryPersistence implements RigPreflightPersistence {
   }
 }
 
+class ControlledPersistence extends MemoryPersistence {
+  private blockedWrite: {
+    started: () => void
+    wait: Promise<void>
+    fail: boolean
+  } | null = null
+
+  blockNextWrite(fail: boolean): { started: Promise<void>; release(): void } {
+    let markStarted: () => void = () => undefined
+    let release: () => void = () => undefined
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const wait = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this.blockedWrite = { started: markStarted, wait, fail }
+    return { started, release }
+  }
+
+  override async write(content: string): Promise<void> {
+    const blocked = this.blockedWrite
+    if (blocked) {
+      this.blockedWrite = null
+      blocked.started()
+      await blocked.wait
+      if (blocked.fail) throw new Error('controlled write failure')
+    }
+    await super.write(content)
+  }
+}
+
 function observation(now: number): RigPreflightObservation {
   const meta: RigEvidenceMeta = {
     observedAt: now,
@@ -70,7 +102,8 @@ function observation(now: number): RigPreflightObservation {
         desiredIdentity: 'serial:iflag-001',
         observedIdentity: 'vid=2341;pid=0043;serial=iflag-001',
         state: 'verified',
-        reason: 'Observed VID, PID, and serial match the saved hardware identity.'
+        reason: 'Observed VID, PID, and serial match the saved hardware identity.',
+        sources: ['serial-store:iflag-001']
       }],
       esp32RequiredIdentities: ['profile:esp32-001'],
       esp32ConnectedIdentities: ['wifi:esp32-001']
@@ -295,16 +328,22 @@ describe('RigPreflightService persistence', () => {
     )
   })
 
-  it('rejects unsaved, stale, and concurrently changed profile revisions', async () => {
+  it('rejects unsaved/stale revisions and serializes a run before a queued profile mutation', async () => {
     let now = 50_000
     let releaseCollection: () => void = () => undefined
+    let markCollectionStarted: () => void = () => undefined
+    const collectionStarted = new Promise<void>((resolve) => {
+      markCollectionStarted = resolve
+    })
     let blockCollection = false
+    const persistence = new MemoryPersistence()
     const service = new RigPreflightService({
-      persistence: new MemoryPersistence(),
+      persistence,
       now: () => now,
       createId: () => `profile-${now}`,
       collectObservation: async () => {
         if (blockCollection) {
+          markCollectionStarted()
           await new Promise<void>((resolve) => {
             releaseCollection = resolve
           })
@@ -326,10 +365,23 @@ describe('RigPreflightService persistence', () => {
     const bound = (await service.getState()).profile
     blockCollection = true
     const runPromise = service.run({ profile: bound })
+    await collectionStarted
+    const profilePromise = service.setProfile({ ...bound, name: 'Queued save' })
+    let profileSettled = false
+    void profilePromise.finally(() => {
+      profileSettled = true
+    })
     await Promise.resolve()
-    await service.setProfile({ ...bound, name: 'Concurrent save' })
+    expect(profileSettled).toBe(false)
     releaseCollection()
-    await expect(runPromise).rejects.toBeInstanceOf(RigPreflightProfileConflictError)
+    const run = await runPromise
+    const updated = await profilePromise
+    expect(updated.profile.name).toBe('Queued save')
+    expect(updated.activeCertificate?.runId).toBe(run.id)
+    expect(updated.activeCertificate?.invalidationReason).toContain('profile changed')
+    const disk = JSON.parse(persistence.content as string)
+    expect(disk.profile).toEqual(updated.profile)
+    expect(disk.activeCertificate).toEqual(updated.activeCertificate)
   })
 
   it('requires fresh full revalidation after restart before restoring readiness', async () => {
@@ -470,7 +522,8 @@ describe('RigPreflightService persistence', () => {
             desiredIdentity: 'serial:iflag-001',
             observedIdentity: 'vid=2341;pid=0043;serial=iflag-replacement',
             state: 'verified',
-            reason: 'Observed identity changed.'
+            reason: 'Observed identity changed.',
+            sources: ['serial-store:iflag-001']
           }]
         }
       },
@@ -595,6 +648,78 @@ describe('RigPreflightService persistence', () => {
     await expect(service.run({ profile: state.profile })).rejects.toBeInstanceOf(
       RigPreflightStorageBlockedError
     )
+  })
+
+  it('rolls back a failed waiver before a queued profile save and keeps disk/memory identical', async () => {
+    let now = 86_000
+    const persistence = new ControlledPersistence()
+    const service = new RigPreflightService({
+      persistence,
+      now: () => now,
+      createId: () => `transaction-${now}`,
+      collectObservation: async () => observation(now)
+    })
+    await runBound(service)
+    const before = await service.getState()
+    const blocked = persistence.blockNextWrite(true)
+    const waiverPromise = service.createWaiver({
+      checkId: RIG_PREFLIGHT_CHECK_IDS.simx,
+      reason: 'This transaction must fail',
+      owner: 'Crew chief',
+      expiresAt: now + 10_000
+    })
+    await blocked.started
+    now += 1
+    const profilePromise = service.setProfile({
+      ...before.profile,
+      name: 'Queued profile survives'
+    })
+    blocked.release()
+
+    await expect(waiverPromise).rejects.toBeInstanceOf(RigPreflightStorageBlockedError)
+    const updated = await profilePromise
+    expect(updated.storage.blocked).toBe(false)
+    expect(updated.profile.name).toBe('Queued profile survives')
+    expect(updated.waivers).toEqual([])
+    expect(updated.activeCertificate?.runId).toBe(before.activeCertificate?.runId)
+    expect(updated.activeCertificate?.invalidationReason).toContain('profile changed')
+
+    const disk = JSON.parse(persistence.content as string)
+    expect(disk.profile).toEqual(updated.profile)
+    expect(disk.waivers).toEqual(updated.waivers)
+    expect(disk.activeCertificate).toEqual(updated.activeCertificate)
+  })
+
+  it('preserves invocation order across concurrent waiver mutators', async () => {
+    const now = 86_500
+    let id = 0
+    const persistence = new MemoryPersistence()
+    const service = new RigPreflightService({
+      persistence,
+      now: () => now,
+      createId: () => `ordered-${++id}`,
+      collectObservation: async () => observation(now)
+    })
+    const first = service.createWaiver({
+      checkId: RIG_PREFLIGHT_CHECK_IDS.simx,
+      reason: 'First queued waiver',
+      owner: 'Crew chief',
+      expiresAt: now + 10_000
+    })
+    const second = service.createWaiver({
+      checkId: RIG_PREFLIGHT_CHECK_IDS.audioInput,
+      reason: 'Second queued waiver',
+      owner: 'Crew chief',
+      expiresAt: now + 20_000
+    })
+    await Promise.all([first, second])
+
+    const state = await service.getState()
+    expect(state.waivers.map((waiver) => waiver.reason)).toEqual([
+      'Second queued waiver',
+      'First queued waiver'
+    ])
+    expect(JSON.parse(persistence.content as string).waivers).toEqual(state.waivers)
   })
 
   it('migrates the prior profile/certificate format without discarding valid evidence', async () => {

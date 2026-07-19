@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+﻿import { createHash, randomUUID } from 'node:crypto'
 import {
   createKnownGoodCheck,
   defaultRigPreflightState,
@@ -471,7 +471,7 @@ export class RigPreflightService {
   private state: RigPreflightPersistedState
   private storage: RigPreflightStorageStatus
   private loadPromise: Promise<void> | null = null
-  private writeQueue: Promise<void> = Promise.resolve()
+  private transactionQueue: Promise<void> = Promise.resolve()
   private readonly now: () => number
   private readonly createId: () => string
   private readonly hash: (value: unknown) => string
@@ -491,9 +491,16 @@ export class RigPreflightService {
     }
   }
 
-  async getState(): Promise<RigPreflightStateSnapshot> {
-    await this.ensureLoaded()
-    await this.expireStaleEvidenceHeartbeat()
+  private transact<T>(operation: () => Promise<T>): Promise<T> {
+    const transaction = this.transactionQueue.then(operation, operation)
+    this.transactionQueue = transaction.then(
+      () => undefined,
+      () => undefined
+    )
+    return transaction
+  }
+
+  private snapshot(): RigPreflightStateSnapshot {
     const now = this.now()
     return {
       ...deepClone(this.state),
@@ -508,39 +515,50 @@ export class RigPreflightService {
     }
   }
 
+  async getState(): Promise<RigPreflightStateSnapshot> {
+    return this.transact(async () => {
+      await this.ensureLoaded()
+      await this.expireStaleEvidenceHeartbeatLocked()
+      return this.snapshot()
+    })
+  }
+
   async setProfile(input: RigPreflightProfilePatch): Promise<RigPreflightStateSnapshot> {
-    await this.ensureLoaded()
-    const now = this.now()
-    this.assertProfileRevision(input)
-    const previous = deepClone(this.state)
-    const candidate = normalizeRigPreflightProfile(
-      {
-        ...this.state.profile,
-        ...input,
-        requirements: {
-          ...this.state.profile.requirements,
-          ...(input.requirements ?? {})
+    return this.transact(async () => {
+      await this.ensureLoaded()
+      const now = this.now()
+      this.assertProfileRevision(input)
+      const previous = deepClone(this.state)
+      const candidate = normalizeRigPreflightProfile(
+        {
+          ...this.state.profile,
+          ...input,
+          requirements: {
+            ...this.state.profile.requirements,
+            ...(input.requirements ?? {})
+          },
+          revision: this.state.profile.revision + 1,
+          hash: '',
+          updatedAt: now
         },
-        revision: this.state.profile.revision + 1,
-        hash: '',
-        updatedAt: now
-      },
-      now
-    )
-    candidate.hash = this.profileHash(candidate)
-    this.state.profile = candidate
-    this.state.knownGood = null
-    this.invalidateActiveCertificateInMemory(
-      'Rig profile changed after certificate issue.',
-      [{ kind: 'config', source: 'rig-preflight profile', detail: 'Desired state changed' }],
-      now
-    )
-    this.state.updatedAt = now
-    await this.commit(previous, true)
-    return this.getState()
+        now
+      )
+      candidate.hash = this.profileHash(candidate)
+      this.state.profile = candidate
+      this.state.knownGood = null
+      this.invalidateActiveCertificateInMemory(
+        'Rig profile changed after certificate issue.',
+        [{ kind: 'config', source: 'rig-preflight profile', detail: 'Desired state changed' }],
+        now
+      )
+      this.state.updatedAt = now
+      await this.commit(previous, true)
+      return this.snapshot()
+    })
   }
 
   async run(request: RigPreflightRunRequest): Promise<RigPreflightRun> {
+    return this.transact(async () => {
     await this.ensureLoaded()
     this.assertStorageHealthy()
     this.assertRequestedProfile(request?.profile)
@@ -636,9 +654,11 @@ export class RigPreflightService {
     this.state.updatedAt = completedAt
     await this.commit(previous)
     return deepClone(run)
+    })
   }
 
   async createWaiver(request: RigPreflightWaiverRequest): Promise<RigPreflightStateSnapshot> {
+    return this.transact(async () => {
     await this.ensureLoaded()
     this.assertStorageHealthy()
     const now = this.now()
@@ -668,10 +688,12 @@ export class RigPreflightService {
     )
     this.state.updatedAt = now
     await this.commit(previous)
-    return this.getState()
+    return this.snapshot()
+    })
   }
 
   async removeWaiver(id: string): Promise<RigPreflightStateSnapshot> {
+    return this.transact(async () => {
     await this.ensureLoaded()
     this.assertStorageHealthy()
     const waiverId = cleanText(id, 'Waiver id', 160)
@@ -688,10 +710,12 @@ export class RigPreflightService {
       this.state.updatedAt = now
       await this.commit(previous)
     }
-    return this.getState()
+    return this.snapshot()
+    })
   }
 
   async acceptKnownGood(runId: string, owner?: string): Promise<RigPreflightStateSnapshot> {
+    return this.transact(async () => {
     await this.ensureLoaded()
     this.assertStorageHealthy()
     const id = cleanText(runId, 'Run id', 160)
@@ -723,10 +747,12 @@ export class RigPreflightService {
     )
     this.state.updatedAt = now
     await this.commit(previous)
-    return this.getState()
+    return this.snapshot()
+    })
   }
 
   async runFaultMatrix(request: RigPreflightRunRequest): Promise<RigFaultMatrixRun> {
+    return this.transact(async () => {
     await this.ensureLoaded()
     this.assertStorageHealthy()
     this.assertRequestedProfile(request?.profile)
@@ -747,12 +773,14 @@ export class RigPreflightService {
     this.state.updatedAt = now
     await this.commit(previous)
     return deepClone(record)
+    })
   }
 
   async requireStartupRevalidation(): Promise<boolean> {
+    return this.transact(async () => {
     await this.ensureLoaded()
     if (this.storage.blocked) return false
-    if (await this.expireStaleEvidenceHeartbeat()) return false
+    if (await this.expireStaleEvidenceHeartbeatLocked()) return false
     const active = this.state.activeCertificate
     if (
       !active ||
@@ -760,7 +788,7 @@ export class RigPreflightService {
       active.certificate.decision === 'blocked'
     ) return false
     if (active.certificate.expiresAt <= this.now()) {
-      return this.expireActiveCertificate()
+      return this.expireActiveCertificateLocked()
     }
     if (active.revalidationRequired) return false
     const previous = deepClone(this.state)
@@ -768,12 +796,14 @@ export class RigPreflightService {
     this.state.updatedAt = this.now()
     await this.commit(previous)
     return true
+    })
   }
 
   async revalidate(request: RigPreflightRunRequest): Promise<RigPreflightRevalidationResult> {
+    return this.transact(async () => {
     await this.ensureLoaded()
     this.assertStorageHealthy()
-    if (await this.expireStaleEvidenceHeartbeat()) {
+    if (await this.expireStaleEvidenceHeartbeatLocked()) {
       return {
         changed: true,
         status: 'invalidated',
@@ -787,7 +817,7 @@ export class RigPreflightService {
       active.certificate.decision === 'blocked'
     ) return { changed: false, status: 'idle' }
     if (active.certificate.expiresAt <= this.now()) {
-      const changed = await this.expireActiveCertificate()
+      const changed = await this.expireActiveCertificateLocked()
       return { changed, status: 'expired', reason: 'Certificate expired.' }
     }
     this.assertRequestedProfile(request?.profile)
@@ -797,7 +827,7 @@ export class RigPreflightService {
       active.certificate.profileHash !== profile.hash
     ) {
       const reason = 'Active certificate profile revision/hash no longer matches the saved profile.'
-      const changed = await this.invalidateActiveCertificate(
+      const changed = await this.invalidateActiveCertificateLocked(
         reason,
         [{ kind: 'config', source: 'rig-preflight profile binding' }]
       )
@@ -807,7 +837,7 @@ export class RigPreflightService {
     const observation = await this.options.collectObservation(profile, request.clientEvidence)
     const completedAt = this.now()
     this.assertProfileStillCurrent(profile)
-    if (await this.expireStaleEvidenceHeartbeat()) {
+    if (await this.expireStaleEvidenceHeartbeatLocked()) {
       return {
         changed: true,
         status: 'invalidated',
@@ -830,7 +860,7 @@ export class RigPreflightService {
       const reason = notReady.length > 0
         ? `Fresh revalidation failed: ${notReady.map((check) => check.id).join(', ')}.`
         : 'Fresh revalidation detected desired/reported identity drift.'
-      const changed = await this.invalidateActiveCertificate(
+      const changed = await this.invalidateActiveCertificateLocked(
         reason,
         [{ kind: 'runtime', source: 'full rig evidence monitor' }]
       )
@@ -851,9 +881,14 @@ export class RigPreflightService {
     this.state.updatedAt = completedAt
     await this.commit(previous)
     return { changed: true, status: 'verified' }
+    })
   }
 
   async expireStaleEvidenceHeartbeat(): Promise<boolean> {
+    return this.transact(() => this.expireStaleEvidenceHeartbeatLocked())
+  }
+
+  private async expireStaleEvidenceHeartbeatLocked(): Promise<boolean> {
     await this.ensureLoaded()
     if (this.storage.blocked) return false
     const active = this.state.activeCertificate
@@ -880,6 +915,10 @@ export class RigPreflightService {
   }
 
   async expireActiveCertificate(): Promise<boolean> {
+    return this.transact(() => this.expireActiveCertificateLocked())
+  }
+
+  private async expireActiveCertificateLocked(): Promise<boolean> {
     await this.ensureLoaded()
     const active = this.state.activeCertificate
     const now = this.now()
@@ -891,13 +930,20 @@ export class RigPreflightService {
     const reason = active.certificate.expiryBasis === 'waiver'
       ? 'Certificate expired at the earliest active waiver expiry.'
       : 'Certificate expired at its profile TTL.'
-    return this.invalidateActiveCertificate(
+    return this.invalidateActiveCertificateLocked(
       reason,
       [{ kind: 'runtime', source: 'rig-preflight expiry scheduler' }]
     )
   }
 
   async invalidateActiveCertificate(
+    reason: string,
+    provenance: RigEvidenceProvenance[]
+  ): Promise<boolean> {
+    return this.transact(() => this.invalidateActiveCertificateLocked(reason, provenance))
+  }
+
+  private async invalidateActiveCertificateLocked(
     reason: string,
     provenance: RigEvidenceProvenance[]
   ): Promise<boolean> {
@@ -1110,11 +1156,6 @@ export class RigPreflightService {
 
   private persist(): Promise<void> {
     const content = `${JSON.stringify(this.state, null, 2)}\n`
-    const write = this.writeQueue.then(
-      () => this.options.persistence.write(content),
-      () => this.options.persistence.write(content)
-    )
-    this.writeQueue = write.catch(() => undefined)
-    return write
+    return this.options.persistence.write(content)
   }
 }

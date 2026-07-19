@@ -27,6 +27,18 @@ export interface ConfiguredSerialEvidence {
   reason: string
 }
 
+export interface ProfileBackedSerialIdentity {
+  id: string
+  deviceId?: string
+  port?: string
+}
+
+export interface ConfiguredSerialInventoryEvidence extends ConfiguredSerialEvidence {
+  desiredIdentity: string
+  sources: string[]
+  profileIds: string[]
+}
+
 function normalizedSerial(value: unknown): string | undefined {
   return cleanText(value)?.toLowerCase()
 }
@@ -176,4 +188,91 @@ export function resolveConfiguredSerialEvidence(
     observedIdentity,
     reason: 'Observed VID, PID, and serial match the saved hardware identity.'
   }
+}
+
+function stateRank(state: ConfiguredSerialEvidence['state']): number {
+  return state === 'fail' ? 2 : state === 'unknown' ? 1 : 0
+}
+
+export function buildConfiguredSerialInventory(
+  configured: readonly ConfiguredSerialIdentity[],
+  profiles: readonly ProfileBackedSerialIdentity[],
+  live: readonly LiveSerialIdentity[],
+  ports: readonly ObservedSerialPortIdentity[]
+): ConfiguredSerialInventoryEvidence[] {
+  const inventory = new Map<string, ConfiguredSerialInventoryEvidence>()
+  const configEvidence = new Map<ConfiguredSerialIdentity, ConfiguredSerialInventoryEvidence>()
+
+  for (const config of configured) {
+    const desiredIdentity = desiredSerialIdentity(config)
+    const evidence = resolveConfiguredSerialEvidence(config, live, ports)
+    const source = `serial-store:${config.id || config.path}`
+    const existing = inventory.get(desiredIdentity)
+    const next: ConfiguredSerialInventoryEvidence = existing ?? {
+      desiredIdentity,
+      observedIdentity: evidence.observedIdentity,
+      state: evidence.state,
+      reason: evidence.reason,
+      sources: [],
+      profileIds: []
+    }
+    next.sources = stableUnique([...next.sources, source])
+    if (stateRank(evidence.state) > stateRank(next.state)) {
+      next.state = evidence.state
+      next.observedIdentity = evidence.observedIdentity
+      next.reason = evidence.reason
+    }
+    inventory.set(desiredIdentity, next)
+    configEvidence.set(config, next)
+  }
+
+  for (const profile of profiles) {
+    const byId = profile.deviceId
+      ? configured.find((config) => config.id === profile.deviceId)
+      : undefined
+    const byPath = profile.port
+      ? configured.find((config) => config.path === profile.port)
+      : undefined
+    const matches = [...new Set([byId, byPath].filter(
+      (config): config is ConfiguredSerialIdentity => config !== undefined
+    ))]
+    const matchedInventory = [...new Set(
+      matches.map((config) => configEvidence.get(config)!)
+    )]
+    if (matchedInventory.length === 1) {
+      const entry = matchedInventory[0]
+      entry.sources = stableUnique([...entry.sources, `profile:${profile.id}`])
+      entry.profileIds = stableUnique([...entry.profileIds, profile.id])
+      continue
+    }
+
+    const desiredIdentity = `profile:${profile.id}`
+    const observed = resolveConfiguredSerialEvidence(
+      { id: profile.deviceId, path: profile.port ?? '' },
+      live,
+      ports
+    )
+    inventory.set(desiredIdentity, {
+      desiredIdentity,
+      observedIdentity: observed.observedIdentity,
+      state: 'unknown',
+      reason: matchedInventory.length > 1
+        ? 'Profile deviceId and COM path resolve to different stable serial-store devices.'
+        : 'Profile has no associated serial-store device with stable USB identity.',
+      sources: [`profile:${profile.id}`],
+      profileIds: [profile.id]
+    })
+  }
+
+  return [...inventory.values()]
+    .map((entry) => ({
+      ...entry,
+      sources: stableUnique(entry.sources),
+      profileIds: stableUnique(entry.profileIds)
+    }))
+    .sort((a, b) => a.desiredIdentity.localeCompare(b.desiredIdentity, 'en'))
+}
+
+function stableUnique(values: readonly string[]): string[] {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'en'))
 }
