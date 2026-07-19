@@ -669,6 +669,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       patterns: [
         /^what (?:is|are|s) (.+)$/,
         /^what does (.+) (?:mean|do)$/,
+        /^how (?:is|are) (.+) defined$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me what (.+) means$/
       ]
     },
@@ -702,7 +703,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)(?:me )?(?:explica|explicar|explicame|explicarme) (?:el )?(?:(?:termino|concepto|significado de) )?(.+)$/,
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)hablame del concepto(?: de)? (.+)$/,
         /^(?:(?:por favor )?me (?:puedes|podrias) )(?:explicar|explica) (?:el )?(.+)$/,
-        /^(?:(?:por favor )?(?:puede|puedes|podria|podrias) )(?:explicarme|explicar) (?:el )?(.+)$/
+        /^(?:(?:por favor )?(?:puede|puedes|podria|podrias) )(?:explicarme|explicar) (?:el )?(.+)$/,
+        /^(?:me )?(?:explicas|expliqueme) (?:el )?(.+)$/
       ]
     },
     {
@@ -718,7 +720,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:s il vous plait )?(?:(?:la |le )?(?:definition|signification|explication)(?: de)?|donne moi (?:la |le )?(?:definition|signification|explication) de) (.+)$/,
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu|pouvez vous) )?)(?:m )?(?:explique|expliquer) (?:le )?(?:(?:terme|concept|sens de) )?(.+)$/,
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)parle moi du concept(?: de)? (.+)$/,
-        /^(?:(?:s il vous plait )?pouvez vous )(?:m )?expliquer (?:le )?(.+)$/
+        /^(?:(?:s il vous plait )?pouvez vous )(?:m )?expliquer (?:le )?(.+)$/,
+        /^(?:expliquez moi|explique moi) (?:le )?(.+)$/,
+        /^(?:(?:pouvez vous|pourriez vous) )definir (?:le )?(.+)$/
       ]
     },
     {
@@ -741,7 +745,12 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
     {
       language: 'de',
       command: false,
-      patterns: [/^was ist (.+)$/, /^was bedeutet (.+)$/, /^(?:(?:kannst|konntest) du )?mir sagen was (.+) bedeutet$/]
+      patterns: [
+        /^was ist (.+)$/,
+        /^was bedeutet (.+)$/,
+        /^was (?:heisst|heißt) (.+)$/,
+        /^(?:(?:kannst|konntest) du )?mir sagen was (.+) bedeutet$/
+      ]
     },
     {
       language: 'zh',
@@ -783,7 +792,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
     }
   }
   const definitionLike =
-    /\b(?:define|definition|meaning|explain|explanation|defina|definicao|significado|explique|explicar|define|definicion|explica|explicar|definition|signification|explique|expliquer|definiere|definition|bedeutung|erklare|erklaren)\b/.test(q) ||
+    /\b(?:define|defined|definition|meaning|explain|explanation|defina|definicao|significado|explique|explicar|define|definir|definicion|explica|explicas|expliqueme|explicar|definition|signification|explique|expliquez|expliquer|definiere|definition|bedeutung|heisst|heißt|erklare|erklaren)\b/.test(q) ||
     /(?:是什么|是什么意思|的定义|含义|定義|意味|説明)/u.test(q)
   if (definitionLike) {
     const liveRaceContext =

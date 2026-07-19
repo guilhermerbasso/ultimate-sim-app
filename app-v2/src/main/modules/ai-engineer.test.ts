@@ -519,6 +519,24 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
+    'How is understeer defined?',
+    'Me explicas el subviraje?',
+    'Explíqueme el subviraje.',
+    'Expliquez-moi le sous-virage.',
+    'Pouvez-vous définir le sous-virage?',
+    'Was heißt Untersteuern?'
+  ])('never invokes the LLM for inflected definition wording: %s', async (question) => {
+    const harness = makeHarness()
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.source).toBe('intent')
+    expect(answer.speak).toBe(true)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+  })
+
+  it.each([
     'Devo trocar os pneus?',
     'Qual pneu devo usar?',
     'Qual a pressão alvo dos pneus?',
