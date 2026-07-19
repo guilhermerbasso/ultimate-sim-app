@@ -11,6 +11,7 @@ import type {
   DashboardOpenState,
   DashboardPlaylist,
   DashboardPlaylistItem,
+  DashboardPreset,
   DashboardStorageIssue,
   DashboardSummary
 } from '../../shared/dashboards'
@@ -138,7 +139,94 @@ const SUBDIR = 'dashboards'
 const PLAYLIST_FILE = 'dashboard-playlist.json'
 const QUARANTINE_DIR = '.dashboard-quarantine'
 const MIGRATION_DIR = '.dashboard-migrations'
+const METADATA_DIR = '.dashboard-metadata'
+const ORIGIN_FILE = 'dashboard-origins.json'
 const CYCLE_DEBOUNCE_MS = 350
+
+const BUILTIN_FINGERPRINT_OMITTED_KEYS = new Set([
+  'id',
+  'createdAt',
+  'updatedAt',
+  'storageEpoch',
+  'storageRevision',
+  'hidden'
+])
+
+function canonicalBuiltinValue(value: unknown, parentKey = ''): unknown {
+  if (Array.isArray(value)) return value.map((item) => canonicalBuiltinValue(item))
+  if (!value || typeof value !== 'object') return value
+  const record = value as Record<string, unknown>
+  if (parentKey === 'elements') {
+    return Object.values(record)
+      .map((item) => canonicalBuiltinValue(item))
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+  }
+  const canonical: Record<string, unknown> = {}
+  for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
+    if (BUILTIN_FINGERPRINT_OMITTED_KEYS.has(key)) continue
+    canonical[key] = canonicalBuiltinValue(record[key], key)
+  }
+  return canonical
+}
+
+export function dashboardBuiltinFingerprint(dashboard: Dashboard): string {
+  return JSON.stringify(canonicalBuiltinValue(dashboard))
+}
+
+function dashboardBuiltinIdentity(dashboard: Dashboard): string {
+  return `${dashboard.name.trim()}\u0000${dashboard.width}\u0000${dashboard.height}`
+}
+
+export function inferBuiltInDashboardIds(
+  dashboards: readonly Dashboard[],
+  presets: readonly DashboardPreset[] = BUILTIN_PRESETS
+): Set<string> {
+  const presetFingerprints = new Set<string>()
+  const presetIdentities = new Set<string>()
+  for (const preset of presets) {
+    try {
+      const built = preset.build()
+      presetFingerprints.add(dashboardBuiltinFingerprint(built))
+      presetIdentities.add(dashboardBuiltinIdentity(built))
+    } catch {
+      // A broken preset is validated elsewhere; it cannot classify stored data.
+    }
+  }
+  const candidates = dashboards.map((dashboard) => ({
+    dashboard,
+    fingerprint: dashboardBuiltinFingerprint(dashboard),
+    identity: dashboardBuiltinIdentity(dashboard)
+  }))
+  const identitiesWithExactCandidates = new Set(
+    candidates
+      .filter(({ fingerprint }) => presetFingerprints.has(fingerprint))
+      .map(({ identity }) => identity)
+  )
+  const matches = new Map<string, Dashboard[]>()
+  for (const { dashboard, fingerprint, identity } of candidates) {
+    const matchKey = presetFingerprints.has(fingerprint)
+      ? `fingerprint:${fingerprint}`
+      : !identitiesWithExactCandidates.has(identity) &&
+          !dashboard.thirdParty &&
+          !dashboard.previewPng &&
+          presetIdentities.has(identity)
+        ? `identity:${identity}`
+        : null
+    if (!matchKey) continue
+    const group = matches.get(matchKey) ?? []
+    group.push(dashboard)
+    matches.set(matchKey, group)
+  }
+  const builtInIds = new Set<string>()
+  for (const group of matches.values()) {
+    const oldest = [...group].sort((left, right) =>
+      (left.createdAt ?? Number.MAX_SAFE_INTEGER) - (right.createdAt ?? Number.MAX_SAFE_INTEGER) ||
+      left.id.localeCompare(right.id)
+    )[0]
+    if (oldest) builtInIds.add(oldest.id)
+  }
+  return builtInIds
+}
 
 interface SimhubImportOptions {
   screenIndex?: number
@@ -365,6 +453,7 @@ export class DashboardManager {
   private readonly windows = new Map<string, OpenWindowMeta>()
   private dashboards = new Map<string, Dashboard>()
   private dashboardSourceFiles = new Map<string, string>()
+  private builtInDashboardIds = new Set<string>()
   private storageIssues: DashboardStorageIssue[] = []
   private readonly identityCatalog = getDashboardIdentityCatalog()
   private loaded = false
@@ -395,6 +484,46 @@ export class DashboardManager {
       readFile: storageIo.readFile ?? ((path) => readFile(path)),
       rename: storageIo.rename ?? ((from, to) => rename(from, to))
     }
+  }
+
+  private originFilePath(): string {
+    return join(this.storeDir, METADATA_DIR, ORIGIN_FILE)
+  }
+
+  private async loadBuiltInOrigins(): Promise<boolean> {
+    try {
+      const parsed = JSON.parse(await readFile(this.originFilePath(), 'utf8')) as {
+        schemaVersion?: unknown
+        builtInIds?: unknown
+      }
+      if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.builtInIds)) {
+        this.builtInDashboardIds = new Set()
+        return false
+      }
+      this.builtInDashboardIds = new Set(
+        parsed.builtInIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      )
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.warn('dashboards', 'failed to load dashboard origin registry', {
+          error: errorMessage(error)
+        })
+      }
+      this.builtInDashboardIds = new Set()
+      return false
+    }
+  }
+
+  private async persistBuiltInOrigins(): Promise<void> {
+    const path = this.originFilePath()
+    const temp = `${path}.tmp`
+    await mkdir(join(this.storeDir, METADATA_DIR), { recursive: true })
+    await writeFile(temp, JSON.stringify({
+      schemaVersion: 1,
+      builtInIds: [...this.builtInDashboardIds].sort((a, b) => a.localeCompare(b))
+    }, null, 2), 'utf8')
+    await rename(temp, path)
   }
 
   load(): Promise<void> {
@@ -435,6 +564,9 @@ export class DashboardManager {
     await mkdir(this.storeDir, { recursive: true })
     await mkdir(join(this.storeDir, QUARANTINE_DIR), { recursive: true })
     await mkdir(join(this.storeDir, MIGRATION_DIR), { recursive: true })
+    await mkdir(join(this.storeDir, METADATA_DIR), { recursive: true })
+    const originRegistryLoaded = await this.loadBuiltInOrigins()
+    const loadedOriginIds = [...this.builtInDashboardIds].sort((a, b) => a.localeCompare(b))
     const files = (await readdir(this.storeDir)).sort((a, b) => a.localeCompare(b))
     const dashboardCandidateFiles = files.filter((file) =>
       file.toLowerCase().endsWith('.json') && file !== PLAYLIST_FILE)
@@ -563,6 +695,7 @@ export class DashboardManager {
     }
     if (dashboards.size === 0) {
       // Sementeia com presets na primeira execução ou quando todos os candidatos foram quarentenados
+      this.builtInDashboardIds = new Set()
       for (const preset of BUILTIN_PRESETS) {
         const built = validatedDashboard(
           preset.build(),
@@ -574,9 +707,20 @@ export class DashboardManager {
           updatedAt: nextDashboardRevision(undefined)
         }
         dashboards.set(dash.id, dash)
+        this.builtInDashboardIds.add(dash.id)
         await this.persist(dash)
         sourceFiles.set(dash.id, `${this.fileNameOf(dash.id)}.json`)
       }
+    } else if (!originRegistryLoaded) {
+      this.builtInDashboardIds = inferBuiltInDashboardIds([...dashboards.values()])
+    } else {
+      this.builtInDashboardIds = new Set(
+        [...this.builtInDashboardIds].filter((id) => dashboards.has(id))
+      )
+    }
+    const nextOriginIds = [...this.builtInDashboardIds].sort((a, b) => a.localeCompare(b))
+    if (!originRegistryLoaded || loadedOriginIds.join('\n') !== nextOriginIds.join('\n')) {
+      await this.persistBuiltInOrigins()
     }
     this.dashboards = dashboards
     this.dashboardSourceFiles = sourceFiles
@@ -664,7 +808,10 @@ export class DashboardManager {
   list(): DashboardSummary[] {
     return [...this.dashboards.values()]
       .sort(compareCreatedAtEntries)
-      .map((dash) => summarizeDashboard(dash))
+      .map((dash) => ({
+        ...summarizeDashboard(dash),
+        builtIn: this.builtInDashboardIds.has(dash.id)
+      }))
   }
 
   getDashboard(id: string): Dashboard | null {
@@ -929,6 +1076,7 @@ export class DashboardManager {
     canonical.updatedAt = nextDashboardRevision(existing?.updatedAt ?? existing?.createdAt)
     await this.persist(canonical)
     this.dashboards.set(canonical.id, canonical)
+    if (this.builtInDashboardIds.delete(canonical.id)) await this.persistBuiltInOrigins()
     this.ctx.broadcast('app:dash:list', this.list())
     this.ctx.broadcast('app:dash:updated', canonical)
     return summarizeDashboard(canonical)
@@ -945,6 +1093,7 @@ export class DashboardManager {
     const existed = this.dashboards.has(id)
     if (existed) await this.removeDashboardSource(id)
     this.dashboards.delete(id)
+    if (this.builtInDashboardIds.delete(id)) await this.persistBuiltInOrigins()
     const list = this.list()
     this.ctx.broadcast('app:dash:list', list)
     return list
@@ -1002,6 +1151,8 @@ export class DashboardManager {
       }
       await this.persist(dash)
       this.dashboards.set(id, dash)
+      this.builtInDashboardIds.add(id)
+      await this.persistBuiltInOrigins()
       this.ctx.broadcast('app:dash:list', this.list())
       return dash
     })

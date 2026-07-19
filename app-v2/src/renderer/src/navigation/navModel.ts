@@ -4,9 +4,15 @@ export interface NavSection {
 }
 
 export const navSections: NavSection[] = [
+<<<<<<< HEAD
   { title: 'Race Hub', viewIds: ['telemetry', 'alerts', 'context-debt'] },
   { title: 'Drive', viewIds: ['dashboards', 'touch-controls', 'dashboard-adaptive', 'oled-dash', 'overlays', 'spotter-3d', 'sounds', 'haptics', 'haptics-zonal', 'biometrics'] },
   { title: 'IA & Coaching', viewIds: ['engineer', 'coach', 'dashboard-builder', 'voice', 'search'] },
+=======
+  { title: 'Race Hub', viewIds: ['telemetry', 'alerts'] },
+  { title: 'Drive', viewIds: ['dashboards', 'streaming', 'touch-controls', 'dashboard-adaptive', 'oled-dash', 'overlays', 'spotter-3d', 'sounds', 'haptics', 'haptics-zonal', 'biometrics'] },
+  { title: 'IA & Coaching', viewIds: ['engineer', 'coach', 'mission-rehearsal', 'dashboard-builder', 'voice', 'search'] },
+>>>>>>> origin/main
   { title: 'Strategy', viewIds: ['fuel', 'tire', 'strategy'] },
   { title: 'Garage', viewIds: ['setups', 'race-profiles', 'community'] },
   { title: 'Hardware', viewIds: ['devices', 'arduinos', 'revlights', 'inputs', 'controls', 'pinout'] },

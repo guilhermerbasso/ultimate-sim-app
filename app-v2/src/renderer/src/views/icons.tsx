@@ -37,6 +37,13 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M7 12V9M11 12V7M15 12V10" />
     </Svg>
   ),
+  streaming: () => (
+    <Svg>
+      <rect x="3" y="5" width="12" height="10" rx="2" />
+      <path d="M7 18h4M9 15v3" />
+      <path d="M17 8a4 4 0 0 1 0 4M19 6a7 7 0 0 1 0 8" />
+    </Svg>
+  ),
   'touch-controls': () => (
     <Svg>
       {/* button-box grid of keys + a finger tap */}
@@ -77,6 +84,15 @@ const iconMap: Record<string, () => ReactElement> = {
       <circle cx="10" cy="9" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="13" cy="12" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="18" cy="5" r="1.2" fill="currentColor" stroke="none" />
+    </Svg>
+  ),
+  'mission-rehearsal': () => (
+    <Svg>
+      {/* branching checkpoint route with a training flag */}
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="17" cy="5" r="2" />
+      <circle cx="11" cy="17" r="2" />
+      <path d="M7 5h4a4 4 0 0 1 4 4v1M15 10l2-2 2 2M11 15V9a4 4 0 0 0-4-4" />
     </Svg>
   ),
   engineer: () => (

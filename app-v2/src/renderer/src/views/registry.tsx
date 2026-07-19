@@ -8,6 +8,7 @@ const ArduinosView = lazy(() => import('./ArduinosView'))
 const ControlsView = lazy(() => import('./ControlsView'))
 const PinoutDesignerView = lazy(() => import('./PinoutDesignerView'))
 const DashboardsView = lazy(() => import('./DashboardsView'))
+const StreamingView = lazy(() => import('./StreamingView'))
 const DevicesView = lazy(() => import('./DevicesView'))
 const ExpressionsView = lazy(() => import('./ExpressionsView'))
 const FuelStrategyView = lazy(() => import('./FuelStrategyView'))
@@ -36,6 +37,7 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const MissionRehearsalView = lazy(() => import('./MissionRehearsalView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
 export interface ViewDef {
@@ -53,6 +55,7 @@ export interface ViewDef {
 export const viewRegistry: ViewDef[] = [
   { id: 'telemetry', group: 'Sim Racing', label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.', shortcut: 'T1', Component: TelemetryView },
   { id: 'dashboards', group: 'Sim Racing', label: 'Dashboards', eyebrow: 'Monitor', description: 'Windows on displays 1/2, .simhubdash import, and basic builder.', shortcut: 'T0', Component: DashboardsView },
+  { id: 'streaming', group: 'Sim Racing', label: 'Streaming', eyebrow: 'Broadcast', description: 'Named read-only dashboard and touch-panel targets for OBS, phones, and tablets.', shortcut: 'TW', Component: StreamingView },
   { id: 'touch-controls', group: 'Sim Racing', label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.', shortcut: 'TT', Component: TouchControlsView },
   { id: 'oled-dash', group: 'Sim Racing', label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets on the OLED.', shortcut: 'T2', Component: OledDashboardView },
   { id: 'overlays', group: 'Sim Racing', label: 'Overlays', eyebrow: 'Screen', description: 'Transparent overlays over the game.', shortcut: 'T3', Component: OverlaysView },
@@ -69,6 +72,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'engineer', group: 'Sim Racing', label: 'AI Engineer', eyebrow: 'LLM local', description: 'Race engineer with local AI (text): ask about fuel, tires, gaps, and strategy. Includes Voice Spotter (spoken alerts).', shortcut: 'TG', Component: EngineerView },
   { id: 'haptics', group: 'Sim Racing', label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style haptic feedback: bass shaker (audio) + haptics.', shortcut: 'TF', Component: HapticsView },
   { id: 'coach', group: 'Sim Racing', label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach + lap analysis: corner findings, track map, and suggested setup adjustments.', shortcut: 'T6', Component: CoachView },
+  { id: 'mission-rehearsal', group: 'Sim Racing', label: 'Mission Rehearsal', eyebrow: 'Offline training', description: 'Author and run deterministic branching scenarios with synthetic events and blameless debriefs.', shortcut: 'TR', Component: MissionRehearsalView },
   { id: 'strategy', group: 'Sim Racing', label: 'Strategy', eyebrow: 'Predictive', description: 'Pit window, fuel margin, undercut, and incident clips.', shortcut: 'TH', Component: StrategyView },
   { id: 'dashboard-builder', group: 'Sim Racing', label: 'AI Dashboard', eyebrow: 'LLM local', description: 'Build dashboards by describing them in text; adaptive mode by session phase.', shortcut: 'TI', Component: DashboardBuilderView },
   { id: 'dashboard-adaptive', group: 'Sim Racing', label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'Single panel that reorganizes itself by session phase and lap moment.', shortcut: 'TN', Component: AdaptiveDashboardView },
