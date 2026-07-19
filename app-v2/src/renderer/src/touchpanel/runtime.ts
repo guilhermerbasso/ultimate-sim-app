@@ -25,6 +25,7 @@ function isStreamPanelPayload(value: unknown): value is StreamingTouchPanelPaylo
     payload.interaction.targetId === payload.panel.id &&
     typeof payload.interaction.csrfToken === 'string' &&
     typeof payload.interaction.nonce === 'string' &&
+    typeof payload.interaction.leaseExpiresAt === 'number' &&
     Array.isArray(payload.interaction.capabilities)
   )
 }
@@ -41,12 +42,23 @@ export async function fetchStreamPanel(panelId: string): Promise<StreamingTouchP
 }
 
 export async function fetchStreamInteractionHealth(panelId: string): Promise<StreamingTouchHealthResponse> {
+  const interaction = streamInteraction
+  if (!interaction || interaction.targetId !== panelId) {
+    throw new Error('Interactive Touch session is unavailable.')
+  }
   const response = await fetch(streamEndpoint(`api/touch/health/${encodeURIComponent(panelId)}`), {
     cache: 'no-store',
-    credentials: 'same-origin'
+    credentials: 'same-origin',
+    headers: { 'X-Stream-CSRF': interaction.csrfToken }
   })
   if (!response.ok) throw new Error(`Interaction health failed (HTTP ${response.status}).`)
-  return response.json() as Promise<StreamingTouchHealthResponse>
+  const health = await response.json() as StreamingTouchHealthResponse
+  interaction.health = health.health
+  interaction.expiresAt = health.expiresAt
+  interaction.leaseExpiresAt = health.leaseExpiresAt
+  interaction.activeControls = health.activeControls
+  interaction.lastFeedback = health.lastFeedback
+  return health
 }
 
 function resultFromIpc(value: unknown): TouchActionResult {
@@ -95,6 +107,9 @@ export async function executeTouchControlAction(event: TouchControlActionEvent):
       )
       const payload = await response.json().catch(() => null) as StreamingTouchActionResponse | null
       if (payload?.nextNonce) interaction.nonce = payload.nextNonce
+      if (typeof payload?.leaseExpiresAt === 'number') {
+        interaction.leaseExpiresAt = payload.leaseExpiresAt
+      }
       if (!response.ok || !payload?.ok) {
         interaction.health = 'degraded'
         throw new Error(payload?.message ?? `Touch action failed (HTTP ${response.status}).`)

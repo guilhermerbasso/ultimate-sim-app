@@ -12,7 +12,7 @@ import {
   type StreamingTouchActionResponse,
   type StreamingTouchPanelPayload
 } from '../../shared/streaming'
-import type { TouchActionPhase, TouchSemanticActionRequest } from '../../shared/touch-panel'
+import type { ButtonBoxPanel, TouchActionPhase, TouchSemanticActionRequest } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import { registerTouchSemanticActionRuntime } from '../actions/touch-owner'
 
@@ -21,6 +21,7 @@ const managerState = vi.hoisted(() => ({
   requestedPanels: [] as string[],
   semanticCalls: [] as Array<{ request: TouchSemanticActionRequest; ownerKey: string }>,
   releasedOwners: [] as string[],
+  panelAvailable: true,
   panel: {
     schemaVersion: 2 as const,
     id: 'pit',
@@ -111,7 +112,7 @@ const managerState = vi.hoisted(() => ({
         borderWidth: 2
       }
     ]
-  }
+  } as ButtonBoxPanel
 }))
 
 vi.mock('./dashboards', () => ({
@@ -138,10 +139,10 @@ vi.mock('./dashboards', () => ({
 
 vi.mock('../touchpanel/manager', () => ({
   getTouchPanelManager: () => ({
-    has: (id: string) => id === 'pit',
+    has: (id: string) => id === 'pit' && managerState.panelAvailable,
     getPanel: (id: string) => {
       managerState.requestedPanels.push(id)
-      return id === 'pit' ? managerState.panel : null
+      return id === 'pit' && managerState.panelAvailable ? managerState.panel : null
     }
   })
 }))
@@ -167,10 +168,15 @@ interface RequestOptions {
 
 const fixtureRoot = resolve(dirname(fileURLToPath(import.meta.url)), '__fixtures__')
 
-function fakeContext(): ModuleContext & { handlers: Map<string, (_event: unknown, args?: StreamingStartArgs) => unknown> } {
+function fakeContext(): ModuleContext & {
+  handlers: Map<string, (_event: unknown, args?: StreamingStartArgs) => unknown>
+  teardownTasks: Array<{ task: () => Promise<void> | void; phase: string | undefined }>
+} {
   const handlers = new Map<string, (_event: unknown, args?: StreamingStartArgs) => unknown>()
+  const teardownTasks: Array<{ task: () => Promise<void> | void; phase: string | undefined }> = []
   return {
     handlers,
+    teardownTasks,
     app: { once: () => undefined },
     ipcMain: {
       handle: (channel: string, handler: (_event: unknown, args?: StreamingStartArgs) => unknown) => {
@@ -192,8 +198,15 @@ function fakeContext(): ModuleContext & { handlers: Map<string, (_event: unknown
     profileStore: {},
     iracingControl: {},
     getMainWindow: () => null,
-    broadcast: () => undefined
-  } as unknown as ModuleContext & { handlers: Map<string, (_event: unknown, args?: StreamingStartArgs) => unknown> }
+    broadcast: () => undefined,
+    registerGracefulTeardown: (task: () => Promise<void> | void, phase?: string) => {
+      teardownTasks.push({ task, phase })
+      return () => undefined
+    }
+  } as unknown as ModuleContext & {
+    handlers: Map<string, (_event: unknown, args?: StreamingStartArgs) => unknown>
+    teardownTasks: Array<{ task: () => Promise<void> | void; phase: string | undefined }>
+  }
 }
 
 async function invoke<T>(ctx: ReturnType<typeof fakeContext>, channel: string, args?: StreamingStartArgs): Promise<T> {
@@ -333,6 +346,7 @@ function sseHandshake(url: string, cookie: string): Promise<string> {
         rejectResult(new Error(`HTTP ${res.statusCode}`))
         return
       }
+
       let body = ''
       res.setEncoding('utf8')
       res.on('data', (chunk) => {
@@ -355,9 +369,63 @@ function sseHandshake(url: string, cookie: string): Promise<string> {
   })
 }
 
+function openSseReceiver(
+  url: string,
+  cookie: string
+): Promise<{ close: () => void; closed: Promise<void> }> {
+  return new Promise((resolveResult, rejectResult) => {
+    const req = request(url, { headers: { Cookie: cookie, Accept: 'text/event-stream' } }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume()
+        rejectResult(new Error(`HTTP ${res.statusCode}`))
+        return
+      }
+      let body = ''
+      let resolved = false
+      let closeResolved = false
+      let resolveClosed!: () => void
+      const closed = new Promise<void>((resolve) => { resolveClosed = resolve })
+      const markClosed = (): void => {
+        if (closeResolved) return
+        closeResolved = true
+        resolveClosed()
+      }
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => {
+        body += chunk
+        if (!resolved && body.includes('event: telemetry')) {
+          resolved = true
+          resolveResult({
+            close: () => req.destroy(),
+            closed
+          })
+        }
+      })
+      res.on('end', markClosed)
+      res.on('close', markClosed)
+      res.on('error', (error) => {
+        markClosed()
+        if (!resolved) rejectResult(error)
+      })
+    })
+    req.setTimeout(3_000, () => req.destroy(new Error('SSE timeout')))
+    req.on('error', rejectResult)
+    req.end()
+  })
+}
+
+function touchHealth(session: TouchSessionFixture): Promise<ResponseData> {
+  return httpRequest(new URL('api/touch/health/pit', session.baseUrl).toString(), {
+    headers: {
+      Cookie: session.cookie,
+      'X-Stream-CSRF': session.payload.interaction.csrfToken
+    }
+  })
+}
+
 describe('streaming authenticated server', () => {
   let ctx: ReturnType<typeof fakeContext> | null = null
-  let unregisterTouchRuntime: (() => void) | null = null
+  let unregisterTouchRuntime: (() => Promise<void>) | null = null
 
   beforeEach(() => {
     process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = resolve(fixtureRoot, 'stream-renderer')
@@ -365,6 +433,11 @@ describe('streaming authenticated server', () => {
     managerState.requestedPanels.length = 0
     managerState.semanticCalls.length = 0
     managerState.releasedOwners.length = 0
+    managerState.panelAvailable = true
+    const radio = managerState.panel.buttons.find((button) => button.id === 'radio-hold')
+    if (radio?.control.kind === 'momentary') {
+      radio.control.action = { kind: 'keyboard', command: { mode: 'hold', keys: ['V'] } }
+    }
     unregisterTouchRuntime = registerTouchSemanticActionRuntime({
       execute: async (request, ownerKey) => {
         managerState.semanticCalls.push({ request, ownerKey })
@@ -379,15 +452,18 @@ describe('streaming authenticated server', () => {
   afterEach(async () => {
     if (ctx) await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.stop)
     ctx = null
-    unregisterTouchRuntime?.()
+    await unregisterTouchRuntime?.()
     unregisterTouchRuntime = null
     delete process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR
     delete process.env.ULTIMATE_SIM_STREAM_SESSION_TTL_MS
+    delete process.env.ULTIMATE_SIM_STREAM_RECEIVER_LEASE_MS
   })
 
   it('rejects control-ish routes and non-auth POST methods', async () => {
     ctx = fakeContext()
     register(ctx)
+    expect(ctx.teardownTasks).toHaveLength(1)
+    expect(ctx.teardownTasks[0].phase).toBe('quiesce')
     const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, { streamSafe: true })
 
     const postControl = await httpRequest(started.url.replace('/obs/default', '/api/touch/action'), { method: 'POST' })
@@ -889,6 +965,91 @@ describe('streaming authenticated server', () => {
     expect(managerState.semanticCalls).toHaveLength(1)
   })
 
+  it('keeps end, cancel, and off idempotent across stale multi-tab nonces and lost responses', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const hold = touchCapability(session, 'radio-hold', 'main', 'begin')
+    const end = touchCapability(session, 'radio-hold', 'main', 'end')
+    const cancel = touchCapability(session, 'radio-hold', 'main', 'cancel')
+    const toggleOn = touchCapability(session, 'lights-toggle', 'on', 'trigger')
+    const toggleOff = touchCapability(session, 'lights-toggle', 'off', 'trigger')
+
+    const firstTabNonce = session.payload.interaction.nonce
+    const begun = await postTouchAction(session, {
+      capabilityId: hold.id,
+      phase: 'begin',
+      nonce: firstTabNonce
+    })
+    expect(begun.statusCode).toBe(200)
+    const endAfterLostResponse = await postTouchAction(session, {
+      capabilityId: end.id,
+      phase: 'end',
+      nonce: firstTabNonce
+    })
+    const repeatedEnd = await postTouchAction(session, {
+      capabilityId: end.id,
+      phase: 'end',
+      nonce: firstTabNonce
+    })
+    expect(endAfterLostResponse.statusCode).toBe(200)
+    expect(repeatedEnd.statusCode).toBe(200)
+    expect((JSON.parse(repeatedEnd.body) as StreamingTouchActionResponse).activeControls).toBe(0)
+
+    const currentNonce = (JSON.parse(endAfterLostResponse.body) as StreamingTouchActionResponse).nextNonce
+    const begunForCancel = await postTouchAction(session, {
+      capabilityId: hold.id,
+      phase: 'begin',
+      nonce: currentNonce
+    })
+    expect(begunForCancel.statusCode).toBe(200)
+    const canceled = await postTouchAction(session, {
+      capabilityId: cancel.id,
+      phase: 'cancel',
+      nonce: currentNonce
+    })
+    const repeatedCancel = await postTouchAction(session, {
+      capabilityId: cancel.id,
+      phase: 'cancel',
+      nonce: currentNonce
+    })
+    expect(canceled.statusCode).toBe(200)
+    expect(repeatedCancel.statusCode).toBe(200)
+
+    const toggleNonce = (JSON.parse(canceled.body) as StreamingTouchActionResponse).nextNonce
+    const toggledOn = await postTouchAction(session, {
+      capabilityId: toggleOn.id,
+      phase: 'trigger',
+      nonce: toggleNonce
+    })
+    expect(toggledOn.statusCode).toBe(200)
+    const toggledOff = await postTouchAction(session, {
+      capabilityId: toggleOff.id,
+      phase: 'trigger',
+      nonce: toggleNonce
+    })
+    const repeatedOff = await postTouchAction(session, {
+      capabilityId: toggleOff.id,
+      phase: 'trigger',
+      nonce: toggleNonce
+    })
+    expect(toggledOff.statusCode).toBe(200)
+    expect(repeatedOff.statusCode).toBe(200)
+    expect((JSON.parse(repeatedOff.body) as StreamingTouchActionResponse).activeControls).toBe(0)
+    expect(managerState.semanticCalls.map(({ request }) => request.phase)).toEqual([
+      'begin',
+      'end',
+      'begin',
+      'cancel',
+      'trigger',
+      'trigger'
+    ])
+  })
+
   it('supports press/release, hold, toggle, and rotary semantics through server-owned capabilities', async () => {
     ctx = fakeContext()
     register(ctx)
@@ -970,8 +1131,50 @@ describe('streaming authenticated server', () => {
     expect(injected.statusCode).toBe(400)
   })
 
-  it('expires short remote sessions and releases held controls', async () => {
-    process.env.ULTIMATE_SIM_STREAM_SESSION_TTL_MS = '1000'
+  it('never rate-limits cleanup for an already-held control', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const hold = touchCapability(session, 'radio-hold', 'main', 'begin')
+    const end = touchCapability(session, 'radio-hold', 'main', 'end')
+    const originalNonce = session.payload.interaction.nonce
+    const begun = await postTouchAction(session, {
+      capabilityId: hold.id,
+      phase: 'begin',
+      nonce: originalNonce
+    })
+    expect(begun.statusCode).toBe(200)
+    session.payload.interaction.nonce = (JSON.parse(begun.body) as StreamingTouchActionResponse).nextNonce
+
+    const press = touchCapability(session, 'pit-fuel', 'main', 'trigger')
+    let limited = false
+    for (let index = 0; index < 80; index += 1) {
+      const response = await postTouchAction(session, { capabilityId: press.id, phase: 'trigger' })
+      if (response.statusCode === 429) {
+        limited = true
+        break
+      }
+      expect(response.statusCode).toBe(200)
+      session.payload.interaction.nonce = (JSON.parse(response.body) as StreamingTouchActionResponse).nextNonce
+    }
+    expect(limited).toBe(true)
+
+    const released = await postTouchAction(session, {
+      capabilityId: end.id,
+      phase: 'end',
+      nonce: originalNonce
+    })
+    expect(released.statusCode).toBe(200)
+    expect((JSON.parse(released.body) as StreamingTouchActionResponse).activeControls).toBe(0)
+    expect(managerState.semanticCalls.at(-1)?.request.phase).toBe('end')
+  })
+
+  it('expires short remote sessions, closes their SSE clients, and releases held controls', async () => {
+    process.env.ULTIMATE_SIM_STREAM_SESSION_TTL_MS = '1500'
     ctx = fakeContext()
     register(ctx)
     const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
@@ -981,12 +1184,14 @@ describe('streaming authenticated server', () => {
       password: 'short-lived'
     })
     const session = await openTouchSession(started, 'short-lived')
+    const receiver = await openSseReceiver(new URL('sse', session.baseUrl).toString(), session.cookie)
     const hold = touchCapability(session, 'radio-hold', 'main', 'begin')
     const begun = await postTouchAction(session, { capabilityId: hold.id, phase: 'begin' })
     expect(begun.statusCode).toBe(200)
     session.payload.interaction.nonce = (JSON.parse(begun.body) as StreamingTouchActionResponse).nextNonce
 
-    await new Promise((resolveWait) => setTimeout(resolveWait, 1_100))
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1_600))
+    await receiver.closed
     const stale = await postTouchAction(session, {
       capabilityId: hold.id,
       phase: 'end'
@@ -994,6 +1199,156 @@ describe('streaming authenticated server', () => {
     expect(stale.statusCode).toBe(403)
     await vi.waitFor(() => expect(managerState.releasedOwners).toHaveLength(1))
     expect(managerState.releasedOwners[0]).toMatch(/^stream-session-/)
+    expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).clients).toBe(0)
+  })
+
+  it('keeps cleanup capability after the streamed panel is edited or deleted', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const hold = touchCapability(session, 'radio-hold', 'main', 'begin')
+    const end = touchCapability(session, 'radio-hold', 'main', 'end')
+    const cancel = touchCapability(session, 'radio-hold', 'main', 'cancel')
+
+    const editNonce = session.payload.interaction.nonce
+    const begunBeforeEdit = await postTouchAction(session, {
+      capabilityId: hold.id,
+      phase: 'begin',
+      nonce: editNonce
+    })
+    expect(begunBeforeEdit.statusCode).toBe(200)
+    const radio = managerState.panel.buttons.find((button) => button.id === 'radio-hold')
+    if (!radio || radio.control.kind !== 'momentary') throw new Error('radio fixture missing')
+    radio.control.action = { kind: 'keyboard', command: { mode: 'hold', keys: ['B'] } }
+
+    const endedAfterEdit = await postTouchAction(session, {
+      capabilityId: end.id,
+      phase: 'end',
+      nonce: editNonce
+    })
+    expect(endedAfterEdit.statusCode).toBe(200)
+    expect(managerState.semanticCalls.at(-1)?.request).toMatchObject({
+      action: { kind: 'keyboard', command: { mode: 'hold', keys: ['V'] } },
+      phase: 'end'
+    })
+
+    radio.control.action = { kind: 'keyboard', command: { mode: 'hold', keys: ['V'] } }
+    const deleteNonce = (JSON.parse(endedAfterEdit.body) as StreamingTouchActionResponse).nextNonce
+    const begunBeforeDelete = await postTouchAction(session, {
+      capabilityId: hold.id,
+      phase: 'begin',
+      nonce: deleteNonce
+    })
+    expect(begunBeforeDelete.statusCode).toBe(200)
+    managerState.panelAvailable = false
+    const canceledAfterDelete = await postTouchAction(session, {
+      capabilityId: cancel.id,
+      phase: 'cancel',
+      nonce: deleteNonce
+    })
+    expect(canceledAfterDelete.statusCode).toBe(200)
+    expect((JSON.parse(canceledAfterDelete.body) as StreamingTouchActionResponse).activeControls).toBe(0)
+    expect(managerState.semanticCalls.at(-1)?.request.phase).toBe('cancel')
+  })
+
+  it('requires a live receiver lease and allows the heartbeat to restore interaction', async () => {
+    process.env.ULTIMATE_SIM_STREAM_RECEIVER_LEASE_MS = '100'
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const hold = touchCapability(session, 'radio-hold', 'main', 'begin')
+    const begun = await postTouchAction(session, { capabilityId: hold.id, phase: 'begin' })
+    expect(begun.statusCode).toBe(200)
+    session.payload.interaction.nonce = (JSON.parse(begun.body) as StreamingTouchActionResponse).nextNonce
+
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150))
+    await vi.waitFor(() => expect(managerState.releasedOwners).toHaveLength(1))
+    const press = touchCapability(session, 'pit-fuel', 'main', 'trigger')
+    const expired = await postTouchAction(session, { capabilityId: press.id, phase: 'trigger' })
+    expect(expired.statusCode).toBe(409)
+    expect((JSON.parse(expired.body) as StreamingTouchActionResponse).message).toMatch(/lease expired/i)
+
+    const unauthenticatedHeartbeat = await httpRequest(
+      new URL('api/touch/health/pit', session.baseUrl).toString(),
+      { headers: { Cookie: session.cookie } }
+    )
+    expect(unauthenticatedHeartbeat.statusCode).toBe(403)
+    const heartbeat = await touchHealth(session)
+    expect(heartbeat.statusCode).toBe(200)
+    const healthPayload = JSON.parse(heartbeat.body)
+    expect(healthPayload.leaseExpiresAt).toBeGreaterThan(Date.now())
+    const restored = await postTouchAction(session, { capabilityId: press.id, phase: 'trigger' })
+    expect(restored.statusCode).toBe(200)
+  })
+
+  it('keeps ownership while another tab remains connected and releases after the last disconnect', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const firstReceiver = await openSseReceiver(new URL('sse', session.baseUrl).toString(), session.cookie)
+    const secondReceiver = await openSseReceiver(new URL('sse', session.baseUrl).toString(), session.cookie)
+    const hold = touchCapability(session, 'radio-hold', 'main', 'begin')
+    expect((await postTouchAction(session, { capabilityId: hold.id, phase: 'begin' })).statusCode).toBe(200)
+
+    firstReceiver.close()
+    await firstReceiver.closed
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    expect(managerState.releasedOwners).toHaveLength(0)
+
+    secondReceiver.close()
+    await secondReceiver.closed
+    await vi.waitFor(() => expect(managerState.releasedOwners).toHaveLength(1))
+  })
+
+  it('waits for an in-flight owner registration before stream teardown releases it', async () => {
+    await unregisterTouchRuntime?.()
+    let finishExecution!: () => void
+    const executionGate = new Promise<void>((resolve) => { finishExecution = resolve })
+    unregisterTouchRuntime = registerTouchSemanticActionRuntime({
+      execute: async (request, ownerKey) => {
+        managerState.semanticCalls.push({ request, ownerKey })
+        await executionGate
+        return { ok: true, message: 'held' }
+      },
+      releaseOwner: async (ownerKey) => {
+        managerState.releasedOwners.push(ownerKey)
+      }
+    })
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit'
+    })
+    const session = await openTouchSession(started)
+    const hold = touchCapability(session, 'radio-hold', 'main', 'begin')
+    const action = postTouchAction(session, { capabilityId: hold.id, phase: 'begin' })
+    await vi.waitFor(() => expect(managerState.semanticCalls).toHaveLength(1))
+
+    let stopped = false
+    const stopping = Promise.resolve(ctx.teardownTasks[0].task()).then(() => {
+      stopped = true
+    })
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+    expect(stopped).toBe(false)
+    expect(managerState.releasedOwners).toHaveLength(1)
+
+    finishExecution()
+    expect((await action).statusCode).toBe(200)
+    await stopping
+    expect(managerState.releasedOwners).toHaveLength(1)
   })
 
   it('releases held controls when the receiver disconnects', async () => {
@@ -1011,9 +1366,7 @@ describe('streaming authenticated server', () => {
 
     await sseHandshake(new URL('sse', session.baseUrl).toString(), session.cookie)
     await vi.waitFor(() => expect(managerState.releasedOwners).toHaveLength(1))
-    const health = await httpRequest(new URL('api/touch/health/pit', session.baseUrl).toString(), {
-      headers: { Cookie: session.cookie }
-    })
+    const health = await touchHealth(session)
     expect(health.statusCode).toBe(200)
     expect(JSON.parse(health.body).activeControls).toBe(0)
   })

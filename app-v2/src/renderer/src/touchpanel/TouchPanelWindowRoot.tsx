@@ -111,6 +111,7 @@ export function TouchPanelWindowRoot(): ReactElement {
                 ...current,
                 health: health.health,
                 expiresAt: health.expiresAt,
+                leaseExpiresAt: health.leaseExpiresAt,
                 activeControls: health.activeControls,
                 lastFeedback: health.lastFeedback
               }

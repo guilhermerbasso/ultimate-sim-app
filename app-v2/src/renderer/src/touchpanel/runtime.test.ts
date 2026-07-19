@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TOUCH_ACTION_IPC_CHANNEL } from '../../../shared/touch-panel'
 import type { StreamingTouchPanelPayload } from '../../../shared/streaming'
 import type { TouchControlActionEvent } from './ButtonBoxRenderer'
-import { executeTouchControlAction, fetchStreamPanel } from './runtime'
+import {
+  executeTouchControlAction,
+  fetchStreamInteractionHealth,
+  fetchStreamPanel
+} from './runtime'
 
 function stubBrowserRuntime(href: string): ReturnType<typeof vi.fn> {
   vi.stubGlobal('window', { location: { href } })
@@ -46,6 +50,7 @@ function streamPayload(): StreamingTouchPanelPayload {
       csrfToken: 'csrf-token',
       nonce: 'nonce-one',
       expiresAt: Date.now() + 60_000,
+      leaseExpiresAt: Date.now() + 25_000,
       capabilities: [{
         id: 'capability-one',
         controlId: 'radio',
@@ -96,6 +101,7 @@ describe('touch panel browser streaming runtime', () => {
           message: 'sent',
           health: 'ready',
           nextNonce: 'nonce-two',
+          leaseExpiresAt: Date.now() + 25_000,
           activeControls: 1
         })
       })
@@ -135,6 +141,64 @@ describe('touch panel browser streaming runtime', () => {
       message: 'This Touch control is not allowed for remote interaction.'
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('heartbeats the receiver lease with the issued CSRF token', async () => {
+    const fetchMock = stubBrowserRuntime('https://stream.example/race/obs/touch?token=secret')
+    const payload = streamPayload()
+    const health = {
+      interactive: true,
+      indicator: 'INTERACTIVE TOUCH' as const,
+      role: 'touch-controller' as const,
+      health: 'ready' as const,
+      targetId: 'panel one',
+      expiresAt: Date.now() + 60_000,
+      leaseExpiresAt: Date.now() + 25_000,
+      activeControls: 0,
+      lastFeedback: null
+    }
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => payload })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => health })
+
+    await fetchStreamPanel('panel one')
+    await expect(fetchStreamInteractionHealth('panel one')).resolves.toEqual(health)
+
+    const [url, init] = fetchMock.mock.calls[1]
+    expect(String(url)).toBe('https://stream.example/race/api/touch/health/panel%20one')
+    expect(init).toEqual({
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: { 'X-Stream-CSRF': 'csrf-token' }
+    })
+  })
+
+  it('still queues cleanup with the stale nonce after a lost begin response', async () => {
+    const fetchMock = stubBrowserRuntime('https://stream.example/race/obs/touch?token=secret')
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => streamPayload() })
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          message: 'released',
+          health: 'ready',
+          nextNonce: 'server-current-nonce',
+          leaseExpiresAt: Date.now() + 25_000,
+          activeControls: 0
+        })
+      })
+
+    await fetchStreamPanel('panel one')
+    const begin = executeTouchControlAction(touchEvent('begin'))
+    const end = executeTouchControlAction(touchEvent('end'))
+
+    await expect(begin).rejects.toThrow(/response lost/i)
+    await expect(end).resolves.toEqual({ ok: true, message: 'released' })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).nonce).toBe('nonce-one')
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).nonce).toBe('nonce-one')
   })
 })
 

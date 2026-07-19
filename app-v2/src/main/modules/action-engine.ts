@@ -232,12 +232,15 @@ export function register(ctx: ModuleContext): void {
     return { ok: true }
   })
 
-  ctx.app.on('before-quit', () => {
+  ctx.registerGracefulTeardown(async () => {
     unregisterTouchActionOwners()
-    void emulation.dispose()
-      .catch((error) => console.warn('[actions] Failed to dispose emulation engine.', error))
-      .finally(unregisterTouchSemanticRuntime)
-  })
+    try {
+      await unregisterTouchSemanticRuntime()
+    } catch (error) {
+      console.warn('[actions] Failed to drain Touch semantic action owners.', error)
+    }
+    await emulation.dispose()
+  }, 'quiesce')
 
   void refreshCycleControls().catch((error) => console.warn('[actions] Failed to publish dashboard cycle controls.', error))
 }

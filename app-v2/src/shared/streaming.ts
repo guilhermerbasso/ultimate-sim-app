@@ -47,6 +47,7 @@ export interface StreamingTouchInteractionSession {
   csrfToken: string
   nonce: string
   expiresAt: number
+  leaseExpiresAt: number
   capabilities: StreamingTouchCapability[]
   activeControls: number
   lastFeedback: string | null
@@ -69,6 +70,7 @@ export interface StreamingTouchActionResponse {
   message: string
   health: StreamingTouchHealth
   nextNonce: string
+  leaseExpiresAt: number
   controlId?: string
   phase?: TouchActionPhase
   activeControls: number
@@ -81,6 +83,7 @@ export interface StreamingTouchHealthResponse {
   health: StreamingTouchHealth
   targetId: string
   expiresAt: number
+  leaseExpiresAt: number
   activeControls: number
   lastFeedback: string | null
 }

@@ -55,6 +55,7 @@ const CAPABILITY_BYTES = 18
 const SESSION_COOKIE_NAME = 'ultimate_sim_stream_session'
 const LOCAL_SESSION_TTL_MS = 60 * 60 * 1000
 const REMOTE_SESSION_TTL_MS = 15 * 60 * 1000
+const RECEIVER_LEASE_TTL_MS = 25_000
 const MAX_BOOTSTRAP_SESSIONS = 64
 const MAX_AUTHENTICATED_SESSIONS = 64
 const AUTH_FAILURE_WINDOW_MS = 60_000
@@ -96,6 +97,12 @@ interface StreamingSession {
   activeTokens: Set<string>
   lastFeedback: string | null
   expiryTimer: ReturnType<typeof setTimeout> | null
+  receiverLeaseExpiresAt: number
+  receiverLeaseTimer: ReturnType<typeof setTimeout> | null
+  tokenOperations: Map<string, Promise<void>>
+  releasePromise: Promise<void> | null
+  ownershipClosing: boolean
+  deleted: boolean
 }
 
 interface StreamingTouchCapabilityEntry extends StreamingTouchCapability {
@@ -137,6 +144,7 @@ interface StreamingState {
   sessions: Map<string, StreamingSession>
   touchCapabilities: Map<string, StreamingTouchCapabilityEntry>
   interactionRates: Map<string, InteractionRateState>
+  sessionCleanupPromises: Set<Promise<void>>
   interactionHealth: StreamingTouchHealth
   lastInteractionFeedback: string | null
   nextClientId: number
@@ -170,6 +178,7 @@ const state: StreamingState = {
   sessions: new Map(),
   touchCapabilities: new Map(),
   interactionRates: new Map(),
+  sessionCleanupPromises: new Set(),
   interactionHealth: 'read-only',
   lastInteractionFeedback: null,
   nextClientId: 1
@@ -226,6 +235,14 @@ function configuredSessionTtlMs(): number {
   if (process.env.NODE_ENV !== 'test') return fallback
   const configured = Number(process.env.ULTIMATE_SIM_STREAM_SESSION_TTL_MS)
   return Number.isFinite(configured) && configured >= 50 ? Math.floor(configured) : fallback
+}
+
+function configuredReceiverLeaseTtlMs(): number {
+  if (process.env.NODE_ENV !== 'test') return RECEIVER_LEASE_TTL_MS
+  const configured = Number(process.env.ULTIMATE_SIM_STREAM_RECEIVER_LEASE_MS)
+  return Number.isFinite(configured) && configured >= 50
+    ? Math.floor(configured)
+    : RECEIVER_LEASE_TTL_MS
 }
 
 function actionFingerprint(action: ButtonAction): string {
@@ -858,24 +875,115 @@ function removeInteractionRatesForSession(sessionId: string): void {
   }
 }
 
+function hasConnectedReceiver(sessionId: string): boolean {
+  return [...state.clients.values()].some((client) => client.sessionId === sessionId)
+}
+
+function hasLiveReceiverLease(
+  sessionId: string,
+  session: StreamingSession,
+  now = Date.now()
+): boolean {
+  return !session.deleted && (
+    hasConnectedReceiver(sessionId) ||
+    session.receiverLeaseExpiresAt > now
+  )
+}
+
+function clearReceiverLeaseTimer(session: StreamingSession): void {
+  if (session.receiverLeaseTimer) clearTimeout(session.receiverLeaseTimer)
+  session.receiverLeaseTimer = null
+}
+
+function scheduleReceiverLeaseExpiry(sessionId: string, session: StreamingSession): void {
+  clearReceiverLeaseTimer(session)
+  if (session.deleted || hasConnectedReceiver(sessionId)) return
+  session.receiverLeaseTimer = setTimeout(() => {
+    const current = state.sessions.get(sessionId)
+    if (current !== session || session.deleted) return
+    session.receiverLeaseTimer = null
+    if (hasConnectedReceiver(sessionId)) return
+    if (session.receiverLeaseExpiresAt > Date.now()) {
+      scheduleReceiverLeaseExpiry(sessionId, session)
+      return
+    }
+    session.receiverLeaseExpiresAt = 0
+    void releaseSessionInteraction(sessionId, session, 'receiver-lease-expired')
+  }, Math.max(1, session.receiverLeaseExpiresAt - Date.now()))
+  session.receiverLeaseTimer.unref?.()
+}
+
+function renewReceiverLease(sessionId: string, session: StreamingSession): boolean {
+  if (session.deleted || state.sessions.get(sessionId) !== session) return false
+  session.receiverLeaseExpiresAt = Date.now() + configuredReceiverLeaseTtlMs()
+  scheduleReceiverLeaseExpiry(sessionId, session)
+  if (!session.releasePromise) session.ownershipClosing = false
+  return true
+}
+
+function queueSessionTokenOperation<T>(
+  session: StreamingSession,
+  token: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = session.tokenOperations.get(token) ?? Promise.resolve()
+  const current = previous
+    .catch(() => undefined)
+    .then(operation)
+  const drained = current.then(() => undefined, () => undefined)
+  session.tokenOperations.set(token, drained)
+  void drained.then(() => {
+    if (session.tokenOperations.get(token) === drained) session.tokenOperations.delete(token)
+  })
+  return current
+}
+
 async function releaseSessionInteraction(sessionId: string, session: StreamingSession, reason: string): Promise<void> {
-  if (session.activeTokens.size === 0) {
-    removeInteractionRatesForSession(sessionId)
-    return
-  }
-  session.activeTokens.clear()
+  if (session.releasePromise) return session.releasePromise
+  session.ownershipClosing = true
   removeInteractionRatesForSession(sessionId)
-  try {
-    await releaseTouchSemanticActionOwner(streamSessionOwnerKey(sessionId))
-    logger.info('streaming', 'interactive touch owner released', { reason })
-  } catch (error) {
-    state.interactionHealth = 'degraded'
-    state.lastInteractionFeedback = 'A held Touch control could not be released cleanly.'
-    logger.error('streaming', 'interactive touch owner release failed', {
-      reason,
-      message: error instanceof Error ? error.message : String(error)
-    })
-  }
+  let release!: Promise<void>
+  release = (async () => {
+    try {
+      const releaseOwner = session.targetKind === 'touch' && session.role === 'touch-controller'
+        ? releaseTouchSemanticActionOwner(streamSessionOwnerKey(sessionId))
+        : Promise.resolve()
+      const results = await Promise.allSettled([
+        releaseOwner,
+        ...session.tokenOperations.values()
+      ])
+      session.activeTokens.clear()
+      if (session.targetKind === 'touch' && session.role === 'touch-controller') {
+        const ownerRelease = results[0]
+        if (ownerRelease.status === 'rejected') throw ownerRelease.reason
+        logger.info('streaming', 'interactive touch owner released', { reason })
+      }
+    } catch (error) {
+      state.interactionHealth = 'degraded'
+      state.lastInteractionFeedback = 'A held Touch control could not be released cleanly.'
+      logger.error('streaming', 'interactive touch owner release failed', {
+        reason,
+        message: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      if (session.releasePromise === release) session.releasePromise = null
+      if (!session.deleted && hasLiveReceiverLease(sessionId, session)) {
+        session.ownershipClosing = false
+      }
+    }
+  })()
+  session.releasePromise = release
+  return release
+}
+
+function invalidateReceiverLease(
+  sessionId: string,
+  session: StreamingSession,
+  reason: string
+): Promise<void> {
+  session.receiverLeaseExpiresAt = 0
+  clearReceiverLeaseTimer(session)
+  return releaseSessionInteraction(sessionId, session, reason)
 }
 
 function scheduleSessionExpiry(sessionId: string, session: StreamingSession): void {
@@ -887,28 +995,34 @@ function scheduleSessionExpiry(sessionId: string, session: StreamingSession): vo
       scheduleSessionExpiry(sessionId, current)
       return
     }
-    state.sessions.delete(sessionId)
-    current.expiryTimer = null
-    void releaseSessionInteraction(sessionId, current, 'session-expired')
-    for (const client of [...state.clients.values()]) {
-      if (client.sessionId === sessionId) closeClient(client.id)
-    }
+    void deleteStreamingSession(sessionId, 'session-expired')
   }, Math.max(1, session.expiresAt - Date.now()))
   session.expiryTimer.unref?.()
 }
 
-function deleteStreamingSession(sessionId: string, reason: string): void {
+function deleteStreamingSession(sessionId: string, reason: string): Promise<void> {
   const session = state.sessions.get(sessionId)
-  if (!session) return
+  if (!session) return Promise.resolve()
+  session.deleted = true
   state.sessions.delete(sessionId)
   if (session.expiryTimer) clearTimeout(session.expiryTimer)
   session.expiryTimer = null
-  void releaseSessionInteraction(sessionId, session, reason)
+  clearReceiverLeaseTimer(session)
+  for (const client of [...state.clients.values()]) {
+    if (client.sessionId === sessionId) closeClient(client.id)
+  }
+  const cleanup = releaseSessionInteraction(sessionId, session, reason)
+  state.sessionCleanupPromises.add(cleanup)
+  void cleanup.then(
+    () => state.sessionCleanupPromises.delete(cleanup),
+    () => state.sessionCleanupPromises.delete(cleanup)
+  )
+  return cleanup
 }
 
 function cleanupExpiredSessions(now = Date.now()): void {
   for (const [id, session] of state.sessions) {
-    if (session.expiresAt <= now) deleteStreamingSession(id, 'session-expired')
+    if (session.expiresAt <= now) void deleteStreamingSession(id, 'session-expired')
   }
 }
 
@@ -950,7 +1064,7 @@ function createSession(
     while (sessionCount('bootstrap') >= MAX_BOOTSTRAP_SESSIONS) {
       const oldestBootstrap = oldestSessionId('bootstrap')
       if (!oldestBootstrap) break
-      deleteStreamingSession(oldestBootstrap, 'bootstrap-evicted')
+      void deleteStreamingSession(oldestBootstrap, 'bootstrap-evicted')
     }
   } else if (sessionCount('authenticated') >= MAX_AUTHENTICATED_SESSIONS) {
     return null
@@ -970,7 +1084,13 @@ function createSession(
     replayNonce: generateSecret(NONCE_BYTES),
     activeTokens: new Set(),
     lastFeedback: null,
-    expiryTimer: null
+    expiryTimer: null,
+    receiverLeaseExpiresAt: 0,
+    receiverLeaseTimer: null,
+    tokenOperations: new Map(),
+    releasePromise: null,
+    ownershipClosing: false,
+    deleted: false
   }
   state.sessions.set(id, session)
   scheduleSessionExpiry(id, session)
@@ -1290,35 +1410,51 @@ function publicTouchCapabilities(): StreamingTouchCapability[] {
     }))
 }
 
-function resolvedInteractionHealth(): StreamingTouchHealth {
+function resolvedInteractionHealth(
+  sessionId?: string,
+  session?: StreamingSession
+): StreamingTouchHealth {
   if (state.layoutKind !== 'touch') return 'read-only'
+  if (
+    sessionId &&
+    session &&
+    (session.ownershipClosing || !hasLiveReceiverLease(sessionId, session))
+  ) return 'degraded'
   return hasTouchSemanticActionRuntime() ? state.interactionHealth : 'degraded'
 }
 
-function interactionSessionPayload(session: StreamingSession): StreamingTouchPanelPayload['interaction'] {
+function interactionSessionPayload(
+  sessionId: string,
+  session: StreamingSession
+): StreamingTouchPanelPayload['interaction'] {
   return {
     interactive: session.role === 'touch-controller',
     indicator: 'INTERACTIVE TOUCH',
     role: session.role,
-    health: resolvedInteractionHealth(),
+    health: resolvedInteractionHealth(sessionId, session),
     targetId: session.targetId,
     csrfToken: session.csrfToken,
     nonce: session.replayNonce,
     expiresAt: session.expiresAt,
+    leaseExpiresAt: session.receiverLeaseExpiresAt,
     capabilities: publicTouchCapabilities(),
     activeControls: session.activeTokens.size,
     lastFeedback: session.lastFeedback
   }
 }
 
-function interactionHealthPayload(session: StreamingSession): StreamingTouchHealthResponse {
+function interactionHealthPayload(
+  sessionId: string,
+  session: StreamingSession
+): StreamingTouchHealthResponse {
   return {
     interactive: session.role === 'touch-controller',
     indicator: 'INTERACTIVE TOUCH',
     role: session.role,
-    health: resolvedInteractionHealth(),
+    health: resolvedInteractionHealth(sessionId, session),
     targetId: session.targetId,
     expiresAt: session.expiresAt,
+    leaseExpiresAt: session.receiverLeaseExpiresAt,
     activeControls: session.activeTokens.size,
     lastFeedback: session.lastFeedback
   }
@@ -1345,9 +1481,10 @@ function serveSelectedTouchPanel(
     send(response, 404, 'Not found')
     return
   }
+  renewReceiverLease(activeSession.id, activeSession.session)
   const payload: StreamingTouchPanelPayload = {
     panel: projectTouchPanelForStreaming(panel),
-    interaction: interactionSessionPayload(activeSession.session)
+    interaction: interactionSessionPayload(activeSession.id, activeSession.session)
   }
   sendJson(response, payload, request.method)
 }
@@ -1401,6 +1538,75 @@ function updateActiveInteraction(
   }
   if (session.activeTokens.has(capability.token)) session.activeTokens.delete(capability.token)
   else session.activeTokens.add(capability.token)
+}
+
+function isCleanupCapabilityRequest(
+  capability: StreamingTouchCapabilityEntry,
+  phase: TouchActionPhase
+): boolean {
+  return phase === 'end' ||
+    phase === 'cancel' ||
+    capability.zone === 'off' ||
+    capability.zone === 'teardown'
+}
+
+function touchActionPayload(
+  sessionId: string,
+  session: StreamingSession,
+  result: { ok: boolean; message: string },
+  capability?: StreamingTouchCapabilityEntry,
+  phase?: TouchActionPhase
+): StreamingTouchActionResponse {
+  return {
+    ok: result.ok,
+    message: result.message,
+    health: resolvedInteractionHealth(sessionId, session),
+    nextNonce: session.replayNonce,
+    leaseExpiresAt: session.receiverLeaseExpiresAt,
+    ...(capability ? { controlId: capability.controlId } : {}),
+    ...(phase ? { phase } : {}),
+    activeControls: session.activeTokens.size
+  }
+}
+
+async function executeCapabilityOperation(
+  sessionId: string,
+  session: StreamingSession,
+  capability: StreamingTouchCapabilityEntry,
+  phase: TouchActionPhase,
+  action: ButtonAction
+): Promise<{ ok: boolean; message: string }> {
+  let result = { ok: true, message: `${capability.controlId} ${phase} acknowledged.` }
+  if (capability.executePhases.includes(phase)) {
+    const semanticRequest = normalizeTouchSemanticActionRequest({
+      action,
+      phase,
+      token: capability.token,
+      zone: capability.zone
+    })
+    if (!semanticRequest) {
+      result = { ok: false, message: 'Touch capability failed semantic validation.' }
+    } else {
+      try {
+        result = await executeTouchSemanticAction(semanticRequest, streamSessionOwnerKey(sessionId))
+      } catch (error) {
+        result = {
+          ok: false,
+          message: error instanceof Error ? error.message : 'Touch action execution failed.'
+        }
+      }
+    }
+  }
+
+  if (result.ok) {
+    updateActiveInteraction(session, capability, phase)
+    state.interactionHealth = 'ready'
+  } else {
+    state.interactionHealth = 'degraded'
+  }
+  session.lastFeedback = result.message
+  state.lastInteractionFeedback = result.message
+  return result
 }
 
 function isStreamingTouchActionRequest(value: unknown): value is StreamingTouchActionRequest {
@@ -1464,12 +1670,66 @@ async function executeTouchInteraction(
     send(response, 400, 'Invalid Touch capability request')
     return
   }
+  const capability = state.touchCapabilities.get(body.capabilityId)
+  if (!capability || !capability.phases.includes(body.phase)) {
+    send(response, 403, 'Touch capability is not allowed')
+    return
+  }
+  const cleanupRequest = isCleanupCapabilityRequest(capability, body.phase)
+  const currentAction = currentCapabilityAction(capability)
+  if (!cleanupRequest && !currentAction) {
+    send(response, 403, 'Touch capability is not allowed')
+    return
+  }
+
+  if (cleanupRequest) {
+    if (session.releasePromise || !hasLiveReceiverLease(active.id, session)) {
+      await (session.releasePromise ?? releaseSessionInteraction(active.id, session, 'cleanup-without-live-receiver'))
+      const payload = touchActionPayload(
+        active.id,
+        session,
+        { ok: true, message: `${capability.controlId} is already released.` },
+        capability,
+        body.phase
+      )
+      sendJsonStatus(response, 200, payload)
+      return
+    }
+    const result = await queueSessionTokenOperation(session, capability.token, async () => {
+      if (session.deleted || session.ownershipClosing || !session.activeTokens.has(capability.token)) {
+        return { ok: true, message: `${capability.controlId} is already released.` }
+      }
+      return executeCapabilityOperation(
+        active.id,
+        session,
+        capability,
+        body.phase,
+        currentAction ?? capability.action
+      )
+    })
+    const payload = touchActionPayload(active.id, session, result, capability, body.phase)
+    sendJsonStatus(response, result.ok ? 200 : 422, payload)
+    return
+  }
+
+  if (!hasLiveReceiverLease(active.id, session) || session.ownershipClosing) {
+    const unavailable = touchActionPayload(
+      active.id,
+      session,
+      { ok: false, message: 'Interactive Touch receiver lease expired; reconnect or wait for heartbeat.' },
+      capability,
+      body.phase
+    )
+    sendJsonStatus(response, 409, unavailable)
+    return
+  }
   if (!safeTokenEqual(body.nonce, session.replayNonce)) {
     const replay: StreamingTouchActionResponse = {
       ok: false,
       message: 'Replay or stale interaction nonce rejected.',
-      health: resolvedInteractionHealth(),
+      health: resolvedInteractionHealth(active.id, session),
       nextNonce: session.replayNonce,
+      leaseExpiresAt: session.receiverLeaseExpiresAt,
       activeControls: session.activeTokens.size
     }
     sendJsonStatus(response, 409, replay)
@@ -1480,49 +1740,15 @@ async function executeTouchInteraction(
     send(response, 429, 'Touch interaction rate limit exceeded')
     return
   }
-  const capability = state.touchCapabilities.get(body.capabilityId)
-  if (
-    !capability ||
-    !capability.phases.includes(body.phase) ||
-    !currentCapabilityAction(capability)
-  ) {
-    send(response, 403, 'Touch capability is not allowed')
-    return
-  }
-
+  renewReceiverLease(active.id, session)
   session.replayNonce = generateSecret(NONCE_BYTES)
-  let result = { ok: true, message: `${capability.controlId} ${body.phase} acknowledged.` }
-  if (capability.executePhases.includes(body.phase)) {
-    const semanticRequest = normalizeTouchSemanticActionRequest({
-      action: capability.action,
-      phase: body.phase,
-      token: capability.token,
-      zone: capability.zone
-    })
-    if (!semanticRequest) {
-      result = { ok: false, message: 'Touch capability failed semantic validation.' }
-    } else {
-      result = await executeTouchSemanticAction(semanticRequest, streamSessionOwnerKey(active.id))
+  const result = await queueSessionTokenOperation(session, capability.token, async () => {
+    if (session.deleted || session.ownershipClosing || !hasLiveReceiverLease(active.id, session)) {
+      return { ok: false, message: 'Interactive Touch receiver lease ended before execution.' }
     }
-  }
-
-  if (result.ok) {
-    updateActiveInteraction(session, capability, body.phase)
-    state.interactionHealth = 'ready'
-  } else {
-    state.interactionHealth = 'degraded'
-  }
-  session.lastFeedback = result.message
-  state.lastInteractionFeedback = result.message
-  const payload: StreamingTouchActionResponse = {
-    ok: result.ok,
-    message: result.message,
-    health: resolvedInteractionHealth(),
-    nextNonce: session.replayNonce,
-    controlId: capability.controlId,
-    phase: body.phase,
-    activeControls: session.activeTokens.size
-  }
+    return executeCapabilityOperation(active.id, session, capability, body.phase, currentAction!)
+  })
+  const payload = touchActionPayload(active.id, session, result, capability, body.phase)
   sendJsonStatus(response, result.ok ? 200 : 422, payload)
 }
 
@@ -1587,7 +1813,8 @@ function openSse(
   ctx: ModuleContext,
   request: IncomingMessage,
   response: ServerResponse,
-  sessionId: string
+  sessionId: string,
+  session: StreamingSession
 ): void {
   if (request.method === 'HEAD') {
     applyCors(response)
@@ -1618,6 +1845,7 @@ function openSse(
     sessionId
   }
   state.clients.set(id, client)
+  renewReceiverLease(sessionId, session)
   logger.info('streaming', 'client connected', {
     id,
     address: client.address,
@@ -1639,7 +1867,7 @@ function closeClient(id: number): void {
   )
   if (!sessionStillConnected) {
     const session = state.sessions.get(client.sessionId)
-    if (session) void releaseSessionInteraction(client.sessionId, session, 'receiver-disconnected')
+    if (session) void invalidateReceiverLease(client.sessionId, session, 'receiver-disconnected')
   }
   logger.info('streaming', 'client disconnected', {
     id,
@@ -2449,12 +2677,18 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           id !== state.layoutId ||
           state.layoutKind !== 'touch' ||
           activeSession.session.access !== 'authenticated' ||
-          activeSession.session.role !== 'touch-controller'
+          activeSession.session.role !== 'touch-controller' ||
+          !safeTokenEqual(headerValue(request, 'x-stream-csrf'), activeSession.session.csrfToken)
         ) {
           send(response, 403, 'Forbidden')
           return
         }
-        sendJson(response, interactionHealthPayload(activeSession.session), request.method)
+        renewReceiverLease(activeSession.id, activeSession.session)
+        sendJson(
+          response,
+          interactionHealthPayload(activeSession.id, activeSession.session),
+          request.method
+        )
         return
       }
       serveStatic(pathname, request, response)
@@ -2466,7 +2700,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
         send(response, 403, 'Forbidden')
         return
       }
-      openSse(ctx, request, response, activeSession.id)
+      openSse(ctx, request, response, activeSession.id, activeSession.session)
       return
     }
 
@@ -2482,15 +2716,12 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
 }
 
 async function stop(): Promise<StreamingStatus> {
-  for (const session of state.sessions.values()) {
-    if (session.expiryTimer) clearTimeout(session.expiryTimer)
-    session.expiryTimer = null
-  }
   await Promise.all(
-    [...state.sessions.entries()].map(([id, session]) =>
-      releaseSessionInteraction(id, session, 'stream-stopped')
+    [...state.sessions.keys()].map((id) =>
+      deleteStreamingSession(id, 'stream-stopped')
     )
   )
+  await Promise.allSettled([...state.sessionCleanupPromises])
   closeAllClients()
   await stopAutoTunnelProcess()
   const server = state.server
@@ -2520,6 +2751,7 @@ async function stop(): Promise<StreamingStatus> {
   state.sessions.clear()
   state.touchCapabilities.clear()
   state.interactionRates.clear()
+  state.sessionCleanupPromises.clear()
   state.interactionHealth = 'read-only'
   state.lastInteractionFeedback = null
   if (server) {
@@ -2651,7 +2883,7 @@ async function removeWindowsFirewallRule(port: number): Promise<void> {
 }
 
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
-  if (state.server || state.autoTunnelProcess) await stop()
+  if (state.server || state.autoTunnelProcess || state.sessions.size > 0) await stop()
   const target = resolveStreamTarget(args)
   state.layoutId = target.id
   state.layoutKind = target.kind
@@ -2837,7 +3069,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(STREAMING_CHANNELS.selfTest, () => selfTest())
   ctx.ipcMain.handle(STREAMING_CHANNELS.startTunnel, () => startAutoTunnel())
   ctx.ipcMain.handle(STREAMING_CHANNELS.stopTunnel, () => stopAutoTunnel())
-  ctx.app.once('before-quit', () => {
-    void stop()
-  })
+  ctx.registerGracefulTeardown(async () => {
+    await stop()
+  }, 'quiesce')
 }
