@@ -76,6 +76,7 @@ import { register as configExport } from './config-export'
 import { register as diagnosticLogger } from './logger'
 import { register as bugReport } from './bug-report'
 import { register as updater } from './updater'
+import { register as localCollaboration } from './local-collaboration'
 import { register as pitPanel } from '../pitpanel/window'
 import { register as touchPanel } from '../touchpanel/manager'
 import { register as mqttTarget } from './mqtt-target'
@@ -142,6 +143,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   mqttTarget,
   simhubImport,
   configExport,
+  localCollaboration,
   updater,
   diagnosticLogger,
   bugReport,
