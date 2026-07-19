@@ -295,6 +295,20 @@ describe('racecraft question routing', () => {
     })
   })
 
+  it('routes an unmatched French definition envelope to the controlled unsupported response', () => {
+    expect(
+      controlledDefinitionResponse('Comment expliquer le bump steer?', 'fr')
+    ).toContain('glossaire contrôlé')
+  })
+
+  it.each([
+    'I definitely need to save fuel.',
+    'Give me explicit fuel data.'
+  ])('does not mistake ordinary words for definition markers: %s', (question) => {
+    expect(parseDefinitionQuestion(question)).toBeNull()
+    expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
+  })
+
   it('parses tactical compound definitions once and marks them impure', () => {
     expect(
       parseDefinitionQuestion('Explain understeer then how I overtake the leader.')

@@ -795,9 +795,14 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       }
     }
   }
-  const definitionLike =
-    /\b(?:defin[a-z]*|explain[a-z]*|meaning|explic[a-z]*|significad[a-z]*|signification|erklar[a-z]*|definier[a-z]*|bedeut[a-z]*|heiss[a-z]*|heiß[a-z]*)\b/u.test(q) ||
-    /(?:是什么|是什么意思|的定义|含义|定義|意味|説明)/u.test(q)
+  const definitionLike = [
+    /^(?:how|what|can|could|would|please|tell me|give me)\b.*\b(?:define|defined|definition|meaning|explain|explained|explanation)\b/,
+    /^(?:como|o que|qual|pode|poderia|voce|me|por favor)\b.*\b(?:defina|definicao|significado|explique|explicar|explicacao)\b/,
+    /^(?:como|que|cual|puede|puedes|podria|podrias|me|por favor)\b.*\b(?:define|definir|definicion|significado|explica|explicar|explicacion)\b/,
+    /^(?:comment|que|quelle|pouvez vous|pourriez vous|expliquez moi|definissez|s il vous plait)\b.*\b(?:definir|definition|signification|expliquer|expliquez|explication)\b/,
+    /^(?:was|wie|konnen sie|kannst du|bitte)\b.*\b(?:definieren|definition|bedeutung|erklaren|erklarung|heisst|heißt)\b/,
+    /(?:是什么|是什么意思|的定义|含义|定義|意味|説明)/u
+  ].some((pattern) => pattern.test(q))
   if (definitionLike) {
     const liveRaceContext =
       /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|position|gap|target|pit|attack|pass|overtake|meu|minha|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|vuelta \d+|mon|ma|tour \d+|virage \d+|mein|meine|runde \d+|kurve \d+)\b/.test(q)

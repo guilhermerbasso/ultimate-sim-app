@@ -540,6 +540,37 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
   })
 
+  it('returns a controlled response for an unmatched French definition envelope', async () => {
+    const harness = makeHarness({
+      runtimeAnswer: 'Unsafe injected model output.'
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(
+      'Comment expliquer le bump steer?'
+    )
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('controlled glossary')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'I definitely need to save fuel.',
+    'Give me explicit fuel data.'
+  ])('does not bypass caution safety through ordinary words: %s', async (question) => {
+    const harness = makeHarness({
+      racecraftContext: {
+        safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
+      }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.text).toContain('TACTICS PAUSED')
+    expect(answer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
   it.each([
     'Devo trocar os pneus?',
     'Qual pneu devo usar?',
