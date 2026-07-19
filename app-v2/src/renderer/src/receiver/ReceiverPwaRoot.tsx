@@ -307,6 +307,7 @@ export function ReceiverPwaRoot(): ReactElement {
           return
         }
         if (message.type === 'welcome') {
+          setError(null)
           setWelcome(message)
           setRateHz(message.rateHz)
           reconnectAttempt = 0

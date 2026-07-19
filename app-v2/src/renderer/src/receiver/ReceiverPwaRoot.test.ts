@@ -197,6 +197,60 @@ describe('receiver PWA recovery', () => {
     ])
   })
 
+  it('clears a retryable error banner after a successful welcome handshake', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        authenticated: true,
+        passwordRequired: false,
+        protocolVersion: RECEIVER_PROTOCOL_VERSION,
+        schemaVersion: RECEIVER_SCHEMA_VERSION,
+        capabilities: [...RECEIVER_CAPABILITIES],
+        minHz: RECEIVER_MIN_HZ,
+        maxHz: RECEIVER_MAX_HZ,
+        maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+        heartbeatMs: RECEIVER_HEARTBEAT_MS,
+        transportProfile: 'local-development',
+        readOnly: true,
+        commandsEnabled: false
+      })
+    }))
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+
+    const { ReceiverPwaRoot } = await import('./ReceiverPwaRoot')
+    render(createElement(ReceiverPwaRoot))
+
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+    const socket = MockWebSocket.instances[0]
+    socket.open()
+    socket.message({
+      type: 'error',
+      code: 'resync_rate_limit',
+      message: 'Retry later.',
+      retryable: true
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Retry later.')
+
+    socket.message({
+      type: 'welcome',
+      protocolVersion: RECEIVER_PROTOCOL_VERSION,
+      schemaVersion: RECEIVER_SCHEMA_VERSION,
+      capabilities: [...RECEIVER_CAPABILITIES],
+      sessionId: 'receiver-session',
+      rateHz: 20,
+      maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+      heartbeatMs: RECEIVER_HEARTBEAT_MS,
+      highWater: 0,
+      serverTime: 1,
+      readOnly: true,
+      commands: false
+    })
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(await screen.findByText('LIVE')).toBeTruthy()
+  })
+
   it('retries initial authorization when an offline browser comes back online', async () => {
     let online = false
     Object.defineProperty(window.navigator, 'onLine', {

@@ -1,6 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { request, type IncomingHttpHeaders } from 'node:http'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import WebSocket from 'ws'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   RECEIVER_CAPABILITIES,
   RECEIVER_LATENCY_BUDGET_MS,
@@ -268,7 +271,7 @@ describe('streaming receiver v2 certification target', () => {
     const unrelatedAsset = await httpRequest(new URL('../../assets/index-private.js', baseUrl), {
       headers: { Cookie: bootstrapCookie }
     })
-    expect(unrelatedAsset.statusCode).toBe(403)
+    expect(unrelatedAsset.statusCode).toBe(404)
 
     const paired = await httpRequest(new URL('pair', baseUrl), {
       method: 'POST',
@@ -411,6 +414,34 @@ describe('streaming receiver v2 certification target', () => {
       retryable: true
     })
     await expect(closed).resolves.toBe(1013)
+  })
+
+  it('serves receiver-session shared chunks with generic asset names', async () => {
+    const previousRendererDir = process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR
+    const rendererDir = mkdtempSync(join(tmpdir(), 'receiver-renderer-'))
+    mkdirSync(join(rendererDir, 'assets'), { recursive: true })
+    writeFileSync(join(rendererDir, 'assets', 'shared-chunk.js'), 'export const receiverSharedChunk = true\n')
+    process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = rendererDir
+
+    try {
+      const started = await invoke<StreamingStartResult>(ctx!, STREAMING_CHANNELS.start, { layoutId: 'default' })
+      const { baseUrl } = pairingDetails(started)
+      const shell = await httpRequest(baseUrl)
+      const bootstrapCookie = cookie(shell)
+      const sharedChunk = await httpRequest(new URL('../../assets/shared-chunk.js', baseUrl), {
+        headers: { Cookie: bootstrapCookie }
+      })
+
+      expect(sharedChunk.statusCode).toBe(200)
+      expect(sharedChunk.body).toContain('receiverSharedChunk = true')
+    } finally {
+      if (previousRendererDir === undefined) {
+        delete process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR
+      } else {
+        process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = previousRendererDir
+      }
+      rmSync(rendererDir, { recursive: true, force: true })
+    }
   })
 
   it('reconnects with a cursor, replays bounded frames, resyncs, and records local latency', async () => {

@@ -844,7 +844,7 @@ function safeStaticPath(pathname: string): string | null {
 
 function isReceiverAssetPath(pathname: string): boolean {
   const fileName = pathname.slice('/assets/'.length)
-  return /^(?:receiver|client)-[A-Za-z0-9_-]+\.(?:js|css)$/.test(fileName)
+  return /^[^/\\]+\.(?:js|css)$/.test(fileName)
 }
 
 function ensureStreamBaseHref(html: string): string {
