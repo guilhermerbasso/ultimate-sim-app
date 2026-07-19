@@ -84,6 +84,18 @@ offline race-operation rehearsal.
 - 🧱 Canonical imports enforce an exact 8 MiB limit with bounded single-handle reads and reject
   prototype-sensitive paths or JSON keys before parsing can affect the workspace.
 
+### Zero-egress Social Connector simulations
+- 💬 **Exercise Twitch, YouTube, and Discord workflows deterministically without contacting platform
+  services**, including chat, events, polls, moderation, markers, clips, broadcasts, commands, and
+  room policies.
+- 🚫 These are local mock/conformance connectors only: they accept no live credentials, make zero
+  live network requests, claim no platform certification, and are not production network adapters.
+- 🔐 Capability-specific payload allowlists, provider-aware credential key/value scans, approval and
+  room-policy gates, monotonic consent epochs, replay protection, cross-capability deduplication,
+  and sanitized audit receipts keep simulated workflows fail closed and reproducible.
+- 📦 Fixture bodies, signatures, sanitized JSON depth/count/size, policy allowlists, and exported
+  status snapshots are bounded and validated before simulation.
+
 ### Evidence-safe Steward Desk
 - ⚖️ **League incident review remains explicitly human-owned** through versioned rules, verdicts,
   dissent, appeals, and authoritative local re-adjudication; the app never assigns penalties
@@ -150,6 +162,8 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   reconnects without changing the first pending deadline or legitimate backoff.
 - [#91](https://github.com/guilhermerbasso/ultimate-sim-app/pull/91) — add signed, deterministic
   offline workspace collaboration with transactional and import-boundary safeguards.
+- [#93](https://github.com/guilhermerbasso/ultimate-sim-app/pull/93) — add deterministic,
+  zero-egress Social Connector simulations that are explicitly not production platform adapters.
 - [#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94) — add authenticated,
   lease-bound interactive Touch Controls with fail-closed ownership and teardown.
 - [#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95) — add the local, evidence-safe

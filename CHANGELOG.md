@@ -31,6 +31,9 @@
 - **Signed offline workspace collaboration** for deterministic local setup sharing without network
   transport, using Ed25519 actor signatures, canonical CRDT ordering/checksums, and bounded import
   and causal-validation rules.
+- **Deterministic local Social Connector simulations** for Twitch, YouTube, and Discord workflow
+  testing, covering chat, events, polls, moderation, markers, clips, broadcasts, commands, and room
+  policies with zero live network egress.
 - **Local-first Steward Desk** for evidence-backed league incident review, versioned rules, human
   verdicts, dissent, appeals, and rights-gated case exchange. Penalties and final decisions remain
   explicitly human-owned.
@@ -57,6 +60,10 @@
 - Collaboration mutations, synchronization, export, and persistence roll back atomically on
   failure; imports enforce the exact 8 MiB boundary and reject prototype-sensitive paths or JSON
   keys before state can change.
+- Social Connector simulations accept no live credentials and are not production platform
+  adapters. Capability allowlists, credential-shaped key/value scans, monotonic consent epochs,
+  approval/policy gates, replay protection, event deduplication, bounded fixtures, and sanitized
+  receipts fail closed on malformed or unauthorized input.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 
