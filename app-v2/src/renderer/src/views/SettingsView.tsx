@@ -20,6 +20,7 @@ import { SectionExportImport } from '../components/SectionExportImport'
 import { SavedConfigsPanel } from '../components/SavedConfigsPanel'
 import { UpdatePanel } from '../components/UpdatePanel'
 import { RelayCapabilityStatusMatrix } from '../components/RelayCapabilityStatusMatrix'
+import { MqttSetupPanel } from '../components/MqttSetupPanel'
 import packageJson from '../../../../package.json'
 import {
   CONFIG_IO_CHANNELS,
@@ -556,6 +557,8 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           </label>
         </div>
       </div>
+
+      <MqttSetupPanel language={language} showToast={showToast} />
 
       <div className="panel-card" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <span className="field-label" style={{ margin: 0, marginRight: 'auto' }}>{tt(language, 'settings.appFolders')}</span>

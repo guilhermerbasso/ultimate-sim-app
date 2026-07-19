@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ultimate-sim:mqtt:v1:connector-health",
+  "title": "Ultimate Sim MQTT Connector Health v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "observedAt", "expiresAt", "state", "queueDepth", "circuit", "metrics"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "observedAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "state": { "enum": ["disabled", "connecting", "online", "reconnecting", "stopping", "error"] },
+    "queueDepth": { "type": "integer", "minimum": 0, "maximum": 64 },
+    "circuit": { "enum": ["closed", "open", "half-open"] },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "published",
+        "received",
+        "denied",
+        "duplicates",
+        "schemaRejects",
+        "staleRetainedCleared",
+        "rateLimited",
+        "oversized",
+        "overloadDropped",
+        "coalesced",
+        "reconnects",
+        "resyncs",
+        "publishFailures"
+      ],
+      "properties": {
+        "published": { "type": "integer", "minimum": 0 },
+        "received": { "type": "integer", "minimum": 0 },
+        "denied": { "type": "integer", "minimum": 0 },
+        "duplicates": { "type": "integer", "minimum": 0 },
+        "schemaRejects": { "type": "integer", "minimum": 0 },
+        "staleRetainedCleared": { "type": "integer", "minimum": 0 },
+        "rateLimited": { "type": "integer", "minimum": 0 },
+        "oversized": { "type": "integer", "minimum": 0 },
+        "overloadDropped": { "type": "integer", "minimum": 0 },
+        "coalesced": { "type": "integer", "minimum": 0 },
+        "reconnects": { "type": "integer", "minimum": 0 },
+        "resyncs": { "type": "integer", "minimum": 0 },
+        "publishFailures": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

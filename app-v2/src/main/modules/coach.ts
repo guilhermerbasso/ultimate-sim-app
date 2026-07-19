@@ -602,6 +602,7 @@ export class LapCoachAnalyzer {
   private reports: CoachReport[] = []
   private latestReport: CoachReport | null = null
   private latestSetup: SetupReport | null = null
+  private latestReportContext: LapCoachFindingsContext | null = null
   // Per-track corner map, learned lazily from the first full clean lap and then
   // reused for every subsequent lap so corner numbers stay stable.
   private cornerMap: CornerMapData | null = null
@@ -652,6 +653,7 @@ export class LapCoachAnalyzer {
     this.reports = []
     this.latestReport = null
     this.latestSetup = null
+    this.latestReportContext = null
     this.cornerMap = null
     this.reference = null
     this.referenceLapTimeSec = undefined
@@ -705,6 +707,7 @@ export class LapCoachAnalyzer {
     const setup = buildSetupReport(buildSetupInput(snapshot, report.findings), { unitSystem: this.deps.getUnitSystem?.() })
     this.latestReport = report
     this.latestSetup = setup
+    this.latestReportContext = lapCoachFindingsContext(snapshot)
     this.reports.push(report)
     this.reports = this.reports.slice(-MAX_REPORTS)
     this.deps.broadcast(COACH_CHANNELS.report, this.payload())
@@ -714,7 +717,14 @@ export class LapCoachAnalyzer {
     return { report: this.latestReport, setup: this.latestSetup }
   }
 
-  lastFindings(): { findings: CoachFinding[]; setup: SetupReport | null } {
+  lastFindings(context?: LapCoachFindingsContext | null): { findings: CoachFinding[]; setup: SetupReport | null } {
+    if (
+      context &&
+      this.latestReportContext &&
+      !sameLapCoachFindingsContext(this.latestReportContext, context)
+    ) {
+      return { findings: [], setup: null }
+    }
     return { findings: this.latestReport?.findings ?? [], setup: this.latestSetup }
   }
 
@@ -920,6 +930,77 @@ function buildSetupInput(
 
 let engine: LiveCoachEngine | null = null
 let analyzer: LapCoachAnalyzer | null = null
+
+export interface LapCoachFindingsContext {
+  trackName?: string
+  trackConfigName?: string
+  carName?: string
+  carPath?: string
+  sessionType?: string
+  sessionUniqueId?: number
+  sessionIdentity?: string
+  connectionEpoch?: number
+}
+
+function lapCoachFindingsContext(snapshot: TelemetrySnapshot): LapCoachFindingsContext {
+  return {
+    trackName: snapshot.trackName,
+    trackConfigName: snapshot.trackConfigName,
+    carName: snapshot.carName,
+    carPath: snapshot.carPath,
+    sessionType: snapshot.sessionType,
+    sessionUniqueId: snapshot.sessionUniqueId,
+    sessionIdentity: snapshot.replayContext?.sessionIdentity,
+    connectionEpoch: snapshot.replayContext?.connectionEpoch
+  }
+}
+
+function sameLapCoachFindingsContext(
+  left: LapCoachFindingsContext,
+  right: LapCoachFindingsContext
+): boolean {
+  const textKeys: Array<keyof LapCoachFindingsContext> = [
+    'trackName',
+    'trackConfigName',
+    'carName',
+    'carPath',
+    'sessionType',
+    'sessionIdentity'
+  ]
+  for (const key of textKeys) {
+    const leftValue = left[key]
+    const rightValue = right[key]
+    if (typeof leftValue === 'string' || typeof rightValue === 'string') {
+      const normalizedLeft = typeof leftValue === 'string' ? leftValue.trim() : ''
+      const normalizedRight = typeof rightValue === 'string' ? rightValue.trim() : ''
+      if (!normalizedLeft || normalizedLeft !== normalizedRight) return false
+    }
+  }
+  const numericKeys: Array<keyof LapCoachFindingsContext> = [
+    'sessionUniqueId',
+    'connectionEpoch'
+  ]
+  for (const key of numericKeys) {
+    const leftValue = left[key]
+    const rightValue = right[key]
+    if (typeof leftValue === 'number' || typeof rightValue === 'number') {
+      if (
+        typeof leftValue !== 'number' ||
+        typeof rightValue !== 'number' ||
+        !Number.isFinite(leftValue) ||
+        !Number.isFinite(rightValue) ||
+        leftValue !== rightValue
+      ) {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+export function getLatestLapCoachFindings(context?: LapCoachFindingsContext | null): CoachFinding[] {
+  return analyzer?.lastFindings(context).findings ?? []
+}
 
 // Lazy, fault-tolerant access to the app-wide LLM singletons. The coach module
 // registers BEFORE the engineer module that owns these singletons, so we must NOT

@@ -118,4 +118,54 @@ describe('GT3ClusterWidget + RevLightsWidget adopt the shared RevLedBar ladder',
     expect(out).not.toContain('>REV<')
     expect(out).not.toContain('RPM')
   })
+
+  it('uses provider blink across every registered rev-light overlay and cluster', () => {
+    const ids = [
+      'revlights',
+      'gt3Cluster',
+      'compactHud',
+      'gridStackDash',
+      'gridProDash',
+      'bosch296Dash',
+      'lmuEnduranceDash',
+      'shiftPointBar',
+      'revComet',
+      'gearRing',
+      'neonGearBar',
+      'cupCluster',
+      'oledStrip',
+      'ringDash',
+      'analogTach',
+      'hifiDdu',
+      'hifiEndurance',
+      'hifiMinimal'
+    ] as OverlayWidgetId[]
+    const providerOff = {
+      ...redline,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot
+    const providerOn = {
+      ...redline,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+    const revPctOnlyOff = { ...providerOff, shiftIndicatorPct: undefined } as TelemetrySnapshot
+    const revPctOnlyOn = { ...providerOn, shiftIndicatorPct: undefined } as TelemetrySnapshot
+
+    for (const [source, normalSnapshot, shiftedSnapshot] of [
+      ['shiftIndicatorPct', providerOff, providerOn],
+      ['revLights.pct fallback', revPctOnlyOff, revPctOnlyOn]
+    ] as const) {
+      for (const id of ids) {
+        const normal = render(id, 'minimal', normalSnapshot)
+        const shifted = render(id, 'minimal', shiftedSnapshot)
+        const label = `${id} (${source})`
+        expect(normal, label).not.toContain(SHIFT_STROBE_BLUE)
+        expect(normal, label).not.toContain('repeatCount="indefinite"')
+        expect(shifted, label).toContain(SHIFT_STROBE_BLUE)
+        expect(shifted, label).toContain('repeatCount="indefinite"')
+      }
+    }
+  })
 })

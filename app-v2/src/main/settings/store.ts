@@ -10,6 +10,10 @@ import {
   isTcSensitivity
 } from '../../shared/settings'
 import { isUnitSystem } from '../../shared/units'
+import {
+  cloneStreamTargetSettings,
+  normalizeStreamTargetSettings
+} from '../../shared/stream-targets'
 
 const STORE_FILE = 'settings.json'
 
@@ -39,7 +43,8 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
       : DEFAULT_APP_SETTINGS.unitSystem,
     tcSensitivity: isTcSensitivity(value?.tcSensitivity)
       ? value.tcSensitivity
-      : DEFAULT_APP_SETTINGS.tcSensitivity
+      : DEFAULT_APP_SETTINGS.tcSensitivity,
+    streamTargets: normalizeStreamTargetSettings(value?.streamTargets)
   }
 }
 
@@ -80,7 +85,10 @@ export class SettingsStore {
   }
 
   private getSnapshot(): AppSettings {
-    return { ...this.settings }
+    return {
+      ...this.settings,
+      streamTargets: cloneStreamTargetSettings(this.settings.streamTargets)
+    }
   }
 
   private save(): void {

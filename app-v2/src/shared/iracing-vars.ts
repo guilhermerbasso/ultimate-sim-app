@@ -57,7 +57,7 @@ export const IRACING_VARIABLES: IracingVarDef[] = [
   { id: 'Speed', label: 'Speed', unit: 'km/h', category: 'car', telemetryField: 'speedKmh' },
   { id: 'RPM', label: 'Engine RPM', unit: 'rpm', category: 'car', telemetryField: 'rpm' },
   { id: 'Gear', label: 'Gear', category: 'car', telemetryField: 'gear' },
-  { id: 'DriverCarSLShiftRPM', label: 'Shift light RPM', unit: 'rpm', category: 'car', telemetryField: 'maxRpm' },
+  { id: 'DriverCarSLShiftRPM', label: 'Shift light RPM', unit: 'rpm', category: 'car', telemetryField: 'shiftRpm' },
   { id: 'PlayerCarSLShiftRPM', label: 'Optimal upshift RPM', unit: 'rpm', category: 'car', telemetryField: 'shiftRpm' },
   { id: 'ShiftIndicatorPct', label: 'Shift indicator', unit: '%', category: 'car', telemetryField: 'shiftIndicatorPct' },
   { id: 'EngineWarnings', label: 'Engine warnings', category: 'car' },

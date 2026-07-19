@@ -114,6 +114,23 @@ function previewFor(voiceId: string): string {
   return PREVIEW_TEXT[lang] ?? PREVIEW_TEXT['pt-BR']
 }
 
+export function piperVoiceNetworkActionSupported(
+  voice: PiperVoiceInfo
+): boolean {
+  return voice.installed
+    ? voice.repairSupported
+    : voice.downloadSupported
+}
+
+export function piperVoiceUnavailableMessage(
+  voice: PiperVoiceInfo
+): string {
+  return (
+    voice.unavailableReason ??
+    'This voice is unavailable because no trusted manifest entry is present.'
+  )
+}
+
 function phaseLabel(progress: PiperVoiceProgress | undefined, language: AppViewProps['language']): string {
   if (!progress) return ''
   switch (progress.phase) {
@@ -206,7 +223,12 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
   // 'system' when the model downloaded but the Piper engine binary is absent (e.g.
   // dev/macOS) so playback will fall back to the OS voice, or 'failed' on error.
   const ensureVoiceReady = useCallback(
-    async (voiceId: string): Promise<'piper' | 'system' | 'failed'> => {
+    async (voice: PiperVoiceInfo): Promise<'piper' | 'system' | 'failed'> => {
+      const voiceId = voice.id
+      if (!piperVoiceNetworkActionSupported(voice)) {
+        showToast(piperVoiceUnavailableMessage(voice), 'error')
+        return 'failed'
+      }
       setBusy((b) => ({ ...b, [voiceId]: true }))
       try {
         const result = await ensurePiperVoice(voiceId)
@@ -222,7 +244,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
         setBusy((b) => ({ ...b, [voiceId]: false }))
       }
     },
-    []
+    [showToast]
   )
 
   const handleEngine = useCallback(
@@ -234,8 +256,9 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
   )
 
   const handleDownload = useCallback(
-    async (voiceId: string) => {
-      const outcome = await ensureVoiceReady(voiceId)
+    async (voice: PiperVoiceInfo) => {
+      const voiceId = voice.id
+      const outcome = await ensureVoiceReady(voice)
       if (outcome === 'failed') showToast(tt(language, 'voice.downloadFailedToast', { voice: voiceId }), 'error')
       else if (outcome === 'system') showToast(`Voice downloaded: ${voiceId} (Piper engine unavailable on this host — system voice will be used).`, 'info')
       else showToast(tt(language, 'voice.downloadedToast', { voice: voiceId }), 'success')
@@ -248,7 +271,11 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       // Auto-download the voice on demand BEFORE playing so "Testar voz" always
       // previews the ACTUAL distinct Piper voice (progress shows via the bar).
       if (pref.engine === 'piper' && !voice.installed) {
-        const outcome = await ensureVoiceReady(voice.id)
+        if (!piperVoiceNetworkActionSupported(voice)) {
+          showToast(piperVoiceUnavailableMessage(voice), 'error')
+          return
+        }
+        const outcome = await ensureVoiceReady(voice)
         if (outcome === 'system') {
           showToast('Piper engine unavailable — using system voice.', 'info')
         } else if (outcome === 'failed') {
@@ -269,7 +296,15 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       // it if it isn't on disk yet (otherwise the engineer would silently fall back
       // to the single OS voice and every voice would sound the same).
       if (pref.engine === 'piper') {
-        const outcome = await ensureVoiceReady(voiceId)
+        const voice = voices.find((candidate) => candidate.id === voiceId)
+        if (!voice) return
+        if (!voice.installed && !piperVoiceNetworkActionSupported(voice)) {
+          showToast(piperVoiceUnavailableMessage(voice), 'error')
+          return
+        }
+        const outcome = voice.installed
+          ? 'piper'
+          : await ensureVoiceReady(voice)
         if (outcome === 'system') showToast(`Default voice: ${voiceId} (engine unavailable — system voice).`, 'info')
         else if (outcome === 'failed') showToast(tt(language, 'voice.defaultDownloadFailedToast', { voice: voiceId }), 'info')
         else showToast(tt(language, 'voice.defaultVoiceToast', { voice: voiceId }), 'success')
@@ -277,7 +312,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
         showToast(tt(language, 'voice.defaultVoiceToast', { voice: voiceId }), 'success')
       }
     },
-    [updatePref, pref.engine, ensureVoiceReady, showToast, language]
+    [updatePref, pref.engine, ensureVoiceReady, showToast, language, voices]
   )
 
   const handleSttToggle = useCallback(
@@ -404,6 +439,11 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
             const isDefault = pref.voiceId === voice.id
             const prog = progress[voice.id]
             const downloading = busy[voice.id] || (prog && (prog.phase === 'downloading' || prog.phase === 'resolving'))
+            const networkSupported = piperVoiceNetworkActionSupported(voice)
+            const testDisabled =
+              pref.engine === 'piper' &&
+              !voice.installed &&
+              !networkSupported
             return (
               <div
                 key={voice.id}
@@ -447,20 +487,46 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
                       {tt(language, LANG_LABEL[voice.lang])} · quality {voice.quality}
                       {voice.onnxBytes ? ` · ~${Math.round(voice.onnxBytes / 1_000_000)} MB` : ''}
                     </div>
+                    {!voice.installed && voice.unavailableReason && (
+                      <div
+                        role="status"
+                        style={{
+                          color: 'var(--status-warning)',
+                          fontSize: 12,
+                          marginTop: 4
+                        }}
+                      >
+                        {voice.unavailableReason}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', gap: 'var(--space-2)', flexShrink: 0 }}>
-                    <button type="button" onClick={() => void handleTest(voice)} style={ghostButton}>
+                    <button
+                      type="button"
+                      onClick={() => void handleTest(voice)}
+                      disabled={testDisabled}
+                      title={testDisabled ? piperVoiceUnavailableMessage(voice) : undefined}
+                      style={{ ...ghostButton, opacity: testDisabled ? 0.55 : 1 }}
+                    >
                       Test voice
                     </button>
                     {!voice.installed ? (
                       <button
                         type="button"
-                        onClick={() => void handleDownload(voice.id)}
-                        disabled={!!downloading}
-                        style={{ ...primaryButton, opacity: downloading ? 0.6 : 1 }}
+                        onClick={() => void handleDownload(voice)}
+                        disabled={!!downloading || !networkSupported}
+                        title={!networkSupported ? piperVoiceUnavailableMessage(voice) : undefined}
+                        style={{
+                          ...primaryButton,
+                          opacity: downloading || !networkSupported ? 0.6 : 1
+                        }}
                       >
-                        {downloading ? 'Downloading…' : 'Download'}
+                        {downloading
+                          ? 'Downloading…'
+                          : networkSupported
+                            ? 'Download'
+                            : 'Trusted manifest unavailable'}
                       </button>
                     ) : (
                       <button

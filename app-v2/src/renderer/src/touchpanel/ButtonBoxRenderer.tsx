@@ -51,6 +51,12 @@ export interface ButtonBoxRendererProps {
   selectedId?: string | null
   /** False keeps semantic markup visible but disables every action hit target. */
   interactive?: boolean
+  /** Presentation-level minimum cell size in CSS pixels. */
+  minimumTouchTarget?: number
+  /** Hidden controls keep their grid slot so source layout geometry is preserved. */
+  hiddenButtonIds?: ReadonlySet<string>
+  /** Browser receivers report release/cancel for every pressed capability lifecycle. */
+  reportLifecycle?: boolean
   /** Existing expression-engine values keyed by ExpressionDef.id. No store is duplicated here. */
   expressionValues?: Readonly<Record<string, ExpressionValue | undefined>>
 }
@@ -230,6 +236,7 @@ export function ButtonBoxKey({
   index,
   selected,
   interactive,
+  reportLifecycle,
   expressionValues,
   onAction,
   onFeedback,
@@ -239,6 +246,7 @@ export function ButtonBoxKey({
   index: number
   selected: boolean
   interactive: boolean
+  reportLifecycle: boolean
   expressionValues?: Readonly<Record<string, ExpressionValue | undefined>>
   onAction?: ButtonBoxRendererProps['onAction']
   onFeedback?: ButtonBoxRendererProps['onFeedback']
@@ -281,7 +289,11 @@ export function ButtonBoxKey({
       if (guardTimerRef.current) clearTimeout(guardTimerRef.current)
       activePointerIdRef.current = null
       const active = activePressRef.current
-      if (active?.action.kind === 'keyboard' && active.action.command.mode === 'hold' && onAction) {
+      if (
+        active &&
+        onAction &&
+        (reportLifecycle || (active.action.kind === 'keyboard' && active.action.command.mode === 'hold'))
+      ) {
         void Promise.resolve(
           onAction({
             button,
@@ -368,7 +380,10 @@ export function ButtonBoxKey({
     keyboardActiveRef.current = false
     setPressedZone(null)
     setLocalPressed(false)
-    if (active?.action.kind === 'keyboard' && active.action.command.mode === 'hold') {
+    if (
+      active &&
+      (reportLifecycle || (active.action.kind === 'keyboard' && active.action.command.mode === 'hold'))
+    ) {
       emit(active.action, phase, active.zone)
     }
   }
@@ -380,7 +395,10 @@ export function ButtonBoxKey({
 
     const activePress = activePressRef.current
     activePressRef.current = null
-    if (activePress?.action.kind === 'keyboard' && activePress.action.command.mode === 'hold') {
+    if (
+      activePress &&
+      (reportLifecycle || (activePress.action.kind === 'keyboard' && activePress.action.command.mode === 'hold'))
+    ) {
       emit(activePress.action, 'cancel', activePress.zone)
     }
     const activeLatch = activeLatchingKeyboardRef.current
@@ -576,7 +594,7 @@ export function ButtonBoxKey({
                 emit(control.offAction, 'trigger', 'off', 'latching')
               } else {
                 if (activeToggle) emit(activeToggle.action, 'cancel', 'teardown', 'latching')
-                emit(control.offAction, 'trigger', 'off')
+                emit(control.offAction, 'trigger', 'off', 'latching')
               }
             })}
           />
@@ -738,26 +756,44 @@ export function ButtonBoxRenderer({
   onFeedback,
   selectedId = null,
   interactive = true,
+  minimumTouchTarget = 56,
+  hiddenButtonIds,
+  reportLifecycle = false,
   expressionValues
 }: ButtonBoxRendererProps): ReactElement {
+  const normalizedMinimumTouchTarget = Math.max(44, Math.min(128, Math.round(minimumTouchTarget)))
   const gridStyle: CSSProperties = {
-    gridTemplateColumns: `repeat(${panel.columns}, minmax(0, 1fr))`,
-    gridTemplateRows: `repeat(${Math.max(1, panel.rows)}, minmax(0, 1fr))`,
-    gridAutoRows: 'minmax(0, 1fr)',
+    gridTemplateColumns: `repeat(${panel.columns}, minmax(${normalizedMinimumTouchTarget}px, 1fr))`,
+    gridTemplateRows: `repeat(${Math.max(1, panel.rows)}, minmax(${normalizedMinimumTouchTarget}px, 1fr))`,
+    gridAutoRows: `minmax(${normalizedMinimumTouchTarget}px, 1fr)`,
     gap: `${panel.gap}px`,
     padding: `${panel.gap}px`,
-    background: panel.background
+    background: panel.background,
+    ['--bb-min-touch-target' as string]: `${normalizedMinimumTouchTarget}px`
   }
   return (
     <div className="bb-stage" style={{ background: panel.background }}>
-      <div className="bb-grid" style={gridStyle} data-panel-schema={panel.schemaVersion}>
-        {panel.buttons.map((button, index) => (
+      <div
+        className="bb-grid"
+        style={gridStyle}
+        data-panel-schema={panel.schemaVersion}
+        data-minimum-touch-target={normalizedMinimumTouchTarget}
+      >
+        {panel.buttons.map((button, index) => hiddenButtonIds?.has(button.id) ? (
+          <div
+            key={button.id}
+            className="bb-hidden-slot"
+            aria-hidden="true"
+            data-hidden-control={button.id}
+          />
+        ) : (
           <ButtonBoxKey
             key={button.id}
             button={button}
             index={index}
             selected={selectedId === button.id}
             interactive={interactive}
+            reportLifecycle={reportLifecycle}
             expressionValues={expressionValues}
             onAction={onAction}
             onFeedback={onFeedback}

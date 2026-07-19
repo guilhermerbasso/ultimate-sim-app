@@ -59,6 +59,7 @@ import {
   type BezelKind,
   type MaterialKind
 } from '../../instruments'
+import { atShiftPoint } from '../../lib/rev-lights'
 import { resolveElementSkin, FitText, makeGrid, zoneColor } from '../../skins'
 import type { SkinToken, Rect } from '../../skins'
 
@@ -123,6 +124,7 @@ export function revLedPropsFor(
   dangerAt: number
   flashAt: number
   flashOn: boolean
+  shiftActive: boolean
   glow: boolean
   bloom?: number
   colors?: Partial<InstrumentColors>
@@ -131,7 +133,7 @@ export function revLedPropsFor(
   const segments = Math.max(4, Math.min(32, led?.segments ?? s.segments ?? 12))
   const shape = (led?.shape ?? s.segmentShape ?? 'led') as LedShape
   const flashAt = led?.flashAt ?? s.flashAt ?? 0.97
-  const blink = Boolean(opts.blink) || shiftPct >= flashAt
+  const shiftActive = atShiftPoint(shiftPct, opts.blink, flashAt)
   const gap = Math.max(2, Math.round(opts.width / segments / 8))
   const colors = instrumentColorsFor(s)
   if (opts.pit) {
@@ -150,7 +152,8 @@ export function revLedPropsFor(
     warnAt: led?.warnAt ?? s.warnAt ?? 0.6,
     dangerAt: led?.dangerAt ?? s.dangerAt ?? 0.85,
     flashAt,
-    flashOn: blink,
+    flashOn: shiftActive,
+    shiftActive,
     glow: instrumentGlow(s),
     bloom: led?.bloom,
     colors: Object.keys(colors).length ? colors : undefined
@@ -893,7 +896,7 @@ export function ShiftBar({ element, snapshot }: WidgetProps): ReactElement {
   // so segments fill across the real band — never proportionally to RPM.
   const shift = pct(element.binding ?? 'shiftPct', snapshot)
   const flashAt = s.instrument?.parts?.led?.flashAt ?? s.flashAt ?? 0.975
-  const flashing = Boolean(snapshot?.revLights?.blink) || shift >= flashAt
+  const flashing = atShiftPoint(shift, snapshot?.revLights?.blink, flashAt)
   const pit = s.pitLimiterOverride !== false && Boolean(snapshot?.pitLimiter)
   const shape = (s.instrument?.parts?.led?.shape ?? s.segmentShape ?? 'led') as LedShape
   const pad = Math.max(4, element.h * 0.12)
@@ -901,7 +904,7 @@ export function ShiftBar({ element, snapshot }: WidgetProps): ReactElement {
   const scaleH = Math.max(8, Math.round(element.h * 0.16))
   const railW = Math.max(8, element.w - pad * 2)
   const railH = Math.max(8, element.h - pad * 2 - scaleH)
-  const ledProps = revLedPropsFor(s, shift, { width: railW, height: railH, blink: flashing, pit })
+  const ledProps = revLedPropsFor(s, shift, { width: railW, height: railH, blink: snapshot?.revLights?.blink, pit })
 
   return (
     <Shell element={element} chrome={panelChrome(s, { radius: s.radius ?? 10, glow: flashing ? GT3.whiteFlash : undefined })} padding={pad} className={`gt3-shiftbar gt3-shape-${shape}${flashing ? ' gt3-shiftbar-flashing' : ''}`}>
@@ -927,7 +930,7 @@ export function GearCluster({ element, snapshot, unitSystem = 'metric' }: Widget
   const rpm = resolveBinding('rpm', snapshot).text
   const rpmNumeric = resolveBinding('rpm', snapshot).numeric ?? 0
   const maxRpm = resolveBinding('maxRpm', snapshot).numeric ?? 8000
-  const flash = shift >= (s.flashAt ?? 0.95)
+  const flash = atShiftPoint(shift, snapshot?.revLights?.blink, s.flashAt ?? 0.95)
   const gearColor = resolveSlotStyle(s, 'gear', { color: flash ? GT3.whiteFlash : skin.palette.text }).color ?? (flash ? GT3.whiteFlash : skin.palette.text)
   const speedColor = resolveSlotStyle(s, 'speed', { color: skin.palette.text }).color ?? skin.palette.text
   const speedUnit = speedReading.unit.toUpperCase()

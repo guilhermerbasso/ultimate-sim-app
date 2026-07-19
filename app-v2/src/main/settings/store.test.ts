@@ -88,6 +88,39 @@ describe('SettingsStore.language', () => {
     })
   })
 
+  describe('SettingsStore.streamTargets', () => {
+    it('persists ordered profiles and stable selection across a simulated restart', () => {
+      const dir = tempDir()
+      const streamTargets = {
+        schemaVersion: 1 as const,
+        profiles: [
+          { id: 'profile-touch', kind: 'touch' as const, sourceId: 'touch-one', label: 'Tablet' },
+          { id: 'profile-dash', kind: 'dashboard' as const, sourceId: 'dash-one', label: 'OBS' }
+        ],
+        selectedProfileId: 'profile-dash'
+      }
+
+      new SettingsStore(dir).setSettings({ streamTargets })
+      expect(new SettingsStore(dir).load().streamTargets).toEqual(streamTargets)
+    })
+
+    it('normalizes invalid or deleted selected profile ids without mutating the input', () => {
+      const dir = tempDir()
+      const input = {
+        schemaVersion: 1 as const,
+        profiles: [
+          { id: 'profile-dash', kind: 'dashboard' as const, sourceId: 'dash-one', label: 'OBS' }
+        ],
+        selectedProfileId: 'deleted-profile'
+      }
+      const original = structuredClone(input)
+
+      const saved = new SettingsStore(dir).setSettings({ streamTargets: input })
+      expect(saved.streamTargets.selectedProfileId).toBe('profile-dash')
+      expect(input).toEqual(original)
+    })
+  })
+
   it('defaults to en and falls back to it for an unknown language', () => {
     const dir = tempDir()
     expect(new SettingsStore(dir).load().language).toBe('en')
