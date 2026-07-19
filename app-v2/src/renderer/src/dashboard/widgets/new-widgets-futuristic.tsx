@@ -282,7 +282,7 @@ function NeonBar({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): 
   const s = element.style
   const { text, frac, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={frac} />
+    return <RevInstrument element={element} frac={frac} snapshot={snapshot} />
   }
   const skin = resolveElementSkin(s)
   const accent = accentOf(s, skin.palette.accent)

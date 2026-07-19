@@ -99,6 +99,28 @@ describe('AlertsDetector threshold truth', () => {
     ])
   })
 
+  it('uses provider blink before percentage shift thresholds', () => {
+    const detector = new AlertsDetector(config({
+      shiftPoint: { ...DEFAULT_ALERTS_CONFIG.shiftPoint, enabled: true }
+    }))
+
+    expect(detector.process(snapshot(1000, {
+      shiftIndicatorPct: 0.999,
+      rpm: 7999,
+      maxRpm: 8000,
+      revLights: { pct: 0.999, blink: false }
+    }))).toEqual([])
+
+    expect(detector.process(snapshot(2000, {
+      shiftIndicatorPct: 0.2,
+      rpm: 2000,
+      maxRpm: 8000,
+      revLights: { pct: 0.2, blink: true }
+    }))).toEqual([
+      expect.objectContaining({ type: 'shiftPoint' })
+    ])
+  })
+
   it('ignores iRacing garage cold pressure for live tyre-pressure alerts', () => {
     const detector = new AlertsDetector(config({
       tyrePressure: {

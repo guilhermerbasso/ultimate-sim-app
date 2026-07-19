@@ -15,9 +15,12 @@ import type {
   StartLedComponent
 } from '../../../shared/devices'
 import {
+  FALLBACK_SHIFT_BLINK_PCT,
   computeRevlights,
   normalizeRevlightsConfig,
-  previewLedColors
+  previewLedColors,
+  resolveShiftIndicatorPct,
+  resolveShiftNow
 } from '../../../shared/revlights'
 import type { Flags, TelemetrySnapshot } from '../../../shared/telemetry'
 import { formatMeasurement, type UnitSystem } from '../../../shared/units'
@@ -80,6 +83,7 @@ export function stripColors(
 ): string[] {
   const rev = component.revlights
   const result = computeRevlights(snapshot, rev)
+  const count = clampCount(component.ledCount, 256)
 
   let base: string[]
   if (result.flag && rev.flagBlink) {
@@ -89,12 +93,13 @@ export function stripColors(
     base = previewLedColors(rev, result.level)
   }
 
-  // Shift blink: on the "off" half of the cycle, flash the whole strip blue.
-  if (result.shiftActive && !blinkOn(now, STRIP_BLINK_MS)) {
-    base = new Array<string>(rev.ledCount).fill(SHIFT_BLUE)
+  // Shift-now owns the whole strip: every LED strobes uniformly in strong blue.
+  if (result.shiftActive) {
+    base = new Array<string>(count).fill(
+      blinkOn(now, STRIP_BLINK_MS) ? SHIFT_BLUE : STRIP_OFF
+    )
   }
 
-  const count = clampCount(component.ledCount, 256)
   const out: string[] = []
   for (let i = 0; i < count; i += 1) out.push(base[i] ?? STRIP_OFF)
   return out
@@ -158,6 +163,18 @@ export function matrixFrame(
 ): string[][] {
   const width = Math.max(1, clampCount(component.width, 32))
   const height = Math.max(1, clampCount(component.height, 32))
+  const shiftActive = Boolean(snapshot?.connected) && resolveShiftNow(
+    snapshot?.revLights?.blink,
+    resolveShiftIndicatorPct(snapshot) >= FALLBACK_SHIFT_BLINK_PCT
+  )
+  if (shiftActive) {
+    const color = blinkOn(now, STRIP_BLINK_MS) ? SHIFT_BLUE : MATRIX_OFF
+    const shiftRows = Array.from(
+      { length: height },
+      () => new Array<string>(width).fill(color)
+    )
+    return rotateGrid(shiftRows, component.orientation)
+  }
   const flag = snapshot?.connected ? detectMatrixFlag(snapshot.flags) : null
 
   const rows: string[][] = []
