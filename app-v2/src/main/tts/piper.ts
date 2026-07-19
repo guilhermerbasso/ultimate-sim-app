@@ -1,7 +1,7 @@
 import { existsSync, statSync, createWriteStream } from 'node:fs'
 import { mkdir, readFile, writeFile, unlink, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import type { App } from 'electron'
 import type { ModuleContext } from '../module-context'
@@ -25,6 +25,10 @@ import {
   evictTtsCache
 } from './sherpa'
 import { PiperEngineHealth } from './piper-engine-health'
+import {
+  PiperVoiceRepairCoordinator,
+  voiceInstallHashesMatch
+} from './piper-voice-repair'
 
 // Neural TTS main-process module — engine = sherpa-onnx (VITS), replacing piper.exe
 // which hard-crashed (0xC0000005) on many Windows CPUs and made tts:synth return
@@ -218,8 +222,24 @@ function isVoiceInstalled(app: App, voiceId: string): boolean {
 
 export function register(ctx: ModuleContext): void {
   const tempDir = join(ctx.app.getPath('userData'), TEMP_DIR_NAME)
-  // Single-flight per voice: concurrent ensureVoice calls share ONE download.
-  const inflight = new Map<string, Promise<EnsureVoiceResult>>()
+  const repairCoordinator = new PiperVoiceRepairCoordinator(
+    engineHealth,
+    (voiceId) => isVoiceInstalled(ctx.app, voiceId),
+    async (voiceId) => {
+      const result = await ensureVoice(ctx, tempDir, voiceId)
+      if (result.ok && result.installed) {
+        engineHealth.resetVoice(voiceId)
+        emitProgress(ctx, {
+          voiceId,
+          phase: 'done',
+          totalBytes: 0,
+          downloadedBytes: 0,
+          ratio: 1
+        })
+      }
+      return result
+    }
+  )
 
   ctx.ipcMain.handle(TTS_CHANNELS.listVoices, (): PiperVoiceInfo[] => {
     const engineReady = isSherpaEngineReady()
@@ -228,7 +248,7 @@ export function register(ctx: ModuleContext): void {
       // A voice is usable only when the native engine is also present.
       installed:
         engineReady &&
-        !engineHealth.isDisabled(voice.id) &&
+        !engineHealth.needsRepair(voice.id) &&
         resolveVoiceModel(ctx.app, voice.id) !== null
     }))
   })
@@ -339,19 +359,14 @@ export function register(ctx: ModuleContext): void {
       if (!isValidPiperVoiceId(voiceId)) {
         return { ok: false, voiceId, installed: false, error: `unknown voice id: ${voiceId}` }
       }
-      // Already present (downloaded or bundled) → no network.
-      if (isVoiceInstalled(ctx.app, voiceId)) {
+      const alreadyHealthy =
+        isVoiceInstalled(ctx.app, voiceId) &&
+        !engineHealth.needsRepair(voiceId)
+      const result = await repairCoordinator.ensure(voiceId)
+      if (alreadyHealthy && result.ok && result.installed) {
         emitProgress(ctx, { voiceId, phase: 'done', totalBytes: 0, downloadedBytes: 0, ratio: 1 })
-        return { ok: true, voiceId, installed: true }
       }
-      const existing = inflight.get(voiceId)
-      if (existing) return existing
-
-      const task = ensureVoice(ctx, tempDir, voiceId).finally(() => {
-        inflight.delete(voiceId)
-      })
-      inflight.set(voiceId, task)
-      return task
+      return result
     }
   )
 
@@ -457,6 +472,7 @@ async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<T
     return status
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
+    engineHealth.recordFailure(probeVoiceId, reason)
     const status: TtsEngineStatus = { engine: 'sherpa', ok: false, reason }
     // Named so the next user log pinpoints the exact neural failure on this CPU.
     logger.warn('tts', 'engine status: neural synth probe FAILED (using OS voices)', {
@@ -518,16 +534,24 @@ async function ensureVoice(
     await rename(`${tokensPath}.part`, tokensPath)
     evictTtsCache(onnxPath) // drop any stale engine instance for this path
 
-    // 3. Verify the extracted files are full-size.
+    // 3. Verify the extracted files are full-size and byte-identical to the
+    // validated installer payload before resetting any crash-disable state.
     if (!(await fileAtLeast(onnxPath, minOnnxBytes(voiceId))) || !(await fileAtLeast(tokensPath, MIN_TOKENS_BYTES))) {
       throw new Error('extracted voice failed verification (missing or truncated)')
     }
+    const expectedHashes = {
+      onnx: createHash('sha256').update(extracted.onnx).digest('hex'),
+      tokens: createHash('sha256').update(extracted.tokens).digest('hex')
+    }
+    const actualHashes = {
+      onnx: createHash('sha256').update(await readFile(onnxPath)).digest('hex'),
+      tokens: createHash('sha256').update(await readFile(tokensPath)).digest('hex')
+    }
+    if (!voiceInstallHashesMatch(expectedHashes, actualHashes)) {
+      throw new Error('installed voice failed SHA-256 verification')
+    }
 
-    emitProgress(ctx, { voiceId, phase: 'done', totalBytes, downloadedBytes: totalBytes, ratio: 1 })
     logger.info('tts', 'voice downloaded', { voiceId, engine: 'sherpa', onnxPath, bytes: extracted.onnx.length })
-    // A fresh (re)download supersedes a corrupt model that hit the crash cap, so
-    // clear the sticky guard and let this voice try the neural engine again.
-    engineHealth.resetVoice(voiceId)
     return { ok: true, voiceId, installed: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

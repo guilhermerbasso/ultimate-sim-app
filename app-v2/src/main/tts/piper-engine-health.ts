@@ -42,6 +42,10 @@ export class PiperEngineHealth {
     return (this.crashCounts.get(voiceId) ?? 0) >= this.maxCrashes
   }
 
+  needsRepair(voiceId: string): boolean {
+    return (this.crashCounts.get(voiceId) ?? 0) > 0
+  }
+
   resetVoice(voiceId: string): void {
     this.crashCounts.delete(voiceId)
     this.cached = null

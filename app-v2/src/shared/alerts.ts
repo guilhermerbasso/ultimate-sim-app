@@ -14,6 +14,30 @@ export type AlertType =
 
 export type AlertSeverity = 'info' | 'warning' | 'critical'
 
+export const ALERT_SEVERITY_PRIORITY: Readonly<
+  Record<AlertSeverity, number>
+> = {
+  info: 0,
+  warning: 1,
+  critical: 2
+}
+
+export function maxAlertSeverity(
+  ...severities: Array<AlertSeverity | null | undefined>
+): AlertSeverity {
+  let resolved: AlertSeverity = 'info'
+  for (const severity of severities) {
+    if (
+      severity &&
+      ALERT_SEVERITY_PRIORITY[severity] >
+        ALERT_SEVERITY_PRIORITY[resolved]
+    ) {
+      resolved = severity
+    }
+  }
+  return resolved
+}
+
 export interface AlertEvent {
   id: string
   type: AlertType

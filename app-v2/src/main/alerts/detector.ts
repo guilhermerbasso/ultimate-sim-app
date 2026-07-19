@@ -1,5 +1,6 @@
 import {
   ALERT_TYPE_DEFAULTS,
+  maxAlertSeverity,
   type AlertEvent,
   type AlertEventContext,
   type AlertRuleConfig,
@@ -259,7 +260,7 @@ export class AlertsDetector {
       if (emitted) {
         this.state.incidentRemaining = remaining
         this.state.incidentCount = snapshot.incidentCount
-        this.state.incidentSeverity = severity
+        this.state.incidentSeverity = emitted.severity
       }
       return
     }
@@ -486,7 +487,7 @@ export class AlertsDetector {
     context?: AlertEventContext,
     isRepeat = false,
     bypassCooldown = false
-  ): boolean {
+  ): AlertEvent | null {
     const defaults = ALERT_TYPE_DEFAULTS[type]
     const cooldownMs = rule.cooldownMs ?? defaults.cooldownMs
     const lastAt = this.state.lastFiredAt.get(key)
@@ -495,10 +496,14 @@ export class AlertsDetector {
       lastAt !== undefined &&
       timestamp - lastAt < cooldownMs
     ) {
-      return false
+      return null
     }
 
-    const severity = rule.severity ?? defaultSeverity ?? defaults.severity
+    const severity = maxAlertSeverity(
+      rule.severity,
+      defaultSeverity,
+      defaults.severity
+    )
     const event: AlertEvent = {
       id: `${timestamp}-${type}-${Math.random().toString(36).slice(2, 8)}`,
       type,
@@ -528,6 +533,6 @@ export class AlertsDetector {
         })
       }
     }
-    return true
+    return event
   }
 }

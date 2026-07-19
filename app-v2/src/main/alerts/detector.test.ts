@@ -59,6 +59,43 @@ describe('AlertsDetector threshold truth', () => {
 
   describe('AlertsDetector repeat severity', () => {
     it.each([
+      ['info', 1, 'critical'],
+      ['warning', 1, 'critical'],
+      ['critical', 1, 'critical'],
+      ['info', 3, 'warning'],
+      ['warning', 3, 'warning'],
+      ['critical', 3, 'critical']
+    ] as const)(
+      'uses max severity for configured %s with %i incident remaining',
+      (configuredSeverity, remaining, expectedSeverity) => {
+        const detector = new AlertsDetector(config({
+          incidentLimit: {
+            ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+            enabled: true,
+            severity: configuredSeverity,
+            remainingThreshold: 4,
+            cooldownMs: 1_000,
+            repeatMs: 1_000
+          }
+        }))
+        const incidentLimit = 10
+        const incidentCount = incidentLimit - remaining
+
+        const initial = detector.process(
+          snapshot(1_000, { incidentCount, incidentLimit })
+        )
+        const repeat = detector.process(
+          snapshot(2_000, { incidentCount, incidentLimit })
+        )
+
+        expect(initial).toHaveLength(1)
+        expect(repeat).toHaveLength(1)
+        expect(initial[0].severity).toBe(expectedSeverity)
+        expect(repeat[0].severity).toBe(expectedSeverity)
+      }
+    )
+
+    it.each([
       ['black', 'critical'],
       ['meatball', 'critical'],
       ['yellow', 'warning']
