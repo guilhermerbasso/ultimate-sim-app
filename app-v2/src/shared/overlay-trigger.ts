@@ -1,4 +1,5 @@
 import { DEFAULT_ALERTS_CONFIG, type AlertsConfig } from './alerts'
+import { resolveShiftNow } from './revlights'
 import {
   fuelLapsRemainingOf,
   trackSurfaceMaterialLabel,
@@ -324,10 +325,10 @@ function shiftPointActive(snapshot: TelemetrySnapshot, alertsConfig: AlertsConfi
   const rpm = finite(snapshot.rpm)
   const maxRpm = finite(snapshot.maxRpm)
   const rpmPct = rpm != null && maxRpm != null && maxRpm > 0 ? rpm / maxRpm : undefined
-  return (
+  return resolveShiftNow(snapshot.revLights?.blink, (
     (shiftIndicatorPct != null && shiftIndicatorPct >= alertsConfig.shiftPoint.shiftIndicatorPct) ||
     (rpmPct != null && rpmPct >= alertsConfig.shiftPoint.rpmPct)
-  )
+  ))
 }
 
 function level(signal: TriggerSignal, phase = 'active', priority = 10): TemporalChannel {
@@ -863,8 +864,8 @@ export function hifiModuleRole(moduleId: string): OverlayRole | undefined {
 
 function previewFlags(active: boolean, blueOnly = false): NonNullable<TelemetrySnapshot['flags']> {
   return {
-    green: active && !blueOnly,
-    yellow: false,
+    green: false,
+    yellow: active && !blueOnly,
     blue: active && blueOnly,
     white: false,
     checkered: false,
@@ -995,6 +996,15 @@ export function simulateOverlayTriggerSnapshot(
     case 'sideProximity':
       snapshot.carLeftRight = active ? 'left' : 'clear'
       snapshot.carLeftRightCount = active ? 1 : undefined
+      snapshot.radarCars = active
+        ? [{
+            carIdx: 62,
+            name: 'Preview',
+            relativeX: -2,
+            relativeY: 1.5,
+            gapSec: 0.2
+          }]
+        : []
       break
     case 'raceControlFlags':
       snapshot.flags = previewFlags(active)

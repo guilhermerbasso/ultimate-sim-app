@@ -2,13 +2,14 @@
 // height are independent, and the shared rev-light rule owns the blue strobe state.
 //
 // The ladder is driven by shiftIndicatorPct (0..1 along the car's shift band — the
-// correct signal, never rpm/maxRpm), falling back to revLights.pct. This is purely the
+// correct signal, never rpm/maxRpm), then revLights.pct and the shared top-slice
+// redline fallback. This is purely the
 // on-screen VISUAL ladder; the RGB-matrix / firmware rev-light engine is untouched.
 // Every input is optional and degrades to "—" so a null snapshot never renders NaN.
 
 import type { ReactElement } from 'react'
 import { resolveSkin } from '../../skins'
-import { resolveRevLightState } from '../../lib/rev-lights'
+import { resolveRevLightPct, resolveRevLightState } from '../../lib/rev-lights'
 import { LedShiftBar } from './LedShiftBar'
 import type { WidgetProps } from './types'
 
@@ -22,10 +23,7 @@ export function ShiftPointBarWidget({ snapshot, config }: WidgetProps): ReactEle
   const skin = resolveSkin('gt3', 'generic')
   const W = positiveDimension(config.position?.width, 360)
   const H = positiveDimension(config.position?.height, 90)
-  const state = resolveRevLightState(
-    snapshot?.shiftIndicatorPct ?? snapshot?.revLights?.pct,
-    snapshot?.revLights?.blink
-  )
+  const state = resolveRevLightState(resolveRevLightPct(snapshot), snapshot?.revLights?.blink)
 
   return (
     <svg

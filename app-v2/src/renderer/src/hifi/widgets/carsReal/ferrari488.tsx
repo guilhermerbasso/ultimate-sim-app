@@ -1,7 +1,7 @@
 import { arc } from 'd3-shape'
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, resolveRpmGaugePct, revFill, signed, tempColor } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -15,16 +15,22 @@ const BLUE = '#1e63ff'
 const DARK = '#010101'
 const TAGS = ['ferrari', 'ferrari-488-challenge', 'challenge', 'car', 'ir'] as const
 
+function shiftFraction(snapshot: HifiWidgetProps['snapshot']): number {
+  return resolveRevLightPct(snapshot)
+}
+
+function shiftMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
+  return snapshot == null || (num(snapshot.rpm) == null && num(snapshot.shiftIndicatorPct) == null && num(snapshot.revLights?.pct) == null)
+}
+
 function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
-  const pct = num(snapshot?.shiftIndicatorPct ?? snapshot?.revLights?.pct)
-  if (pct != null) return frac(pct, 0, 1)
-  const rpm = num(snapshot?.rpm)
-  const max = num(snapshot?.maxRpm)
-  return rpm != null && max != null && max > 0 ? frac(rpm, 0, max) : 0
+  return resolveRpmGaugePct(snapshot)
 }
 
 function rpmMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
-  return snapshot == null || (num(snapshot.rpm) == null && num(snapshot.shiftIndicatorPct) == null && num(snapshot.revLights?.pct) == null)
+  const rpm = num(snapshot?.rpm)
+  const maxRpm = num(snapshot?.maxRpm)
+  return rpm == null || maxRpm == null || maxRpm <= 0
 }
 
 function lapShort(sec: number | undefined): string {
@@ -55,9 +61,9 @@ function GlowDefs({ id }: { id: string }): ReactElement {
 }
 
 function ShiftLedRow({ snapshot, x, y, w, count = 12, id = 'f488-leds', r = 18 }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; count?: number; id?: string; r?: number }): ReactElement {
-  const f = rpmFraction(snapshot)
-  const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f)
+  const f = shiftFraction(snapshot)
+  const missing = shiftMissing(snapshot)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = w / Math.max(1, count - 1)
   return (
@@ -92,16 +98,23 @@ function segArc(inner: number, outer: number, a0: number, a1: number): string {
 function CurvedRpmBar({ snapshot, cx, cy, id = 'f488-rpm', scale = true, compact = false }: { snapshot: HifiWidgetProps['snapshot']; cx: number; cy: number; id?: string; scale?: boolean; compact?: boolean }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f)
+  const shiftPct = shiftFraction(snapshot)
+  const shift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)
   const cells = compact ? 28 : 34
-  const lit = shift ? cells : missing ? 0 : Math.round(f * cells)
+  const lit = missing ? 0 : Math.round(f * cells)
   const start = -112
   const sweep = 224
   const inner = compact ? 106 : 214
   const outer = compact ? 130 : 252
   const gap = 1.4
   return (
-    <g transform={`translate(${cx},${cy})`}>
+    <g
+      transform={`translate(${cx},${cy})`}
+      data-rpm-gauge="f488-curved-rpm"
+      data-rpm-pct={f.toFixed(4)}
+      data-rpm-lit={lit}
+    >
+      <ShiftStrobe active={shift} />
       <GlowDefs id={id} />
       <path d={segArc(inner - 9, outer + 8, start - 3, start + sweep + 3)} fill="none" stroke="rgba(255,255,255,0.88)" strokeWidth={compact ? 2 : 3} />
       {Array.from({ length: cells }, (_, i) => {

@@ -611,8 +611,8 @@ export interface TelemetrySnapshot {
   // Este campo opcional fica reservado para providers que exponham um sinal real de
   // ignição/motor — quando presente, tem prioridade sobre o proxy de rpm.
   engineRunning?: boolean
-  shiftIndicatorPct?: number // 0..1 ao longo da BANDA de shift-lights do carro (DriverCarSLFirstRPM→SLLastRPM); ShiftIndicatorPct do iRacing como fallback, nunca rpm/maxRpm
-  shiftRpm?: number // RPM de upshift optimal do sim (iRacing PlayerCarSLShiftRPM), quando dispolevel
+  shiftIndicatorPct?: number // 0..1 ao longo da BANDA de shift-lights do carro (DriverCarSLFirstRPM→DriverCarSLShiftRPM); ShiftIndicatorPct do iRacing como fallback, nunca rpm/maxRpm
+  shiftRpm?: number // RPM de upshift do sim (iRacing DriverCarSLShiftRPM), quando disponível
   revLights?: {
     firstRpm?: number
     shiftRpm?: number

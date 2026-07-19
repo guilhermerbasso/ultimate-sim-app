@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ultimate-sim:mqtt:v1:telemetry-state",
+  "title": "Ultimate Sim MQTT Telemetry State v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "observedAt",
+    "expiresAt",
+    "sim",
+    "connected",
+    "speedMps",
+    "rpm",
+    "gear",
+    "throttleRatio",
+    "brakeRatio",
+    "clutchRatio",
+    "activeFlags",
+    "stale"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "observedAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "sim": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "connected": { "type": "boolean" },
+    "speedMps": { "type": "number", "minimum": 0, "maximum": 250 },
+    "rpm": { "type": "number", "minimum": 0, "maximum": 30000 },
+    "gear": { "type": "integer", "minimum": -1, "maximum": 20 },
+    "throttleRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "brakeRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "clutchRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "lapDistanceRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "deltaToBestSec": { "type": "number" },
+    "fuelLiters": { "type": "number", "minimum": 0 },
+    "activeFlags": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "type": "string", "maxLength": 32 }
+    },
+    "stale": { "type": "boolean" }
+  }
+}

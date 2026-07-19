@@ -67,6 +67,7 @@ import { register as spotter3d } from './spotter3d'
 import { register as stt } from './stt'
 import { register as iflagDynamic } from './iflag-dynamic'
 import { register as streaming } from './streaming'
+import { register as streamPresentation } from './stream-presentation'
 import { register as simhubImport } from './simhub-import'
 import { register as configExport } from './config-export'
 import { register as diagnosticLogger } from './logger'
@@ -74,6 +75,7 @@ import { register as bugReport } from './bug-report'
 import { register as updater } from './updater'
 import { register as pitPanel } from '../pitpanel/window'
 import { register as touchPanel } from '../touchpanel/manager'
+import { register as mqttTarget } from './mqtt-target'
 
 // Registro central dos módulos. A telemetria vem primeiro (todos dependem dela).
 // expressionEngine e outputRouter ficam fora do loop porque o orquestrador
@@ -131,13 +133,15 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   spotter3d,
   stt,
   streaming,
+  mqttTarget,
   simhubImport,
   configExport,
   updater,
   diagnosticLogger,
   bugReport,
   pitPanel,
-  touchPanel
+  touchPanel,
+  streamPresentation
 ]
 
 export interface RegisteredModules {
