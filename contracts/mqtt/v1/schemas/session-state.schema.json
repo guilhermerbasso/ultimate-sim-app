@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ultimate-sim:mqtt:v1:session-state",
+  "title": "Ultimate Sim MQTT Session State v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "observedAt", "expiresAt", "sim", "connected", "sessionRef", "stale"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "observedAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "sim": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "connected": { "type": "boolean" },
+    "sessionRef": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sessionType": { "type": "string", "maxLength": 64 },
+    "sessionState": { "type": "string", "maxLength": 64 },
+    "carName": { "type": "string", "maxLength": 128 },
+    "trackName": { "type": "string", "maxLength": 128 },
+    "trackConfigName": { "type": "string", "maxLength": 128 },
+    "currentLap": { "type": "number", "minimum": 0 },
+    "lapsRemaining": { "type": "number", "minimum": 0 },
+    "position": { "type": "number", "minimum": 0 },
+    "classPosition": { "type": "number", "minimum": 0 },
+    "fuelLiters": { "type": "number", "minimum": 0 },
+    "trackTempC": { "type": "number" },
+    "airTempC": { "type": "number" },
+    "wetnessRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "raining": { "type": "boolean" },
+    "primaryFlag": { "type": "string", "maxLength": 32 },
+    "stale": { "type": "boolean" }
+  }
+}
