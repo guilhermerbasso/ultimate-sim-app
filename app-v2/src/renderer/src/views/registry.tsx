@@ -39,6 +39,7 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const CollaborationView = lazy(() => import('./CollaborationView'))
 const StoryEngineView = lazy(() => import('./StoryEngineView'))
 const StreamingMobileEditorView = lazy(() => import('./StreamingMobileEditorView'))
 const MissionRehearsalView = lazy(() => import('./MissionRehearsalView'))
@@ -96,6 +97,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'controls', group: 'ButtonBox', label: 'Controls & Keyboard', eyebrow: 'Bindings', description: 'Button → key, virtual gamepad, iRacing command, or app action (dashboard/OLED/overlay).', shortcut: '08', Component: ControlsView },
   { id: 'pinout', group: 'ButtonBox', label: 'Pinout Designer', eyebrow: 'Low-code', description: 'Drag-and-drop pin map (LEDs, mux, encoders) + firmware generation.', shortcut: '0P', Component: PinoutDesignerView },
   { id: 'settings', group: 'App', label: 'Settings', eyebrow: 'App', description: 'Auto-start, telemetry source, theme.', shortcut: '09', Component: SettingsView },
+  { id: 'collaboration', group: 'App', label: 'Collaboration', eyebrow: 'Local primary', description: 'Offline document collaboration with deterministic merge, authorship, conflicts, and local export/import.', shortcut: '0C', Component: CollaborationView },
   { id: 'about', group: 'App', label: 'About / Credits', eyebrow: 'Open source', description: 'Licenses, sources, and third-party components.', shortcut: '0A', Component: AboutView },
   { id: 'voice', group: 'Sim Racing', label: 'Voice / TTS', eyebrow: 'TTS local', description: 'Offline neural voices for Engineer/Spotter, on-demand download; system voice fallback; wake word "Hey, Engineer".', shortcut: 'TL', Component: VoiceSettingsView }
 ]
