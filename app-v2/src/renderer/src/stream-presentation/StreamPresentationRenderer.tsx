@@ -9,7 +9,7 @@ import {
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import type { ButtonBoxPanel } from '../../../shared/touch-panel'
 import { DashboardCanvas } from '../dashboard/DashboardRoot'
-import { ButtonBoxRenderer } from '../touchpanel/ButtonBoxRenderer'
+import { ButtonBoxRenderer, type ButtonBoxRendererProps } from '../touchpanel/ButtonBoxRenderer'
 import './stream-presentation.css'
 
 export type StreamPresentationRendererMode = 'preview' | 'runtime'
@@ -21,6 +21,8 @@ export interface StreamPresentationRendererProps {
   snapshot?: TelemetrySnapshot | null
   mode: StreamPresentationRendererMode
   interactiveTouch?: boolean
+  onTouchAction?: ButtonBoxRendererProps['onAction']
+  reportTouchLifecycle?: boolean
   ariaLabel?: string
   unavailableLabel?: string
 }
@@ -32,6 +34,8 @@ export function StreamPresentationRenderer({
   snapshot = null,
   mode,
   interactiveTouch = false,
+  onTouchAction,
+  reportTouchLifecycle = false,
   ariaLabel = 'Mobile stream presentation preview',
   unavailableLabel = 'Target preview unavailable.'
 }: StreamPresentationRendererProps): ReactElement {
@@ -107,7 +111,9 @@ export function StreamPresentationRenderer({
           >
             <ButtonBoxRenderer
               panel={touchPanel}
-              interactive={mode === 'preview' && interactiveTouch}
+              interactive={interactiveTouch}
+              onAction={onTouchAction}
+              reportLifecycle={reportTouchLifecycle}
               minimumTouchTarget={resolved.minimumTouchTarget}
               hiddenButtonIds={resolved.hiddenElementIds}
             />
