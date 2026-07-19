@@ -732,6 +732,27 @@ describe('malformed untrusted adapter inputs', () => {
     expect(target.serializeAuditReceipts()).not.toContain(SENTINEL)
   })
 
+  it('rejects oversized webhook bodies before signature verification or JSON parsing', () => {
+    const target = connector('twitch')
+    const valid = webhook(
+      'twitch',
+      'twitch.eventsub.ingest',
+      { eventId: 'safe', source: 'twitch' },
+      'oversized-body'
+    )
+
+    expect(
+      target.ingestFixture({
+        ...valid,
+        body: 'x'.repeat(16 * 1024 + 1)
+      })
+    ).toMatchObject({
+      outcome: 'denied',
+      reasonCode: 'validation.malformed_fixture',
+      receipt: { decision: 'denied' }
+    })
+  })
+
   it('denies a circular action payload without throwing or leaking input content', () => {
     const target = connector('twitch')
     const circular: Record<string, unknown> = { marker: SENTINEL }

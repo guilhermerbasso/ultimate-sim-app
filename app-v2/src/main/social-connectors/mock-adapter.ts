@@ -56,6 +56,7 @@ import {
 } from './validation'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const MAX_MOCK_WEBHOOK_BODY_BYTES = 16 * 1024
 
 type MutableStatus = Omit<
   SocialConnectorStatusV1,
@@ -296,7 +297,8 @@ function runtimeWebhookFixture(value: unknown): RuntimeWebhookFixture | null {
     typeof record.occurredAtMs !== 'number' ||
     !isNonEmptyString(record.keyId) ||
     !isNonEmptyString(record.algorithm) ||
-    typeof record.body !== 'string'
+    typeof record.body !== 'string' ||
+    Buffer.byteLength(record.body, 'utf8') > MAX_MOCK_WEBHOOK_BODY_BYTES
   ) {
     return null
   }
