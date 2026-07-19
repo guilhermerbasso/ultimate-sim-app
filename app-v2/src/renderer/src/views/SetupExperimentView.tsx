@@ -16,7 +16,9 @@ import {
   DEFAULT_SETUP_EXPERIMENT_TOLERANCES,
   compareSetupExperimentContexts,
   expectedSetupPathForTreatment,
+  experimentProtocolPlan,
   nextSetupExperimentStep,
+  protocolSteps,
   setupExperimentContextFromTelemetry,
   type SetupExperimentAnalysis,
   type SetupExperimentContext,
@@ -130,10 +132,35 @@ function directionLabel(language: AppViewProps['language'], analysis: SetupExper
   return tt(language, `${prefix}.${direction}`)
 }
 
-function reasonLabel(language: AppViewProps['language'], reason: string): string {
+function protocolReasonArm(
+  experiment: SetupExperimentDefinition,
+  payload: string
+): 'A1' | 'B' | 'A2' | null {
+  const separator = payload.lastIndexOf(':')
+  if (separator <= 0 || separator === payload.length - 1) return null
+  const blockId = payload.slice(0, separator)
+  const stepText = payload.slice(separator + 1)
+  if (!/^(0|1|2)$/.test(stepText)) return null
+  const block = experimentProtocolPlan(experiment).find((candidate) => candidate.blockId === blockId)
+  if (!block) return null
+  return protocolSteps(block).find((step) => step.stepIndex === Number(stepText))?.arm ?? null
+}
+
+function reasonLabel(
+  language: AppViewProps['language'],
+  reason: string,
+  experiment: SetupExperimentDefinition
+): string {
   const separator = reason.indexOf(':')
   const code = separator >= 0 ? reason.slice(0, separator) : reason
-  const arm = separator >= 0 ? reason.slice(separator + 1) : ''
+  const payload = separator >= 0 ? reason.slice(separator + 1) : ''
+  if (code === 'protocol-incomplete' || code === 'insufficient-samples') {
+    const arm = protocolReasonArm(experiment, payload)
+    return arm
+      ? tt(language, `setupExperiment.reason.${code}`, { arm })
+      : tt(language, `setupExperiment.reason.${code}-unresolved`)
+  }
+  const arm = payload
   return tt(language, `setupExperiment.reason.${code}`, { arm })
 }
 
@@ -556,7 +583,7 @@ export default function SetupExperimentView({
 
             {analysis.reasons.length > 0 && (
               <div style={{ marginTop: 12, color: 'var(--accent-warning)' }}>
-                {analysis.reasons.map((reason) => reasonLabel(language, reason)).join(' · ')}
+                {analysis.reasons.map((reason) => reasonLabel(language, reason, experiment)).join(' · ')}
               </div>
             )}
 

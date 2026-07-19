@@ -129,7 +129,7 @@ function analysis(): SetupExperimentAnalysis {
   return {
     eligible: false,
     direction: 'abstain',
-    reasons: ['protocol-incomplete:A1'],
+    reasons: ['protocol-incomplete:block-001:0'],
     arms: {
       A1: armStatistics('A1'),
       B: armStatistics('B'),
@@ -269,10 +269,11 @@ function installIpc(
 
 async function renderView(
   initial: ReturnType<typeof deferred<SetupExperimentSnapshot>>,
-  refreshedSnapshots: SetupExperimentSnapshot[] = []
+  refreshedSnapshots: SetupExperimentSnapshot[] = [],
+  language: AppViewProps['language'] = 'en'
 ) {
   const ipc = installIpc(initial, refreshedSnapshots)
-  const rendered = render(createElement(SetupExperimentView, props()))
+  const rendered = render(createElement(SetupExperimentView, { ...props(), language }))
   await waitFor(() => {
     expect(ipc.invoke).toHaveBeenCalledWith(SETUP_EXPERIMENT_CHANNELS.getSnapshot)
     expect(ipc.invoke).toHaveBeenCalledWith(SETUP_MANAGER_CHANNELS.libraryList)
@@ -316,6 +317,82 @@ describe('SetupExperimentView revision arbitration', () => {
 
     expect(screen.queryByText('LIVE REVISION 2')).not.toBeNull()
     expect(screen.queryByText('STALE REVISION 1')).toBeNull()
+  })
+
+  describe('SetupExperimentView protocol reason labels', () => {
+    it('resolves actual arms across multiple ABA and BAB blocks including colon block IDs', async () => {
+      const initial = deferred<SetupExperimentSnapshot>()
+      await renderView(initial)
+      const definition = experiment('reason-arms', 'PROTOCOL REASON ARMS')
+      definition.protocolPlan = [
+        { blockId: 'first-aba', sequence: 'ABA' },
+        { blockId: 'repeat:bab', sequence: 'BAB' }
+      ]
+      const result = analysis()
+      result.reasons = [
+        'protocol-incomplete:first-aba:0',
+        'insufficient-samples:first-aba:1',
+        'protocol-incomplete:first-aba:2',
+        'protocol-incomplete:repeat:bab:0',
+        'insufficient-samples:repeat:bab:1',
+        'insufficient-samples:repeat:bab:2'
+      ]
+
+      await hydrate(initial, snapshot(11, [definition], { [definition.id]: result }))
+
+      const article = screen.getByText(definition.name).closest('article')
+      expect(article).not.toBeNull()
+      const reasonLine = within(article as HTMLElement).getByText(/Arm A2 is not complete/)
+      const text = reasonLine.textContent ?? ''
+      expect.soft(text).toContain('Arm A1 is not complete')
+      expect.soft(text).toContain('Arm A2 is not complete')
+      expect.soft(text).toContain('Arm B is not complete')
+      expect.soft(text).toContain('Arm A1 has fewer than five clean known laps')
+      expect.soft(text.match(/Arm B has fewer than five clean known laps/g)).toHaveLength(2)
+      expect.soft(text).not.toContain('first-aba')
+      expect.soft(text).not.toContain('repeat:bab')
+    })
+
+    it('uses localized truthful fallbacks for malformed and stale protocol references', async () => {
+      const initial = deferred<SetupExperimentSnapshot>()
+      await renderView(initial, [], 'pt-BR')
+      const definition = experiment('reason-fallback', 'FALLBACK DE MOTIVO')
+      definition.protocolPlan = [{ blockId: 'block-001', sequence: 'ABA' }]
+      const result = analysis()
+      result.reasons = [
+        'protocol-incomplete',
+        'protocol-incomplete:A1',
+        'protocol-incomplete:block-001',
+        'protocol-incomplete::1',
+        'protocol-incomplete:block-001:',
+        'protocol-incomplete:block-001:x',
+        'protocol-incomplete:block-001:1.5',
+        'protocol-incomplete:block-001:-1',
+        'protocol-incomplete:block-001:3',
+        'protocol-incomplete:block-001:1junk',
+        'insufficient-samples:deleted-block:1'
+      ]
+
+      await hydrate(initial, snapshot(12, [definition], { [definition.id]: result }))
+
+      const article = screen.getByText(definition.name).closest('article')
+      expect(article).not.toBeNull()
+      const reasonLine = within(article as HTMLElement).getByText(
+        /Foi relatada uma etapa de protocolo incompleta/
+      )
+      const text = reasonLine.textContent ?? ''
+      expect.soft(text).toContain(
+        'Foi relatada uma etapa de protocolo incompleta, mas a etapa referenciada está indisponível'
+      )
+      expect.soft(text).toContain(
+        'Foram relatadas amostras insuficientes, mas a etapa de protocolo referenciada está indisponível'
+      )
+      expect.soft(text).not.toContain('setupExperiment.reason')
+      expect.soft(text).not.toContain('{arm}')
+      expect.soft(text).not.toContain('block-001')
+      expect.soft(text).not.toContain('deleted-block')
+      expect.soft(text).not.toContain('1junk')
+    })
   })
 
   it('lets the live payload win when hydration and subscription have equal revision', async () => {
