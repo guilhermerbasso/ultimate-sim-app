@@ -136,4 +136,39 @@ describe('DeterministicSocialApprovalQueue binding', () => {
       })
     ).toThrow(/finite/)
   })
+
+  it('rejects actor roles outside the SocialActorRole contract at every boundary', () => {
+    const invalidActor = {
+      actorRef: 'operator:invalid-role',
+      role: 'administrator'
+    } as unknown as SocialActorV1
+    const queue = new DeterministicSocialApprovalQueue()
+
+    expect(() => queue.enqueue(request({ requestedBy: invalidActor }))).toThrow(
+      /valid social actor role/
+    )
+    const queued = queue.enqueue(request({ requestId: 'approval-request:invalid-role' }))
+    expect(() =>
+      queue.decide(queued.requestId, 'approved', invalidActor, 'Invalid actor', NOW)
+    ).toThrow(/valid social actor role/)
+
+    const receipt = queue.decide(
+      queued.requestId,
+      'approved',
+      APPROVER,
+      'Approved fixture',
+      NOW
+    )
+    expect(() =>
+      queue.consume({
+        approvalRef: receipt.approvalRef,
+        provider: queued.provider,
+        capabilityId: queued.capabilityId,
+        destination: queued.destination,
+        authenticatedActor: invalidActor,
+        payloadHash: queued.payloadHash,
+        nowMs: NOW
+      })
+    ).toThrow(/valid social actor role/)
+  })
 })

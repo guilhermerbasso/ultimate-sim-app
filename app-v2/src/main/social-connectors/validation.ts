@@ -1,6 +1,19 @@
-import type { SocialActorV1 } from '../../shared/social-connectors'
+import type { SocialActorRole, SocialActorV1 } from '../../shared/social-connectors'
 
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/
+const SOCIAL_ACTOR_ROLES = new Set<SocialActorRole>([
+  'operator',
+  'broadcaster',
+  'creator',
+  'moderator',
+  'team-manager',
+  'engineer',
+  'spotter',
+  'driver',
+  'steward',
+  'spectator',
+  'connector'
+])
 
 export function assertFiniteNumber(value: unknown, label: string): asserts value is number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -53,6 +66,9 @@ export function assertSocialActor(value: unknown, label: string): asserts value 
   const actor = value as Partial<SocialActorV1>
   assertNonEmptyString(actor.actorRef, `${label}.actorRef`)
   assertNonEmptyString(actor.role, `${label}.role`)
+  if (!SOCIAL_ACTOR_ROLES.has(actor.role as SocialActorRole)) {
+    throw new Error(`${label}.role must be a valid social actor role`)
+  }
 }
 
 export function sameSocialActor(left: SocialActorV1, right: SocialActorV1): boolean {
