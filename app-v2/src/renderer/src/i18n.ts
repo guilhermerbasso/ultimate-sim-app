@@ -6846,6 +6846,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
     dashboards: { label: 'Dashboards', eyebrow: 'Monitor', description: 'Monitor windows, .simhubdash import, and dashboard builder.' },
+    streaming: { label: 'Streaming', eyebrow: 'Broadcast', description: 'Named read-only dashboard and touch-panel targets for OBS, phones, and tablets.' },
     'touch-controls': { label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.' },
     'streaming-mobile-editor': { label: 'Mobile Stream Editor', eyebrow: 'Device preview', description: 'Non-destructive phone and tablet presentation profiles for saved dashboards and Touch Controls.' },
     'oled-dash': { label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets for the OLED.' },
@@ -6904,9 +6905,14 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
   }
 }
 
+patchViewText('pt-BR', {
+  streaming: { label: 'Streaming', eyebrow: 'Transmissão', description: 'Destinos nomeados e somente leitura de dashboards e painéis touch para OBS, celulares e tablets.' }
+})
+
 patchViewText('es', {
   telemetry: { label: 'Telemetría', description: 'Fuente de telemetría en vivo y vista general.' },
   dashboards: { label: 'Dashboards', description: 'Ventanas de monitor, importación .simhubdash y constructor.' },
+  streaming: { label: 'Streaming', eyebrow: 'Emisión', description: 'Destinos de dashboards y paneles táctiles de solo lectura para OBS, móviles y tabletas.' },
   overlays: { label: 'Overlays', eyebrow: 'Pantalla', description: 'Overlays transparentes sobre el simulador.' },
   fuel: { label: 'Combustible' },
   tire: { label: 'Neumáticos' },
@@ -6923,6 +6929,7 @@ patchViewText('es', {
 
 patchViewText('fr', {
   telemetry: { label: 'Télémétrie', description: 'Source de télémétrie en direct et vue d’ensemble.' },
+  streaming: { label: 'Streaming', eyebrow: 'Diffusion', description: 'Cibles nommées en lecture seule pour tableaux de bord et panneaux tactiles.' },
   overlays: { label: 'Overlays', eyebrow: 'Écran', description: 'Overlays transparents au-dessus du simulateur.' },
   fuel: { label: 'Carburant' },
   tire: { label: 'Tires' },
@@ -6940,6 +6947,7 @@ patchViewText('fr', {
 patchViewText('de', {
   telemetry: { label: 'Telemetrie', description: 'Live-Telemetriequelle und Überblick.' },
   dashboards: { label: 'Dashboards' },
+  streaming: { label: 'Streaming', eyebrow: 'Übertragung', description: 'Benannte schreibgeschützte Dashboard- und Touchpanel-Ziele für OBS, Smartphones und Tablets.' },
   overlays: { label: 'Overlays', eyebrow: 'Anzeige', description: 'Transparente Overlays über dem Simulator.' },
   fuel: { label: 'Kraftstoff' },
   tire: { label: 'Reifen' },
@@ -6957,6 +6965,7 @@ patchViewText('de', {
 patchViewText('zh', {
   telemetry: { label: '遥测', eyebrow: '模拟器', description: '实时遥测源与总览。' },
   dashboards: { label: '仪表盘', eyebrow: '监视', description: '监视窗口、.simhubdash 导入与仪表盘构建器。' },
+  streaming: { label: '串流', eyebrow: '直播', description: '面向 OBS、手机和平板的命名只读仪表盘与触控面板目标。' },
   'touch-controls': { label: '触控仪表盘', eyebrow: '座舱' },
   'oled-dash': { label: 'OLED 仪表盘', eyebrow: '显示' },
   overlays: { label: '叠加层', eyebrow: '屏幕', description: '模拟器之上的透明叠加层。' },
@@ -6976,6 +6985,7 @@ patchViewText('zh', {
 patchViewText('ja', {
   telemetry: { label: 'テレメトリー', eyebrow: 'シム', description: 'ライブのテレメトリーソースと概要。' },
   dashboards: { label: 'ダッシュボード', eyebrow: 'モニター', description: 'モニターウィンドウ、.simhubdash インポート、ビルダー。' },
+  streaming: { label: 'ストリーミング', eyebrow: '配信', description: 'OBS、スマートフォン、タブレット向けの名前付き読み取り専用ターゲット。' },
   'touch-controls': { label: 'タッチダッシュ', eyebrow: 'コックピット' },
   'oled-dash': { label: 'OLED ダッシュ', eyebrow: 'ディスプレイ' },
   overlays: { label: 'オーバーレイ', eyebrow: '画面', description: 'シミュレーターの上に表示する透明オーバーレイ。' },

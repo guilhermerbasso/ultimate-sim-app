@@ -7,6 +7,7 @@ const ArduinosView = lazy(() => import('./ArduinosView'))
 const ControlsView = lazy(() => import('./ControlsView'))
 const PinoutDesignerView = lazy(() => import('./PinoutDesignerView'))
 const DashboardsView = lazy(() => import('./DashboardsView'))
+const StreamingView = lazy(() => import('./StreamingView'))
 const DevicesView = lazy(() => import('./DevicesView'))
 const ExpressionsView = lazy(() => import('./ExpressionsView'))
 const FuelStrategyView = lazy(() => import('./FuelStrategyView'))
@@ -53,6 +54,7 @@ export interface ViewDef {
 export const viewRegistry: ViewDef[] = [
   { id: 'telemetry', group: 'Sim Racing', label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.', shortcut: 'T1', Component: TelemetryView },
   { id: 'dashboards', group: 'Sim Racing', label: 'Dashboards', eyebrow: 'Monitor', description: 'Windows on displays 1/2, .simhubdash import, and basic builder.', shortcut: 'T0', Component: DashboardsView },
+  { id: 'streaming', group: 'Sim Racing', label: 'Streaming', eyebrow: 'Broadcast', description: 'Named read-only dashboard and touch-panel targets for OBS, phones, and tablets.', shortcut: 'TW', Component: StreamingView },
   { id: 'touch-controls', group: 'Sim Racing', label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.', shortcut: 'TT', Component: TouchControlsView },
   { id: 'streaming-mobile-editor', group: 'Streaming', label: 'Mobile Stream Editor', eyebrow: 'Device preview', description: 'Non-destructive phone and tablet presentation profiles for saved dashboards and Touch Controls.', shortcut: 'TO', Component: StreamingMobileEditorView },
   { id: 'oled-dash', group: 'Sim Racing', label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets on the OLED.', shortcut: 'T2', Component: OledDashboardView },
