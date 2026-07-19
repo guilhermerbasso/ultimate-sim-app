@@ -14,7 +14,7 @@ manual tunnel setup, and rehearse race operations without touching a live sessio
 
 ### Secure Internet sharing
 - 🌐 **Internet mode can open its secure public HTTPS viewer automatically** through the bundled,
-  checksum-verified Cloudflare Quick Tunnel, including password/token bootstrap and authenticated
+  checksum-verified Cloudflare quick tunnel, including password/token bootstrap and authenticated
   receiver readiness.
 - 🩺 **Clear health diagnostics and supervised recovery** prevent stale public URLs, clean up old
   tunnel processes, and reconnect with bounded retries.
