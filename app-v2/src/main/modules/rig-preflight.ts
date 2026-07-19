@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { screen } from 'electron'
+import { cleanText, normalizeUsbId } from '../../shared/generic-autostart'
 import type { ModuleContext } from '../module-context'
 import { getDeviceConfigStore } from '../devices/store'
 import { getSerialDevicesStore } from '../serial-devices/store'
@@ -203,10 +204,11 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
   ])
   const simx = ctx.serialManager.getDevice()
   const simxPort = ports.find((port) => port.path === simx?.path)
-  const simxIdentity = simxPort?.serialNumber
-    ? `serial:${simxPort.serialNumber}`
+  const simxSerial = cleanText(simxPort?.serialNumber)?.toLowerCase()
+  const simxIdentity = simxSerial
+    ? `serial:${simxSerial}`
     : simxPort?.vendorId || simxPort?.productId
-      ? `usb:${simxPort.vendorId || '?'}:${simxPort.productId || '?'}`
+      ? `usb:${normalizeUsbId(simxPort.vendorId) || '?'}:${normalizeUsbId(simxPort.productId) || '?'}`
       : simx?.path
   return {
     meta: meta(now, 'runtime', 'SerialHub + persisted serial/device stores + esp32:status'),

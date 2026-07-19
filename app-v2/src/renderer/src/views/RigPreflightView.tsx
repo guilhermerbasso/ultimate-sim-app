@@ -99,8 +99,13 @@ function requirementValue(
   return profile.requirements[key] === true
 }
 
-function profileContent(profile: RigPreflightProfile | null): string {
+export function profileContent(profile: RigPreflightProfile | null): string {
   if (!profile) return ''
+  const requirements = Object.fromEntries(
+    Object.entries(profile.requirements).sort(([left], [right]) =>
+      left.localeCompare(right, 'en')
+    )
+  )
   return JSON.stringify({
     id: profile.id,
     name: profile.name,
@@ -108,7 +113,7 @@ function profileContent(profile: RigPreflightProfile | null): string {
     mode: profile.mode,
     evidenceMaxAgeMs: profile.evidenceMaxAgeMs,
     certificateTtlMs: profile.certificateTtlMs,
-    requirements: profile.requirements
+    requirements
   })
 }
 
