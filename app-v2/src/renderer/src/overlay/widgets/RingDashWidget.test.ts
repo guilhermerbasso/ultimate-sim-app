@@ -44,6 +44,20 @@ describe('RingDashWidget — overflow-safe SVG scene', () => {
     expect(m).toContain('xMidYMid meet')
   })
 
+  it('keeps width and height overrides independent', () => {
+    const widthOnly = {
+      ...config,
+      position: { ...(config.position ?? {}), width: 1280, height: 0 }
+    } as OverlayWidgetConfig
+    const heightOnly = {
+      ...config,
+      position: { ...(config.position ?? {}), width: 0, height: 360 }
+    } as OverlayWidgetConfig
+
+    expect(render(POP, widthOnly)).toContain('viewBox="0 0 1280 600"')
+    expect(render(POP, heightOnly)).toContain('viewBox="0 0 1024 360"')
+  })
+
   it('shows core telemetry values via labelled cells', () => {
     const m = render(POP)
     expect(m).toContain('>3<')
@@ -63,5 +77,38 @@ describe('RingDashWidget — overflow-safe SVG scene', () => {
     assertClean(m, 'null')
     expect(m).toContain('—')
     expect(m).toContain('data-widget="ringDash"')
+  })
+
+  it('keeps the RPM ring calibrated while provider blink controls one shared complete-cue strobe', () => {
+    const providerOff = render({
+      ...POP,
+      rpm: 4500,
+      maxRpm: 9000,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot)
+    expect(providerOff).toContain('data-rpm-pct="0.5000"')
+    expect(providerOff).toContain('data-shift-active="false"')
+    expect(providerOff).not.toContain('dur="0.14s"')
+    expect(providerOff).not.toContain('dur="0.32s"')
+
+    const providerOn = render({
+      ...POP,
+      rpm: 4500,
+      maxRpm: 9000,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot)
+    expect(providerOn).toContain('data-shift-cue="ring-needle-gear"')
+    expect(providerOn).toContain('data-shift-active="true"')
+    expect(providerOn).toContain('data-rpm-pct="0.5000"')
+    for (const part of ['needle', 'ring', 'gear']) {
+      expect(providerOn).toContain(`data-shift-part="${part}"`)
+    }
+    expect(providerOn).toContain('dur="0.14s"')
+    expect(providerOn.match(/dur="0\.14s"/g)).toHaveLength(1)
+    expect(providerOn).not.toContain('dur="0.32s"')
+    expect(providerOn).toContain('repeatCount="indefinite"')
+    expect((providerOn.match(/#1e63ff/g) ?? []).length).toBeGreaterThanOrEqual(3)
   })
 })

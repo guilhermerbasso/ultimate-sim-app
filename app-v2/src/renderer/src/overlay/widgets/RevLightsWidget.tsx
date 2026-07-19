@@ -3,14 +3,15 @@
 // placed box directly and stretches across its full width.
 //
 // The ladder is driven by shiftIndicatorPct (0..1 along the car's shift band — the
-// correct signal, never rpm/maxRpm), falling back to revLights.pct. This is purely the
+// correct signal, never rpm/maxRpm), then revLights.pct and the shared top-slice
+// redline fallback. This is purely the
 // VISUAL overlay; the RGB-matrix / firmware rev-light engine is untouched. Every input is
 // optional and degrades to 0 % so a null snapshot never renders NaN.
 
 import type { ReactElement } from 'react'
 import { resolveSkin } from '../../skins'
 import { RevLedBar } from '../../instruments'
-import { resolveRevLightState } from '../../lib/rev-lights'
+import { resolveRevLightPct, resolveRevLightState } from '../../lib/rev-lights'
 import { overlayDesignFamily } from '../../../../shared/overlays'
 import type { WidgetProps } from './types'
 
@@ -23,10 +24,7 @@ export function RevLightsWidget({ snapshot, config }: WidgetProps): ReactElement
   const family = overlayDesignFamily(config.stylePreset)
   const W = positiveDimension(config.position?.width, 360)
   const H = positiveDimension(config.position?.height, 120)
-  const state = resolveRevLightState(
-    snapshot?.shiftIndicatorPct ?? snapshot?.revLights?.pct,
-    snapshot?.revLights?.blink
-  )
+  const state = resolveRevLightState(resolveRevLightPct(snapshot), snapshot?.revLights?.blink)
 
   return (
     <svg
