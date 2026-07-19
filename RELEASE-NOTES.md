@@ -112,6 +112,18 @@ offline race-operation rehearsal.
   working-tree drift are explicitly outside the Rig Preflight change set and this release-doc
   update.
 
+### Fail-closed multimodal accessibility cues
+- ♿ **Cue profiles coordinate visual, caption, auditory, LED, and haptic redundancy without
+  counting unavailable channels as delivered.**
+- 🚨 Critical cues preserve severity, priority, and preemption while lifecycle cancellation clears
+  superseded lower-priority output safely.
+- 🔐 Sender-scoped TTS and haptic capability leases expire; zero-output or zero-effective-gain
+  haptics fail closed instead of reporting false delivery.
+- 🌐 Localized Web Speech fallback uses language-matched cue text when trusted local speech is
+  unavailable. Piper downloads stay disabled when trusted voice metadata or digests are absent.
+- 💾 Voice repair/recovery and accessibility config import/delete are serialized and published
+  atomically, preserving the last verified voice/config state through rollback or failure.
+
 ### Durable replay, recording, and debrief persistence
 - 💾 **Completed recordings and final `session.json` metadata are written atomically**, with bounded
   retryable finalization retained after transient storage failures instead of being silently lost.
@@ -199,6 +211,8 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   certification with evidence freshness, stable hardware identity, and atomic persistence.
 - [#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97) — make recording, sidecar,
   pace-model, and language-aware debrief persistence retryable and shutdown-safe.
+- [#98](https://github.com/guilhermerbasso/ultimate-sim-app/pull/98) — add fail-closed multimodal
+  accessibility cues with truthful capability leases, localized fallback, and atomic recovery.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 

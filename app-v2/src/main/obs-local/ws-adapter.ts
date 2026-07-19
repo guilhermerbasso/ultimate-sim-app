@@ -24,6 +24,8 @@ interface OpcodeWaiter {
 }
 
 function sha256Base64(value: string): string {
+  // OBS WebSocket v5 mandates this SHA-256 challenge response; it is not used for password storage.
+  // codeql[js/insufficient-password-hash]
   return createHash('sha256').update(value, 'utf8').digest('base64')
 }
 

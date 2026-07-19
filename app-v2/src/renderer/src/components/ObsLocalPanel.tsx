@@ -13,11 +13,11 @@ function requestId(): string {
   return globalThis.crypto.randomUUID()
 }
 
-function parsePort(value: string): number | undefined {
+function parsePort(value: string, invalidMessage: string): number | undefined {
   if (!value.trim()) return undefined
   const port = Number(value)
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error('Port must be an integer from 1 to 65535.')
+    throw new Error(invalidMessage)
   }
   return port
 }
@@ -83,7 +83,7 @@ export default function ObsLocalPanel({ language }: { language?: ResolvedLanguag
     await run(async () => {
       await window.ipc.invoke(OBS_LOCAL_CHANNELS.startFeed, {
         layoutId,
-        port: parsePort(feedPort)
+        port: parsePort(feedPort, tt(language, 'obsLocal.portInvalid'))
       })
     })
   }
@@ -92,16 +92,16 @@ export default function ObsLocalPanel({ language }: { language?: ResolvedLanguag
     await run(async () => {
       const next = await window.ipc.invoke<ObsLocalStatus>(OBS_LOCAL_CHANNELS.connect, {
         host: host.trim(),
-        port: parsePort(controlPort),
+        port: parsePort(controlPort, tt(language, 'obsLocal.portInvalid')),
         password,
         allowNonLoopback,
         scenes: [{ sceneName: sceneName.trim(), sourceNames }]
       })
       setStatus(next)
-      setPassword('')
       if (next.control.state !== 'ready') {
         throw new Error(next.control.lastError || tt(language, 'obsLocal.control.failed'))
       }
+      setPassword('')
     })
   }
 

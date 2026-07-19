@@ -13,6 +13,7 @@ const en = {
   'obsLocal.feed.dashboard': 'Allowlisted dashboard',
   'obsLocal.feed.port': 'Fixed loopback port override (optional)',
   'obsLocal.feed.portPlaceholder': 'Blank = private ephemeral port',
+  'obsLocal.portInvalid': 'Port must be an integer from 1 to 65535.',
   'obsLocal.feed.help': 'Always binds 127.0.0.1. A fixed port is used only when explicitly entered.',
   'obsLocal.feed.start': 'Start OBS feed',
   'obsLocal.feed.stop': 'Stop feed',
@@ -55,6 +56,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'obsLocal.feed.title': 'Browser Source somente leitura',
     'obsLocal.feed.start': 'Iniciar feed OBS',
     'obsLocal.feed.stop': 'Parar feed',
+    'obsLocal.portInvalid': 'A porta deve ser um número inteiro de 1 a 65535.',
     'obsLocal.control.connect': 'Conectar e negociar',
     'obsLocal.control.disconnect': 'Desconectar',
     'obsLocal.control.manualOverride': 'Override manual: pausar toda automação'
