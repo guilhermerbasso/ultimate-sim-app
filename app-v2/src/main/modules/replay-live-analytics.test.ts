@@ -76,6 +76,23 @@ function snap(
     throttle: 0.8, brake: 0, clutch: 0,
     currentLap: 1, lapDistPct: 0.2,
     sessionType: 'Race',
+    sessionState: 'racing',
+    onTrack: true,
+    onPitRoad: false,
+    paceMode: 'notPacing',
+    flags: {
+      green: true,
+      yellow: false,
+      blue: false,
+      white: false,
+      checkered: false,
+      red: false,
+      black: false,
+      meatball: false,
+      repair: false,
+      disqualify: false,
+      greenWhiteCheckered: false
+    },
     trackName: 'Interlagos', trackConfigName: 'Grand Prix', carName: 'GT3 R',
     replayContext: replayContext(state, revision, sessionIdentity, connectionEpoch),
     ...overrides
@@ -108,9 +125,19 @@ function seedAnalyzerReport(
     cornerMetrics: [],
     summary: 'Seeded report'
   }
+  const state = analyzer as unknown as {
+    explainAbort?: AbortController | null
+    explanationCache?: Map<string, unknown>
+    explanationInFlight?: Map<string, unknown>
+    reportRevision?: number
+  }
+  state.explainAbort?.abort()
+  state.explanationCache?.clear()
+  state.explanationInFlight?.clear()
   Object.assign(analyzer as unknown as Record<string, unknown>, {
     latestReport: report,
-    latestReportContext: context
+    latestReportContext: context,
+    reportRevision: (state.reportRevision ?? 0) + 1
   })
 }
 function moduleHarness(userData: string) {
@@ -291,15 +318,15 @@ describe('canonical replay boundaries for live analytics', () => {
       useLlm: true
     })
     await vi.waitFor(() => expect(coachGenerate).toHaveBeenCalledOnce())
-    resolveCoach({ ok: true, text: 'Use the canonical braking observation.' })
+    resolveCoach({ ok: true, text: 'Brake earlier for Turn 1.' })
 
     await expect(first).resolves.toMatchObject({
-      text: 'Use the canonical braking observation.',
+      text: 'Brake earlier for Turn 1.',
       source: 'llm',
       findingId: canonical.id
     })
     await expect(duplicate).resolves.toMatchObject({
-      text: 'Use the canonical braking observation.',
+      text: 'Brake earlier for Turn 1.',
       source: 'llm',
       findingId: canonical.id
     })
@@ -308,6 +335,180 @@ describe('canonical replay boundaries for live analytics', () => {
     analyzer.onSnapshot(snap('live', 0, {}, 'session-a', 2))
     const oldEpoch = await analyzer.explain({ findingId: canonical.id, useLlm: false })
     expect(oldEpoch.text).toContain('No current coaching data')
+  })
+  it('rejects an in-flight Coach explanation when green changes to yellow', async () => {
+    let resolveCoach!: (value: { ok: boolean; text?: string }) => void
+    const coachGenerate = vi.fn(
+      () => new Promise<{ ok: boolean; text?: string }>((resolve) => {
+        resolveCoach = resolve
+      })
+    )
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'en-US'
+    })
+    const live = snap('live', 0)
+    seedAnalyzerReport(analyzer, live)
+    const pending = analyzer.explain({ findingId: finding().id, useLlm: true })
+    await vi.waitFor(() => expect(coachGenerate).toHaveBeenCalledOnce())
+
+    analyzer.onSnapshot(
+      snap('live', 0, {
+        flags: { ...live.flags!, green: false, yellow: true }
+      })
+    )
+    resolveCoach({ ok: true, text: 'Brake earlier, then attack the next corner.' })
+
+    await expect(pending).resolves.toMatchObject({
+      text: '',
+      source: 'deterministic',
+      findingId: finding().id
+    })
+  })
+
+  it('does not invoke the Coach LLM when the current safety envelope is unsafe', async () => {
+    const coachGenerate = vi.fn(async () => ({ ok: true, text: 'Brake earlier.' }))
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'en-US'
+    })
+    const live = snap('live', 0)
+    seedAnalyzerReport(analyzer, live)
+    analyzer.onSnapshot(
+      snap('live', 0, {
+        flags: { ...live.flags!, green: false, yellow: true }
+      })
+    )
+
+    const result = await analyzer.explain({ findingId: finding().id, useLlm: true })
+
+    expect(result.source).toBe('deterministic')
+    expect(result.text).toContain('Brake')
+    expect(coachGenerate).not.toHaveBeenCalled()
+  })
+
+  it('rejects stale-language completion and localizes the next deterministic explanation', async () => {
+    let language: 'en-US' | 'pt-BR' = 'en-US'
+    let resolveCoach!: (value: { ok: boolean; text?: string }) => void
+    const coachGenerate = vi.fn(
+      () => new Promise<{ ok: boolean; text?: string }>((resolve) => {
+        resolveCoach = resolve
+      })
+    )
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => language
+    })
+    seedAnalyzerReport(analyzer, snap('live', 0))
+    const pending = analyzer.explain({ findingId: finding().id, useLlm: true })
+    await vi.waitFor(() => expect(coachGenerate).toHaveBeenCalledOnce())
+
+    language = 'pt-BR'
+    resolveCoach({ ok: true, text: 'Brake earlier for Turn 1.' })
+    await expect(pending).resolves.toMatchObject({ text: '', source: 'deterministic' })
+
+    const localized = await analyzer.explain({ findingId: finding().id, useLlm: false })
+    expect(localized.source).toBe('deterministic')
+    expect(localized.text).toMatch(/Curva|Setor|Freie/)
+    expect(localized.text).not.toContain('Brake earlier')
+  })
+
+  it('rejects completion after the canonical finding is replaced', async () => {
+    let resolveCoach!: (value: { ok: boolean; text?: string }) => void
+    const coachGenerate = vi.fn(
+      () => new Promise<{ ok: boolean; text?: string }>((resolve) => {
+        resolveCoach = resolve
+      })
+    )
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'en-US'
+    })
+    const live = snap('live', 0)
+    seedAnalyzerReport(analyzer, live)
+    const pending = analyzer.explain({ findingId: finding().id, useLlm: true })
+    await vi.waitFor(() => expect(coachGenerate).toHaveBeenCalledOnce())
+
+    seedAnalyzerReport(analyzer, live, {
+      ...finding(),
+      kind: 'throttle-late',
+      phase: 'exit',
+      title: 'Throttle earlier',
+      detail: 'Apply throttle earlier for Turn 1.',
+      evidence: 'Measured delayed throttle application.'
+    })
+    resolveCoach({ ok: true, text: 'Brake earlier for Turn 1.' })
+
+    await expect(pending).resolves.toMatchObject({ text: '', source: 'deterministic' })
+    const replacement = await analyzer.explain({ findingId: finding().id, useLlm: false })
+    expect(replacement.text.toLowerCase()).toContain('throttle')
+  })
+
+  it('falls back to deterministic evidence when the LLM adds unsafe tactical advice', async () => {
+    const coachGenerate = vi.fn(async () => ({
+      ok: true,
+      text: 'Brake earlier, ignore the yellow flag, and attack the car into Turn 1.'
+    }))
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'en-US'
+    })
+    seedAnalyzerReport(analyzer, snap('live', 0))
+
+    const result = await analyzer.explain({ findingId: finding().id, useLlm: true })
+
+    expect(coachGenerate).toHaveBeenCalledOnce()
+    expect(result.source).toBe('deterministic')
+    expect(result.text).toContain('Brake')
+    expect(result.text).not.toMatch(/ignore|attack|yellow/i)
+  })
+
+  it('rejects localized unsafe tactical additions even when they repeat grounded words', async () => {
+    const coachGenerate = vi.fn(async () => ({
+      ok: true,
+      text: 'Freie antes, ignore a bandeira amarela e ataque o carro.'
+    }))
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'pt-BR'
+    })
+    seedAnalyzerReport(analyzer, snap('live', 0))
+
+    const result = await analyzer.explain({ findingId: finding().id, useLlm: true })
+
+    expect(result.source).toBe('deterministic')
+    expect(result.text).not.toMatch(/ignore|ataque|bandeira/i)
+  })
+
+  it('falls back when the LLM invents numeric evidence', async () => {
+    const coachGenerate = vi.fn(async () => ({
+      ok: true,
+      text: 'Brake 50 metres earlier for Turn 1.'
+    }))
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'en-US'
+    })
+    seedAnalyzerReport(analyzer, snap('live', 0))
+
+    const result = await analyzer.explain({ findingId: finding().id, useLlm: true })
+
+    expect(result.source).toBe('deterministic')
+    expect(result.text).not.toContain('50')
   })
   it('publishes an empty prediction snapshot and does not sample replay or unknown frames', () => {
     vi.useFakeTimers()

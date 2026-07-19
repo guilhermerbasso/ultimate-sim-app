@@ -600,9 +600,17 @@ export interface DetectedRacecraftQuestion {
   language: CoachAdviceLanguage
 }
 
+function isPurelyInformationalRacecraftQuestion(question: string): boolean {
+  const informational =
+    /\b(what is|what are|define|meaning of|explain the term|tell me about the concept|o que e|que significa|qu est ce que|was ist)\b/.test(question)
+  if (!informational) return false
+  return !/\b(can i|should i|could i|may i|do i|would it|when should|where should|how to|best way|next|now|this lap|restart|corner|turn|hairpin|chicane|t\d+|car ahead|opponent)\b/.test(question)
+}
+
 export function detectRacecraftQuestionWithLanguage(question: string): DetectedRacecraftQuestion | null {
   const q = normalize(question).replace(/[’']/g, ' ')
   if (!q) return null
+  if (isPurelyInformationalRacecraftQuestion(q)) return null
   const patterns: ReadonlyArray<{
     language: CoachAdviceLanguage
     overtake: RegExp
@@ -660,17 +668,41 @@ export function detectRacecraftLikeQuestionLanguage(
 ): CoachAdviceLanguage | null {
   const detected = detectRacecraftQuestionWithLanguage(question)
   if (detected) return detected.language
-  const q = normalize(question).replace(/[’']/g, ' ')
+  const q = normalize(question)
+    .replace(/[@4]/g, 'a')
+    .replace(/[€3]/g, 'e')
+    .replace(/[!1|]/g, 'i')
+    .replace(/[0]/g, 'o')
+    .replace(/[$5]/g, 's')
+    .replace(/[7+]/g, 't')
+    .replace(/[’']/g, ' ')
+    .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const compact = q.replace(/\s+/g, '')
   const hints: ReadonlyArray<[CoachAdviceLanguage, RegExp]> = [
-    ['en-US', /\b(divebomb|send it|move down the inside|go around the outside|attack the car|defend from the car|make a racing move)\b/],
-    ['pt-BR', /\b(mergulhar por dentro|mandar por dentro|atacar o carro|defender do carro|fazer uma manobra)\b/],
-    ['es', /\b(tirarme por dentro|lanzarme por dentro|atacar al coche|defenderme del coche|hacer una maniobra)\b/],
-    ['fr', /\b(plonger a l interieur|attaquer la voiture|defendre contre la voiture|tenter une manoeuvre)\b/],
-    ['de', /\b(innen reinstechen|das auto angreifen|gegen das auto verteidigen|ein rennmanover)\b/],
+    ['pt-BR', /\b(mergulhar|mandar|passar|ultrapassar|atacar|defender|bloquear|fechar a porta|frear mais tarde|pisar fundo|forcar a passagem|fazer uma manobra)\b/],
+    ['es', /\b(tirarme|lanzarme|pasar|adelantar|atacar|defenderme|bloquear|cerrar la puerta|frenar mas tarde|ir a fondo|hacer una maniobra)\b/],
+    ['fr', /\b(plonger|passer|depasser|attaquer|defendre|bloquer|fermer la porte|freiner plus tard|aller a fond|tenter une manoeuvre)\b/],
+    ['de', /\b(reinstechen|uberholen|vorbeigehen|angreifen|verteidigen|blockieren|tur zumachen|spater bremsen|voll angreifen|rennmanover)\b/],
     ['zh', /(晚刹强攻|钻内线|走外线|攻击前车|防守后车|做赛车动作)/],
-    ['ja', /(ダイブボム|飛び込|アウトから行く|前車を攻める|後続車を守る|仕掛ける)/]
+    ['ja', /(ダイブボム|飛び込|アウトから行く|前車を攻める|後続車を守る|仕掛ける)/],
+    ['en-US', /\b(divebomb|send it|make a move|racing move|go for it|go around|go down the inside|get past|get by|get alongside|fight for position|gain (?:the )?(?:place|position)|take (?:the position|him|her|them)|clear the car|use the gap|lunge|challenge|commit|pass|overtake|attack|push|defend|block|squeeze|outbrake|brake later|late brake|stay flat|flat out|full throttle|door (?:stays |is |will stay )?open)\b/]
   ]
-  return hints.find(([, pattern]) => pattern.test(q))?.[0] ?? null
+  const localized = hints.find(([, pattern]) => pattern.test(q))
+  if (localized) {
+    const tacticalContext =
+      /\b(can i|should i|could i|may i|do i|would it|is there|when|where|how|next|now|this lap|restart|corner|turn|hairpin|chicane|t\d+|car|opponent|driver|him|her|them|inside|outside|porta|curva|carro|coche|virage|voiture|auto|kurve)\b/.test(q) ||
+      /(前车|后车|弯|コーナー|前車|後続車)/.test(q)
+    const purelyInformational = isPurelyInformationalRacecraftQuestion(q)
+    if (!purelyInformational || tacticalContext) return localized[0]
+  }
+  const compactAction =
+    /(pass|overtake|attack|push|sendit|divebomb|makeamove|goforit|getalongside|fightforposition|gain(?:the)?(?:place|position)|take(?:theposition|him|her|them)|clearthecar|usethegap|brakelater|stayflat|fullthrottle|door(?:stays|is|willstay)?open)/
+  const compactContext =
+    /(cani|shouldi|couldi|mayi|doi|wouldit|isthere|isnow|when|where|how|next|now|thislap|restart|corner|turn|hairpin|chicane|t\d+|car|opponent|driver|him|her|them)/
+  if (compactAction.test(compact) && compactContext.test(compact)) return 'en-US'
+  return null
 }
 
 export function racecraftClarificationText(language: CoachAdviceLanguage): string {

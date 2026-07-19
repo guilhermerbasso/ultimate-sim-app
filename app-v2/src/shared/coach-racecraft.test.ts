@@ -178,6 +178,28 @@ describe('racecraft question routing', () => {
   )
 
   it.each([
+    'Can I pass on the next corner?',
+    'C.a.n I p@ss on the next c0rner?',
+    'Would it be smart to go for it around the outside into T1?',
+    'Is there room to make a move at the next turn?',
+    'Should I push past this car after the restart?',
+    'Do you think the door stays open into the hairpin?',
+    'Is now a good time to get alongside?',
+    'Could I gain the position before the braking zone?',
+    'Should I fight for position on this lap?'
+  ])('conservatively classifies tactical or obfuscated wording: %s', (question) => {
+    expect(detectRacecraftLikeQuestionLanguage(question)).toBe('en-US')
+  })
+
+  it.each([
+    'What is an overtake?',
+    'Define divebomb.',
+    'Explain the term racing move.'
+  ])('allows non-tactical informational wording through the conservative gate: %s', (question) => {
+    expect(detectRacecraftLikeQuestionLanguage(question)).toBeNull()
+  })
+
+  it.each([
     ['Should I send it down the inside?', 'en-US'],
     ['Devo mergulhar por dentro?', 'pt-BR'],
     ['¿Debo tirarme por dentro?', 'es'],

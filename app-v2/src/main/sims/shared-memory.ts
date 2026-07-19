@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import type { ReplayContext } from '../../shared/replay'
 
 const require = createRequire(import.meta.url)
 
@@ -10,6 +11,51 @@ export type SharedMemoryHandle = {
 export type SharedMemoryBufferHandle = {
   view: Buffer | null
   close(): void
+}
+
+export type ProviderReplayResolution = Pick<
+  ReplayContext,
+  'state' | 'reason' | 'inputs' | 'active'
+>
+
+export class ProviderReplayContextTracker {
+  private connectionEpoch = 0
+  private revision = 0
+  private currentKey: string | undefined
+  private reconnectPending = true
+
+  observe(
+    resolution: ProviderReplayResolution,
+    sessionIdentity?: string
+  ): ReplayContext {
+    if (this.reconnectPending) {
+      this.connectionEpoch += 1
+      this.currentKey = undefined
+      this.reconnectPending = false
+    }
+    const key = JSON.stringify([
+      resolution.state,
+      resolution.reason,
+      resolution.inputs,
+      sessionIdentity ?? ''
+    ])
+    if (this.currentKey !== undefined && this.currentKey !== key) {
+      this.revision += 1
+    }
+    this.currentKey = key
+    return {
+      ...resolution,
+      revision: this.revision,
+      token: `${this.connectionEpoch}:${this.revision}:${resolution.state}`,
+      sessionIdentity,
+      connectionEpoch: this.connectionEpoch
+    }
+  }
+
+  disconnect(): void {
+    this.reconnectPending = true
+    this.currentKey = undefined
+  }
 }
 
 export function loadKoffi(): any | null {

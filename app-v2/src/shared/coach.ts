@@ -4,6 +4,7 @@ import type { CoachBaseline } from './coach-baseline'
 import { applyIntentGate } from './coach-intent-gate'
 import type { SpeechLanguage } from './tts-voice'
 import { formatMeasurement, type UnitSystem } from './units'
+import { isLiveTelemetrySnapshot } from './replay'
 
 export type CoachSeverity = 'high' | 'med' | 'low' | 'good'
 
@@ -952,7 +953,12 @@ export function phaseForSample(sample: CoachLapSample, cfg: CoachAnalysisConfig 
 
 /** Reduce a raw telemetry snapshot into a coach sample (null when unusable). */
 export function coachSampleFromSnapshot(snapshot: TelemetrySnapshot | null | undefined): CoachLapSample | null {
-  if (!snapshot || snapshot.connected === false) return null
+  if (!snapshot || snapshot.connected === false || !isLiveTelemetrySnapshot(snapshot)) return null
+  if (snapshot.onTrack === false || snapshot.onPitRoad === true) return null
+  if (
+    (snapshot.sim === 'acc' || snapshot.sim === 'ams2') &&
+    snapshot.onTrack !== true
+  ) return null
   if (snapshot.lapDistPct === undefined || !Number.isFinite(snapshot.lapDistPct)) return null
   if (!Number.isFinite(snapshot.speedKmh)) return null
   return {

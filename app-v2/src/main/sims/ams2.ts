@@ -5,8 +5,11 @@ import {
   firstString,
   loadKoffi,
   openSharedMemoryBuffer,
+  ProviderReplayContextTracker,
+  type ProviderReplayResolution,
   type SharedMemoryBufferHandle
 } from './shared-memory'
+import type { ReplayContext } from '../../shared/replay'
 
 const AMS2_PARTICIPANT_COUNT = 64
 const AMS2_PARTICIPANT_SIZE = 100
@@ -315,11 +318,54 @@ function ams2SessionType(value: number): string | undefined {
   }
 }
 
+export function ams2ReplayResolution(gameState: number): ProviderReplayResolution | null {
+  if (gameState === 2) {
+    return {
+      state: 'live',
+      reason: 'confirmed-live',
+      inputs: { simMode: 'full', isReplayPlaying: false, replaySessionNum: -1 },
+      active: false
+    }
+  }
+  if (gameState === 6 || gameState === 7) {
+    return {
+      state: 'replay',
+      reason: 'replay-sim-mode',
+      inputs: { simMode: 'replay', isReplayPlaying: true },
+      active: true
+    }
+  }
+  if (gameState >= 1 && gameState <= 5) {
+    return {
+      state: 'unknown',
+      reason: 'contradictory-metadata',
+      inputs: {},
+      active: true
+    }
+  }
+  return null
+}
+
+function fixtureReplayContext(
+  resolution: ProviderReplayResolution,
+  sessionIdentity: string
+): ReplayContext {
+  return {
+    ...resolution,
+    revision: 0,
+    token: `0:0:${resolution.state}`,
+    sessionIdentity,
+    connectionEpoch: 0
+  }
+}
+
 export function ams2SnapshotFromPage(
   data: AMS2SharedMemoryPage,
-  timestamp = Date.now()
+  timestamp = Date.now(),
+  replayContext?: ReplayContext
 ): TelemetrySnapshot | null {
-  if (data.gameState === 0) return null
+  const replayResolution = ams2ReplayResolution(data.gameState)
+  if (!replayResolution) return null
   const rawSession = data.sessionState
   const participant = data.participant
   const completedLaps = Math.max(0, participant?.lapsCompleted ?? 0)
@@ -339,11 +385,21 @@ export function ams2SnapshotFromPage(
       ? data.fuelLevel * data.fuelCapacity
       : undefined
   const onPitRoad = data.pitMode !== 0
+  const sessionIdentity = [
+    'ams2',
+    data.trackLocation ?? 'track',
+    data.trackVariation ?? 'layout',
+    data.carName ?? 'car',
+    rawSession
+  ].join(':')
+  const normalizedReplayContext =
+    replayContext ?? fixtureReplayContext(replayResolution, sessionIdentity)
 
   return {
     sim: 'ams2',
     connected: true,
     timestamp,
+    replayContext: normalizedReplayContext,
     speedKmh: data.speed * 3.6,
     rpm: data.rpm,
     gear: data.gear,
@@ -376,7 +432,7 @@ export function ams2SnapshotFromPage(
       participant && participant.racePosition > 0
         ? participant.racePosition
         : undefined,
-    onTrack: data.gameState === 2 || data.gameState === 3 || data.gameState === 4,
+    onTrack: data.gameState === 2,
     onPitRoad,
     pit: {
       repairNeeded: false,
@@ -397,6 +453,7 @@ export class AMS2Provider implements TelemetryProvider {
   readonly id = 'ams2' as const
   private koffi: any | null = null
   private memory: SharedMemoryBufferHandle | null = null
+  private readonly replayTracker = new ProviderReplayContextTracker()
 
   start(): void {
     if (this.memory || process.platform !== 'win32') return
@@ -412,6 +469,7 @@ export class AMS2Provider implements TelemetryProvider {
   stop(): void {
     this.memory?.close()
     this.memory = null
+    this.replayTracker.disconnect()
   }
 
   isConnected(): boolean {
@@ -421,6 +479,23 @@ export class AMS2Provider implements TelemetryProvider {
   poll(): TelemetrySnapshot | null {
     if (!this.isConnected()) return null
     const data = stableSequence(this.memory)
-    return data ? ams2SnapshotFromPage(data) : null
+    if (!data) {
+      this.replayTracker.disconnect()
+      return null
+    }
+    const resolution = ams2ReplayResolution(data.gameState)
+    if (!resolution) {
+      this.replayTracker.disconnect()
+      return null
+    }
+    const sessionIdentity = [
+      'ams2',
+      data.trackLocation ?? 'track',
+      data.trackVariation ?? 'layout',
+      data.carName ?? 'car',
+      data.sessionState
+    ].join(':')
+    const replayContext = this.replayTracker.observe(resolution, sessionIdentity)
+    return ams2SnapshotFromPage(data, Date.now(), replayContext)
   }
 }

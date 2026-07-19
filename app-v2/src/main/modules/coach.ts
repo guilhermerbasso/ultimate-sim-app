@@ -59,6 +59,11 @@ import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
 import type { UnitSystem } from '../../shared/units'
 import {
+  racecraftSafetyFromSnapshot,
+  racecraftSafetyReason,
+  type RacecraftSafetyReason
+} from '../../shared/coach-racecraft'
+import {
   speechLanguageFromAppLanguage,
   type SpeechLanguage
 } from '../../shared/tts-voice'
@@ -573,6 +578,120 @@ const MAX_REPORTS = 6
 const RECENT_LAPS = 8
 const EXPLAIN_TIMEOUT_MS = 8000
 const EXPLAIN_MAX_TOKENS = 96
+const COACH_EXPLAIN_SESSION_KINDS: readonly SessionKind[] = [
+  'practice',
+  'qualify',
+  'race',
+  'warmup',
+  'hotlap',
+  'time-attack'
+]
+
+interface CoachExplanationFence {
+  context: LiveTelemetryContext
+  safetyRevision: number
+  languageRevision: number
+  reportRevision: number
+  findingFingerprint: string
+  language: SpeechLanguage
+  safetyReason?: RacecraftSafetyReason
+}
+
+function coachFindingFingerprint(finding: CoachFinding): string {
+  return JSON.stringify({
+    id: finding.id,
+    kind: finding.kind,
+    phase: finding.phase,
+    sector: finding.sector,
+    corner: finding.corner,
+    zonePctStart: finding.zonePctStart,
+    zonePctEnd: finding.zonePctEnd,
+    severity: finding.severity,
+    estTimeLossSec: finding.estTimeLossSec,
+    estTimeDeltaSec: finding.estTimeDeltaSec,
+    title: finding.title,
+    detail: finding.detail,
+    evidence: finding.evidence,
+    metrics: Object.entries(finding.metrics).sort(([left], [right]) => left.localeCompare(right))
+  })
+}
+
+function explanationWords(text: string): Set<string> {
+  const words = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .match(/[a-z\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]{4,}/g) ?? []
+  return new Set(words.map((word) => word.replace(/(ing|ed|es|s)$/u, '')))
+}
+
+function explanationNumbers(text: string): number[] {
+  return [...text.matchAll(/-?\d+(?:[.,]\d+)?/g)]
+    .map((match) => Number(match[0].replace(',', '.')))
+    .filter(Number.isFinite)
+}
+
+function groundedCoachExplanation(
+  text: string,
+  finding: CoachFinding,
+  deterministic: string
+): boolean {
+  if (!text || text.length > 480) return false
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  if (
+    /\b(ignore|disregard|override).{0,24}\b(flag|yellow|red|race control|safety car|vsc)\b/.test(normalized) ||
+    /\b(pass|overtake|attack|divebomb|send it|block the car|defend the position|fight for position|take the position|push past)\b/.test(normalized) ||
+    /\b(under yellow|during (?:the )?(?:safety car|vsc)|before the restart)\b/.test(normalized) ||
+    /\b(ignorar?|desobedecer).{0,24}\b(bandeira|amarela|vermelha|direcao de prova|safety car)\b/.test(normalized) ||
+    /\b(ultrapass|ataqu|adelant|depasse|angreif|uberhol).*\b(carro|coche|voiture|auto|rival)\b/.test(normalized) ||
+    /(无视|無視).*(黄旗|黃旗|赤旗|レッド|イエロー)|(超车|超車|攻击|攻擊|追い越|攻め)/
+      .test(normalized)
+  ) return false
+
+  const allowedText = [
+    deterministic,
+    finding.title,
+    finding.detail,
+    finding.evidence,
+    String(finding.sector),
+    finding.corner === undefined ? '' : String(finding.corner),
+    String(finding.estTimeLossSec),
+    finding.estTimeDeltaSec === undefined ? '' : String(finding.estTimeDeltaSec),
+    ...Object.keys(finding.metrics),
+    ...Object.values(finding.metrics).map(String)
+  ].join(' ')
+  const allowedNumbers = explanationNumbers(allowedText)
+  if (
+    explanationNumbers(text).some(
+      (value) => !allowedNumbers.some((allowed) => Math.abs(allowed - value) <= 0.011)
+    )
+  ) return false
+
+  const allowedWords = explanationWords(allowedText)
+  const outputWords = explanationWords(text)
+  const genericWords = new Set([
+    'turn',
+    'corner',
+    'sector',
+    'curva',
+    'virage',
+    'kurve',
+    'driver',
+    'pilot',
+    'observation',
+    'advice',
+    'estimated',
+    'loss',
+    'tempo',
+    'time'
+  ])
+  return [...outputWords].some(
+    (word) => allowedWords.has(word) && !genericWords.has(word)
+  )
+}
 
 export interface LapCoachDeps {
   broadcast(channel: string, payload: unknown): void
@@ -605,6 +724,12 @@ export class LapCoachAnalyzer {
   private latestSetup: SetupReport | null = null
   private readonly explanationCache = new Map<string, CoachExplainResult>()
   private readonly explanationInFlight = new Map<string, Promise<CoachExplainResult>>()
+  private safetyRevision = 0
+  private safetyKey: string | undefined
+  private currentSafetyReason: RacecraftSafetyReason | undefined = 'race-control-unknown'
+  private languageRevision = 0
+  private observedLanguage: SpeechLanguage | null = null
+  private reportRevision = 0
   // Per-track corner map, learned lazily from the first full clean lap and then
   // reused for every subsequent lap so corner numbers stay stable.
   private cornerMap: CornerMapData | null = null
@@ -615,7 +740,72 @@ export class LapCoachAnalyzer {
 
   constructor(private readonly deps: LapCoachDeps) {}
 
+  private invalidateExplanations(): void {
+    this.explainAbort?.abort()
+    this.explainAbort = null
+    this.explanationCache.clear()
+    this.explanationInFlight.clear()
+  }
+
+  private observeLanguage(): SpeechLanguage {
+    const language = this.deps.getLanguage?.() ?? 'pt-BR'
+    if (this.observedLanguage === null) {
+      this.observedLanguage = language
+    } else if (this.observedLanguage !== language) {
+      this.observedLanguage = language
+      this.languageRevision += 1
+      this.invalidateExplanations()
+    }
+    return language
+  }
+
+  private observeSafety(snapshot: TelemetrySnapshot | null): void {
+    const safety = racecraftSafetyFromSnapshot(snapshot)
+    const reason = racecraftSafetyReason(
+      safety,
+      COACH_EXPLAIN_SESSION_KINDS,
+      true
+    )
+    const key = JSON.stringify([
+      snapshot?.sim,
+      reason ?? 'safe',
+      safety.connected,
+      safety.onTrack,
+      safety.onPitRoad,
+      safety.flagYellow,
+      safety.flagBlue,
+      safety.flagRed,
+      safety.flagBlack,
+      safety.flagMeatball,
+      safety.flagRepair,
+      safety.flagDisqualify,
+      safety.flagCheckered,
+      safety.flagsKnown,
+      safety.pitStateKnown,
+      safety.paceStateKnown,
+      safety.caution,
+      safety.paceMode,
+      safety.sessionState,
+      safety.sessionKind,
+      safety.replayState,
+      safety.carLeftRight,
+      (safety.carsAlongsideCount ?? 0) > 0,
+      safety.radarClosestMeters !== undefined && safety.radarClosestMeters <= 8,
+      safety.gapAheadSec !== undefined && safety.gapAheadSec <= 0.35,
+      safety.gapBehindSec !== undefined && safety.gapBehindSec <= 0.35
+    ])
+    if (this.safetyKey === undefined) {
+      this.safetyKey = key
+    } else if (this.safetyKey !== key) {
+      this.safetyKey = key
+      this.safetyRevision += 1
+      this.invalidateExplanations()
+    }
+    this.currentSafetyReason = reason
+  }
+
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
+    this.observeSafety(snapshot)
     const live = this.liveGate.observe(snapshot)
     if (!live.live) {
       if (live.boundary) this.resetLiveSession()
@@ -645,8 +835,8 @@ export class LapCoachAnalyzer {
   }
 
   private resetLiveSession(): void {
-    this.explainAbort?.abort()
-    this.explainAbort = null
+    this.invalidateExplanations()
+    this.reportRevision += 1
     this.liveContext = null
     this.buffer = []
     this.previous = null
@@ -656,8 +846,6 @@ export class LapCoachAnalyzer {
     this.latestReport = null
     this.latestReportContext = null
     this.latestSetup = null
-    this.explanationCache.clear()
-    this.explanationInFlight.clear()
     this.cornerMap = null
     this.reference = null
     this.referenceLapTimeSec = undefined
@@ -709,10 +897,8 @@ export class LapCoachAnalyzer {
       this.referenceLapTimeSec = lapTimeSec
     }
     const setup = buildSetupReport(buildSetupInput(snapshot, report.findings), { unitSystem: this.deps.getUnitSystem?.() })
-    this.explainAbort?.abort()
-    this.explainAbort = null
-    this.explanationCache.clear()
-    this.explanationInFlight.clear()
+    this.invalidateExplanations()
+    this.reportRevision += 1
     this.latestReport = report
     this.latestReportContext = this.liveContext ? { ...this.liveContext } : null
     this.latestSetup = setup
@@ -737,11 +923,21 @@ export class LapCoachAnalyzer {
     return this.latestReport.findings.find((finding) => finding.id === findingId) ?? null
   }
 
-  private explanationIsCurrent(context: LiveTelemetryContext, findingId: string): boolean {
+  private explanationIsCurrent(
+    fence: CoachExplanationFence,
+    findingId: string
+  ): boolean {
+    const language = this.observeLanguage()
+    const canonical = this.latestReport?.findings.find((finding) => finding.id === findingId)
     return (
-      sameLiveTelemetryContext(this.liveContext, context) &&
-      sameLiveTelemetryContext(this.latestReportContext, context) &&
-      this.latestReport?.findings.some((finding) => finding.id === findingId) === true
+      sameLiveTelemetryContext(this.liveContext, fence.context) &&
+      sameLiveTelemetryContext(this.latestReportContext, fence.context) &&
+      this.safetyRevision === fence.safetyRevision &&
+      this.languageRevision === fence.languageRevision &&
+      language === fence.language &&
+      this.reportRevision === fence.reportRevision &&
+      canonical !== undefined &&
+      coachFindingFingerprint(canonical) === fence.findingFingerprint
     )
   }
 
@@ -756,28 +952,31 @@ export class LapCoachAnalyzer {
   }
 
   private explanationKey(
-    context: LiveTelemetryContext,
+    fence: CoachExplanationFence,
     finding: CoachFinding,
-    language: SpeechLanguage,
     useLlm: boolean
   ): string {
     return [
-      context.connectionEpoch,
-      context.revision,
-      context.token,
-      context.sessionIdentity ?? '',
+      fence.context.connectionEpoch,
+      fence.context.revision,
+      fence.context.token,
+      fence.context.sessionIdentity ?? '',
+      fence.safetyRevision,
+      fence.languageRevision,
+      fence.reportRevision,
+      fence.findingFingerprint,
       finding.id,
-      language,
+      fence.language,
       useLlm ? 'llm' : 'deterministic'
     ].join(':')
   }
 
   private finalizeExplanation(
-    context: LiveTelemetryContext,
+    fence: CoachExplanationFence,
     finding: CoachFinding,
     result: CoachExplainResult
   ): CoachExplainResult {
-    if (!this.explanationIsCurrent(context, finding.id)) {
+    if (!this.explanationIsCurrent(fence, finding.id)) {
       return { text: '', source: 'deterministic', findingId: finding.id }
     }
     return { ...result, findingId: finding.id }
@@ -786,12 +985,16 @@ export class LapCoachAnalyzer {
   private async explainFinding(
     finding: CoachFinding,
     useLlm: boolean,
-    language: SpeechLanguage,
-    context: LiveTelemetryContext
+    fence: CoachExplanationFence
   ): Promise<CoachExplainResult> {
-    const deterministic = deterministicPhrasing(finding, language)
-    if (!useLlm || !this.deps.generate || !this.deps.getModelPath) {
-      return this.finalizeExplanation(context, finding, {
+    const deterministic = deterministicPhrasing(finding, fence.language)
+    if (
+      !useLlm ||
+      fence.safetyReason !== undefined ||
+      !this.deps.generate ||
+      !this.deps.getModelPath
+    ) {
+      return this.finalizeExplanation(fence, finding, {
         text: deterministic,
         source: 'deterministic'
       })
@@ -799,7 +1002,7 @@ export class LapCoachAnalyzer {
     // Only touch the LLM when a model is already present — never trigger a download.
     const modelPath = this.deps.getModelPath()
     if (!modelPath) {
-      return this.finalizeExplanation(context, finding, {
+      return this.finalizeExplanation(fence, finding, {
         text: deterministic,
         source: 'deterministic'
       })
@@ -814,32 +1017,40 @@ export class LapCoachAnalyzer {
       const result = await this.deps
         .generate({
           system:
-            language === 'pt-BR'
-              ? 'Você é um coach de pilotagem objetivo e prático. Reescreva a observação técnica em 1 ou 2 frases curtas e diretas em português do Brasil, dizendo ao piloto o que fazer. Não invente dados; use somente os números fornecidos.'
-              : 'You are an objective, practical driving coach. Rewrite the technical observation in 1 to 2 short, direct American English sentences telling the driver what to do. Do not invent data; use only the provided numbers.',
-          prompt: explainPrompt(finding),
+            fence.language === 'pt-BR'
+              ? 'Você reescreve somente a observação determinística fornecida. Não acrescente ultrapassagem, ataque, defesa, adversários, direção de prova, setup ou números novos. Se não puder manter exatamente essa evidência, repita a frase determinística.'
+              : 'Rewrite only the supplied deterministic observation. Do not add passing, attacking, defending, opponents, race-control, setup, or new numeric advice. If you cannot stay within that evidence, repeat the deterministic sentence.',
+          prompt: [
+            explainPrompt(finding),
+            `Deterministic sentence: ${deterministic}`,
+            'Safety envelope: known-safe at request time; do not add live tactical advice.'
+          ].join('\n'),
           maxTokens: EXPLAIN_MAX_TOKENS,
           temperature: 0.3,
           signal: controller.signal
         })
         .finally(() => clearTimeout(timer))
       const text = (result.text ?? '').trim()
-      if (result.ok && text.length > 0) {
-        return this.finalizeExplanation(context, finding, { text, source: 'llm' })
+      if (
+        result.ok &&
+        text.length > 0 &&
+        groundedCoachExplanation(text, finding, deterministic)
+      ) {
+        return this.finalizeExplanation(fence, finding, { text, source: 'llm' })
       }
     } catch {
       // fall through to deterministic
     } finally {
       if (this.explainAbort === controller) this.explainAbort = null
     }
-    return this.finalizeExplanation(context, finding, {
+    return this.finalizeExplanation(fence, finding, {
       text: deterministic,
       source: 'deterministic'
     })
   }
 
   async explain(req: CoachExplainRequest): Promise<CoachExplainResult> {
-    const language = this.deps.getLanguage?.() ?? 'pt-BR'
+    const language = this.observeLanguage()
     const finding = this.findFinding(req)
     const context = this.liveContext
     if (
@@ -848,7 +1059,16 @@ export class LapCoachAnalyzer {
       !sameLiveTelemetryContext(this.latestReportContext, context)
     ) return this.explanationUnavailable(language)
 
-    const key = this.explanationKey(context, finding, language, req.useLlm === true)
+    const fence: CoachExplanationFence = {
+      context: { ...context },
+      safetyRevision: this.safetyRevision,
+      languageRevision: this.languageRevision,
+      reportRevision: this.reportRevision,
+      findingFingerprint: coachFindingFingerprint(finding),
+      language,
+      safetyReason: this.currentSafetyReason
+    }
+    const key = this.explanationKey(fence, finding, req.useLlm === true)
     const cached = this.explanationCache.get(key)
     if (cached) return { ...cached }
     const existing = this.explanationInFlight.get(key)
@@ -857,13 +1077,12 @@ export class LapCoachAnalyzer {
     const pending = this.explainFinding(
       finding,
       req.useLlm === true,
-      language,
-      context
+      fence
     )
     this.explanationInFlight.set(key, pending)
     try {
       const result = await pending
-      if (result.text && this.explanationIsCurrent(context, finding.id)) {
+      if (result.text && this.explanationIsCurrent(fence, finding.id)) {
         this.explanationCache.set(key, { ...result })
       }
       return { ...result }

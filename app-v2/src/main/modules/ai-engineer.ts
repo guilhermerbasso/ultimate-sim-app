@@ -37,6 +37,8 @@ import {
   detectRacecraftQuestionWithLanguage,
   racecraftClarificationText,
   racecraftSafetyFromSnapshot,
+  racecraftSafetyMessage,
+  racecraftSafetyReason,
   type CoachAdviceLanguage,
   type RacecraftAdviceContext
 } from '../../shared/coach-racecraft'
@@ -585,7 +587,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         )
       }
       if (racecraftLikeLanguage) {
-        const text = racecraftClarificationText(adviceLanguage)
+        const fallbackContext = makeFallbackContext()
+        const safetyReason = racecraftSafetyReason(fallbackContext.safety)
+        const text = safetyReason
+          ? racecraftSafetyMessage(safetyReason, adviceLanguage)
+          : racecraftClarificationText(adviceLanguage)
         return publishAnswer(
           question,
           text,
@@ -617,7 +623,14 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       )
     }
     if (racecraftLikeLanguage) {
-      const text = racecraftClarificationText(adviceLanguage)
+      const fallbackContext = makeFallbackContext()
+      const safety =
+        deps.racecraftContext?.()?.safety ??
+        fallbackContext.safety
+      const safetyReason = racecraftSafetyReason(safety)
+      const text = safetyReason
+        ? racecraftSafetyMessage(safetyReason, adviceLanguage)
+        : racecraftClarificationText(adviceLanguage)
       return finalize(
         question,
         text,

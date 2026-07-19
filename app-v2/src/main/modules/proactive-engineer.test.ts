@@ -850,6 +850,93 @@ describe('createProactiveEngine', () => {
     expect(persistHistory).toHaveBeenCalledOnce()
   })
 
+  it('does not persist ACC replay/non-track samples without replayContext and preserves history across restart', () => {
+    const folder = join(process.cwd(), `.coach-replay-history-test-${process.pid}-${Date.now()}`)
+    mkdirSync(folder, { recursive: true })
+    try {
+      const store = new CoachRacecraftHistoryStore(folder)
+      const prior = historyLap(
+        '1',
+        makeFinding({ kind: 'brake-late', sector: 1 }),
+        1
+      )
+      store.replace([prior])
+      const persistHistory = vi.fn((laps: readonly CoachLapHistoryEntry[]) => store.replace(laps))
+      const { engine } = makeEngine(
+        { language: 'en-US' },
+        {
+          history: store.all(),
+          persistHistory
+        }
+      )
+      const base = {
+        sim: 'acc' as const,
+        sessionKind: 'race' as const,
+        sessionType: 'Race',
+        trackName: 'Replay Guard Track',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        trackWetnessPct: 0,
+        isRaining: false,
+        lapValidity: 'valid' as const
+      }
+
+      for (let index = 0; index < 34; index += 1) {
+        engine.onSnapshot(
+          makeSnapshot((index / 34) * 0.99, {
+            ...base,
+            onTrack: false,
+            replayContext: undefined,
+            timestamp: 1_000 + index * 100,
+            currentLap: 1
+          })
+        )
+      }
+      engine.onSnapshot(
+        makeSnapshot(0.02, {
+          ...base,
+          onTrack: false,
+          replayContext: undefined,
+          timestamp: 5_000,
+          currentLap: 2,
+          lastLapTimeSec: 90
+        })
+      )
+
+      expect(engine.getHistory()).toHaveLength(1)
+      expect(persistHistory).not.toHaveBeenCalled()
+      expect(new CoachRacecraftHistoryStore(folder).all()).toHaveLength(1)
+
+      for (let index = 0; index < 34; index += 1) {
+        engine.onSnapshot(
+          makeSnapshot((index / 34) * 0.99, {
+            ...base,
+            onTrack: true,
+            replayContext: undefined,
+            timestamp: 10_000 + index * 100,
+            currentLap: 2
+          })
+        )
+      }
+      engine.onSnapshot(
+        makeSnapshot(0.02, {
+          ...base,
+          onTrack: true,
+          replayContext: undefined,
+          timestamp: 15_000,
+          currentLap: 3,
+          lastLapTimeSec: 89
+        })
+      )
+
+      expect(engine.getHistory()).toHaveLength(2)
+      expect(persistHistory).toHaveBeenCalledOnce()
+      expect(new CoachRacecraftHistoryStore(folder).all()).toHaveLength(2)
+    } finally {
+      rmSync(folder, { recursive: true, force: true })
+    }
+  })
+
   it('discards a partial startup lap until the first start/finish boundary', () => {
     const fakeMap = {
       corners: [{ index: 1, startPct: 0.1, apexPct: 0.2, endPct: 0.3 }]

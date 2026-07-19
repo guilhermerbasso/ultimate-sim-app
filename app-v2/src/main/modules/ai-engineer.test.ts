@@ -373,6 +373,53 @@ describe('createEngineerOrchestrator.ask', () => {
     }
   )
 
+  it.each([
+    ['yellow', { flagYellow: true }, 'Can I pass on the next corner?', 'TACTICS PAUSED'],
+    ['red', { flagRed: true }, 'C.a.n I p@ss on the next c0rner?', 'safety or penalty flag'],
+    ['safety car', { paceMode: 'singleFileRestart' as const }, 'Should I push past this car after the restart?', 'TACTICS PAUSED'],
+    ['virtual safety car', { paceMode: 'doubleFileRestart' as const }, 'Would it be smart to go for it around the outside into T1?', 'TACTICS PAUSED'],
+    ['black', { flagBlack: true }, 'Is there room to make a move at the next turn?', 'safety or penalty flag'],
+    ['meatball', { flagMeatball: true }, 'Do you think the door stays open into the hairpin?', 'safety or penalty flag'],
+    ['local caution', { caution: true }, 'How hard can I attack the car ahead now?', 'TACTICS PAUSED'],
+    [
+      'unknown race control',
+      { flagsKnown: false, pitStateKnown: false, paceStateKnown: false },
+      'Can I pass on the next corner?',
+      'RACE-CONTROL STATE UNAVAILABLE'
+    ]
+  ] as const)(
+    'never passes ambiguous tactical wording to the LLM during %s',
+    async (_label, safetyPatch, question, marker) => {
+      const harness = makeHarness({
+        racecraftContext: {
+          findings: [racecraftFinding()],
+          safety: { ...KNOWN_SAFE_RACE, ...safetyPatch }
+        }
+      })
+
+      const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+      expect(answer.source).toBe('intent')
+      expect(answer.text).toContain(marker)
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps safe non-tactical racecraft definitions eligible for the LLM', async () => {
+    const harness = makeHarness({
+      racecraftContext: {
+        findings: [racecraftFinding()],
+        safety: KNOWN_SAFE_RACE
+      }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask('What is an overtake?')
+
+    expect(answer.source).toBe('llm')
+    expect(harness.runtime.generateWithTools).toHaveBeenCalledOnce()
+  })
+
   it('returns deterministic safety suppression for replay racecraft questions without the LLM', async () => {
     const snapshot = {
       connected: true,

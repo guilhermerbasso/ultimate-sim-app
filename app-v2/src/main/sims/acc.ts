@@ -4,8 +4,11 @@ import type { TelemetryProvider } from '../telemetry/provider'
 import {
   loadKoffi,
   openSharedMemoryBuffer,
+  ProviderReplayContextTracker,
+  type ProviderReplayResolution,
   type SharedMemoryBufferHandle
 } from './shared-memory'
+import type { ReplayContext } from '../../shared/replay'
 
 const INVALID_LAP_TIME_MS = 2_000_000_000
 const NOMINAL_STEER_LOCK_DEG = 450
@@ -336,13 +339,56 @@ function assettoSessionType(value: unknown): string | undefined {
   }
 }
 
+export function accReplayResolution(status: number): ProviderReplayResolution | null {
+  if (status === 1) {
+    return {
+      state: 'replay',
+      reason: 'replay-sim-mode',
+      inputs: { simMode: 'replay', isReplayPlaying: true },
+      active: true
+    }
+  }
+  if (status === 2) {
+    return {
+      state: 'live',
+      reason: 'confirmed-live',
+      inputs: { simMode: 'full', isReplayPlaying: false, replaySessionNum: -1 },
+      active: false
+    }
+  }
+  if (status === 3) {
+    return {
+      state: 'unknown',
+      reason: 'contradictory-metadata',
+      inputs: {},
+      active: true
+    }
+  }
+  return null
+}
+
+function fixtureReplayContext(
+  resolution: ProviderReplayResolution,
+  sessionIdentity: string
+): ReplayContext {
+  return {
+    ...resolution,
+    revision: 0,
+    token: `0:0:${resolution.state}`,
+    sessionIdentity,
+    connectionEpoch: 0
+  }
+}
+
 export function accSnapshotFromPages(
   physics: ACCPhysicsPage,
   graphics: ACCGraphicsPage,
   staticInfo: ACCStaticPage,
-  timestamp = Date.now()
+  timestamp = Date.now(),
+  replayContext?: ReplayContext
 ): TelemetrySnapshot | null {
-  if (graphics.status === 0) return null
+  const replayResolution = accReplayResolution(graphics.status)
+  if (!replayResolution) return null
   const rawSession = graphics.session
   const completedLaps = Math.max(0, graphics.completedLaps)
   const scheduledLaps = Math.max(0, graphics.numberOfLaps)
@@ -352,11 +398,20 @@ export function accSnapshotFromPages(
     graphics.normalizedCarPosition >= 0 && graphics.normalizedCarPosition <= 1
       ? graphics.normalizedCarPosition
       : undefined
+  const sessionIdentity = [
+    'acc',
+    staticInfo.track ?? 'track',
+    staticInfo.carModel ?? 'car',
+    rawSession
+  ].join(':')
+  const normalizedReplayContext =
+    replayContext ?? fixtureReplayContext(replayResolution, sessionIdentity)
 
   return {
     sim: 'acc',
     connected: true,
     timestamp,
+    replayContext: normalizedReplayContext,
     speedKmh: physics.speedKmh,
     rpm: physics.rpms,
     gear: physics.gear - 1,
@@ -425,6 +480,7 @@ export class ACCProvider implements TelemetryProvider {
   private physics: SharedMemoryBufferHandle | null = null
   private graphics: SharedMemoryBufferHandle | null = null
   private staticInfo: SharedMemoryBufferHandle | null = null
+  private readonly replayTracker = new ProviderReplayContextTracker()
 
   start(): void {
     if (this.isConnected() || process.platform !== 'win32') return
@@ -456,6 +512,7 @@ export class ACCProvider implements TelemetryProvider {
     this.physics = null
     this.graphics = null
     this.staticInfo = null
+    this.replayTracker.disconnect()
   }
 
   isConnected(): boolean {
@@ -468,7 +525,28 @@ export class ACCProvider implements TelemetryProvider {
     const staticInfo = staticBuffer ? decodeACCStaticPage(staticBuffer) : null
     const physics = stablePacket(this.physics, decodeACCPhysicsPage)
     const graphics = stablePacket(this.graphics, decodeACCGraphicsPage)
-    if (!staticInfo || !physics || !graphics) return null
-    return accSnapshotFromPages(physics, graphics, staticInfo)
+    if (!staticInfo || !physics || !graphics) {
+      this.replayTracker.disconnect()
+      return null
+    }
+    const resolution = accReplayResolution(graphics.status)
+    if (!resolution) {
+      this.replayTracker.disconnect()
+      return null
+    }
+    const sessionIdentity = [
+      'acc',
+      staticInfo.track ?? 'track',
+      staticInfo.carModel ?? 'car',
+      graphics.session
+    ].join(':')
+    const replayContext = this.replayTracker.observe(resolution, sessionIdentity)
+    return accSnapshotFromPages(
+      physics,
+      graphics,
+      staticInfo,
+      Date.now(),
+      replayContext
+    )
   }
 }
