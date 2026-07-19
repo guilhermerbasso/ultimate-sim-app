@@ -230,7 +230,7 @@ describe('receiver PWA recovery', () => {
       message: 'Retry later.',
       retryable: true
     })
-    expect(await screen.findByRole('alert')).toHaveTextContent('Retry later.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Retry later.')
 
     socket.message({
       type: 'welcome',
