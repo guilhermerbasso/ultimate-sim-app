@@ -44,6 +44,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Review league incidents with evidence and human-owned verdicts** ([#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95)): the local Steward Desk preserves verified case history, rules, dissent and appeals, anonymizes exported evidence, gates redistribution rights, and never adjudicates or applies penalties automatically.
 - **Certify the rig before joining a session** ([#96](https://github.com/guilhermerbasso/ultimate-sim-app/pull/96)): Rig Preflight compares desired and observed hardware/runtime state, expires or revokes certification when evidence goes stale, requires stable USB identity, audits replacements, and fails closed on persistence or inventory uncertainty.
 - **Keep completed recordings, sidecars, learned pace data, and debrief language durable** ([#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97)): atomic finalization, bounded retry/backoff, explicit dropped-sample accounting, and scoped ended-session evidence prevent shutdown, context changes, or transient storage failures from silently hiding data.
+- **Deliver critical cues redundantly without claiming unavailable outputs** ([#98](https://github.com/guilhermerbasso/ultimate-sim-app/pull/98)): fail-closed accessibility profiles coordinate visual, caption, auditory, LED, and haptic channels with priority/preemption, expiring capability leases, localized Web Speech fallback, trusted Piper digests, and atomic voice/config recovery.
 - **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
 
 ### 2.53.1 — SerialPort startup hotfix
@@ -159,6 +160,9 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Seven-language selector**: English, Portuguese (Brazil), Spanish, French, German, Chinese, and Japanese, with incremental screen coverage and English fallback.
 - **Metric / Imperial/US units** persisted across telemetry, dashboards, strategy, Coach, and Engineer output.
 - **Configuration safety tools** for inspecting/deleting saved sections and exporting the full profile; full-profile import remains temporarily disabled while per-section import stays available.
+- **Multimodal accessibility cue profiles** for fail-closed visual, caption, auditory, LED, and haptic
+  redundancy, with truthful channel availability, critical preemption, localized fallback speech,
+  and atomic voice/config recovery.
 - **Auto-update** through GitHub Releases, including a startup update banner and manual update check.
 - **Persistent Report bug / Support button** in the app chrome.
 - **Brand-new app and tray icon** used across the desktop app and installer.
