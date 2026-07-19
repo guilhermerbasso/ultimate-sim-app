@@ -133,6 +133,13 @@ export interface RigDisplaysObservation {
   openDashboardWindowIdentities: string[]
 }
 
+export interface RigConfiguredSerialIdentityStatus {
+  desiredIdentity: string
+  observedIdentity: string
+  state: 'verified' | 'unknown' | 'fail'
+  reason: string
+}
+
 export interface RigSerialObservation {
   meta: RigEvidenceMeta
   availablePorts: string[]
@@ -141,6 +148,7 @@ export interface RigSerialObservation {
   configuredIdentities: string[]
   connectedConfiguredIdentities: string[]
   observedConfiguredIdentities: string[]
+  configuredIdentityStatuses: RigConfiguredSerialIdentityStatus[]
   esp32RequiredIdentities: string[]
   esp32ConnectedIdentities: string[]
 }
@@ -300,6 +308,7 @@ export interface RigActiveCertificate {
   invalidationProvenance: RigEvidenceProvenance[]
   revalidationRequired: boolean
   lastValidatedAt: number
+  freshUntil: number
 }
 
 export interface RigKnownGood {
@@ -490,12 +499,26 @@ export function stableSortedIdentities(values: readonly string[]): string[] {
 
 export function canonicalRigEsp32Identity(value: unknown): string | null {
   if (typeof value !== 'string') return null
-  let identity = value.trim().toLowerCase()
-  if (!identity) return null
-  while (/^(?:profile|wifi|esp32):/.test(identity)) {
-    identity = identity.replace(/^(?:profile|wifi|esp32):/, '').trim()
+  const identity = value.trim()
+  const separator = identity.indexOf(':')
+  if (separator <= 0) return null
+  const namespace = identity.slice(0, separator).toLowerCase()
+  if (namespace !== 'profile' && namespace !== 'wifi' && namespace !== 'esp32') {
+    return null
   }
-  return identity ? `esp32:${identity}` : null
+  const rawPayload = identity.slice(separator + 1)
+  if (!rawPayload || rawPayload !== rawPayload.trim() || /[\u0000-\u001f\u007f]/.test(rawPayload)) {
+    return null
+  }
+  let payload = rawPayload
+  if (namespace === 'esp32') {
+    try {
+      payload = decodeURIComponent(rawPayload)
+    } catch {
+      return null
+    }
+  }
+  return payload ? `esp32:${encodeURIComponent(payload)}` : null
 }
 
 function text(value: unknown, fallback: string, max = 120): string {
@@ -773,34 +796,77 @@ export function evaluateRigPreflightChecks(
   const configuredIdentities = stableSortedIdentities(serial?.configuredIdentities ?? [])
   const connectedConfiguredIdentities = stableSortedIdentities(serial?.connectedConfiguredIdentities ?? [])
   const observedConfiguredIdentities = stableSortedIdentities(serial?.observedConfiguredIdentities ?? [])
-  const connectedConfigured = new Set(connectedConfiguredIdentities)
-  const disconnectedIdentities = configuredIdentities.filter((identity) => !connectedConfigured.has(identity))
-  const configuredReady = configuredIdentities.length > 0 && disconnectedIdentities.length === 0
+  const suppliedStatuses = serial?.configuredIdentityStatuses ?? []
+  const statusByIdentity = new Map(
+    suppliedStatuses.map((status) => [status.desiredIdentity, status])
+  )
+  const configuredIdentityStatuses = configuredIdentities.map(
+    (desiredIdentity): RigConfiguredSerialIdentityStatus =>
+      statusByIdentity.get(desiredIdentity) ?? {
+        desiredIdentity,
+        observedIdentity:
+          observedConfiguredIdentities.find((identity) =>
+            identity.startsWith(`${desiredIdentity}=>`)
+          )?.slice(desiredIdentity.length + 2) ?? 'unobserved',
+        state: 'unknown',
+        reason: 'Stable USB identity evidence was not reported for this configured device.'
+      }
+  )
+  const failedConfigured = configuredIdentityStatuses.filter((status) => status.state === 'fail')
+  const unknownConfigured = configuredIdentityStatuses.filter((status) => status.state === 'unknown')
+  const configuredState: RigPreflightUnderlyingState =
+    configuredIdentities.length === 0 || failedConfigured.length > 0
+      ? 'fail'
+      : unknownConfigured.length > 0
+        ? 'unknown'
+        : 'verified'
+  const configuredStatusMaterial = configuredIdentityStatuses.map(
+    (status) =>
+      `${status.desiredIdentity}=>${status.state}:${status.observedIdentity}:${status.reason}`
+  )
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.configuredSerial,
     category: 'serial',
     label: 'Configured serial / Arduino devices',
     required: r.requireConfiguredSerial,
     meta: serial?.meta,
-    state: configuredReady ? 'verified' : 'fail',
-    summary: configuredReady
+    state: configuredState,
+    summary: configuredState === 'verified'
       ? `${connectedConfiguredIdentities.length} configured serial device(s) connected by stable identity.`
-      : 'One or more configured serial devices are absent.',
-    expected: 'Every configured serial/Arduino device connected by stable identity',
-    observed: `desired=${listed(configuredIdentities)}; connected=${listed(connectedConfiguredIdentities)}; observed=${listed(observedConfiguredIdentities)}; disconnected=${listed(disconnectedIdentities)}`,
-    signatureMaterial: `desired=${configuredIdentities.join('|')};connected=${connectedConfiguredIdentities.join('|')};observed=${observedConfiguredIdentities.join('|')}`,
-    delta: configuredReady ? [] : configuredIdentities.length
-      ? disconnectedIdentities.map((identity) => `${identity} disconnected`)
-      : ['No serial device is configured'],
-    remediation: ['Reconnect devices from Arduinos, resolve exclusive COM-port conflicts, and verify VID/PID/serial identity.']
+      : configuredState === 'unknown'
+        ? 'Configured serial hardware is connected, but stable USB identity evidence is incomplete.'
+        : 'One or more configured serial devices are absent or have mismatched identity.',
+    expected: 'Every configured serial/Arduino device connected with observed VID, PID, and serial identity',
+    observed: `desired=${listed(configuredIdentities)}; connected=${listed(connectedConfiguredIdentities)}; observed=${listed(observedConfiguredIdentities)}; status=${listed(configuredStatusMaterial)}`,
+    signatureMaterial: `desired=${configuredIdentities.join('|')};status=${configuredStatusMaterial.join('|')}`,
+    delta: configuredState === 'verified'
+      ? []
+      : configuredIdentities.length
+        ? configuredIdentityStatuses
+            .filter((status) => status.state !== 'verified')
+            .map((status) => `${status.desiredIdentity}: ${status.reason}`)
+        : ['No serial device is configured'],
+    remediation: [
+      'Reconnect or re-add devices from Arduinos so observed VID, PID, and serial identity are captured.',
+      'Hardware that genuinely exposes no serial identity requires an existing time-bounded preflight waiver with owner and reason; COM path or hub ID alone is never certified.',
+      'Resolve exclusive COM-port conflicts before rerunning preflight.'
+    ]
   })
+  const rawEsp32RequiredIdentities = stableSortedIdentities(serial?.esp32RequiredIdentities ?? [])
+  const rawEsp32ConnectedIdentities = stableSortedIdentities(serial?.esp32ConnectedIdentities ?? [])
+  const invalidEsp32RequiredIdentities = rawEsp32RequiredIdentities.filter(
+    (identity) => canonicalRigEsp32Identity(identity) === null
+  )
+  const invalidEsp32ConnectedIdentities = rawEsp32ConnectedIdentities.filter(
+    (identity) => canonicalRigEsp32Identity(identity) === null
+  )
   const esp32RequiredIdentities = stableSortedIdentities(
-    (serial?.esp32RequiredIdentities ?? [])
+    rawEsp32RequiredIdentities
       .map(canonicalRigEsp32Identity)
       .filter((identity): identity is string => identity !== null)
   )
   const esp32ConnectedIdentities = stableSortedIdentities(
-    (serial?.esp32ConnectedIdentities ?? [])
+    rawEsp32ConnectedIdentities
       .map(canonicalRigEsp32Identity)
       .filter((identity): identity is string => identity !== null)
   )
@@ -809,21 +875,41 @@ export function evaluateRigPreflightChecks(
   const esp32Ready = esp32RequiredIdentities.length > 0
     ? missingEsp32.length === 0
     : esp32ConnectedIdentities.length > 0
+  const esp32State: RigPreflightUnderlyingState =
+    invalidEsp32RequiredIdentities.length > 0 || invalidEsp32ConnectedIdentities.length > 0
+      ? 'unknown'
+      : esp32Ready
+        ? 'verified'
+        : 'fail'
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.esp32,
     category: 'serial',
     label: 'ESP32 devices',
     required: r.requireEsp32,
     meta: serial?.meta,
-    state: esp32Ready ? 'verified' : 'fail',
-    summary: esp32Ready ? 'Configured ESP32 devices are connected.' : 'A required ESP32 is not connected.',
+    state: esp32State,
+    summary: esp32State === 'verified'
+      ? 'Configured ESP32 devices are connected.'
+      : esp32State === 'unknown'
+        ? 'ESP32 identity contains an ambiguous or legacy value that cannot be certified.'
+        : 'A required ESP32 is not connected.',
     expected: 'Every configured ESP32 connected over USB/serial or LAN',
-    observed: `desired=${listed(esp32RequiredIdentities)}; connected=${listed(esp32ConnectedIdentities)}`,
-    signatureMaterial: `desired=${esp32RequiredIdentities.join('|')};connected=${esp32ConnectedIdentities.join('|')}`,
-    delta: esp32Ready ? [] : missingEsp32.length
-      ? missingEsp32.map((identity) => `${identity} disconnected`)
-      : ['ESP32 connection or profile is missing'],
-    remediation: ['Use ESP32 Wi-Fi Discover/Connect or reconnect its USB serial profile, then rerun preflight.']
+    observed: `desired=${listed(esp32RequiredIdentities)}; connected=${listed(esp32ConnectedIdentities)}; invalidDesired=${listed(invalidEsp32RequiredIdentities)}; invalidConnected=${listed(invalidEsp32ConnectedIdentities)}`,
+    signatureMaterial: `desired=${esp32RequiredIdentities.join('|')};connected=${esp32ConnectedIdentities.join('|')};invalidDesired=${invalidEsp32RequiredIdentities.join('|')};invalidConnected=${invalidEsp32ConnectedIdentities.join('|')}`,
+    delta: esp32State === 'verified'
+      ? []
+      : invalidEsp32RequiredIdentities.length > 0 || invalidEsp32ConnectedIdentities.length > 0
+        ? [
+            ...invalidEsp32RequiredIdentities.map((identity) => `${identity}: invalid required ESP32 identity`),
+            ...invalidEsp32ConnectedIdentities.map((identity) => `${identity}: invalid connected ESP32 identity`)
+          ]
+        : missingEsp32.length
+          ? missingEsp32.map((identity) => `${identity} disconnected`)
+          : ['ESP32 connection or profile is missing'],
+    remediation: [
+      'Use ESP32 Wi-Fi Discover/Connect or reconnect its USB serial profile, then rerun preflight.',
+      'Legacy ESP32 identities must carry exactly one profile:, wifi:, or canonical esp32: namespace.'
+    ]
   })
 
   const audio = observation.audio
@@ -1190,6 +1276,12 @@ export function applyRigPreflightFault(
         configuredIdentities: ['serial:seeded-arduino'],
         connectedConfiguredIdentities: [],
         observedConfiguredIdentities: ['serial:seeded-arduino=>unobserved'],
+        configuredIdentityStatuses: [{
+          desiredIdentity: 'serial:seeded-arduino',
+          observedIdentity: 'unobserved',
+          state: 'fail',
+          reason: 'Device disconnected by fault injection.'
+        }],
         esp32RequiredIdentities: [],
         esp32ConnectedIdentities: []
       }),
@@ -1198,7 +1290,17 @@ export function applyRigPreflightFault(
       configuredIdentities: next.serial?.configuredIdentities.length
         ? [...next.serial.configuredIdentities]
         : ['serial:seeded-arduino'],
-      connectedConfiguredIdentities: []
+      connectedConfiguredIdentities: [],
+      configuredIdentityStatuses: (
+        next.serial?.configuredIdentities.length
+          ? next.serial.configuredIdentities
+          : ['serial:seeded-arduino']
+      ).map((desiredIdentity) => ({
+        desiredIdentity,
+        observedIdentity: 'unobserved',
+        state: 'fail' as const,
+        reason: 'Device disconnected by fault injection.'
+      }))
     }
   } else if (faultId === 'stale-evidence') {
     const staleAt = now - maxAgeMs - 1

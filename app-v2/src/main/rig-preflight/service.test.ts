@@ -64,8 +64,14 @@ function observation(now: number): RigPreflightObservation {
       configuredIdentities: ['serial:iflag-001'],
       connectedConfiguredIdentities: ['serial:iflag-001'],
       observedConfiguredIdentities: [
-        'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-001'
+        'serial:iflag-001=>vid=2341;pid=0043;serial=iflag-001'
       ],
+      configuredIdentityStatuses: [{
+        desiredIdentity: 'serial:iflag-001',
+        observedIdentity: 'vid=2341;pid=0043;serial=iflag-001',
+        state: 'verified',
+        reason: 'Observed VID, PID, and serial match the saved hardware identity.'
+      }],
       esp32RequiredIdentities: ['profile:esp32-001'],
       esp32ConnectedIdentities: ['wifi:esp32-001']
     },
@@ -352,36 +358,92 @@ describe('RigPreflightService persistence', () => {
     expect(state.activeCertificate?.lastValidatedAt).toBe(now)
   })
 
-  it('refreshes every successful heartbeat and fails closed when evidence ages out', async () => {
-    let now = 65_000
+  it('uses the earliest required evidence deadline as the canonical freshUntil', async () => {
+    const now = 64_000
+    const current = observation(now)
+    current.audio!.meta = {
+      ...current.audio!.meta,
+      observedAt: now - 10_000
+    }
+    const service = new RigPreflightService({
+      persistence: new MemoryPersistence(),
+      now: () => now,
+      createId: () => `minimum-deadline-${now}`,
+      collectObservation: async () => current
+    })
+
+    await runBound(service)
+    const state = await service.getState()
+    expect(state.activeCertificate?.freshUntil).toBe(
+      current.audio!.meta.observedAt + state.profile.evidenceMaxAgeMs
+    )
+  })
+
+  it('does not re-age near-expiry evidence from revalidation completion', async () => {
+    const evidenceAt = 65_000
+    let now = evidenceAt
     const service = new RigPreflightService({
       persistence: new MemoryPersistence(),
       now: () => now,
       createId: () => `heartbeat-${now}`,
-      collectObservation: async () => observation(now)
+      collectObservation: async () => observation(evidenceAt)
     })
     await runBound(service)
     let state = await service.getState()
     const maxAgeMs = state.profile.evidenceMaxAgeMs
-    const issuedAt = state.activeCertificate?.lastValidatedAt
+    const originalFreshUntil = evidenceAt + maxAgeMs
+    expect(state.activeCertificate?.freshUntil).toBe(originalFreshUntil)
 
-    now += 1_000
+    now = evidenceAt + 59_999
     const heartbeat = await service.revalidate({ profile: state.profile })
     expect(heartbeat).toEqual({ changed: true, status: 'verified' })
     state = await service.getState()
     expect(state.activeCertificate?.lastValidatedAt).toBe(now)
-    expect(state.activeCertificate?.lastValidatedAt).not.toBe(issuedAt)
+    expect(state.activeCertificate?.freshUntil).toBe(originalFreshUntil)
 
-    now += maxAgeMs
     expect(await service.expireStaleEvidenceHeartbeat()).toBe(false)
-    now += 1
+    now = evidenceAt + 60_001
     expect(await service.expireStaleEvidenceHeartbeat()).toBe(true)
     state = await service.getState()
     expect(state.activeCertificate?.invalidatedAt).toBe(now)
-    expect(state.activeCertificate?.invalidationReason).toContain('heartbeat exceeded')
+    expect(state.activeCertificate?.invalidationReason).toContain('freshness deadline')
     expect(state.activeCertificate?.invalidationProvenance[0]?.source).toContain(
       'main-process'
     )
+  })
+
+  it('persists the canonical evidence deadline across restart and revokes synchronously', async () => {
+    const evidenceAt = 130_000
+    let now = evidenceAt
+    const persistence = new MemoryPersistence()
+    const makeService = () => new RigPreflightService({
+      persistence,
+      now: () => now,
+      createId: () => `restart-deadline-${now}`,
+      collectObservation: async () => observation(evidenceAt)
+    })
+    const first = makeService()
+    await runBound(first)
+    const initial = await first.getState()
+    const freshUntil = initial.activeCertificate!.freshUntil
+    expect(freshUntil).toBe(evidenceAt + initial.profile.evidenceMaxAgeMs)
+    const persisted = JSON.parse(persistence.content as string) as {
+      activeCertificate: { freshUntil: number }
+    }
+    persisted.activeCertificate.freshUntil = freshUntil + 999_999
+    persistence.content = JSON.stringify(persisted)
+
+    now = evidenceAt + 30_000
+    const restarted = makeService()
+    let restored = await restarted.getState()
+    expect(restored.activeCertificate?.freshUntil).toBe(freshUntil)
+    expect(restored.activeCertificate?.invalidatedAt).toBeNull()
+
+    now = freshUntil + 1
+    restored = await restarted.getState()
+    expect(restored.activeCertificate?.freshUntil).toBe(freshUntil)
+    expect(restored.activeCertificate?.invalidatedAt).toBe(now)
+    expect(restored.activeCertificate?.invalidationReason).toContain('freshness deadline')
   })
 
   it('invalidates on every required monitored subsystem and same-count identity drift', async () => {
@@ -402,8 +464,14 @@ describe('RigPreflightService persistence', () => {
         name: 'observed serial identity',
         mutate: (value) => {
           value.serial!.observedConfiguredIdentities = [
-            'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-replacement'
+            'serial:iflag-001=>vid=2341;pid=0043;serial=iflag-replacement'
           ]
+          value.serial!.configuredIdentityStatuses = [{
+            desiredIdentity: 'serial:iflag-001',
+            observedIdentity: 'vid=2341;pid=0043;serial=iflag-replacement',
+            state: 'verified',
+            reason: 'Observed identity changed.'
+          }]
         }
       },
       {
@@ -553,6 +621,7 @@ describe('RigPreflightService persistence', () => {
     }
     delete legacy.activeCertificate.revalidationRequired
     delete legacy.activeCertificate.lastValidatedAt
+    delete legacy.activeCertificate.freshUntil
     delete legacy.activeCertificate.certificate.expiryBasis
     delete legacy.activeCertificate.certificate.profileRevision
     delete legacy.activeCertificate.certificate.profileHash
@@ -570,6 +639,9 @@ describe('RigPreflightService persistence', () => {
     expect(state.history).toHaveLength(1)
     expect(state.history[0].profileHash).toBe(LEGACY_UNBOUND_PROFILE_HASH)
     expect(state.activeCertificate?.certificate.profileHash).toBe(LEGACY_UNBOUND_PROFILE_HASH)
+    expect(state.activeCertificate?.freshUntil).toBe(
+      state.activeCertificate!.certificate.issuedAt + state.profile.evidenceMaxAgeMs
+    )
     await migrated.requireStartupRevalidation()
     const reloaded = new RigPreflightService({
       persistence,

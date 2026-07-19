@@ -392,14 +392,20 @@ class FleetManager {
     if (this.ctx.serialHub.getDevice(id)) {
       await this.ctx.serialHub.disconnectDevice(id).catch(() => undefined)
     }
+    const targetPath = await this.resolveCurrentPath(config)
     const device = await this.ctx.serialHub.connectDevice({
-      path: config.path,
+      path: targetPath,
       id,
       kind: 'generic',
       label: config.label,
       baud: config.baud,
       primary: false,
       assertSignals: false
+    })
+    await this.store.upsert({
+      ...config,
+      id: device.id,
+      path: targetPath
     })
     return device.getSummary()
   }

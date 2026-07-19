@@ -389,7 +389,13 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
           <small>
             {activeCertificate
               ? tt(language, 'rigPreflight.certificate.expires', {
-                  time: formatTime(activeCertificate.certificate.expiresAt, language)
+                  time: formatTime(
+                    Math.min(
+                      activeCertificate.certificate.expiresAt,
+                      activeCertificate.freshUntil
+                    ),
+                    language
+                  )
                 })
               : tt(language, 'rigPreflight.certificate.runHint')}
           </small>

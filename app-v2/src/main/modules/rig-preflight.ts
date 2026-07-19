@@ -186,11 +186,17 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
     ? configuredEvidence.map((entry) => entry.desired)
     : profileEvidence.map((entry) => entry.desired)
   const connectedConfiguredIdentities = activeConfiguredEvidence
-    .filter((entry) => entry.connected)
+    .filter((entry) => entry.state === 'verified')
     .map((entry) => entry.desired)
   const observedConfiguredIdentities = activeConfiguredEvidence.map(
     (entry) => `${entry.desired}=>${entry.observedIdentity}`
   )
+  const configuredIdentityStatuses = activeConfiguredEvidence.map((entry) => ({
+    desiredIdentity: entry.desired,
+    observedIdentity: entry.observedIdentity,
+    state: entry.state,
+    reason: entry.reason
+  }))
   const esp32Profiles = profiles.filter((profile) => profile.board === 'esp32' || profile.board === 'esp32s3')
   const esp32RequiredIdentities = esp32Profiles
     .map((profile) => canonicalRigEsp32Identity(`profile:${profile.id}`))
@@ -225,6 +231,9 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
     configuredIdentities: stableSortedIdentities(configuredIdentities),
     connectedConfiguredIdentities: stableSortedIdentities(connectedConfiguredIdentities),
     observedConfiguredIdentities: stableSortedIdentities(observedConfiguredIdentities),
+    configuredIdentityStatuses: configuredIdentityStatuses.sort(
+      (a, b) => a.desiredIdentity.localeCompare(b.desiredIdentity, 'en')
+    ),
     esp32RequiredIdentities: stableSortedIdentities(esp32RequiredIdentities),
     esp32ConnectedIdentities
   }
@@ -326,7 +335,7 @@ export function register(ctx: ModuleContext): void {
     expiryScheduler.schedule(certificateActive?.certificate.expiresAt ?? null)
     evidenceWatchdog.schedule(
       certificateActive
-        ? certificateActive.lastValidatedAt + state.profile.evidenceMaxAgeMs + 1
+        ? certificateActive.freshUntil + 1
         : null
     )
     ctx.broadcast(RIG_PREFLIGHT_CHANNELS.changed, state)

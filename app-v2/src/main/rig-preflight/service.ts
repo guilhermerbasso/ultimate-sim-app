@@ -297,7 +297,8 @@ function validActiveCertificate(value: unknown): value is RigActiveCertificate {
     (value.invalidationReason === null || typeof value.invalidationReason === 'string') &&
     Array.isArray(value.invalidationProvenance) &&
     (value.revalidationRequired === undefined || typeof value.revalidationRequired === 'boolean') &&
-    (value.lastValidatedAt === undefined || validTimestamp(value.lastValidatedAt))
+    (value.lastValidatedAt === undefined || validTimestamp(value.lastValidatedAt)) &&
+    (value.freshUntil === undefined || validTimestamp(value.freshUntil))
   )
 }
 
@@ -368,26 +369,36 @@ export function normalizeRigPreflightState(
   }
   const history = raw.history.map((run) => normalizeRun(run))
   const activeCertificate = raw.activeCertificate
-    ? {
-        ...raw.activeCertificate,
-        certificate: normalizeRun(
-          {
-            id: raw.activeCertificate.runId,
-            profileId: normalizedProfile.id,
-            profileName: normalizedProfile.name,
-            startedAt: raw.activeCertificate.certificate.issuedAt,
-            completedAt: raw.activeCertificate.certificate.issuedAt,
-            signature: raw.activeCertificate.certificate.signature,
-            checks: [],
-            certificate: raw.activeCertificate.certificate
-          }
-        ).certificate,
-        revalidationRequired: Boolean(raw.activeCertificate.revalidationRequired),
-        lastValidatedAt: finiteNumber(
-          raw.activeCertificate.lastValidatedAt,
-          raw.activeCertificate.certificate.issuedAt
+    ? (() => {
+        const lastValidatedAt = finiteNumber(
+          raw.activeCertificate!.lastValidatedAt,
+          raw.activeCertificate!.certificate.issuedAt
         )
-      }
+        return {
+          ...raw.activeCertificate!,
+          certificate: normalizeRun(
+            {
+              id: raw.activeCertificate!.runId,
+              profileId: normalizedProfile.id,
+              profileName: normalizedProfile.name,
+              startedAt: raw.activeCertificate!.certificate.issuedAt,
+              completedAt: raw.activeCertificate!.certificate.issuedAt,
+              signature: raw.activeCertificate!.certificate.signature,
+              checks: [],
+              certificate: raw.activeCertificate!.certificate
+            }
+          ).certificate,
+          revalidationRequired: Boolean(raw.activeCertificate!.revalidationRequired),
+          lastValidatedAt,
+          freshUntil: Math.min(
+            finiteNumber(
+              raw.activeCertificate!.freshUntil,
+              lastValidatedAt + normalizedProfile.evidenceMaxAgeMs
+            ),
+            lastValidatedAt + normalizedProfile.evidenceMaxAgeMs
+          )
+        }
+      })()
     : null
   return {
     version: 1,
@@ -415,6 +426,25 @@ function signatureInput(profile: RigPreflightProfile, checks: RigPreflightRun['c
       underlyingState: check.underlyingState
     }))
   }
+}
+
+export function requiredEvidenceFreshUntil(
+  profile: RigPreflightProfile,
+  checks: RigPreflightRun['checks'],
+  validatedAt: number
+): number {
+  const deadlines = checks
+    .filter(
+      (check) =>
+        check.applicability === 'required' &&
+        check.underlyingState === 'verified' &&
+        check.observedAt > 0 &&
+        check.freshUntil >= check.observedAt
+    )
+    .map((check) => check.freshUntil)
+  return deadlines.length > 0
+    ? Math.min(...deadlines)
+    : validatedAt + profile.evidenceMaxAgeMs
 }
 
 function waiverHashInput(waivers: RigPreflightWaiver[]): unknown {
@@ -463,6 +493,7 @@ export class RigPreflightService {
 
   async getState(): Promise<RigPreflightStateSnapshot> {
     await this.ensureLoaded()
+    await this.expireStaleEvidenceHeartbeat()
     const now = this.now()
     return {
       ...deepClone(this.state),
@@ -531,6 +562,7 @@ export class RigPreflightService {
       waivers,
       completedAt
     )
+    const freshUntil = requiredEvidenceFreshUntil(profile, baseChecks, completedAt)
     const signature = this.hash(signatureInput(profile, baseChecks))
     const knownGoodCheck = createKnownGoodCheck(
       profile,
@@ -598,7 +630,8 @@ export class RigPreflightService {
       invalidationReason: null,
       invalidationProvenance: [],
       revalidationRequired: false,
-      lastValidatedAt: completedAt
+      lastValidatedAt: completedAt,
+      freshUntil
     }
     this.state.updatedAt = completedAt
     await this.commit(previous)
@@ -719,6 +752,7 @@ export class RigPreflightService {
   async requireStartupRevalidation(): Promise<boolean> {
     await this.ensureLoaded()
     if (this.storage.blocked) return false
+    if (await this.expireStaleEvidenceHeartbeat()) return false
     const active = this.state.activeCertificate
     if (
       !active ||
@@ -739,6 +773,13 @@ export class RigPreflightService {
   async revalidate(request: RigPreflightRunRequest): Promise<RigPreflightRevalidationResult> {
     await this.ensureLoaded()
     this.assertStorageHealthy()
+    if (await this.expireStaleEvidenceHeartbeat()) {
+      return {
+        changed: true,
+        status: 'invalidated',
+        reason: this.state.activeCertificate?.invalidationReason ?? 'Evidence freshness deadline expired.'
+      }
+    }
     const active = this.state.activeCertificate
     if (
       !active ||
@@ -766,12 +807,20 @@ export class RigPreflightService {
     const observation = await this.options.collectObservation(profile, request.clientEvidence)
     const completedAt = this.now()
     this.assertProfileStillCurrent(profile)
+    if (await this.expireStaleEvidenceHeartbeat()) {
+      return {
+        changed: true,
+        status: 'invalidated',
+        reason: this.state.activeCertificate?.invalidationReason ?? 'Evidence freshness deadline expired.'
+      }
+    }
     const checks = evaluateRigPreflightChecks(
       profile,
       observation,
       this.state.waivers,
       completedAt
     )
+    const freshUntil = requiredEvidenceFreshUntil(profile, checks, completedAt)
     const required = checks.filter((check) => check.applicability === 'required')
     const notReady = required.filter(
       (check) => check.state !== 'verified' && check.state !== 'waived-with-reason'
@@ -790,13 +839,15 @@ export class RigPreflightService {
 
     if (
       !active.revalidationRequired &&
-      active.lastValidatedAt === completedAt
+      active.lastValidatedAt === completedAt &&
+      active.freshUntil === freshUntil
     ) {
       return { changed: false, status: 'verified' }
     }
     const previous = deepClone(this.state)
     active.revalidationRequired = false
     active.lastValidatedAt = completedAt
+    active.freshUntil = freshUntil
     this.state.updatedAt = completedAt
     await this.commit(previous)
     return { changed: true, status: 'verified' }
@@ -812,12 +863,16 @@ export class RigPreflightService {
       active.invalidatedAt !== null ||
       active.certificate.decision === 'blocked' ||
       active.certificate.expiresAt <= now ||
-      now - active.lastValidatedAt <= this.state.profile.evidenceMaxAgeMs
+      now <= active.freshUntil
     ) return false
     const previous = deepClone(this.state)
     const changed = this.invalidateActiveCertificateInMemory(
-      `Fresh rig evidence heartbeat exceeded ${this.state.profile.evidenceMaxAgeMs}ms.`,
-      [{ kind: 'runtime', source: 'main-process rig preflight evidence watchdog' }],
+      `Required rig evidence freshness deadline expired at ${active.freshUntil}.`,
+      [{
+        kind: 'runtime',
+        source: 'main-process rig preflight evidence watchdog',
+        detail: `now=${now}; freshUntil=${active.freshUntil}`
+      }],
       now
     )
     if (changed) await this.commit(previous)

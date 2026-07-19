@@ -46,8 +46,14 @@ function readyObservation(): RigPreflightObservation {
       configuredIdentities: ['serial:iflag-001'],
       connectedConfiguredIdentities: ['serial:iflag-001'],
       observedConfiguredIdentities: [
-        'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-001'
+        'serial:iflag-001=>vid=2341;pid=0043;serial=iflag-001'
       ],
+      configuredIdentityStatuses: [{
+        desiredIdentity: 'serial:iflag-001',
+        observedIdentity: 'vid=2341;pid=0043;serial=iflag-001',
+        state: 'verified',
+        reason: 'Observed VID, PID, and serial match the saved hardware identity.'
+      }],
       esp32RequiredIdentities: ['profile:esp32-s3'],
       esp32ConnectedIdentities: ['profile:esp32-s3']
     },
@@ -119,7 +125,12 @@ describe('rig preflight evidence evaluation', () => {
     const observation = readyObservation()
     observation.serial = {
       ...observation.serial!,
-      connectedConfiguredIdentities: []
+      connectedConfiguredIdentities: [],
+      configuredIdentityStatuses: [{
+        ...observation.serial!.configuredIdentityStatuses[0],
+        state: 'fail',
+        reason: 'Configured device is not connected.'
+      }]
     }
     const check = evaluateRigPreflightChecks(fullProfile(), observation, [], NOW)
       .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial)
@@ -128,16 +139,93 @@ describe('rig preflight evidence evaluation', () => {
     expect(check?.remediation.join(' ')).toContain('COM-port')
   })
 
+  it('keeps identity-less serial hardware unknown unless an existing governed waiver applies', () => {
+    const observation = readyObservation()
+    observation.serial!.connectedConfiguredIdentities = []
+    observation.serial!.configuredIdentityStatuses = [{
+      desiredIdentity: 'serial:iflag-001',
+      observedIdentity: 'vid=1a86;pid=7523;serial=?',
+      state: 'unknown',
+      reason: 'This hardware exposes no USB serial identity; use an existing governed preflight waiver if operation is explicitly approved.'
+    }]
+    const profile = fullProfile()
+    let check = evaluateRigPreflightChecks(profile, observation, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial)
+    expect(check?.state).toBe('unknown')
+    expect(check?.remediation.join(' ')).toContain('time-bounded preflight waiver')
+
+    const waiver: RigPreflightWaiver = {
+      id: 'serial-less-waiver',
+      checkId: RIG_PREFLIGHT_CHECK_IDS.configuredSerial,
+      reason: 'Crew verified the single serial-less adapter at scrutineering',
+      owner: 'Crew chief',
+      createdAt: NOW - 1,
+      expiresAt: NOW + 5_000
+    }
+    check = evaluateRigPreflightChecks(profile, observation, [waiver], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial)
+    expect(check?.state).toBe('waived-with-reason')
+    expect(check?.underlyingState).toBe('unknown')
+  })
+
   it('canonicalizes profile and Wi-Fi ESP32 identities onto the same physical device', () => {
     const observation = readyObservation()
-    observation.serial!.esp32RequiredIdentities = ['profile:ESP32-S3']
-    observation.serial!.esp32ConnectedIdentities = ['wifi:esp32-s3']
+    observation.serial!.esp32RequiredIdentities = ['profile:rig-a']
+    observation.serial!.esp32ConnectedIdentities = ['wifi:rig-a']
     const check = evaluateRigPreflightChecks(fullProfile(), observation, [], NOW)
       .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.esp32)
 
-    expect(canonicalRigEsp32Identity('wifi:profile:ESP32-S3')).toBe('esp32:esp32-s3')
+    expect(canonicalRigEsp32Identity('profile:rig-a')).toBe('esp32:rig-a')
+    expect(canonicalRigEsp32Identity('wifi:rig-a')).toBe('esp32:rig-a')
     expect(check?.state).toBe('verified')
-    expect(check?.signatureMaterial).toContain('esp32:esp32-s3')
+    expect(check?.signatureMaterial).toContain('esp32:rig-a')
+  })
+
+  it('preserves nested ESP32 payloads without namespace collisions and round-trips canonically', () => {
+    const nested = canonicalRigEsp32Identity('profile:wifi:rig-a')
+    const simple = canonicalRigEsp32Identity('wifi:rig-a')
+    expect(nested).toBe('esp32:wifi%3Arig-a')
+    expect(simple).toBe('esp32:rig-a')
+    expect(nested).not.toBe(simple)
+    expect(canonicalRigEsp32Identity(nested)).toBe(nested)
+    expect(canonicalRigEsp32Identity('wifi:wifi:rig-a')).toBe(nested)
+    expect(canonicalRigEsp32Identity('rig-a')).toBeNull()
+    expect(canonicalRigEsp32Identity('profile:')).toBeNull()
+    expect(canonicalRigEsp32Identity('esp32:%not-encoded')).toBeNull()
+
+    const nestedObservation = readyObservation()
+    nestedObservation.serial!.esp32RequiredIdentities = ['profile:wifi:rig-a']
+    nestedObservation.serial!.esp32ConnectedIdentities = ['wifi:wifi:rig-a']
+    const nestedCheck = evaluateRigPreflightChecks(
+      fullProfile(),
+      nestedObservation,
+      [],
+      NOW
+    ).find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.esp32)
+    const collisionObservation = readyObservation()
+    collisionObservation.serial!.esp32RequiredIdentities = ['profile:wifi:rig-a']
+    collisionObservation.serial!.esp32ConnectedIdentities = ['wifi:rig-a']
+    const collisionCheck = evaluateRigPreflightChecks(
+      fullProfile(),
+      collisionObservation,
+      [],
+      NOW
+    ).find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.esp32)
+    expect(nestedCheck?.state).toBe('verified')
+    expect(collisionCheck?.state).toBe('fail')
+    expect(nestedCheck?.signatureMaterial).not.toBe(collisionCheck?.signatureMaterial)
+
+    const legacyObservation = readyObservation()
+    legacyObservation.serial!.esp32RequiredIdentities = ['rig-a']
+    legacyObservation.serial!.esp32ConnectedIdentities = ['wifi:rig-a']
+    const legacyCheck = evaluateRigPreflightChecks(
+      fullProfile(),
+      legacyObservation,
+      [],
+      NOW
+    ).find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.esp32)
+    expect(legacyCheck?.state).toBe('unknown')
+    expect(legacyCheck?.delta.join(' ')).toContain('invalid required ESP32 identity')
   })
 
   it('binds observed serial and haptics route identities into signature material', () => {
@@ -153,8 +241,14 @@ describe('rig preflight evidence evaluation', () => {
 
     const replaced = readyObservation()
     replaced.serial!.observedConfiguredIdentities = [
-      'serial:iflag-001=>path=com4;vid=2341;pid=0043;serial=iflag-replacement'
+      'serial:iflag-001=>vid=2341;pid=0043;serial=iflag-replacement'
     ]
+    replaced.serial!.configuredIdentityStatuses = [{
+      desiredIdentity: 'serial:iflag-001',
+      observedIdentity: 'vid=2341;pid=0043;serial=iflag-replacement',
+      state: 'verified',
+      reason: 'Observed identity changed.'
+    }]
     replaced.haptics!.outputDeviceId = 'replacement-bass-shaker'
     const replacedChecks = evaluateRigPreflightChecks(profile, replaced, [], NOW)
     const replacedSerial = replacedChecks.find(
@@ -206,6 +300,28 @@ describe('rig preflight evidence evaluation', () => {
       .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.simulator)
     expect(check?.state).toBe('unknown')
     expect(check?.summary).toContain('stale')
+  })
+
+  it('keeps evidence valid at age 59,999ms and rejects it at 60,001ms', () => {
+    const profile = fullProfile()
+    profile.evidenceMaxAgeMs = 60_000
+    const observation = readyObservation()
+    let check = evaluateRigPreflightChecks(
+      profile,
+      observation,
+      [],
+      NOW + 59_999
+    ).find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.simulator)
+    expect(check?.state).toBe('verified')
+    expect(check?.freshUntil).toBe(NOW + 60_000)
+
+    check = evaluateRigPreflightChecks(
+      profile,
+      observation,
+      [],
+      NOW + 60_001
+    ).find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.simulator)
+    expect(check?.state).toBe('unknown')
   })
 
   it('verifies app port ownership and fails a foreign owner with PID remediation', () => {
