@@ -637,6 +637,13 @@ function definitionTopic(body: string): SafeInformationalTopic | null {
   return null
 }
 
+const DEFINITION_LIVE_CONTEXT =
+  /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|need to|then|and then|so i|into (?:turn|t\d+)|racing line|fuel|save|finish|position|gap|target|pit|attack|pass|overtake the|tyre|tyres|tire|tires|pressure|compound|change|use|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|como|como faco|como posso|devo|preciso|melhorar|combustivel|economizar|terminar|pneu|pneus|pressao|composto|trocar|usar|alvo|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|como puedo|debo|necesito|mejorar|combustible|neumatico|neumaticos|presion|compuesto|cambiar|usar|objetivo|vuelta \d+|mon|ma|dois je|ameliorer|carburant|pneu|pneus|pression|composer|changer|utiliser|tour \d+|virage \d+|mein|meine|wie|wie kann|soll ich|muss ich|kraftstoff|reifen|reifendruck|mischung|wechseln|verwenden|runde \d+|kurve \d+)\b/
+
+function isPureDefinitionBody(body: string): boolean {
+  return !DEFINITION_LIVE_CONTEXT.test(body)
+}
+
 export function parseDefinitionQuestion(question: string): ParsedDefinitionQuestion | null {
   const q = normalize(question)
     .replace(/[’']/g, ' ')
@@ -691,6 +698,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       command: false,
       patterns: [
         /^o que e (.+)$/,
+        /^o que significa (.+)$/,
         /^que significa (.+)$/,
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)diga o que significa (.+)$/
       ]
@@ -785,7 +793,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       const match = pattern.exec(q)
       if (!match) continue
       const body = match[1]?.trim() ?? ''
-      const pure = !/\b(my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|como|como faco|como posso|devo|melhorar|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|como puedo|debo|mejorar|vuelta \d+|mon|ma|comment|dois je|ameliorer|tour \d+|virage \d+|mein|meine|wie|wie kann|soll ich|runde \d+|kurve \d+)\b/.test(body)
+      const pure = isPureDefinitionBody(body)
       return {
         language: form.language,
         body,
@@ -804,13 +812,11 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
     /(?:是什么|是什么意思|的定义|含义|定義|意味|説明)/u
   ].some((pattern) => pattern.test(q))
   if (definitionLike) {
-    const liveRaceContext =
-      /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|position|gap|target|pit|attack|pass|overtake|meu|minha|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|vuelta \d+|mon|ma|tour \d+|virage \d+|mein|meine|runde \d+|kurve \d+)\b/.test(q)
     return {
       language: 'en-US',
       body: q,
       topic: null,
-      pure: !liveRaceContext,
+      pure: isPureDefinitionBody(q),
       command: true
     }
   }
