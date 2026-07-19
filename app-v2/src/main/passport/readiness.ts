@@ -53,6 +53,17 @@ export async function inspectPassportReadiness(
     configFound = false
   }
 
+  let devices: PassportExternalReadiness['devices'] = []
+  try {
+    devices = ctx.serialHub.listDevices().map((device) => ({
+      id: device.id,
+      connected: device.connected,
+      label: device.label
+    }))
+  } catch {
+    devices = []
+  }
+
   return {
     capturedAt,
     raceProfile: {
@@ -71,11 +82,7 @@ export async function inspectPassportReadiness(
       exists: buttonboxExists,
       controlIds
     },
-    devices: ctx.serialHub.listDevices().map((device) => ({
-      id: device.id,
-      connected: device.connected,
-      label: device.label
-    })),
+    devices,
     audio: {
       configFound,
       enabled: spotter.enabled,

@@ -78,6 +78,7 @@ message PassportItem {
   uint64 expires_at_ms = 7;
   PassportItemEvidence evidence = 8;
   uint64 revision = 9;
+  string reason_code = 10;
 }
 
 message StintIdentity {

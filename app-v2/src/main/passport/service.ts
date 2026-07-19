@@ -22,6 +22,8 @@ import {
   type PassportExperimentUpdate,
   type PassportExperimentMetrics,
   type PassportFullAuditResult,
+  type PassportImportResult,
+  type PassportIntegrityState,
   type PassportItem,
   type PassportItemResolutionInput,
   type PassportPrivacySettings,
@@ -72,7 +74,16 @@ function factBoolean(event: CanonicalRaceOpsEvent, name: string): boolean | unde
 }
 
 function evidenceHash(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')
+  return createHash('sha256').update(stableJson(value), 'utf8').digest('hex')
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`
+  const record = value as Record<string, unknown>
+  return `{${Object.keys(record).sort().map((key) =>
+    `${JSON.stringify(key)}:${stableJson(record[key])}`
+  ).join(',')}}`
 }
 
 function passportStateKey(passport: StintPassport): string {
@@ -169,6 +180,14 @@ export class StintPassportService {
   private retentionTimer: ReturnType<typeof setInterval> | null = null
   private challenge: PassportChallenge | undefined
   private challengeNonceHash: Buffer | undefined
+  private challengeGeneration = 0
+  private challengeClaim: { challengeId: string; generation: number } | undefined
+  private readonly pendingStoreOperations = new Set<Promise<unknown>>()
+  private readonly ambiguousMutations = new Map<string, {
+    passport: StintPassport
+    event: PassportStoreEvent
+  }>()
+  private disposePromise: Promise<void> | null = null
   private readonly mutationCapability = randomBytes(24).toString('base64url')
   private experiment = {
     handoffAttempts: 0,
@@ -206,26 +225,88 @@ export class StintPassportService {
   }
 
   async dispose(): Promise<void> {
-    await this.ready.catch(() => undefined)
-    if (this.current) await this.closeCurrentInternal('disconnect', true)
-    this.subscription.dispose()
-    if (this.broadcastTimer) clearTimeout(this.broadcastTimer)
-    this.broadcastTimer = null
-    if (this.retentionTimer) clearInterval(this.retentionTimer)
-    this.retentionTimer = null
-    await this.store.close()
+    if (this.disposePromise) return this.disposePromise
+    this.disposePromise = (async () => {
+      this.subscription.dispose()
+      if (this.broadcastTimer) clearTimeout(this.broadcastTimer)
+      this.broadcastTimer = null
+      if (this.retentionTimer) clearInterval(this.retentionTimer)
+      this.retentionTimer = null
+      await this.ready.catch(() => undefined)
+      await this.drainStoreOperations()
+      if (this.current) await this.closeCurrentInternal('disconnect', true)
+      await this.drainStoreOperations()
+      await this.store.close()
+    })()
+    return this.disposePromise
   }
 
   async snapshot(): Promise<PassportSnapshot> {
     await this.ready
-    if (this.current) this.current = this.reconcileReadiness(this.current)
-    if (this.current && this.lastEvent && this.current.telemetryContext === 'live') {
+    const queue = this.subscription.status()
+    let persistence = this.store.status()
+    const runtimeUnsafe = queue.killSwitch ||
+      queue.consumerErrors > 0 ||
+      this.overflowBlocked ||
+      this.lastEvent?.telemetryContext !== 'live'
+    if (this.current) {
+      this.current = this.reconcileReadiness(
+        this.current,
+        runtimeUnsafe ||
+          (this.current.persisted && (
+            persistence.state !== 'ready' ||
+            this.current.durability !== 'durable'
+          ))
+      )
+    }
+    if (
+      this.current &&
+      this.lastEvent &&
+      this.current.telemetryContext === 'live' &&
+      persistence.state === 'ready' &&
+      !runtimeUnsafe &&
+      this.current.durability !== 'failed' &&
+      this.current.durability !== 'quarantined'
+    ) {
       await this.refreshExternal('snapshot')
     }
 
-    const persisted = this.privacy.identityPersistenceOptIn
-      ? await this.store.listPassports(HISTORY_LIMIT)
-      : []
+    let integrity: PassportIntegrityState = {
+      state: persistence.state === 'quarantined' ? 'corrupt' : 'unavailable',
+      verified: false,
+      scope: 'bounded',
+      checkedEvents: 0,
+      lastCheckedAt: this.now(),
+      message: 'Passport integrity is unavailable while persistence is not ready.'
+    }
+    let persisted: StintPassport[] = []
+    if (persistence.state === 'ready') {
+      try {
+        integrity = await this.store.getIntegrity()
+        if (this.privacy.identityPersistenceOptIn) {
+          persisted = await this.store.listPassports(HISTORY_LIMIT)
+        }
+      } catch {
+        persistence = this.store.status()
+        integrity = {
+          state: persistence.state === 'quarantined' ? 'corrupt' : 'unavailable',
+          verified: false,
+          scope: 'bounded',
+          checkedEvents: 0,
+          lastCheckedAt: this.now(),
+          message: 'Passport integrity status could not be read from persistence.'
+        }
+        this.lastError = 'Passport persistence status could not be read safely.'
+      }
+    }
+    if (this.current?.persisted && (
+      persistence.state !== 'ready' ||
+      !integrity.verified ||
+      integrity.state !== 'anchored' ||
+      this.current.durability !== 'durable'
+    )) {
+      this.current = this.reconcileReadiness(this.current, true)
+    }
     const byId = new Map<string, StintPassport>()
     for (const passport of [...persisted, ...this.ephemeralHistory]) {
       if (passport.identity.stintId !== this.current?.identity.stintId) {
@@ -243,13 +324,13 @@ export class StintPassportService {
       privacy: this.privacy,
       runtime: {
         telemetryContext: this.lastEvent?.telemetryContext ?? 'disconnected',
-        queue: this.subscription.status(),
+        queue,
         overflowBlocked: this.overflowBlocked,
         cleanFramesSinceOverflow: this.cleanFramesSinceOverflow,
         lastError: this.lastError
       },
-      integrity: await this.store.getIntegrity(),
-      persistence: this.store.status(),
+      integrity,
+      persistence,
       mutationCapability: this.mutationCapability,
       challenge: this.challenge,
       experiment: { ...this.experiment }
@@ -291,7 +372,7 @@ export class StintPassportService {
 
   async runRetention(reason: 'scheduled' | 'explicit' | 'startup'): Promise<PassportDeleteResult[]> {
     await this.ready.catch(() => undefined)
-    const results = await this.store.purgeRetention()
+    const results = await this.trackStoreOperation(this.store.purgeRetention())
     if (results.length > 0) {
       await this.store.logRuntime('retention', { reason, results })
       this.notify()
@@ -334,6 +415,7 @@ export class StintPassportService {
   async setPrivacy(privacy: PassportPrivacySettings): Promise<PassportPrivacySettings> {
     await this.ready
     const wasEnabled = this.privacy.identityPersistenceOptIn
+    const previous = this.current
     this.privacy = await this.store.setPrivacy(privacy)
     if (!wasEnabled && this.privacy.identityPersistenceOptIn) {
       if (this.roster.length > 0) await this.store.saveRoster(this.roster)
@@ -341,7 +423,7 @@ export class StintPassportService {
         this.current = { ...this.current, persisted: true, durability: 'pending' }
         await this.persistCurrent(this.event('ultimate.sim.raceops.passport.persistence-enabled.v2', {
           identityPersistenceOptIn: true
-        }, 'D3'))
+        }, 'D3'), previous)
       }
     } else if (wasEnabled && !this.privacy.identityPersistenceOptIn) {
       this.current = this.current ? { ...this.current, persisted: false } : null
@@ -354,6 +436,7 @@ export class StintPassportService {
   async resolveItem(input: PassportItemResolutionInput): Promise<StintPassport> {
     await this.ready
     let current = this.requireCurrent(input.stintId)
+    const previous = current
     if (
       input.status !== 'manual-confirmed' &&
       input.status !== 'waived-with-reason' &&
@@ -423,7 +506,7 @@ export class StintPassportService {
       },
       definition.dataClass,
       input.itemId
-    ))
+    ), previous)
     this.notify()
     return this.current
   }
@@ -439,6 +522,8 @@ export class StintPassportService {
     if (this.overflowBlocked) throw new Error('Passport source overflow must recover before challenge preparation.')
     const nonce = randomBytes(6).toString('hex').toUpperCase()
     this.challengeNonceHash = createHash('sha256').update(nonce, 'utf8').digest()
+    this.challengeGeneration += 1
+    this.challengeClaim = undefined
     this.challenge = {
       challengeId: randomUUID(),
       nonce,
@@ -479,8 +564,22 @@ export class StintPassportService {
     if (!this.challengeNonceHash || !timingSafeEqual(responseHash, this.challengeNonceHash)) {
       throw new Error('Passport challenge response is invalid.')
     }
+    const generation = this.challengeGeneration
+    if (this.challengeClaim?.challengeId === challenge.challengeId) {
+      throw new Error('Passport challenge completion is already in progress.')
+    }
+    this.challengeClaim = { challengeId: challenge.challengeId, generation }
+    const previous = current
+    try {
     await this.refreshExternal('challenge-revalidation')
     current = this.requireCurrent(input.stintId)
+    if (
+      this.challengeGeneration !== generation ||
+      this.challenge?.challengeId !== challenge.challengeId ||
+      current.revision !== challenge.passportRevision
+    ) {
+      throw new Error('Passport challenge was superseded during revalidation.')
+    }
     const now = this.now()
     const finalDefinition = passportItemDefinition('final-acknowledgement')
     const items = expirePassportItems(current.items, now).map((item): PassportItem =>
@@ -508,8 +607,8 @@ export class StintPassportService {
     if (errors.length > 0) throw new Error(errors.join(' '))
     if (current.persisted) {
       const integrity = await this.store.verifyActiveStint(current.identity.stintId)
-      if (integrity.state !== 'unanchored') {
-        throw new Error(integrity.message ?? 'Active stint integrity verification failed.')
+      if (!integrity.verified) {
+        throw new Error(integrity.message ?? 'A trusted integrity signature is required before Ready.')
       }
     }
     this.current = {
@@ -527,13 +626,18 @@ export class StintPassportService {
         itemHashes: this.current.items.map((item) => item.evidence?.contentHash ?? '')
       },
       'D3'
-    ))
+    ), previous)
     this.experiment.completedChallenges += 1
     this.experiment.totalOverheadMs += Math.max(0, now - (challenge.expiresAt - 60_000))
-    this.challenge = undefined
-    this.challengeNonceHash = undefined
+    this.clearChallenge(false)
     this.notify()
     return this.current
+    } finally {
+      if (this.challengeClaim?.challengeId === challenge.challengeId &&
+        this.challengeClaim.generation === generation) {
+        this.challengeClaim = undefined
+      }
+    }
   }
 
   async closeCurrent(reason: NonNullable<StintPassport['closeReason']> = 'manual'): Promise<StintPassport | null> {
@@ -560,23 +664,72 @@ export class StintPassportService {
     return this.store.exportPackage(profile, this.current, this.ephemeralHistory, this.roster)
   }
 
+  async importPackage(value: unknown): Promise<PassportImportResult> {
+    await this.ready
+    const bundle = await this.trackStoreOperation(this.store.verifyImportPackage(value))
+    const prefix = bundle.packageHash.slice(0, 12)
+    for (const imported of bundle.passports.slice().reverse()) {
+      const replay: StintPassport = {
+        ...imported,
+        identity: {
+          ...imported.identity,
+          stintId: `import:${prefix}:${imported.identity.stintId}`,
+          sessionRef: `replay:${prefix}:${imported.identity.sessionRef}`
+        },
+        lifecycle: imported.lifecycle === 'closed' ? 'closed' : 'interrupted',
+        telemetryContext: 'replay',
+        challengeCompletedAt: undefined,
+        challengeOwner: undefined,
+        closeReason: imported.lifecycle === 'closed'
+          ? imported.closeReason
+          : 'replay-boundary',
+        interrupted: imported.lifecycle !== 'closed',
+        persisted: false,
+        durability: 'ephemeral',
+        revision: imported.revision + 1
+      }
+      const existing = this.ephemeralHistory.findIndex((entry) =>
+        entry.identity.stintId === replay.identity.stintId
+      )
+      if (existing >= 0) this.ephemeralHistory.splice(existing, 1)
+      this.ephemeralHistory.unshift(replay)
+    }
+    this.ephemeralHistory.splice(HISTORY_LIMIT)
+    this.notify()
+    return {
+      ok: true,
+      canceled: false,
+      importedPassports: Math.min(bundle.passports.length, HISTORY_LIMIT),
+      packageHash: bundle.packageHash
+    }
+  }
+
   async deleteByClass(dataClass: PassportDataClass): Promise<PassportDeleteResult> {
     await this.ready
     if (dataClass === 'D3') {
+      let result: PassportDeleteResult
+      try {
+        result = await this.trackStoreOperation(this.store.deleteByClass('D3'))
+      } catch (error) {
+        this.recordPersistenceError(error)
+        throw error
+      }
       this.redactedBefore.D3 = Number(this.lastEvent?.sourceTick) || this.now()
-      if (this.current) await this.closeCurrentInternal('manual', false)
-      const result = await this.store.deleteByClass('D3')
-      this.privacy = await this.store.setPrivacy({
-        ...this.privacy,
-        identityPersistenceOptIn: false,
-        updatedAt: this.now()
-      })
+      this.privacy = await this.store.getPrivacy()
+      this.current = null
+      this.clearChallenge(false)
       this.roster = []
       this.ephemeralHistory.length = 0
       this.notify()
       return result
     }
-    const result = await this.store.deleteByClass(dataClass)
+    let result: PassportDeleteResult
+    try {
+      result = await this.trackStoreOperation(this.store.deleteByClass(dataClass))
+    } catch (error) {
+      this.recordPersistenceError(error)
+      throw error
+    }
     this.redactedBefore[dataClass] = Number(this.lastEvent?.sourceTick) || this.now()
     const redact = (passport: StintPassport): StintPassport => ({
       ...passport,
@@ -604,7 +757,7 @@ export class StintPassportService {
 
   async runFullAudit(): Promise<PassportFullAuditResult> {
     await this.ready
-    const result = await this.store.runFullAudit()
+    const result = await this.trackStoreOperation(this.store.runFullAudit())
     if (result.integrity.state === 'corrupt' && this.current) {
       this.current = this.reconcileReadiness({
         ...this.current,
@@ -715,11 +868,12 @@ export class StintPassportService {
         now: this.now()
       }))
       this.current = this.reconcileReadiness(this.current)
+      const started = this.current
       await this.persistCurrent(this.event(
         'ultimate.sim.raceops.passport.stint-started.v1',
         { sessionRef: identity.sessionRef, trackRef: identity.trackRef, carRef: identity.carRef },
         'D3'
-      ))
+      ), started)
       await this.refreshExternal('stint-started')
       this.notify()
       return
@@ -735,7 +889,8 @@ export class StintPassportService {
       await this.consume(delivery)
       return
     }
-    const before = passportStateKey(this.current)
+    const previous = this.current
+    const before = passportStateKey(previous)
     this.current = withCoverage(this.current, evaluatePassportItems({
       passport: this.current,
       event,
@@ -754,7 +909,7 @@ export class StintPassportService {
           statuses: this.current.items.map((item) => [item.id, item.status])
         },
         'D2'
-      ))
+      ), previous)
       this.notify()
     }
   }
@@ -769,7 +924,8 @@ export class StintPassportService {
 
   private async refreshExternalNow(reason: string): Promise<void> {
     if (!this.current || !this.lastEvent) return
-    const before = passportStateKey(this.current)
+    const previous = this.current
+    const before = passportStateKey(previous)
     const external = await inspectPassportReadiness(this.ctx, this.lastEvent, this.config, this.now())
     this.current = withCoverage(this.current, evaluatePassportItems({
       passport: this.current,
@@ -790,7 +946,7 @@ export class StintPassportService {
           statuses: this.current.items.map((item) => [item.id, item.status])
         },
         'D2'
-      ))
+      ), previous)
     }
   }
 
@@ -799,6 +955,7 @@ export class StintPassportService {
     reason: string
   ): Promise<void> {
     if (!this.current || !this.lastEvent) return
+    const previous = this.current
     this.current = withCoverage(this.current, evaluatePassportItems({
       passport: this.current,
       event: this.lastEvent,
@@ -811,7 +968,7 @@ export class StintPassportService {
       'ultimate.sim.raceops.passport.roster-revalidated.v1',
       { reason, coverage: this.current.coverage },
       'D3'
-    ))
+    ), previous)
   }
 
   private async closeCurrentInternal(
@@ -819,6 +976,7 @@ export class StintPassportService {
     interrupted: boolean
   ): Promise<StintPassport | null> {
     if (!this.current) return null
+    const previous = this.current
     const closed: StintPassport = {
       ...this.current,
       lifecycle: interrupted ? 'interrupted' : 'closed',
@@ -831,36 +989,48 @@ export class StintPassportService {
       'ultimate.sim.raceops.passport.stint-closed.v1',
       { reason, interrupted, coverage: closed.coverage },
       'D3'
-    ))
+    ), previous)
     this.ephemeralHistory.unshift(closed)
     this.ephemeralHistory.splice(HISTORY_LIMIT)
     this.current = null
     return closed
   }
 
-  private async persistCurrent(event: PassportStoreEvent): Promise<void> {
+  private async persistCurrent(
+    event: PassportStoreEvent,
+    rollbackState: StintPassport | null = this.current
+  ): Promise<void> {
     if (!this.current || !this.privacy.identityPersistenceOptIn) {
       if (this.current) this.current = { ...this.current, persisted: false }
       return
     }
+    const operationKey = event.canonicalEvent.dedupeKey
+    const cached = this.ambiguousMutations.get(operationKey)
+    const attempted = cached ?? {
+      passport: { ...this.current, persisted: true, durability: 'pending' as const },
+      event
+    }
     try {
-      this.current = { ...this.current, durability: 'pending' }
-      this.current = await this.store.persistPassport(
-        { ...this.current, persisted: true },
-        event
+      this.current = attempted.passport
+      this.current = await this.trackStoreOperation(
+        this.store.persistPassport(attempted.passport, attempted.event)
       )
       this.current = { ...this.current, durability: 'durable' }
+      this.ambiguousMutations.delete(operationKey)
+      this.lastError = undefined
     } catch (error) {
-      this.lastError = error instanceof Error ? error.message : String(error)
-      if (this.current) {
-        this.current = {
-          ...this.current,
-          durability: this.store.status().state === 'quarantined' ? 'quarantined' : 'failed',
-          lifecycle: this.current.lifecycle === 'ready' ? 'awaiting-checklist' : this.current.lifecycle,
-          challengeCompletedAt: undefined,
-          challengeOwner: undefined
-        }
+      this.ambiguousMutations.set(operationKey, attempted)
+      this.recordPersistenceError(error)
+      const fallback = rollbackState ?? attempted.passport
+      this.current = {
+        ...fallback,
+        durability: this.store.status().state === 'quarantined' ? 'quarantined' : 'failed',
+        lifecycle: fallback.lifecycle === 'ready' ? 'awaiting-checklist' : fallback.lifecycle,
+        challengeCompletedAt: undefined,
+        challengeOwner: undefined
       }
+      this.notify()
+      throw error
     }
   }
 
@@ -871,7 +1041,15 @@ export class StintPassportService {
     itemId?: PassportItem['id']
   ): PassportStoreEvent {
     const capturedAt = this.now()
-    const dedupeKey = `${this.current?.identity.stintId ?? 'none'}:${eventType}:${randomUUID()}`
+    const operationHash = evidenceHash({
+      stintId: this.current?.identity.stintId ?? 'none',
+      eventType,
+      itemId: itemId ?? '',
+      dataClass,
+      revision: this.current?.revision ?? 0,
+      payload
+    })
+    const dedupeKey = `passport:${operationHash}`
     const provenance = (unit: string, privacyClass: 'D1' | 'D2' | 'D3') => ({
       sourceId: 'stint-passport-main',
       transformId: 'passport.canonical-event.v2',
@@ -901,7 +1079,7 @@ export class StintPassportService {
     interval.sourceTickStart = String(capturedAt)
     interval.sourceTickEnd = String(capturedAt)
     const canonicalEvent: CanonicalRaceOpsEvent = {
-      eventId: randomUUID(),
+      eventId: `${operationHash.slice(0, 8)}-${operationHash.slice(8, 12)}-5${operationHash.slice(13, 16)}-a${operationHash.slice(17, 20)}-${operationHash.slice(20, 32)}`,
       eventClass: 'fact',
       eventType,
       sessionRef: this.current?.identity.sessionRef ?? '',
@@ -945,10 +1123,12 @@ export class StintPassportService {
     return this.current
   }
 
-  private clearChallenge(): void {
+  private clearChallenge(demoteReady = true): void {
+    this.challengeGeneration += 1
     this.challenge = undefined
     this.challengeNonceHash = undefined
-    if (this.current?.lifecycle === 'ready') {
+    this.challengeClaim = undefined
+    if (demoteReady && this.current?.lifecycle === 'ready') {
       this.current = {
         ...this.current,
         lifecycle: 'awaiting-checklist',
@@ -988,8 +1168,10 @@ export class StintPassportService {
     const durabilityFailed = this.privacy.identityPersistenceOptIn &&
       (covered.durability === 'failed' || covered.durability === 'quarantined')
     if (covered.lifecycle === 'ready' && (forceAwaiting || blocking || durabilityFailed)) {
+      this.challengeGeneration += 1
       this.challenge = undefined
       this.challengeNonceHash = undefined
+      this.challengeClaim = undefined
       return {
         ...covered,
         lifecycle: 'awaiting-checklist',
@@ -1041,6 +1223,26 @@ export class StintPassportService {
       { memberId: driverRef, displayName: driverLabel, roles: ['driver'], active: true }
     ]
     if (this.privacy.identityPersistenceOptIn) await this.store.saveRoster(this.roster)
+  }
+
+  private trackStoreOperation<T>(operation: Promise<T>): Promise<T> {
+    let tracked: Promise<T>
+    tracked = operation.finally(() => {
+      this.pendingStoreOperations.delete(tracked)
+    })
+    this.pendingStoreOperations.add(tracked)
+    return tracked
+  }
+
+  private async drainStoreOperations(): Promise<void> {
+    while (this.pendingStoreOperations.size > 0) {
+      await Promise.allSettled([...this.pendingStoreOperations])
+    }
+  }
+
+  private recordPersistenceError(error: unknown): void {
+    this.lastError = clean(error instanceof Error ? error.message : String(error), 500) ||
+      'Passport persistence operation failed.'
   }
 
   private notify(): void {

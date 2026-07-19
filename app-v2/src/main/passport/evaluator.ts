@@ -492,7 +492,13 @@ export function validateChallengeReadiness(
 ): string[] {
   const errors: string[] = []
   const items = expirePassportItems(passport.items, now)
-  const coverage = calculatePassportCoverage(items)
+  let coverage: ReturnType<typeof calculatePassportCoverage>
+  try {
+    coverage = calculatePassportCoverage(items)
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : 'Passport item set is invalid.')
+    return errors
+  }
   if (coverage.coverage < 0.95) {
     errors.push(`Coverage ${(coverage.coverage * 100).toFixed(1)}% is below 95%.`)
   }

@@ -18,6 +18,7 @@ import {
   type PassportDataClass,
   type PassportExportProfile,
   type PassportExportResult,
+  type PassportImportResult,
   type PassportItem,
   type PassportItemResolutionInput,
   type PassportPrivacySettings,
@@ -131,9 +132,7 @@ export function PassportStatusPanel({
   }
   if (
     snapshot &&
-    (snapshot.persistence.state === 'quarantined' ||
-      snapshot.persistence.state === 'open-circuit' ||
-      snapshot.persistence.state === 'degraded')
+    snapshot.persistence.state !== 'ready'
   ) {
     return (
       <section style={{ ...panel, border: '1px solid var(--accent-danger)' }} role="alert">
@@ -165,6 +164,14 @@ export function PassportStatusPanel({
       </section>
     )
   }
+  if (snapshot?.current && (!snapshot.integrity.verified || snapshot.integrity.state !== 'anchored')) {
+    return (
+      <section style={{ ...panel, border: '1px solid var(--accent-danger)' }} role="alert">
+        <strong>{tt(language, 'passport.integrityBlocked')}</strong>
+        <div>{snapshot.integrity.message ?? snapshot.integrity.state}</div>
+      </section>
+    )
+  }
   if (snapshot && !snapshot.current) {
     return (
       <section style={{ ...panel, border: '1px dashed var(--border-default)' }} data-testid="passport-empty">
@@ -182,13 +189,15 @@ export function PassportStatusPanel({
 
 function PassportSummary({
   passport,
-  language
+  language,
+  forceAwaiting = false
 }: {
   passport: StintPassport
   language?: AppViewProps['language']
+  forceAwaiting?: boolean
 }): ReactElement {
   const visibleLifecycle = passport.lifecycle === 'ready' &&
-    (passport.durability === 'failed' || passport.durability === 'quarantined')
+    (forceAwaiting || passport.durability === 'failed' || passport.durability === 'quarantined')
     ? 'awaiting-checklist'
     : passport.lifecycle
   return (
@@ -222,6 +231,7 @@ export default function StintPassportView({
   showToast
 }: AppViewProps): ReactElement {
   const [snapshot, setSnapshot] = useState<PassportSnapshot | null>(null)
+  const [snapshotFresh, setSnapshotFresh] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -244,10 +254,12 @@ export default function StintPassportView({
     try {
       const next = await invoke<PassportSnapshot>(STINT_PASSPORT_CHANNELS.getSnapshot)
       setSnapshot(next)
+      setSnapshotFresh(true)
       setConfig((current) => current ?? next.config)
       setPrivacy((current) => current ?? next.privacy)
       setError(null)
     } catch (cause) {
+      setSnapshotFresh(false)
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       setLoading(false)
@@ -274,10 +286,11 @@ export default function StintPassportView({
   }, [showToast])
 
   const mutate = useCallback(<T,>(channel: string, payload: unknown): Promise<T> => {
+    if (!snapshotFresh) return Promise.reject(new Error(tt(language, 'passport.capabilityUnavailable')))
     const capability = snapshot?.mutationCapability
     if (!capability) return Promise.reject(new Error(tt(language, 'passport.capabilityUnavailable')))
     return invoke<T>(channel, { capability, payload })
-  }, [language, snapshot?.mutationCapability])
+  }, [language, snapshot?.mutationCapability, snapshotFresh])
 
   const tabs: TabId[] = ['current', 'history', 'roster', 'configuration', 'privacy']
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, current: TabId): void => {
@@ -291,6 +304,27 @@ export default function StintPassportView({
   }
 
   const current = snapshot?.current ?? null
+  const persistenceHealthy = snapshot?.persistence.state === 'ready'
+  const queueHealthy = snapshot === null
+    ? false
+    : !snapshot.runtime.queue.killSwitch &&
+      snapshot.runtime.queue.consumerErrors === 0 &&
+      !snapshot.runtime.overflowBlocked
+  const integrityHealthy = Boolean(snapshot?.integrity.verified) &&
+    snapshot?.integrity.state === 'anchored'
+  const ordinaryMutationDisabled = busy !== null || !snapshotFresh || !persistenceHealthy
+  const challengeDisabled = ordinaryMutationDisabled ||
+    !queueHealthy ||
+    snapshot?.runtime.telemetryContext !== 'live' ||
+    current?.coverage !== 1 ||
+    (current?.persisted === true && (
+      current.durability !== 'durable' ||
+      !integrityHealthy
+    ))
+  const forceAwaiting = !snapshotFresh ||
+    !persistenceHealthy ||
+    !queueHealthy ||
+    (current?.persisted === true && !integrityHealthy)
   const memberNameById = useMemo(
     () => new Map((snapshot?.roster ?? []).map((member) => [member.memberId, member.displayName])),
     [snapshot?.roster]
@@ -417,9 +451,24 @@ export default function StintPassportView({
   }
 
   const deleteClass = (value: PassportDataClass): void => {
+    if (window.confirm(tt(language, 'passport.confirmDelete', { class: value })) === false) return
     void run(`delete-${value}`, async () => {
       await mutate(STINT_PASSPORT_CHANNELS.deleteByClass, value)
       await refresh()
+    })
+  }
+
+  const importPackage = (): void => {
+    void run('import', async () => {
+      const result = await mutate<PassportImportResult | { ok: false; canceled: true }>(
+        STINT_PASSPORT_CHANNELS.importPackage,
+        null
+      )
+      if (!result.ok) return
+      await refresh()
+      showToast(tt(language, 'passport.importedReplay', {
+        count: result.importedPassports
+      }), 'success')
     })
   }
 
@@ -449,7 +498,7 @@ export default function StintPassportView({
         <div role="tabpanel" id="passport-panel-current" aria-labelledby="passport-tab-current">
           {current && (
             <>
-              <PassportSummary passport={current} language={language} />
+              <PassportSummary passport={current} language={language} forceAwaiting={forceAwaiting} />
               <section style={{ ...panel, marginTop: 16 }}>
                 <h3>{tt(language, 'passport.checklistTitle')}</h3>
                 <div style={grid}>
@@ -512,7 +561,7 @@ export default function StintPassportView({
                     <span style={label}>{tt(language, 'passport.reason')}</span>
                     <input style={input} value={resolutionReason} onChange={(event) => setResolutionReason(event.target.value)} />
                   </label>
-                  <button style={button} disabled={busy !== null} type="submit">{tt(language, 'passport.applyResolution')}</button>
+                  <button style={button} disabled={ordinaryMutationDisabled} type="submit">{tt(language, 'passport.applyResolution')}</button>
                 </form>
               </section>
 
@@ -527,7 +576,7 @@ export default function StintPassportView({
                     </select>
                   </label>
                   {!snapshot?.challenge ? (
-                    <button style={button} disabled={busy !== null || snapshot?.runtime.telemetryContext !== 'live'} onClick={prepareChallenge} type="button">
+                    <button style={button} disabled={challengeDisabled} onClick={prepareChallenge} type="button">
                       {tt(language, 'passport.prepareChallenge')}
                     </button>
                   ) : (
@@ -537,12 +586,15 @@ export default function StintPassportView({
                         <span style={label}>{tt(language, 'passport.challengeResponse')}</span>
                         <input style={input} value={challengeResponse} onChange={(event) => setChallengeResponse(event.target.value)} />
                       </label>
-                      <button style={button} disabled={busy !== null || snapshot?.runtime.telemetryContext !== 'live'} onClick={completeChallenge} type="button">
+                      <button style={button} disabled={challengeDisabled} onClick={completeChallenge} type="button">
                         {tt(language, 'passport.completeChallenge')}
                       </button>
                     </>
                   )}
-                  <button style={secondaryButton} disabled={busy !== null} onClick={() => void mutate(STINT_PASSPORT_CHANNELS.closeCurrent, null)} type="button">
+                  <button style={secondaryButton} disabled={ordinaryMutationDisabled} onClick={() => void run('close', async () => {
+                    await mutate(STINT_PASSPORT_CHANNELS.closeCurrent, null)
+                    await refresh()
+                  })} type="button">
                     {tt(language, 'passport.closeCurrent')}
                   </button>
                 </div>
@@ -663,6 +715,9 @@ export default function StintPassportView({
             {(['race-only', 'pseudonymized', 'full-local'] as PassportExportProfile[]).map((profile) => (
               <button key={profile} style={secondaryButton} onClick={() => saveExport(profile)} type="button">{tt(language, `passport.export.${profile}`)}</button>
             ))}
+            <button style={secondaryButton} onClick={importPackage} type="button">
+              {tt(language, 'passport.importPackage')}
+            </button>
             {(['D1', 'D2', 'D3'] as PassportDataClass[]).map((value) => (
               <button key={value} style={secondaryButton} onClick={() => deleteClass(value)} type="button">{tt(language, 'passport.deleteClass', { class: value })}</button>
             ))}
@@ -682,11 +737,14 @@ export default function StintPassportView({
                 <span style={label}>{tt(language, 'passport.repairToken')}</span>
                 <input style={input} value={repairToken} onChange={(event) => setRepairToken(event.target.value)} />
               </label>
-              <button style={secondaryButton} onClick={() => void run('repair', async () => {
+              <button style={secondaryButton} onClick={() => {
+                if (window.confirm(tt(language, 'passport.confirmRepair')) === false) return
+                void run('repair', async () => {
                 await mutate(STINT_PASSPORT_CHANNELS.repairPersistence, repairToken)
                 setRepairToken('')
                 await refresh()
-              })} type="button">{tt(language, 'passport.repairPersistence')}</button>
+                })
+              }} type="button">{tt(language, 'passport.repairPersistence')}</button>
             </div>
           )}
           <div style={{ marginTop: 12 }}>

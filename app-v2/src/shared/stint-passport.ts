@@ -181,8 +181,8 @@ export const DEFAULT_PASSPORT_PRIVACY: PassportPrivacySettings = {
 }
 
 export interface PassportIntegrityState {
-  state: 'unanchored' | 'corrupt' | 'unavailable'
-  verified: false
+  state: 'anchored' | 'unanchored' | 'corrupt' | 'unavailable'
+  verified: boolean
   scope: 'incremental' | 'bounded' | 'full'
   checkedEvents: number
   totalEvents?: number
@@ -277,6 +277,13 @@ export interface PassportExportResult {
   packageHash?: string
 }
 
+export interface PassportImportResult {
+  ok: true
+  canceled: false
+  importedPassports: number
+  packageHash: string
+}
+
 export interface PassportDeleteResult {
   deletedStints: number
   redactedEvidence: number
@@ -300,6 +307,7 @@ export const STINT_PASSPORT_CHANNELS = {
   closeCurrent: 'stintPassport:closeCurrent',
   setKillSwitch: 'stintPassport:setKillSwitch',
   saveExport: 'stintPassport:saveExport',
+  importPackage: 'stintPassport:importPackage',
   deleteByClass: 'stintPassport:deleteByClass',
   runFullAudit: 'stintPassport:runFullAudit'
   ,
@@ -319,6 +327,20 @@ export function calculatePassportCoverage(items: readonly PassportItem[]): {
   applicableItems: number
   coveredItems: number
 } {
+  if (items.length !== STINT_PASSPORT_ITEM_COUNT) {
+    throw new Error(`Stint Passport requires exactly ${STINT_PASSPORT_ITEM_COUNT} items.`)
+  }
+  const itemIds = items.map((item) => item.id)
+  if (new Set(itemIds).size !== STINT_PASSPORT_ITEM_COUNT) {
+    throw new Error('Stint Passport item IDs must be unique.')
+  }
+  const requiredIds = new Set(PASSPORT_ITEM_DEFINITIONS.map((definition) => definition.id))
+  if (itemIds.some((id) => !requiredIds.has(id))) {
+    throw new Error('Stint Passport contains an unknown item ID.')
+  }
+  if (items.every((item) => item.status === 'not-applicable')) {
+    throw new Error('Stint Passport cannot mark every item not applicable.')
+  }
   const applicable = items.filter((item) => {
     const definition = passportItemDefinition(item.id)
     return !(item.status === 'not-applicable' && definition.notApplicableEligible)
@@ -329,7 +351,7 @@ export function calculatePassportCoverage(items: readonly PassportItem[]): {
     item.status === 'waived-with-reason'
   )
   return {
-    coverage: applicable.length === 0 ? 1 : covered.length / applicable.length,
+    coverage: covered.length / applicable.length,
     applicableItems: applicable.length,
     coveredItems: covered.length
   }

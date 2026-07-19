@@ -10,7 +10,11 @@ import type {
   Phase02TapSubscription
 } from '../../shared/phase02-tap'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
-import { DEFAULT_PASSPORT_PRIVACY, type PassportConfig } from '../../shared/stint-passport'
+import {
+  DEFAULT_PASSPORT_PRIVACY,
+  type PassportConfig,
+  type PassportIntegrityState
+} from '../../shared/stint-passport'
 import { telemetrySnapshotToRaceOpsEvent } from '../phase02/telemetry-contract-adapter'
 import { PassportPersistenceEngine } from './persistence-engine'
 import type { PassportPersistenceClient } from './persistence-client'
@@ -21,7 +25,7 @@ const services: StintPassportService[] = []
 const stores: PassportPersistenceEngine[] = []
 
 afterEach(async () => {
-  for (const service of services.splice(0)) await service.dispose()
+  for (const service of services.splice(0)) await service.dispose().catch(() => undefined)
   for (const store of stores.splice(0)) {
     try {
       store.close()
@@ -113,7 +117,7 @@ function clientFor(engine: PassportPersistenceEngine): PassportPersistenceClient
     'getConfig', 'setConfig', 'getPrivacy', 'setPrivacy', 'getKillSwitch',
     'listRoster', 'saveRoster', 'persistPassport', 'listPassports', 'getPassport',
     'getIntegrity', 'verifyActiveStint', 'purgeRetention', 'deleteByClass',
-    'exportPackage', 'logRuntime', 'eventHeaders', 'metricsSnapshot'
+    'exportPackage', 'verifyImportPackage', 'logRuntime', 'eventHeaders', 'metricsSnapshot'
   ]) {
     client[method] = async (...args: unknown[]) =>
       (engine as unknown as Record<string, (...values: unknown[]) => unknown>)[method](...args)
@@ -585,7 +589,7 @@ describe('StintPassportService lifecycle and privacy', () => {
       identityPersistenceOptIn: true,
       updatedAt: 0
     })
-    test.service.deleteByClass('D3')
+    await test.service.deleteByClass('D3')
     const snapshot = await test.service.snapshot()
     expect(snapshot.privacy.identityPersistenceOptIn).toBe(false)
     expect(snapshot.current).toBeNull()
@@ -651,11 +655,11 @@ describe('StintPassportService lifecycle and privacy', () => {
     test.client.persistPassport = vi.fn(async () => {
       throw new Error('worker disk failure')
     })
-    await test.service.setPrivacy({
+    await expect(test.service.setPrivacy({
       ...DEFAULT_PASSPORT_PRIVACY,
       identityPersistenceOptIn: true,
       updatedAt: 0
-    })
+    })).rejects.toThrow(/worker disk failure/i)
     const snapshot = await test.service.snapshot()
     expect(snapshot.current?.durability).toBe('failed')
     expect(snapshot.current?.lifecycle).toBe('awaiting-checklist')
@@ -676,4 +680,565 @@ describe('StintPassportService lifecycle and privacy', () => {
     expect(() => test.service.assertCapability(capability)).not.toThrow()
     expect(() => test.service.assertCapability('wrong-capability')).toThrow(/invalid/i)
   })
+  async function persistentCurrent(test: ReturnType<typeof harness>) {
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    const current = (await test.service.snapshot()).current!
+    await configureRoster(test, current.identity.driverRef, current.identity.driverLabel)
+    await test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 1
+    })
+    return (await test.service.snapshot()).current!
+  }
+
+  async function preparedPersistentChallenge(
+    test: ReturnType<typeof harness>,
+    trustedIntegrity = true
+  ) {
+    const current = await persistentCurrent(test)
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'audio-comms',
+      status: 'manual-confirmed',
+      owner: { memberId: 'spotter-1', role: 'spotter' },
+      reasonCode: 'COMMS_CHECK_COMPLETE'
+    })
+    const challenge = await test.service.prepareChallenge({
+      stintId: current.identity.stintId,
+      owner: { memberId: current.identity.driverRef, role: 'driver' }
+    })
+    const integrity = {
+      state: trustedIntegrity ? 'anchored' : 'unanchored',
+      verified: trustedIntegrity,
+      scope: 'incremental' as const,
+      checkedEvents: test.store.eventHeaders(current.identity.stintId).length,
+      lastCheckedAt: 10_000,
+      message: trustedIntegrity
+        ? 'Verified against trusted signature anchor.'
+        : 'No trusted signature anchor is available.'
+    } as unknown as PassportIntegrityState
+    test.client.verifyActiveStint = vi.fn(async () => integrity)
+    test.client.getIntegrity = vi.fn(async () => integrity)
+    return { current, challenge }
+  }
+
+  function outcomeOf<T>(operation: Promise<T>): Promise<'fulfilled' | 'rejected'> {
+    return operation.then(() => 'fulfilled' as const, () => 'rejected' as const)
+  }
+
+  describe('StintPassportService Phase 4 failure truth and challenge fencing', () => {
+    it('[spec-gap] rejects a manual resolution when its durable write fails without exposing the mutation as success', async () => {
+      const test = harness('resolution-failure-truth')
+      const current = await persistentCurrent(test)
+      const before = (await test.service.snapshot()).current?.items.find((item) => item.id === 'fuel-load')
+      test.client.persistPassport = vi.fn(async () => {
+        throw new Error('commit rejected by durable store')
+      })
+
+      const outcome = await outcomeOf(test.service.resolveItem({
+        stintId: current.identity.stintId,
+        itemId: 'fuel-load',
+        status: 'manual-confirmed',
+        owner: { memberId: 'engineer-1', role: 'engineer' },
+        reasonCode: 'MANUAL_FUEL_CHECK'
+      }))
+      const snapshot = await test.service.snapshot()
+      const item = snapshot.current?.items.find((candidate) => candidate.id === 'fuel-load')
+
+      expect({
+        outcome,
+        durability: snapshot.current?.durability,
+        lifecycle: snapshot.current?.lifecycle,
+        lastError: snapshot.runtime.lastError,
+        itemStatus: item?.status,
+        itemRevision: item?.revision
+      }).toEqual({
+        outcome: 'rejected',
+        durability: 'failed',
+        lifecycle: 'awaiting-checklist',
+        lastError: 'commit rejected by durable store',
+        itemStatus: before?.status,
+        itemRevision: before?.revision
+      })
+    })
+
+    it('[spec-gap] retains the recoverable current stint and omits closed history when close persistence fails', async () => {
+      const test = harness('close-failure-truth')
+      const current = await persistentCurrent(test)
+      test.client.persistPassport = vi.fn(async () => {
+        throw new Error('close transaction rolled back')
+      })
+
+      const outcome = await outcomeOf(test.service.closeCurrent('manual'))
+      const snapshot = await test.service.snapshot()
+
+      expect({
+        outcome,
+        currentId: snapshot.current?.identity.stintId,
+        lifecycle: snapshot.current?.lifecycle,
+        durability: snapshot.current?.durability,
+        closedHistory: snapshot.history.some((item) => item.identity.stintId === current.identity.stintId),
+        lastError: snapshot.runtime.lastError
+      }).toEqual({
+        outcome: 'rejected',
+        currentId: current.identity.stintId,
+        lifecycle: 'awaiting-checklist',
+        durability: 'failed',
+        closedHistory: false,
+        lastError: 'close transaction rolled back'
+      })
+    })
+
+    it('[spec-gap] does not consume a challenge or increment success metrics when challenge persistence fails', async () => {
+      const test = harness('challenge-persistence-failure')
+      const { current, challenge } = await preparedPersistentChallenge(test)
+      test.client.persistPassport = vi.fn(async () => {
+        throw new Error('challenge commit failed')
+      })
+
+      const outcome = await outcomeOf(test.service.completeChallenge({
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' }
+      }))
+      const snapshot = await test.service.snapshot()
+
+      expect({
+        outcome,
+        lifecycle: snapshot.current?.lifecycle,
+        durability: snapshot.current?.durability,
+        completedChallenges: snapshot.experiment.completedChallenges,
+        totalOverheadMs: snapshot.experiment.totalOverheadMs,
+        challengeId: snapshot.challenge?.challengeId,
+        challengeCompletedAt: snapshot.current?.challengeCompletedAt
+      }).toEqual({
+        outcome: 'rejected',
+        lifecycle: 'awaiting-checklist',
+        durability: 'failed',
+        completedChallenges: 0,
+        totalOverheadMs: 0,
+        challengeId: challenge.challengeId,
+        challengeCompletedAt: undefined
+      })
+    })
+
+    it('[spec-gap] reports response-loss ambiguity and uses a retry-stable event identity', async () => {
+      const test = harness('response-loss-ambiguity')
+      const current = await persistentCurrent(test)
+      const persist = test.client.persistPassport.bind(test.client)
+      let loseFirstResponse = true
+      test.client.persistPassport = vi.fn(async (passport, event) => {
+        const committed = await persist(passport, event)
+        if (loseFirstResponse) {
+          loseFirstResponse = false
+          throw new Error('response lost after commit')
+        }
+        return committed
+      })
+      const input = {
+        stintId: current.identity.stintId,
+        itemId: 'fuel-load' as const,
+        status: 'manual-confirmed' as const,
+        owner: { memberId: 'engineer-1', role: 'engineer' as const },
+        reasonCode: 'MANUAL_FUEL_CHECK'
+      }
+
+      const firstOutcome = await outcomeOf(test.service.resolveItem(input))
+      const eventsAfterAmbiguousCommit = test.store.eventHeaders(current.identity.stintId).length
+      const retryOutcome = await outcomeOf(test.service.resolveItem(input))
+      const eventsAfterRetry = test.store.eventHeaders(current.identity.stintId).length
+      const snapshot = await test.service.snapshot()
+
+      expect({
+        firstOutcome,
+        retryOutcome,
+        retryEventDelta: eventsAfterRetry - eventsAfterAmbiguousCommit,
+        durability: snapshot.current?.durability,
+        lastError: snapshot.runtime.lastError
+      }).toEqual({
+        firstOutcome: 'rejected',
+        retryOutcome: 'fulfilled',
+        retryEventDelta: 0,
+        durability: 'durable',
+        lastError: undefined
+      })
+    }, 15_000)
+
+    it('[spec-gap] gives exactly one winner to concurrent completions of the same challenge', async () => {
+      const test = harness('challenge-double-complete')
+      const { current, challenge } = await preparedPersistentChallenge(test)
+      let entered = 0
+      let firstEntered!: () => void
+      let release!: () => void
+      const atBarrier = new Promise<void>((resolve) => { firstEntered = resolve })
+      const barrier = new Promise<void>((resolve) => { release = resolve })
+      const integrity = await test.client.verifyActiveStint(current.identity.stintId)
+      test.client.verifyActiveStint = vi.fn(async () => {
+        entered += 1
+        if (entered === 1) firstEntered()
+        await barrier
+        return integrity
+      })
+      const input = {
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' as const }
+      }
+
+      const headersBefore = test.store.eventHeaders(current.identity.stintId)
+      const first = test.service.completeChallenge(input)
+      const second = test.service.completeChallenge(input)
+      const settled = Promise.allSettled([first, second])
+      await atBarrier
+      release()
+      const results = await settled
+      const snapshot = await test.service.snapshot()
+      const headersAfter = test.store.eventHeaders(current.identity.stintId)
+      const challengeEventDelta = headersAfter.length - headersBefore.length
+      const duplicateHeaders = headersAfter.length - new Set(headersAfter.map((event) => event.dedupeKey)).size
+
+      expect({
+        fulfilled: results.filter((result) => result.status === 'fulfilled').length,
+        rejected: results.filter((result) => result.status === 'rejected').length,
+        completedChallenges: snapshot.experiment.completedChallenges,
+        challengeEventDelta,
+        duplicateHeaders
+      }).toEqual({
+        fulfilled: 1,
+        rejected: 1,
+        completedChallenges: 1,
+        challengeEventDelta: 1,
+        duplicateHeaders: 0
+      })
+    })
+
+    it('[spec-gap] fences a challenge when its passport revision changes during awaited revalidation', async () => {
+      const test = harness('challenge-revision-race')
+      const { current, challenge } = await preparedPersistentChallenge(test)
+      const profileStore = test.ctx.profileStore
+      const originalLoad = profileStore.loadProfile.bind(profileStore)
+      let entered!: () => void
+      let release!: () => void
+      const atBarrier = new Promise<void>((resolve) => { entered = resolve })
+      const barrier = new Promise<void>((resolve) => { release = resolve })
+      profileStore.loadProfile = vi.fn(async (name: string) => {
+        entered()
+        await barrier
+        return originalLoad(name)
+      })
+
+      const completion = test.service.completeChallenge({
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' }
+      })
+      await atBarrier
+      await test.service.resolveItem({
+        stintId: current.identity.stintId,
+        itemId: 'fuel-load',
+        status: 'manual-confirmed',
+        owner: { memberId: 'engineer-1', role: 'engineer' },
+        reasonCode: 'MANUAL_FUEL_CHECK'
+      })
+      release()
+      const outcome = await outcomeOf(completion)
+      const snapshot = await test.service.snapshot()
+
+      expect({
+        outcome,
+        lifecycle: snapshot.current?.lifecycle,
+        completedChallenges: snapshot.experiment.completedChallenges,
+        challengeCompletedAt: snapshot.current?.challengeCompletedAt
+      }).toEqual({
+        outcome: 'rejected',
+        lifecycle: 'awaiting-checklist',
+        completedChallenges: 0,
+        challengeCompletedAt: undefined
+      })
+    }, 15_000)
+
+    it('rejects a stale challenge response after a live cross-session boundary', async () => {
+      const test = harness('challenge-cross-session-race')
+      const { current, challenge } = await preparedPersistentChallenge(test)
+      const nextSession = telemetry('Driver A', 10, 2)
+      nextSession.replayContext = {
+        ...nextSession.replayContext!,
+        sessionIdentity: '10:20:31:1',
+        connectionEpoch: 2,
+        token: '2:2'
+      }
+      await test.tap.emit(delivery(nextSession, 2n))
+
+      const outcome = await outcomeOf(test.service.completeChallenge({
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' }
+      }))
+      const snapshot = await test.service.snapshot()
+      const closed = snapshot.history.find((entry) => entry.identity.stintId === current.identity.stintId)
+      expect({
+        outcome,
+        currentChanged: snapshot.current?.identity.stintId !== current.identity.stintId,
+        oldLifecycle: closed?.lifecycle,
+        oldChallengeCompletedAt: closed?.challengeCompletedAt,
+        completedChallenges: snapshot.experiment.completedChallenges,
+        activeChallenge: snapshot.challenge
+      }).toEqual({
+        outcome: 'rejected',
+        currentChanged: true,
+        oldLifecycle: 'closed',
+        oldChallengeCompletedAt: undefined,
+        completedChallenges: 0,
+        activeChallenge: undefined
+      })
+    })
+
+    it('[spec-gap] refuses to turn unanchored unsigned integrity into Ready', async () => {
+      const test = harness('unsigned-challenge')
+      const { current, challenge } = await preparedPersistentChallenge(test, false)
+
+      const outcome = await outcomeOf(test.service.completeChallenge({
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' }
+      }))
+      const snapshot = await test.service.snapshot()
+
+      expect({
+        integrity: snapshot.integrity.state,
+        verified: snapshot.integrity.verified,
+        outcome,
+        lifecycle: snapshot.current?.lifecycle,
+        completedChallenges: snapshot.experiment.completedChallenges,
+        challengeId: snapshot.challenge?.challengeId
+      }).toEqual({
+        integrity: 'unanchored',
+        verified: false,
+        outcome: 'rejected',
+        lifecycle: 'awaiting-checklist',
+        completedChallenges: 0,
+        challengeId: challenge.challengeId
+      })
+    })
+
+    it('demotes an already Ready persisted passport when the persistence circuit opens', async () => {
+      const test = harness('snapshot-open-circuit-truth')
+      const { current, challenge } = await preparedPersistentChallenge(test)
+      await test.service.completeChallenge({
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' }
+      })
+      expect((await test.service.snapshot()).current?.lifecycle).toBe('ready')
+      test.client.status = vi.fn(() => ({
+        state: 'open-circuit' as const,
+        queued: 0,
+        queuedBytes: 0,
+        inFlight: false,
+        failures: 3,
+        restarts: 1,
+        lastError: 'redacted'
+      }))
+
+      const snapshot = await test.service.snapshot()
+      expect(snapshot.persistence.state).toBe('open-circuit')
+      expect(snapshot.integrity.verified).toBe(false)
+      expect(snapshot.current).toMatchObject({
+        lifecycle: 'awaiting-checklist',
+        durability: 'durable'
+      })
+      expect(snapshot.current?.challengeCompletedAt).toBeUndefined()
+      expect(snapshot.current?.challengeOwner).toBeUndefined()
+    })
+
+    it('demotes an already Ready persisted passport when its trusted anchor is unavailable', async () => {
+      const test = harness('snapshot-anchor-truth')
+      const { current, challenge } = await preparedPersistentChallenge(test)
+      await test.service.completeChallenge({
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' }
+      })
+      test.client.getIntegrity = vi.fn(async () => ({
+        state: 'unanchored' as const,
+        verified: false,
+        scope: 'bounded' as const,
+        checkedEvents: 0,
+        lastCheckedAt: 10_001,
+        message: 'Trusted anchor unavailable.'
+      }))
+
+      const snapshot = await test.service.snapshot()
+      expect(snapshot.integrity).toMatchObject({ state: 'unanchored', verified: false })
+      expect(snapshot.current?.lifecycle).toBe('awaiting-checklist')
+      expect(snapshot.current?.challengeCompletedAt).toBeUndefined()
+    })
+
+    it('[spec-gap] keeps D3 close, deletion, and opt-out atomic when deletion fails', async () => {
+      const test = harness('d3-delete-atomicity')
+      const current = await persistentCurrent(test)
+      test.client.deleteByClass = vi.fn(async () => {
+        throw new Error('D3 deletion transaction failed')
+      })
+
+      const outcome = await outcomeOf(test.service.deleteByClass('D3'))
+      const snapshot = await test.service.snapshot()
+
+      expect({
+        outcome,
+        currentId: snapshot.current?.identity.stintId,
+        lifecycle: snapshot.current?.lifecycle,
+        optedIn: snapshot.privacy.identityPersistenceOptIn,
+        rosterCount: snapshot.roster.length,
+        closedHistory: snapshot.history.some((item) => item.identity.stintId === current.identity.stintId),
+        lastError: snapshot.runtime.lastError
+      }).toEqual({
+        outcome: 'rejected',
+        currentId: current.identity.stintId,
+        lifecycle: 'awaiting-checklist',
+        optedIn: true,
+        rosterCount: 5,
+        closedHistory: false,
+        lastError: 'D3 deletion transaction failed'
+      })
+    })
+
+    it('[spec-gap] drains accepted retention, audit, and deletion work before closing persistence', async () => {
+      const test = harness('dispose-drain')
+      await test.service.snapshot()
+      let entered = 0
+      let allEntered!: () => void
+      let release!: () => void
+      const atBarrier = new Promise<void>((resolve) => { allEntered = resolve })
+      const barrier = new Promise<void>((resolve) => { release = resolve })
+      const arrive = async () => {
+        entered += 1
+        if (entered === 3) allEntered()
+        await barrier
+      }
+      test.client.purgeRetention = vi.fn(async () => {
+        await arrive()
+        return []
+      })
+      test.client.runFullAudit = vi.fn(async () => {
+        await arrive()
+        return {
+          integrity: test.store.getIntegrity(),
+          durationMs: 0
+        }
+      })
+      test.client.deleteByClass = vi.fn(async () => {
+        await arrive()
+        return { dataClass: 'D1' as const, deletedStints: 0, redactedEvidence: 0 }
+      })
+      const close = vi.fn(async () => undefined)
+      test.client.close = close
+
+      const operations = [
+        test.service.runRetention('explicit'),
+        test.service.runFullAudit(),
+        test.service.deleteByClass('D1')
+      ]
+      await atBarrier
+      let disposed = false
+      const disposal = test.service.dispose().then(() => { disposed = true })
+      await Promise.resolve()
+      await Promise.resolve()
+      const observedBeforeRelease = {
+        closeCalls: close.mock.calls.length,
+        disposed
+      }
+      release()
+      await Promise.all([...operations, disposal])
+
+      expect(observedBeforeRelease).toEqual({
+        closeCalls: 0,
+        disposed: false
+      })
+    })
+
+    it('persists the acknowledged revision through disposal and restarts without false Ready state', async () => {
+      const test = harness('dispose-restart-durability')
+      const current = await persistentCurrent(test)
+      const acknowledged = await test.service.resolveItem({
+        stintId: current.identity.stintId,
+        itemId: 'fuel-load',
+        status: 'manual-confirmed',
+        owner: { memberId: 'engineer-1', role: 'engineer' },
+        reasonCode: 'MANUAL_FUEL_CHECK'
+      })
+
+      await test.service.dispose()
+      services.splice(services.indexOf(test.service), 1)
+      stores.splice(stores.indexOf(test.store), 1)
+      const restartedStore = new PassportPersistenceEngine({
+        path: join(test.dir, 'passport.db'),
+        now: () => 30_000
+      })
+      stores.push(restartedStore)
+      const restartedService = new StintPassportService(
+        { ...test.ctx, phase02Tap: new FakeTap() } as ModuleContext,
+        clientFor(restartedStore),
+        () => 30_000
+      )
+      services.push(restartedService)
+
+      const snapshot = await restartedService.snapshot()
+      const durable = snapshot.history.find((item) => item.identity.stintId === current.identity.stintId)
+      expect(snapshot.current).toBeNull()
+      expect(durable).toMatchObject({
+        lifecycle: 'interrupted',
+        closeReason: 'disconnect',
+        revision: acknowledged.revision
+      })
+      expect(durable?.lifecycle).not.toBe('ready')
+      expect(durable?.challengeCompletedAt).toBeUndefined()
+      expect(durable?.items.find((item) => item.id === 'fuel-load')).toMatchObject({
+        status: 'manual-confirmed',
+        reasonCode: 'MANUAL_FUEL_CHECK'
+      })
+    })
+
+    it('imports authenticated packages only as deduplicated ephemeral replay history', async () => {
+      const test = harness('authenticated-replay-import')
+      const current = await persistentCurrent(test)
+      const bundle = await test.service.exportPackage('pseudonymized')
+
+      await expect(test.service.importPackage(bundle)).resolves.toMatchObject({
+        ok: true,
+        canceled: false,
+        importedPassports: 1,
+        packageHash: bundle.packageHash
+      })
+      await test.service.importPackage(bundle)
+      const snapshot = await test.service.snapshot()
+      const imported = snapshot.history.filter((entry) =>
+        entry.identity.stintId.startsWith(`import:${bundle.packageHash.slice(0, 12)}:`)
+      )
+
+      expect(snapshot.current?.identity.stintId).toBe(current.identity.stintId)
+      expect(imported).toHaveLength(1)
+      expect(imported[0]).toMatchObject({
+        lifecycle: 'interrupted',
+        telemetryContext: 'replay',
+        persisted: false,
+        durability: 'ephemeral',
+        interrupted: true,
+        closeReason: 'replay-boundary'
+      })
+      expect(imported[0].lifecycle).not.toBe('ready')
+      expect(imported[0].challengeCompletedAt).toBeUndefined()
+      expect(imported[0].challengeOwner).toBeUndefined()
+    })
+  })
+
 })

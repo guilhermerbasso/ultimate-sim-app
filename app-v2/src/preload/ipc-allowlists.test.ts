@@ -62,3 +62,73 @@ describe('restricted renderer expression IPC allowlists', () => {
     expect(isTouchpanelIpcAllowed(STINT_PASSPORT_CHANNELS.completeChallenge)).toBe(false)
   })
 })
+
+describe('exact Passport channel rejection boundaries', () => {
+  it.each([
+    ['prefix', `x${STINT_PASSPORT_CHANNELS.getSnapshot}`],
+    ['suffix', `${STINT_PASSPORT_CHANNELS.getSnapshot}:extra`],
+    ['case', STINT_PASSPORT_CHANNELS.getSnapshot.toUpperCase()],
+    ['leading whitespace', ` ${STINT_PASSPORT_CHANNELS.getSnapshot}`],
+    ['trailing whitespace', `${STINT_PASSPORT_CHANNELS.getSnapshot} `],
+    ['NUL', `${STINT_PASSPORT_CHANNELS.getSnapshot}\0`],
+    ['Cyrillic confusable', STINT_PASSPORT_CHANNELS.getSnapshot.replace('o', '\u043e')],
+    ['full-width confusable', STINT_PASSPORT_CHANNELS.getSnapshot.replace(':', '\uff1a')],
+    ['prototype name', '__proto__'],
+    ['constructor name', 'constructor']
+  ])('rejects an invoke channel with a %s mutation', (_case, channel) => {
+    expect(channel).not.toBe(STINT_PASSPORT_CHANNELS.getSnapshot)
+    expect(isMainPassportInvokeAllowed(channel)).toBe(false)
+    expect(isMainPassportSubscribeAllowed(channel)).toBe(false)
+  })
+
+  it('rejects boxed, coercible, and prototype-inherited channel objects', () => {
+    const coercion = {
+      toString: () => STINT_PASSPORT_CHANNELS.getSnapshot,
+      valueOf: () => STINT_PASSPORT_CHANNELS.getSnapshot
+    }
+    const inherited = Object.create({
+      channel: STINT_PASSPORT_CHANNELS.getSnapshot
+    })
+
+    for (const channel of [
+      new String(STINT_PASSPORT_CHANNELS.getSnapshot),
+      coercion,
+      inherited
+    ]) {
+      expect(isMainPassportInvokeAllowed(channel as unknown as string)).toBe(false)
+      expect(isMainPassportSubscribeAllowed(channel as unknown as string)).toBe(false)
+    }
+  })
+
+  it('keeps invoke and subscribe authority disjoint from each other and restricted windows', () => {
+    const overlap = [...MAIN_PASSPORT_INVOKE_CHANNELS].filter((channel) =>
+      MAIN_PASSPORT_SUBSCRIBE_CHANNELS.has(channel)
+    )
+    expect(overlap).toEqual([])
+
+    for (const channel of [
+      ...MAIN_PASSPORT_INVOKE_CHANNELS,
+      ...MAIN_PASSPORT_SUBSCRIBE_CHANNELS
+    ]) {
+      expect(isOverlayIpcAllowed(channel), channel).toBe(false)
+      expect(isTouchpanelIpcAllowed(channel), channel).toBe(false)
+    }
+  })
+
+  it('exposes only the bounded authenticated import endpoint to the main window', () => {
+    expect(isMainPassportInvokeAllowed(STINT_PASSPORT_CHANNELS.importPackage)).toBe(true)
+    expect(isMainPassportSubscribeAllowed(STINT_PASSPORT_CHANNELS.importPackage)).toBe(false)
+    expect(isOverlayIpcAllowed(STINT_PASSPORT_CHANNELS.importPackage)).toBe(false)
+    expect(isTouchpanelIpcAllowed(STINT_PASSPORT_CHANNELS.importPackage)).toBe(false)
+    for (const channel of [
+      'stintPassport:import',
+      'stintPassport:replayPackage',
+      'stintPassport:importN1'
+    ]) {
+      expect(isMainPassportInvokeAllowed(channel), channel).toBe(false)
+      expect(isMainPassportSubscribeAllowed(channel), channel).toBe(false)
+      expect(isOverlayIpcAllowed(channel), channel).toBe(false)
+      expect(isTouchpanelIpcAllowed(channel), channel).toBe(false)
+    }
+  })
+})

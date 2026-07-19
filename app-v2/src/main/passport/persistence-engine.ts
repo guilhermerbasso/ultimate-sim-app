@@ -1,5 +1,15 @@
-import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import {
@@ -35,15 +45,39 @@ import {
   stintPassportProtoJson
 } from '../phase02/raceops-codec'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 const BOUNDED_VERIFY_LIMIT = 500
+const ANCHOR_VERSION = 1
+const MAX_EXPORT_EVENTS = 500
+const MAX_EXPORT_BYTES = 5_000_000
+const MAX_IMPORT_DEPTH = 32
+const MAX_IMPORT_NODES = 20_000
 
 type Row = Record<string, unknown>
+
+interface AnchorPayload {
+  version: typeof ANCHOR_VERSION
+  databaseId: string
+  clockSequence: number
+  eventCount: number
+  eventRoot: string
+  tombstoneCount: number
+  tombstoneRoot: string
+  passportCount: number
+  passportRoot: string
+  settingsHash: string
+  rosterHash: string
+}
+
+interface SignedAnchor extends AnchorPayload {
+  signature: string
+}
 
 export interface PassportStoreOptions {
   path: string
   now?: () => number
   idFactory?: () => string
+  promoteAnchor?: (source: string, destination: string) => void
 }
 
 export interface PassportStoreMetrics {
@@ -79,6 +113,8 @@ export interface PassportExportPackage {
   deletionTombstones: unknown[]
   redactions: string[]
   packageHash: string
+  signerId: string
+  packageSignature: string
 }
 
 const SCHEMA_SQL = `
@@ -170,6 +206,7 @@ CREATE TABLE IF NOT EXISTS passport_event (
   event_type TEXT NOT NULL,
   item_id TEXT,
   dedupe_key TEXT NOT NULL UNIQUE,
+  semantic_hash TEXT,
   sequence INTEGER NOT NULL UNIQUE,
   logical_time_ms INTEGER NOT NULL,
   captured_at INTEGER NOT NULL,
@@ -185,6 +222,8 @@ CREATE TABLE IF NOT EXISTS passport_event (
 
 CREATE INDEX IF NOT EXISTS idx_passport_event_stint
   ON passport_event(stint_id, sequence);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_passport_event_semantic
+  ON passport_event(semantic_hash) WHERE semantic_hash IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS passport_runtime_log (
   log_id TEXT PRIMARY KEY,
@@ -220,6 +259,80 @@ function hash(value: unknown): string {
 
 function hashBytes(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')
+}
+
+function atomicRename(source: string, destination: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(source, destination)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (
+        process.platform !== 'win32' ||
+        attempt >= 50 ||
+        (code !== 'EACCES' && code !== 'EBUSY' && code !== 'EPERM')
+      ) {
+        throw error
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+    }
+  }
+}
+
+function assertBoundedImportValue(value: unknown): void {
+  const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }]
+  const seen = new WeakSet<object>()
+  let nodes = 0
+  while (stack.length > 0) {
+    const entry = stack.pop()!
+    nodes += 1
+    if (nodes > MAX_IMPORT_NODES) {
+      throw new Error('Passport import exceeds the bounded node limit.')
+    }
+    if (entry.depth > MAX_IMPORT_DEPTH) {
+      throw new Error('Passport import exceeds the bounded depth limit.')
+    }
+    if (
+      entry.value === undefined ||
+      entry.value === null ||
+      typeof entry.value === 'string' ||
+      typeof entry.value === 'boolean'
+    ) {
+      continue
+    }
+    if (typeof entry.value === 'number') {
+      if (!Number.isFinite(entry.value)) throw new Error('Passport import contains a non-finite number.')
+      continue
+    }
+    if (typeof entry.value !== 'object') {
+      throw new Error('Passport import contains a non-JSON value.')
+    }
+    if (seen.has(entry.value)) throw new Error('Passport import contains a cyclic value.')
+    seen.add(entry.value)
+    if (
+      !Array.isArray(entry.value) &&
+      Object.getPrototypeOf(entry.value) !== Object.prototype &&
+      Object.getPrototypeOf(entry.value) !== null
+    ) {
+      throw new Error('Passport import contains a non-JSON object.')
+    }
+    for (const child of Object.values(entry.value)) {
+      stack.push({ value: child, depth: entry.depth + 1 })
+    }
+  }
+}
+
+function atomicWrite(path: string, contents: string, mode?: number): void {
+  const temporary = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.pending`
+  const descriptor = openSync(temporary, 'wx', mode)
+  try {
+    writeFileSync(descriptor, contents, 'utf8')
+    fsyncSync(descriptor)
+  } finally {
+    closeSync(descriptor)
+  }
+  atomicRename(temporary, path)
 }
 
 function text(value: unknown): string {
@@ -300,10 +413,29 @@ function passportStateHash(passport: StintPassport): string {
   })
 }
 
+function semanticOperationHash(passport: StintPassport, event: PassportStoreEvent): string {
+  const canonical = event.canonicalEvent
+  return hash({
+    passportStateHash: passportStateHash(passport),
+    itemId: event.itemId,
+    dataClass: event.dataClass,
+    capturedAt: event.capturedAt,
+    canonicalEvent: {
+      ...canonical,
+      eventId: '',
+      dedupeKey: '',
+      sequence: '0',
+      partitionSeq: '0',
+      observedMonotonicNs: '0'
+    }
+  })
+}
+
 export class PassportPersistenceEngine {
   private readonly db: DatabaseSync
   private readonly now: () => number
   private readonly idFactory: () => string
+  private readonly promoteAnchor: (source: string, destination: string) => void
   private readonly heads = new Map<string, string | undefined>()
   private readonly metrics: PassportStoreMetrics = {
     appendOperations: 0,
@@ -316,23 +448,40 @@ export class PassportPersistenceEngine {
   private closed = false
   private stickyCorrupt = false
   private repairToken = ''
+  private databaseId = ''
+  private anchorKey = Buffer.alloc(0)
+  private readonly anchorPath: string
+  private readonly pendingAnchorPath: string
+  private readonly anchorKeyPath: string
+  private readonly quarantineMarkerPath: string
+  private anchorReady = false
   readonly databasePath: string
 
   constructor(options: PassportStoreOptions) {
     this.databasePath = options.path
+    this.anchorPath = options.path === ':memory:' ? '' : `${options.path}.anchor.json`
+    this.pendingAnchorPath = options.path === ':memory:' ? '' : `${options.path}.anchor.pending.json`
+    this.anchorKeyPath = options.path === ':memory:' ? '' : `${options.path}.anchor.key`
+    this.quarantineMarkerPath = options.path === ':memory:' ? '' : `${options.path}.quarantine.json`
     this.now = options.now ?? Date.now
     this.idFactory = options.idFactory ?? randomUUID
+    this.promoteAnchor = options.promoteAnchor ?? atomicRename
     if (options.path !== ':memory:') mkdirSync(dirname(options.path), { recursive: true })
     this.db = new DatabaseSync(options.path)
     this.db.exec('PRAGMA foreign_keys = ON')
     this.db.exec('PRAGMA busy_timeout = 2500')
+    this.db.exec('PRAGMA secure_delete = ON')
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA synchronous = FULL')
     this.migrate()
+    this.databaseId = this.readOrCreateMeta('database_id', () => randomBytes(24).toString('hex'))
     this.pseudonymSalt = this.readOrCreateMeta('pseudonym_salt', () => randomBytes(32).toString('hex'))
-    this.stickyCorrupt = this.readOrCreateMeta('integrity_state', () => 'clean') === 'corrupt'
     this.repairToken = this.readOrCreateMeta('repair_token', () => randomBytes(24).toString('hex'))
     this.hydrateHeads()
+    this.initializeAnchor()
+    this.stickyCorrupt = this.stickyCorrupt ||
+      this.readOrCreateMeta('integrity_state', () => 'clean') === 'corrupt' ||
+      this.hasValidQuarantineMarker()
     this.integrity = this.stickyCorrupt
       ? this.stickyCorruptionState('bounded', 0, 'Persistence is quarantined after an integrity failure.')
       : this.verifyBounded()
@@ -340,8 +489,14 @@ export class PassportPersistenceEngine {
 
   close(): void {
     if (this.closed) return
+    this.flush()
     this.closed = true
     this.db.close()
+  }
+
+  flush(): void {
+    if (this.closed || this.databasePath === ':memory:') return
+    this.db.exec('PRAGMA wal_checkpoint(FULL)')
   }
 
   schemaVersion(): number {
@@ -354,6 +509,7 @@ export class PassportPersistenceEngine {
   }
 
   setConfig(config: PassportConfig): PassportConfig {
+    this.assertWritable()
     const next = sanitizeConfig(config, this.now())
     const settings = this.settingsRow()
     this.writeSettings(next, parse(settings?.privacy_json, DEFAULT_PASSPORT_PRIVACY), bool(settings?.kill_switch))
@@ -365,10 +521,10 @@ export class PassportPersistenceEngine {
   }
 
   setPrivacy(privacy: PassportPrivacySettings): PassportPrivacySettings {
+    this.assertWritable()
     const next = sanitizePrivacy(privacy, this.now())
     const current = this.settingsRow()
-    begin(this.db)
-    try {
+    return this.transaction(() => {
       this.writeSettingsInTransaction(
         parse(current?.config_json, DEFAULT_PASSPORT_CONFIG),
         next,
@@ -391,12 +547,8 @@ export class PassportPersistenceEngine {
           message: 'No persisted Passport event chain remains.'
         }
       }
-      this.db.exec('COMMIT')
       return next
-    } catch (error) {
-      rollback(this.db)
-      throw error
-    }
+    })
   }
 
   getKillSwitch(): boolean {
@@ -404,6 +556,7 @@ export class PassportPersistenceEngine {
   }
 
   setKillSwitch(enabled: boolean): boolean {
+    this.assertWritable()
     const current = this.settingsRow()
     this.writeSettings(
       parse(current?.config_json, DEFAULT_PASSPORT_CONFIG),
@@ -433,8 +586,7 @@ export class PassportPersistenceEngine {
       throw new Error('Identity persistence opt-in is required before storing roster data.')
     }
     const normalized = roster.map(sanitizeRosterMember)
-    begin(this.db)
-    try {
+    return this.transaction(() => {
       this.db.exec('DELETE FROM passport_roster')
       const insert = this.db.prepare(`
         INSERT INTO passport_roster (
@@ -449,12 +601,8 @@ export class PassportPersistenceEngine {
           member.active ? 1 : 0
         )
       }
-      this.db.exec('COMMIT')
       return normalized
-    } catch (error) {
-      rollback(this.db)
-      throw error
-    }
+    })
   }
 
   persistPassport(passport: StintPassport, event: PassportStoreEvent): StintPassport {
@@ -464,9 +612,12 @@ export class PassportPersistenceEngine {
     }
     const persisted: StintPassport = { ...passport, persisted: true, durability: 'durable' }
     const dedupeKey = event.canonicalEvent.dedupeKey
+    const semanticHash = semanticOperationHash(persisted, event)
     const existing = this.db.prepare(`
-      SELECT event_id FROM passport_event WHERE dedupe_key = ?
-    `).get(dedupeKey) as Row | undefined
+      SELECT event_id FROM passport_event
+      WHERE dedupe_key = ? OR semantic_hash = ?
+      LIMIT 1
+    `).get(dedupeKey, semanticHash) as Row | undefined
     if (existing) {
       const current = this.db.prepare(`
         SELECT passport_sha256 FROM stint_passport WHERE stint_id = ?
@@ -476,16 +627,11 @@ export class PassportPersistenceEngine {
       }
       return persisted
     }
-    begin(this.db)
-    try {
+    return this.transaction(() => {
       this.upsertPassportInTransaction(persisted)
-      this.appendEventInTransaction(persisted, event)
-      this.db.exec('COMMIT')
+      this.appendEventInTransaction(persisted, event, semanticHash)
       return persisted
-    } catch (error) {
-      rollback(this.db)
-      throw error
-    }
+    })
   }
 
   listPassports(limit = 50): StintPassport[] {
@@ -560,7 +706,12 @@ export class PassportPersistenceEngine {
       let lastStateHash: string | undefined
       for (let index = 0; index < rows.length; index += 1) {
         const row = rows[index]
-        if (text(row.payload_state) === 'available') {
+        const payloadState = text(row.payload_state)
+        if (payloadState === 'available') {
+          if (row.tombstone_json != null) {
+            this.setStickyCorruption(`Unexpected event tombstone in stint ${stintId}.`)
+            return { ...this.integrity }
+          }
           const bytes = row.event_binary as Uint8Array
           if (!(bytes instanceof Uint8Array) || hashBytes(bytes) !== text(row.payload_sha256)) {
             this.setStickyCorruption(`Canonical event payload hash mismatch in stint ${stintId}.`)
@@ -586,21 +737,23 @@ export class PassportPersistenceEngine {
             this.setStickyCorruption(`Canonical event mirror mismatch in stint ${stintId}.`)
             return { ...this.integrity }
           }
+        } else if (payloadState === 'retention-redacted') {
+          const tombstone = parse<Record<string, unknown>>(row.tombstone_json, {})
+          if (
+            row.event_binary != null ||
+            row.payload_json != null ||
+            tombstone.reason !== 'retention-or-explicit-delete' ||
+            typeof tombstone.redactedAt !== 'number' ||
+            typeof tombstone.dataClass !== 'string'
+          ) {
+            this.setStickyCorruption(`Invalid retention tombstone in stint ${stintId}.`)
+            return { ...this.integrity }
+          }
+        } else {
+          this.setStickyCorruption(`Unknown event payload state in stint ${stintId}.`)
+          return { ...this.integrity }
         }
-        const base = {
-          eventId: text(row.event_id),
-          stintId: text(row.stint_id),
-          eventType: text(row.event_type),
-          itemId: optionalText(row.item_id),
-          dedupeKey: text(row.dedupe_key),
-          sequence: numberValue(row.sequence),
-          logicalTimeMs: numberValue(row.logical_time_ms),
-          capturedAt: numberValue(row.captured_at),
-          payloadSha256: text(row.payload_sha256),
-          previousHash,
-          dataClass: text(row.data_class)
-        }
-        const expected = hash(base)
+        const expected = hash(this.eventRecordBase(row, previousHash))
         if (optionalText(row.previous_hash) !== previousHash || text(row.record_hash) !== expected) {
           this.setStickyCorruption(`Integrity mismatch in stint ${stintId}.`)
           this.integrity = this.stickyCorruptionState('full', checkedEvents, `Integrity mismatch in stint ${stintId}.`)
@@ -622,20 +775,27 @@ export class PassportPersistenceEngine {
       this.heads.set(stintId, previousHash)
       await new Promise<void>((resolve) => setImmediate(resolve))
     }
+    if (this.anchorReady && !this.verifyTrustedAnchor()) {
+      this.setStickyCorruption('Trusted integrity anchor does not match the verified event chain.')
+      return { ...this.integrity }
+    }
     this.integrity = {
-      state: 'unanchored',
-      verified: false,
+      state: this.anchorReady ? 'anchored' : 'unanchored',
+      verified: this.anchorReady,
       scope: 'full',
       checkedEvents,
       totalEvents: checkedEvents,
       headHash,
       lastCheckedAt: this.now(),
-      message: 'Full local hash audit completed; no external anchor is configured.'
+      message: this.anchorReady
+        ? 'Full audit verified against a trusted signature anchor.'
+        : 'Full local hash audit completed; no external anchor is configured.'
     }
     return { ...this.integrity }
   }
 
   purgeRetention(now = this.now()): PassportDeleteResult[] {
+    this.assertWritable()
     const privacy = this.getPrivacy()
     const results: PassportDeleteResult[] = []
     const d3Cutoff = now - privacy.retentionDays.D3 * 86_400_000
@@ -645,21 +805,14 @@ export class PassportPersistenceEngine {
     `).all(d3Cutoff) as Row[]
     if (deleteRows.length > 0) {
       const ids = deleteRows.map((row) => text(row.stint_id))
-      begin(this.db)
-      try {
+      this.transaction(() => {
         this.appendDeletionTombstone('D3', ids)
         const remove = this.db.prepare('DELETE FROM stint_passport WHERE stint_id = ?')
         for (const id of ids) {
           remove.run(id)
-          this.heads.delete(id)
         }
-        this.db.exec('COMMIT')
-      } catch (error) {
-        rollback(this.db)
-        throw error
-      }
+      })
       results.push({ deletedStints: ids.length, redactedEvidence: 0, dataClass: 'D3' })
-      this.integrity = this.verifyBounded()
     }
     for (const dataClass of ['D1', 'D2'] as const) {
       const cutoff = now - privacy.retentionDays[dataClass] * 86_400_000
@@ -673,27 +826,26 @@ export class PassportPersistenceEngine {
   }
 
   deleteByClass(dataClass: PassportDataClass): PassportDeleteResult {
+    this.assertWritable()
     if (dataClass === 'D3') {
-      const rows = this.db.prepare(`
-        SELECT stint_id FROM stint_passport
-        WHERE lifecycle IN ('closed', 'interrupted')
-      `).all() as Row[]
+      const rows = this.db.prepare('SELECT stint_id FROM stint_passport').all() as Row[]
       const ids = rows.map((row) => text(row.stint_id))
-      begin(this.db)
-      try {
+      const settings = this.settingsRow()
+      const privacy = sanitizePrivacy({
+        ...parse(settings?.privacy_json, DEFAULT_PASSPORT_PRIVACY),
+        identityPersistenceOptIn: false,
+        updatedAt: this.now()
+      }, this.now())
+      this.transaction(() => {
         if (ids.length > 0) this.appendDeletionTombstone('D3', ids)
         this.db.exec('DELETE FROM passport_roster')
-        const remove = this.db.prepare('DELETE FROM stint_passport WHERE stint_id = ?')
-        for (const id of ids) {
-          remove.run(id)
-          this.heads.delete(id)
-        }
-        this.db.exec('COMMIT')
-      } catch (error) {
-        rollback(this.db)
-        throw error
-      }
-      this.integrity = this.verifyBounded()
+        this.db.exec('DELETE FROM stint_passport')
+        this.writeSettingsInTransaction(
+          parse(settings?.config_json, DEFAULT_PASSPORT_CONFIG),
+          privacy,
+          bool(settings?.kill_switch)
+        )
+      })
       return { deletedStints: ids.length, redactedEvidence: 0, dataClass }
     }
     return {
@@ -730,27 +882,42 @@ export class PassportPersistenceEngine {
       labels.set(member.displayName, `Member ${memberPseudonym}`)
       labels.set(member.memberId, `member:${memberPseudonym}`)
     }
-    const redactions: string[] = []
-    let passports = [...byId.values()]
-    let exportedRoster = roster
-    if (profile !== 'full-local') {
-      redactions.push('driver identity', 'team identity', 'roster member identity', 'role owner member id')
-      passports = passports.map((passport) => redactPassport(passport, profile, labels, this.pseudonym.bind(this)))
-      exportedRoster = roster.map((member) => ({
-        ...member,
-        memberId: profile === 'race-only' ? '[member redacted]' : `member:${this.pseudonym('member', member.memberId)}`,
-        displayName: profile === 'race-only'
-          ? '[member redacted]'
-          : `Member ${this.pseudonym('member', member.memberId)}`
-      }))
-    }
+    const sensitive = [...byId.values()].flatMap((passport) => [
+      passport.identity.driverRef,
+      passport.identity.driverLabel,
+      passport.identity.teamRef ?? '',
+      passport.identity.teamLabel ?? ''
+    ]).concat(roster.flatMap((member) => [member.memberId, member.displayName]))
+      .filter((value) => value.length >= 3)
+      .map(normalizedSecret)
+    const redactions: string[] = [
+      'driver identity',
+      'team identity',
+      'roster member identity',
+      'role owner member id',
+      'capability and challenge secrets'
+    ]
+    let passports = [...byId.values()].map((passport) =>
+      scrubExportValue(
+        redactPassport(passport, profile, labels, this.pseudonym.bind(this)),
+        sensitive
+      ) as StintPassport
+    )
+    const exportedRoster = roster.map((member) => ({
+      ...member,
+      memberId: profile === 'race-only' ? '[member redacted]' : `member:${this.pseudonym('member', member.memberId)}`,
+      displayName: profile === 'race-only'
+        ? '[member redacted]'
+        : `Member ${this.pseudonym('member', member.memberId)}`
+    }))
     const generatedAt = Math.max(0, ...passports.map((passport) => passport.closedAt ?? passport.identity.startedAt))
-    const eventRows = this.db.prepare(`
+    const eventRows = (this.db.prepare(`
       SELECT event_id, event_type, payload_json, payload_state, tombstone_json, data_class
       FROM passport_event
-      ORDER BY sequence ASC
-    `).all() as Row[]
-    const canonicalEvents = eventRows.map((row) => {
+      ORDER BY sequence DESC
+      LIMIT ?
+    `).all(MAX_EXPORT_EVENTS) as Row[]).reverse()
+    let canonicalEvents = eventRows.map((row) => {
       if (text(row.payload_state) !== 'available') {
         return {
           eventId: text(row.event_id),
@@ -759,14 +926,14 @@ export class PassportPersistenceEngine {
           tombstone: parse(row.tombstone_json, {})
         }
       }
-      if (profile !== 'full-local' && text(row.data_class) === 'D3') {
+      if (text(row.data_class) === 'D3') {
         return {
           eventId: text(row.event_id),
           eventType: text(row.event_type),
           payloadState: 'privacy-redacted'
         }
       }
-      return parse(row.payload_json, {})
+      return scrubExportValue(parse(row.payload_json, {}), sensitive)
     })
     const deletionTombstones = (this.db.prepare(`
       SELECT data_class, deleted_at, subject_hashes_json, previous_hash, record_hash
@@ -779,21 +946,107 @@ export class PassportPersistenceEngine {
       previousHash: optionalText(row.previous_hash),
       recordHash: text(row.record_hash)
     }))
-    const base = {
+    const integrity = { ...this.getIntegrity(), repairToken: undefined }
+    let base = {
       contractVersion: STINT_PASSPORT_CONTRACT_VERSION,
       profile,
       generatedAt,
       passports,
       roster: exportedRoster,
-      integrity: this.getIntegrity(),
+      integrity,
       canonicalEvents,
       deletionTombstones,
       redactions
     }
-    return { ...base, packageHash: hash(base) }
+    while (Buffer.byteLength(JSON.stringify(base), 'utf8') > MAX_EXPORT_BYTES && canonicalEvents.length > 0) {
+      canonicalEvents = canonicalEvents.slice(1)
+      base = { ...base, canonicalEvents }
+      if (!redactions.includes('oldest events omitted by export size limit')) {
+        redactions.push('oldest events omitted by export size limit')
+      }
+    }
+    while (Buffer.byteLength(JSON.stringify(base), 'utf8') > MAX_EXPORT_BYTES && passports.length > 0) {
+      passports = passports.slice(1)
+      base = { ...base, passports }
+      if (!redactions.includes('oldest passports omitted by export size limit')) {
+        redactions.push('oldest passports omitted by export size limit')
+      }
+    }
+    if (Buffer.byteLength(JSON.stringify(base), 'utf8') > MAX_EXPORT_BYTES) {
+      throw new Error('Passport export exceeds the 5 MB safety limit after bounded redaction.')
+    }
+    const packageHash = hash(base)
+    const signerId = hash(this.databaseId).slice(0, 32)
+    const packageSignature = createHmac('sha256', this.anchorKey)
+      .update(`passport-export:${signerId}:${packageHash}`, 'utf8')
+      .digest('hex')
+    return { ...base, packageHash, signerId, packageSignature }
+  }
+
+  verifyImportPackage(value: unknown): PassportExportPackage {
+    if (!this.anchorReady || !value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Passport import requires a locally trusted signed package.')
+    }
+    assertBoundedImportValue(value)
+    if (Buffer.byteLength(JSON.stringify(value), 'utf8') > MAX_EXPORT_BYTES) {
+      throw new Error('Passport import exceeds the 5 MB safety limit.')
+    }
+    const candidate = value as PassportExportPackage
+    if (
+      candidate.contractVersion !== STINT_PASSPORT_CONTRACT_VERSION ||
+      !Array.isArray(candidate.passports) ||
+      candidate.passports.length > 500 ||
+      !Array.isArray(candidate.roster) ||
+      candidate.roster.length > 500 ||
+      !Array.isArray(candidate.canonicalEvents) ||
+      candidate.canonicalEvents.length > MAX_EXPORT_EVENTS ||
+      !Array.isArray(candidate.deletionTombstones) ||
+      candidate.deletionTombstones.length > 5_000 ||
+      !Array.isArray(candidate.redactions) ||
+      candidate.redactions.length > 500 ||
+      !candidate.redactions.every((item) => typeof item === 'string') ||
+      (candidate.profile !== 'full-local' &&
+        candidate.profile !== 'pseudonymized' &&
+        candidate.profile !== 'race-only') ||
+      !Number.isSafeInteger(candidate.generatedAt) ||
+      candidate.generatedAt < 0
+    ) {
+      throw new Error('Passport import collections violate their bounded contract.')
+    }
+    const { packageHash, signerId, packageSignature, ...base } = candidate
+    if (
+      !/^[a-f0-9]{64}$/.test(packageHash) ||
+      !/^[a-f0-9]{32}$/.test(signerId) ||
+      !/^[a-f0-9]{64}$/.test(packageSignature) ||
+      hash(base) !== packageHash ||
+      signerId !== hash(this.databaseId).slice(0, 32)
+    ) {
+      throw new Error('Passport import package hash or signer is invalid.')
+    }
+    const expected = createHmac('sha256', this.anchorKey)
+      .update(`passport-export:${signerId}:${packageHash}`, 'utf8')
+      .digest()
+    const actual = Buffer.from(packageSignature ?? '', 'hex')
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+      throw new Error('Passport import package signature is invalid.')
+    }
+    const passports = candidate.passports.map((passport) => {
+      if (
+        passport.contractVersion !== STINT_PASSPORT_CONTRACT_VERSION ||
+        typeof passport.identity?.stintId !== 'string' ||
+        passport.identity.stintId.length > 200
+      ) {
+        throw new Error('Passport import contains an invalid passport identity.')
+      }
+      const normalized = decodeStintPassport(encodeStintPassport(passport))
+      calculatePassportCoverage(normalized.items)
+      return normalized
+    })
+    return { ...candidate, passports }
   }
 
   logRuntime(kind: string, payload: Record<string, unknown>): void {
+    this.assertWritable()
     this.db.prepare(`
       INSERT INTO passport_runtime_log (
         log_id, created_at, kind, payload_json, data_class
@@ -825,6 +1078,21 @@ export class PassportPersistenceEngine {
         throw error
       }
     }
+    if (version > 0 && version < 3) {
+      begin(this.db)
+      try {
+        this.db.exec('ALTER TABLE passport_event ADD COLUMN semantic_hash TEXT')
+        this.db.exec(`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_passport_event_semantic
+          ON passport_event(semantic_hash) WHERE semantic_hash IS NOT NULL
+        `)
+        this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+        this.db.exec('COMMIT')
+      } catch (error) {
+        rollback(this.db)
+        throw error
+      }
+    }
   }
 
   private settingsRow(): Row | undefined {
@@ -836,7 +1104,9 @@ export class PassportPersistenceEngine {
     privacy: PassportPrivacySettings,
     killSwitch: boolean
   ): void {
-    this.writeSettingsInTransaction(config, privacy, killSwitch)
+    this.transaction(() => {
+      this.writeSettingsInTransaction(config, privacy, killSwitch)
+    })
   }
 
   private writeSettingsInTransaction(
@@ -864,6 +1134,262 @@ export class PassportPersistenceEngine {
     return value
   }
 
+  private initializeAnchor(): void {
+    if (this.databasePath === ':memory:') return
+    const anchorExists = existsSync(this.anchorPath)
+    const pendingExists = existsSync(this.pendingAnchorPath)
+    if (existsSync(this.anchorKeyPath)) {
+      const encoded = readFileSync(this.anchorKeyPath, 'utf8').trim()
+      if (!/^[a-f0-9]{64}$/.test(encoded)) {
+        this.stickyCorrupt = true
+        return
+      }
+      this.anchorKey = Buffer.from(encoded, 'hex')
+    } else {
+      if (anchorExists || pendingExists) {
+        this.stickyCorrupt = true
+        return
+      }
+      this.anchorKey = randomBytes(32)
+      atomicWrite(this.anchorKeyPath, this.anchorKey.toString('hex'), 0o600)
+    }
+    this.anchorReady = true
+    const local = this.anchorSnapshot()
+    const anchor = this.readSignedAnchor(this.anchorPath)
+    const pending = this.readSignedAnchor(this.pendingAnchorPath)
+    if (pending) {
+      if (this.anchorMatches(pending, local)) {
+        this.promotePendingAnchor()
+      } else if (anchor && this.anchorMatches(anchor, local)) {
+        rmSync(this.pendingAnchorPath, { force: true })
+      } else {
+        this.setStickyCorruption('Pending integrity anchor does not match durable storage.')
+        return
+      }
+    }
+    const current = this.readSignedAnchor(this.anchorPath)
+    if (!current) {
+      if (anchorExists) {
+        this.setStickyCorruption('Trusted integrity anchor signature is invalid.')
+        return
+      }
+      this.writeAnchor(local)
+      return
+    }
+    if (!this.anchorMatches(current, local)) {
+      this.setStickyCorruption('Trusted integrity anchor does not match durable storage.')
+    }
+  }
+
+  private anchorSnapshot(): AnchorPayload {
+    const clock = this.db.prepare(`
+      SELECT next_sequence FROM passport_clock WHERE singleton = 1
+    `).get() as Row | undefined
+    const events = (this.db.prepare(`
+      SELECT sequence, record_hash FROM passport_event ORDER BY sequence ASC
+    `).all() as Row[]).map((row) => ({
+      sequence: numberValue(row.sequence),
+      recordHash: text(row.record_hash)
+    }))
+    const tombstones = (this.db.prepare(`
+      SELECT tombstone_id, record_hash
+      FROM passport_deletion_tombstone
+      ORDER BY deleted_at ASC, tombstone_id ASC
+    `).all() as Row[]).map((row) => ({
+      tombstoneId: text(row.tombstone_id),
+      recordHash: text(row.record_hash)
+    }))
+    const passports = (this.db.prepare(`
+      SELECT stint_id, passport_sha256 FROM stint_passport ORDER BY stint_id ASC
+    `).all() as Row[]).map((row) => ({
+      stintId: text(row.stint_id),
+      passportSha256: text(row.passport_sha256)
+    }))
+    const roster = (this.db.prepare(`
+      SELECT member_id, display_name, roles_json, active, data_class
+      FROM passport_roster ORDER BY member_id ASC
+    `).all() as Row[]).map((row) => ({
+      memberId: text(row.member_id),
+      displayName: text(row.display_name),
+      roles: text(row.roles_json),
+      active: bool(row.active),
+      dataClass: text(row.data_class)
+    }))
+    const settings = this.settingsRow()
+    return {
+      version: ANCHOR_VERSION,
+      databaseId: this.databaseId,
+      clockSequence: numberValue(clock?.next_sequence),
+      eventCount: events.length,
+      eventRoot: hash(events),
+      tombstoneCount: tombstones.length,
+      tombstoneRoot: hash(tombstones),
+      passportCount: passports.length,
+      passportRoot: hash(passports),
+      settingsHash: hash({
+        config: text(settings?.config_json),
+        privacy: text(settings?.privacy_json),
+        killSwitch: bool(settings?.kill_switch),
+        updatedAt: numberValue(settings?.updated_at)
+      }),
+      rosterHash: hash(roster)
+    }
+  }
+
+  private signAnchor(payload: AnchorPayload): SignedAnchor {
+    return {
+      ...payload,
+      signature: createHmac('sha256', this.anchorKey).update(stable(payload), 'utf8').digest('hex')
+    }
+  }
+
+  private readSignedAnchor(path: string): SignedAnchor | null {
+    if (!path || !existsSync(path) || this.anchorKey.length !== 32) return null
+    try {
+      const candidate = JSON.parse(readFileSync(path, 'utf8')) as SignedAnchor
+      const { signature, ...payload } = candidate
+      if (
+        signature?.length !== 64 ||
+        payload.version !== ANCHOR_VERSION ||
+        payload.databaseId !== this.databaseId
+      ) return null
+      const expected = createHmac('sha256', this.anchorKey)
+        .update(stable(payload), 'utf8')
+        .digest()
+      const actual = Buffer.from(signature, 'hex')
+      return actual.length === expected.length && timingSafeEqual(actual, expected)
+        ? candidate
+        : null
+    } catch {
+      return null
+    }
+  }
+
+  private anchorMatches(anchor: SignedAnchor, payload: AnchorPayload): boolean {
+    const { signature: _signature, ...anchored } = anchor
+    return stable(anchored) === stable(payload)
+  }
+
+  private writeAnchor(payload: AnchorPayload): void {
+    if (!this.anchorReady) return
+    atomicWrite(this.anchorPath, `${stable(this.signAnchor(payload))}\n`, 0o600)
+  }
+
+  private writePendingAnchor(): SignedAnchor | null {
+    if (!this.anchorReady) return null
+    const signed = this.signAnchor(this.anchorSnapshot())
+    atomicWrite(this.pendingAnchorPath, `${stable(signed)}\n`, 0o600)
+    return signed
+  }
+
+  private promotePendingAnchor(): void {
+    if (!this.anchorReady || !existsSync(this.pendingAnchorPath)) return
+    this.promoteAnchor(this.pendingAnchorPath, this.anchorPath)
+  }
+
+  private verifyTrustedAnchor(): boolean {
+    if (!this.anchorReady) return false
+    const snapshot = this.anchorSnapshot()
+    const anchor = this.readSignedAnchor(this.anchorPath)
+    if (anchor && this.anchorMatches(anchor, snapshot)) return true
+    const pending = this.readSignedAnchor(this.pendingAnchorPath)
+    if (!pending || !this.anchorMatches(pending, snapshot)) return false
+    try {
+      this.promotePendingAnchor()
+    } catch {
+      // The signed pending anchor remains the crash-safe proof when Windows blocks promotion.
+    }
+    return true
+  }
+
+  private transaction<T>(work: () => T): T {
+    const integrityBefore = this.integrity
+    const metricsBefore = { ...this.metrics }
+    let pending: SignedAnchor | null = null
+    let committed = false
+    begin(this.db)
+    try {
+      const result = work()
+      pending = this.writePendingAnchor()
+      this.db.exec('COMMIT')
+      committed = true
+      if (pending) this.promotePendingAnchor()
+      this.heads.clear()
+      this.hydrateHeads()
+      if (pending) {
+        this.integrity = {
+          state: 'anchored',
+          verified: true,
+          scope: 'incremental',
+          checkedEvents: 1,
+          totalEvents: pending.eventCount,
+          headHash: pending.eventRoot,
+          lastCheckedAt: this.now(),
+          message: 'Local state verified against a trusted HMAC signature anchor.'
+        }
+      }
+      return result
+    } catch (error) {
+      if (!committed) {
+        rollback(this.db)
+        if (this.pendingAnchorPath) rmSync(this.pendingAnchorPath, { force: true })
+        Object.assign(this.metrics, metricsBefore)
+        this.integrity = integrityBefore
+      } else if (pending) {
+        this.integrity = {
+          state: 'unavailable',
+          verified: false,
+          scope: 'incremental',
+          checkedEvents: 0,
+          totalEvents: pending.eventCount,
+          headHash: pending.eventRoot,
+          lastCheckedAt: this.now(),
+          message: 'Database commit completed, but trusted anchor promotion is pending.'
+        }
+      }
+      this.heads.clear()
+      this.hydrateHeads()
+      throw error
+    }
+  }
+
+  private hasValidQuarantineMarker(): boolean {
+    if (!this.anchorReady || !existsSync(this.quarantineMarkerPath)) return false
+    try {
+      const marker = JSON.parse(readFileSync(this.quarantineMarkerPath, 'utf8')) as {
+        databaseId: string
+        quarantinedAt: number
+        reasonHash: string
+        signature: string
+      }
+      const payload = {
+        databaseId: marker.databaseId,
+        quarantinedAt: marker.quarantinedAt,
+        reasonHash: marker.reasonHash
+      }
+      const expected = createHmac('sha256', this.anchorKey).update(stable(payload), 'utf8').digest()
+      const actual = Buffer.from(marker.signature ?? '', 'hex')
+      return marker.databaseId === this.databaseId &&
+        actual.length === expected.length &&
+        timingSafeEqual(actual, expected)
+    } catch {
+      return true
+    }
+  }
+
+  private writeQuarantineMarker(message: string): void {
+    if (!this.anchorReady) return
+    const payload = {
+      databaseId: this.databaseId,
+      quarantinedAt: this.now(),
+      reasonHash: hash(message)
+    }
+    atomicWrite(this.quarantineMarkerPath, `${stable({
+      ...payload,
+      signature: createHmac('sha256', this.anchorKey).update(stable(payload), 'utf8').digest('hex')
+    })}\n`, 0o600)
+  }
+
   private assertWritable(): void {
     if (!this.stickyCorrupt) return
     const error = new Error('Passport persistence is quarantined after an integrity failure.')
@@ -877,6 +1403,7 @@ export class PassportPersistenceEngine {
       INSERT INTO passport_meta(key, value) VALUES ('integrity_state', 'corrupt')
       ON CONFLICT(key) DO UPDATE SET value = 'corrupt'
     `).run()
+    this.writeQuarantineMarker(message)
     this.integrity = this.stickyCorruptionState('full', this.integrity?.checkedEvents ?? 0, message)
   }
 
@@ -1013,7 +1540,11 @@ export class PassportPersistenceEngine {
     }
   }
 
-  private appendEventInTransaction(passport: StintPassport, event: PassportStoreEvent): void {
+  private appendEventInTransaction(
+    passport: StintPassport,
+    event: PassportStoreEvent,
+    semanticHash = semanticOperationHash(passport, event)
+  ): void {
     if (
       event.canonicalEvent.sessionRef !== passport.identity.sessionRef ||
       event.canonicalEvent.subjectRef !== `stint:${passport.identity.stintId}` ||
@@ -1029,7 +1560,11 @@ export class PassportPersistenceEngine {
     const existing = this.db.prepare('SELECT event_id FROM passport_event WHERE dedupe_key = ?').get(dedupeKey)
     if (existing) return
     const clock = this.allocateClockInTransaction()
-    const previousHash = this.heads.get(passport.identity.stintId)
+    const previous = this.db.prepare(`
+      SELECT record_hash FROM passport_event
+      WHERE stint_id = ? ORDER BY sequence DESC LIMIT 1
+    `).get(passport.identity.stintId) as Row | undefined
+    const previousHash = optionalText(previous?.record_hash)
     const eventId = event.canonicalEvent.eventId || this.idFactory()
     const stateHash = passportStateHash(passport)
     const canonicalEvent: CanonicalRaceOpsEvent = {
@@ -1070,26 +1605,30 @@ export class PassportPersistenceEngine {
       eventType: canonicalEvent.eventType,
       itemId: event.itemId,
       dedupeKey,
+      semanticHash,
       sequence: clock.sequence,
       logicalTimeMs: clock.logicalTimeMs,
       capturedAt: event.capturedAt,
       payloadSha256,
+      payloadState: 'available',
+      tombstoneSha256: undefined,
       previousHash,
       dataClass: event.dataClass
     }
     const recordHash = hash(base)
     this.db.prepare(`
       INSERT INTO passport_event (
-        event_id, stint_id, event_type, item_id, dedupe_key, sequence,
+        event_id, stint_id, event_type, item_id, dedupe_key, semantic_hash, sequence,
         logical_time_ms, captured_at, event_binary, payload_json, payload_sha256,
         payload_state, tombstone_json, previous_hash, record_hash, data_class
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', NULL, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', NULL, ?, ?, ?)
     `).run(
       eventId,
       passport.identity.stintId,
       canonicalEvent.eventType,
       event.itemId ?? null,
       dedupeKey,
+      semanticHash,
       clock.sequence,
       clock.logicalTimeMs,
       event.capturedAt,
@@ -1100,17 +1639,55 @@ export class PassportPersistenceEngine {
       recordHash,
       event.dataClass
     )
-    this.heads.set(passport.identity.stintId, recordHash)
     this.metrics.appendOperations += 1
     this.metrics.rowsHashedOnWrite += 1
     this.integrity = {
-      state: 'unanchored',
-      verified: false,
+      state: this.anchorReady ? 'anchored' : 'unanchored',
+      verified: this.anchorReady,
       scope: 'incremental',
       checkedEvents: 1,
       headHash: recordHash,
       lastCheckedAt: this.now(),
-      message: 'Local hash chain updated; no external anchor is configured.'
+      message: this.anchorReady
+        ? 'Local hash chain is pending trusted anchor promotion.'
+        : 'Local hash chain updated; no external anchor is configured.'
+    }
+  }
+
+  private eventRecordBase(row: Row, previousHash: string | undefined): Record<string, unknown> {
+    const payloadState = text(row.payload_state)
+    const tombstone = optionalText(row.tombstone_json)
+    return {
+      eventId: text(row.event_id),
+      stintId: text(row.stint_id),
+      eventType: text(row.event_type),
+      itemId: optionalText(row.item_id),
+      dedupeKey: text(row.dedupe_key),
+      semanticHash: optionalText(row.semantic_hash),
+      sequence: numberValue(row.sequence),
+      logicalTimeMs: numberValue(row.logical_time_ms),
+      capturedAt: numberValue(row.captured_at),
+      payloadSha256: text(row.payload_sha256),
+      payloadState,
+      tombstoneSha256: tombstone ? hash(tombstone) : undefined,
+      previousHash,
+      dataClass: text(row.data_class)
+    }
+  }
+
+  private rehashStintInTransaction(stintId: string): void {
+    const rows = this.db.prepare(`
+      SELECT * FROM passport_event WHERE stint_id = ? ORDER BY sequence ASC
+    `).all(stintId) as Row[]
+    const update = this.db.prepare(`
+      UPDATE passport_event SET previous_hash = ?, record_hash = ? WHERE event_id = ?
+    `)
+    let previousHash: string | undefined
+    for (const row of rows) {
+      const recordHash = hash(this.eventRecordBase(row, previousHash))
+      update.run(previousHash ?? null, recordHash, text(row.event_id))
+      previousHash = recordHash
+      this.metrics.rowsHashedOnWrite += 1
     }
   }
 
@@ -1286,7 +1863,12 @@ export class PassportPersistenceEngine {
       let previousHash: string | undefined
       let lastStateHash: string | undefined
       for (const row of rows) {
-        if (text(row.payload_state) === 'available') {
+        const payloadState = text(row.payload_state)
+        if (payloadState === 'available') {
+          if (row.tombstone_json != null) {
+            this.setStickyCorruption(`Unexpected event tombstone in stint ${stintId}.`)
+            return this.stickyCorruptionState(scope, checked, `Unexpected event tombstone in stint ${stintId}.`)
+          }
           const bytes = row.event_binary as Uint8Array
           if (!(bytes instanceof Uint8Array) || hashBytes(bytes) !== text(row.payload_sha256)) {
             this.setStickyCorruption(`Canonical event payload hash mismatch in stint ${stintId}.`)
@@ -1312,21 +1894,23 @@ export class PassportPersistenceEngine {
             this.setStickyCorruption(`Canonical event mirror mismatch in stint ${stintId}.`)
             return this.stickyCorruptionState(scope, checked, `Canonical event mirror mismatch in stint ${stintId}.`)
           }
+        } else if (payloadState === 'retention-redacted') {
+          const tombstone = parse<Record<string, unknown>>(row.tombstone_json, {})
+          if (
+            row.event_binary != null ||
+            row.payload_json != null ||
+            tombstone.reason !== 'retention-or-explicit-delete' ||
+            typeof tombstone.redactedAt !== 'number' ||
+            typeof tombstone.dataClass !== 'string'
+          ) {
+            this.setStickyCorruption(`Invalid retention tombstone in stint ${stintId}.`)
+            return this.stickyCorruptionState(scope, checked, `Invalid retention tombstone in stint ${stintId}.`)
+          }
+        } else {
+          this.setStickyCorruption(`Unknown event payload state in stint ${stintId}.`)
+          return this.stickyCorruptionState(scope, checked, `Unknown event payload state in stint ${stintId}.`)
         }
-        const base = {
-          eventId: text(row.event_id),
-          stintId: text(row.stint_id),
-          eventType: text(row.event_type),
-          itemId: optionalText(row.item_id),
-          dedupeKey: text(row.dedupe_key),
-          sequence: numberValue(row.sequence),
-          logicalTimeMs: numberValue(row.logical_time_ms),
-          capturedAt: numberValue(row.captured_at),
-          payloadSha256: text(row.payload_sha256),
-          previousHash,
-          dataClass: text(row.data_class)
-        }
-        const expected = hash(base)
+        const expected = hash(this.eventRecordBase(row, previousHash))
         if (optionalText(row.previous_hash) !== previousHash || text(row.record_hash) !== expected) {
           this.setStickyCorruption(`Integrity mismatch in stint ${stintId}.`)
           return this.stickyCorruptionState(scope, checked, `Integrity mismatch in stint ${stintId}.`)
@@ -1343,15 +1927,21 @@ export class PassportPersistenceEngine {
       this.heads.set(stintId, previousHash)
     }
     if (scope !== 'full') this.metrics.boundedVerificationRows += checked
+    if (this.anchorReady && !this.verifyTrustedAnchor()) {
+      this.setStickyCorruption('Trusted integrity anchor does not match the verified event chain.')
+      return this.stickyCorruptionState(scope, checked, 'Trusted integrity anchor does not match the verified event chain.')
+    }
     return {
-      state: 'unanchored',
-      verified: false,
+      state: this.anchorReady ? 'anchored' : 'unanchored',
+      verified: this.anchorReady,
       scope,
       checkedEvents: checked,
       totalEvents: checked,
       headHash,
       lastCheckedAt: this.now(),
-      message: 'Local hashes verified within scope; no external anchor is configured.'
+      message: this.anchorReady
+        ? 'Local hashes verified against a trusted signature anchor.'
+        : 'Local hashes verified within scope; no external anchor is configured.'
     }
   }
 
@@ -1371,8 +1961,7 @@ export class PassportPersistenceEngine {
         AND captured_at < ?
     `).all(dataClass, cutoff) as Row[]
     if (rows.length === 0 && eventRows.length === 0) return 0
-    begin(this.db)
-    try {
+    return this.transaction(() => {
       const update = this.db.prepare(`
         UPDATE passport_item
         SET evidence_json = NULL,
@@ -1418,14 +2007,11 @@ export class PassportPersistenceEngine {
         const passport = this.getPassport(stintId)
         if (!passport) continue
         this.upsertPassportInTransaction(passport)
+        this.rehashStintInTransaction(stintId)
         this.appendEventInTransaction(passport, this.retentionEvent(passport, dataClass))
       }
-      this.db.exec('COMMIT')
       return rows.length + eventRows.length
-    } catch (error) {
-      rollback(this.db)
-      throw error
-    }
+    })
   }
 
   private deleteRuntimeLogs(cutoff: number): number {
@@ -1579,9 +2165,36 @@ function replaceLabels(value: unknown, labels: ReadonlyMap<string, string>): unk
   )
 }
 
+function normalizedSecret(value: string): string {
+  return value.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en-US')
+}
+
+function scrubExportValue(
+  value: unknown,
+  sensitive: readonly string[],
+  key = ''
+): unknown {
+  if (/capability|approval|nonce|secret|repair.?token|mutation.?capability/i.test(key)) {
+    return '[redacted]'
+  }
+  if (typeof value === 'string') {
+    const normalized = normalizedSecret(value)
+    if (sensitive.some((token) => token.length >= 3 && normalized.includes(token))) {
+      return '[redacted]'
+    }
+    return value
+  }
+  if (Array.isArray(value)) return value.map((item) => scrubExportValue(item, sensitive, key))
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([childKey, item]) => [
+    childKey,
+    scrubExportValue(item, sensitive, childKey)
+  ]))
+}
+
 function redactPassport(
   passport: StintPassport,
-  profile: Exclude<PassportExportProfile, 'full-local'>,
+  profile: PassportExportProfile,
   labels: ReadonlyMap<string, string>,
   pseudonym: (kind: string, value: string) => string
 ): StintPassport {

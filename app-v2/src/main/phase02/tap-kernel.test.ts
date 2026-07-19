@@ -112,6 +112,108 @@ describe('Phase02TapKernel bounded asynchronous isolation', () => {
     })
   })
 
+  describe('Phase02TapKernel lifecycle shutdown boundaries', () => {
+    it('preserves both overflow gap evidence and the lifecycle boundary after saturation', async () => {
+      const hub = new TelemetryHub()
+      const kernel = new Phase02TapKernel(hub)
+      kernels.push(kernel)
+      let release!: () => void
+      const barrier = new Promise<void>((resolve) => { release = resolve })
+      const deliveries: Array<{ context: string; flags: string[] }> = []
+      const subscription = kernel.subscribe('passport-boundary', {
+        maxItems: 2,
+        maxBytes: 64 * 1024,
+        maxAgeMs: 10_000,
+        maxDrainBatch: 1
+      }, async (delivery) => {
+        deliveries.push({
+          context: delivery.event.telemetryContext,
+          flags: [...delivery.event.integrityFlags]
+        })
+        if (deliveries.length === 1) await barrier
+      })
+
+      hub.emit('snapshot', snapshot(1))
+      await settle()
+      for (let index = 2; index <= 10; index += 1) hub.emit('snapshot', snapshot(index))
+      hub.emit('snapshot', null)
+      await settle()
+      const overflow = subscription.status()
+      release()
+      await settle()
+      await settle()
+
+      expect(overflow.dropped).toBeGreaterThan(0)
+      expect(deliveries.some((item) => item.flags.includes('gap'))).toBe(true)
+      expect(deliveries.at(-1)?.context).not.toBe('live')
+      expect(subscription.status()).toMatchObject({
+        queuedItems: 0,
+        queuedBytes: 0,
+        gapPending: false
+      })
+    })
+
+    it('delivers no callback when a subscription is disposed while its drain is scheduled', async () => {
+      const hub = new TelemetryHub()
+      const kernel = new Phase02TapKernel(hub)
+      kernels.push(kernel)
+      const consumer = vi.fn()
+      const subscription = kernel.subscribe('passport-dispose', {
+        maxItems: 4,
+        maxBytes: 64 * 1024,
+        maxAgeMs: 5_000,
+        maxDrainBatch: 2
+      }, consumer)
+
+      hub.emit('snapshot', snapshot(1))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      subscription.dispose()
+      await settle()
+
+      expect(consumer).not.toHaveBeenCalled()
+      expect(subscription.status()).toMatchObject({
+        enabled: false,
+        queuedItems: 0,
+        queuedBytes: 0,
+        accepted: 1,
+        delivered: 0
+      })
+      expect(kernel.status('passport-dispose')).toBeNull()
+    })
+
+    it('keeps kill, boundary enqueue, and disposal races bounded with no hidden backlog', async () => {
+      const hub = new TelemetryHub()
+      const kernel = new Phase02TapKernel(hub)
+      kernels.push(kernel)
+      const consumer = vi.fn()
+      const subscription = kernel.subscribe('passport-kill-dispose', {
+        maxItems: 4,
+        maxBytes: 64 * 1024,
+        maxAgeMs: 5_000,
+        maxDrainBatch: 2
+      }, consumer)
+
+      hub.emit('snapshot', snapshot(1))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      subscription.setKillSwitch(true)
+      hub.emit('snapshot', null)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      subscription.dispose()
+      hub.emit('snapshot', snapshot(2))
+      await settle()
+
+      expect(consumer).not.toHaveBeenCalled()
+      expect(subscription.status()).toMatchObject({
+        enabled: false,
+        killSwitch: true,
+        queuedItems: 0,
+        queuedBytes: 0,
+        delivered: 0
+      })
+      expect(kernel.status('passport-kill-dispose')).toBeNull()
+    })
+  })
+
   it('isolates subscriber payload mutation', async () => {
     const hub = new TelemetryHub()
     const kernel = new Phase02TapKernel(hub)

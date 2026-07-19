@@ -258,3 +258,127 @@ describe('complete 12-item Stint Passport evaluation', () => {
     expect(validateChallengeReadiness({ ...data.passport, items, ...coverage }, data.roster, 2_000).length).toBeGreaterThan(0)
   })
 })
+
+describe('Stint Passport evaluator boundary invariants', () => {
+  it('[supported] expires exactly at expiresAt while preserving evidence timestamps', () => {
+    const source: PassportItem = {
+      id: 'fuel-load',
+      status: 'verified',
+      detail: 'Fuel verified.',
+      verifiedAt: 2_000,
+      expiresAt: 2_100,
+      evidence: {
+        source: 'phase02.tap',
+        summary: 'Fuel verified.',
+        contentHash: 'ab'.repeat(32),
+        capturedAt: 2_000,
+        state: 'available'
+      },
+      revision: 4
+    }
+
+    const before = expirePassportItems([source], 2_099)[0]
+    const boundary = expirePassportItems([source], 2_100)[0]
+
+    expect(before).toEqual(source)
+    expect(before).not.toBe(source)
+    expect(boundary).toMatchObject({
+      status: 'expired',
+      verifiedAt: 2_000,
+      expiresAt: 2_100,
+      revision: 5
+    })
+    expect(boundary.evidence?.capturedAt).toBe(2_000)
+    expect(boundary.detail).toBe('Fuel verified. Revalidation expired.')
+  })
+
+  it('[supported] rejects expired evidence, stale owners, and ineligible N/A states', () => {
+    const data = fixture()
+    const items = evaluatePassportItems({ ...data, event: event(), now: 2_000 })
+      .map((candidate): PassportItem => ({
+        ...candidate,
+        status: 'manual-confirmed',
+        verifiedAt: 2_000,
+        expiresAt: 10_000
+      }))
+      .map((candidate): PassportItem => {
+        if (candidate.id === 'session-identity') {
+          return { ...candidate, status: 'not-applicable' }
+        }
+        if (candidate.id === 'fuel-load') {
+          return { ...candidate, expiresAt: 2_000 }
+        }
+        if (candidate.id === 'stint-target') {
+          return {
+            ...candidate,
+            owner: { memberId: 'inactive-outsider', role: 'engineer' }
+          }
+        }
+        return candidate
+      })
+
+    const errors = validateChallengeReadiness(withCoverage(data.passport, items), data.roster, 2_000)
+
+    expect(errors).toContain('fuel-load is expired.')
+    expect(errors).toContain('stint-target owner is not valid for engineer.')
+    expect(errors.some((error) => /coverage .* below 95%/i.test(error))).toBe(true)
+  })
+
+  it('[spec-gap] a forged 12-slot duplicate-ID array cannot become challenge-ready', () => {
+    const data = fixture()
+    const valid = evaluatePassportItems({ ...data, event: event(), now: 2_000 })
+      .map((candidate): PassportItem => ({
+        ...candidate,
+        status: 'manual-confirmed',
+        verifiedAt: 2_000,
+        expiresAt: 10_000
+      }))
+    const forgedItems = [...valid.slice(0, 11), { ...valid[0] }]
+    const forged = {
+      ...data.passport,
+      items: forgedItems,
+      coverage: 1,
+      applicableItems: 12,
+      coveredItems: 12
+    }
+    const errors = validateChallengeReadiness(forged, data.roster, 2_001)
+
+    expect(forged.items).toHaveLength(12)
+    expect(new Set(forged.items.map((candidate) => candidate.id)).size).toBe(11)
+    expect(forged.coverage).toBe(1)
+    expect(errors.join(' ')).toMatch(/duplicate|unique|final-acknowledgement/i)
+  })
+
+  it('[supported] malformed, missing, stale, and non-finite fuel facts never verify', () => {
+    const variants = ['malformed', 'missing', 'stale', 'non-finite'] as const
+
+    for (const variant of variants) {
+      const sourceEvent = event()
+      if (variant === 'missing') {
+        sourceEvent.facts = sourceEvent.facts.filter((fact) => fact.name !== 'fuel.liters')
+      } else {
+        const fuel = sourceEvent.facts.find((fact) => fact.name === 'fuel.liters')
+        if (!fuel) throw new Error('Fixture is missing fuel.liters')
+        if (variant === 'stale' && fuel.provenance) {
+          fuel.provenance = { ...fuel.provenance, validity: 'stale' }
+        } else if (variant === 'non-finite') {
+          fuel.value = { kind: 'double', value: Number.POSITIVE_INFINITY }
+        } else {
+          fuel.value = { kind: 'string', value: 'not-a-number' }
+        }
+      }
+
+      const evaluated = evaluatePassportItems({
+        ...fixture(),
+        event: sourceEvent,
+        now: 2_000
+      })
+      const fuelItem = evaluated.find((candidate) => candidate.id === 'fuel-load')
+
+      expect(fuelItem?.status, variant).toBe('unknown')
+      expect(fuelItem?.detail, variant).toMatch(/unavailable|stale/i)
+      expect(fuelItem?.verifiedAt, variant).toBeUndefined()
+      expect(fuelItem?.expiresAt, variant).toBeUndefined()
+    }
+  })
+})

@@ -1,37 +1,60 @@
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
+  "kind": "acceptance-plan",
+  "status": "pending-ci-attestation",
   "acceptanceContract": "docs/phase02/stint-passport-v2-acceptance-contract.json",
-  "acceptanceContractSha256": "2d124af6597ea87cb454770cd8bc7819cbe7db54d0213f2473ed246eb8492440",
-  "implementationHead": "edc546f54cbea33b01246cd79be0f593ab5d6679",
-  "implementationTree": "f8b1014ceeb0de94e8664360dd52214d12eb1300",
+  "acceptanceContractSha256": "81fea004cc3373e320522579c463b101dbc3886ca8998a954daf87639989bbb5",
   "branch": "feat/phase2-stint-passport-v2",
-  "baseCommit": "31a414d90df8ddf639672453ff00d42b5d46a574",
+  "baseCommit": "ef7778181b73759a090079d666de986d3774561f",
+  "sourceBinding": {
+    "mode": "ci-runtime",
+    "commit": "resolved-from-GITHUB_SHA",
+    "tree": "resolved-from-git-at-runtime"
+  },
   "autonomousOverride": true,
   "humanTokenUsed": false,
   "evidence": {
     "targetedTests": {
-      "tests": 94,
-      "status": "passed",
-      "command": "npm test -- --run <V2 targeted and regression selectors>",
-      "files": 15
-    },
-    "build": {
-      "status": "passed",
-      "command": "npm run build",
-      "workerSmoke": true,
-      "workerBytes": 76747
+      "status": "required",
+      "command": "npm test -- --run src/shared/stint-passport.test.ts src/main/phase02/raceops-codec.test.ts src/main/passport/evaluator.test.ts src/main/passport/readiness.test.ts src/main/passport/store.test.ts src/main/passport/service.test.ts src/main/passport/persistence-client.test.ts src/main/passport/passport-persistence-worker.test.ts src/main/passport/offline.test.ts src/main/modules/stint-passport.test.ts src/preload/ipc-allowlists.test.ts src/renderer/src/views/StintPassportView.test.ts src/main/passport/acceptance-evidence.test.ts",
+      "selectors": [
+        "src/shared/stint-passport.test.ts",
+        "src/main/phase02/raceops-codec.test.ts",
+        "src/main/passport/evaluator.test.ts",
+        "src/main/passport/readiness.test.ts",
+        "src/main/passport/store.test.ts",
+        "src/main/passport/service.test.ts",
+        "src/main/passport/persistence-client.test.ts",
+        "src/main/passport/passport-persistence-worker.test.ts",
+        "src/main/passport/offline.test.ts",
+        "src/main/modules/stint-passport.test.ts",
+        "src/preload/ipc-allowlists.test.ts",
+        "src/renderer/src/views/StintPassportView.test.ts",
+        "src/main/passport/acceptance-evidence.test.ts"
+      ],
+      "tests": 214,
+      "files": 13
     },
     "typecheck": {
-      "command": "npm run typecheck",
-      "status": "passed"
+      "status": "required",
+      "command": "npm run typecheck"
+    },
+    "build": {
+      "status": "required",
+      "command": "npm run build"
     },
     "contracts": {
-      "baselineStatus": "checked",
-      "n1DescriptorSha256": "41889342c70e6851a1586152f225a4413e9e9b89c3974ff5e931c90aa5b23102",
-      "passportItems": 12,
-      "breakingFixtureRejected": true,
-      "status": "passed",
-      "descriptorSha256": "56b082789424f746193b0fe40685fb26ea84d194a3a47b5adb1a9de9a7aa2df6"
+      "status": "required",
+      "command": "node scripts/verify-phase02-contracts.mjs"
     }
+  },
+  "attestation": {
+    "status": "required-on-main",
+    "provider": "github-artifact-attestations",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "workflow": ".github/workflows/ci.yml",
+    "job": "passport-acceptance",
+    "subject": "artifacts/stint-passport-v2/stint-passport-v2-run-manifest.json",
+    "verificationCommand": "gh attestation verify stint-passport-v2-run-manifest.json --repo $GITHUB_REPOSITORY"
   }
 }

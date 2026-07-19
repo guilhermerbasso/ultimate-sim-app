@@ -199,3 +199,428 @@ describe('Stint Passport accessible empty, error, and no-current controls', () =
     }
   })
 })
+
+function liveSnapshot(): PassportSnapshot {
+  const snapshot = emptySnapshot()
+  snapshot.runtime.telemetryContext = 'live'
+  snapshot.integrity.state = 'anchored'
+  snapshot.integrity.verified = true
+  snapshot.roster = [{
+    memberId: 'driver-1',
+    displayName: 'Driver One',
+    roles: ['driver'],
+    active: true
+  }]
+  snapshot.current = {
+    contractVersion: STINT_PASSPORT_CONTRACT_VERSION,
+    identity: {
+      stintId: 'stint-live-1',
+      sessionRef: 'session-1',
+      trackRef: 'track-1',
+      trackLabel: 'Spa',
+      carRef: 'car-1',
+      carLabel: 'GT3',
+      driverRef: 'driver-1',
+      driverLabel: 'Driver One',
+      startedAt: 1_700_000_000_000
+    },
+    lifecycle: 'ready',
+    telemetryContext: 'live',
+    items: [],
+    coverage: 1,
+    applicableItems: 12,
+    coveredItems: 12,
+    interrupted: false,
+    persisted: true,
+    revision: 4,
+    durability: 'durable'
+  }
+  return snapshot
+}
+
+function renderPassport(
+  snapshot: PassportSnapshot,
+  invoke: ReturnType<typeof vi.fn>,
+  showToast = vi.fn(),
+  subscribe: (channel: string, callback: () => void) => () => void =
+    vi.fn((_channel: string, _callback: () => void) => () => undefined)
+): void {
+  Object.defineProperty(window, 'ipc', {
+    configurable: true,
+    value: { invoke, subscribe }
+  })
+  render(createElement(StintPassportView, {
+    language: 'en',
+    showToast
+  } as unknown as AppViewProps))
+}
+
+describe('Stint Passport truth-state matrix', () => {
+  it.each([
+    ['degraded', 'degraded'],
+    ['open circuit', 'open-circuit'],
+    ['quarantined', 'quarantined']
+  ] as const)('[spec-gap] announces %s persistence without durable Ready truth', async (_name, state) => {
+    const snapshot = liveSnapshot()
+    snapshot.persistence.state = state
+    snapshot.persistence.lastError = `${state} persistence`
+    renderPassport(snapshot, vi.fn(async () => snapshot))
+
+    expect((await screen.findByRole('alert')).textContent).toContain(`${state} persistence`)
+    expect(screen.queryByText(/^Ready$/i)).toBeNull()
+  })
+
+  it.each([
+    ['queue consumer failure', (snapshot: PassportSnapshot) => {
+      snapshot.runtime.queue.consumerErrors = 1
+      snapshot.runtime.queue.lastError = 'queue consumer failed'
+    }],
+    ['overflow', (snapshot: PassportSnapshot) => {
+      snapshot.runtime.overflowBlocked = true
+    }],
+    ['kill switch', (snapshot: PassportSnapshot) => {
+      snapshot.runtime.queue.killSwitch = true
+      snapshot.persistence.state = 'killed'
+    }]
+  ])('[spec-gap] announces %s without durable Ready truth', async (_name, arrange) => {
+    const snapshot = liveSnapshot()
+    arrange(snapshot)
+    renderPassport(snapshot, vi.fn(async () => snapshot))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alert') ?? screen.queryByRole('status')).not.toBeNull()
+    })
+    expect(screen.queryByText(/^Ready$/i)).toBeNull()
+  })
+
+  it.each([
+    ['starting persistence', (snapshot: PassportSnapshot) => {
+      snapshot.persistence.state = 'starting'
+    }],
+    ['killed persistence', (snapshot: PassportSnapshot) => {
+      snapshot.persistence.state = 'killed'
+    }],
+    ['unavailable integrity', (snapshot: PassportSnapshot) => {
+      snapshot.integrity.state = 'unavailable'
+      snapshot.integrity.verified = false
+    }],
+    ['unanchored integrity', (snapshot: PassportSnapshot) => {
+      snapshot.integrity.state = 'unanchored'
+      snapshot.integrity.verified = false
+    }]
+  ])('[spec-gap] gives %s explicit non-success messaging', async (_name, arrange) => {
+    const snapshot = liveSnapshot()
+    arrange(snapshot)
+    renderPassport(snapshot, vi.fn(async () => snapshot))
+
+    const message = await waitFor(() => {
+      const candidate = screen.queryByRole('alert') ?? screen.queryByRole('status')
+      expect(candidate).not.toBeNull()
+      return candidate as HTMLElement
+    })
+    expect(message.textContent?.trim().length).toBeGreaterThan(0)
+    expect(screen.queryByText(/^Ready$/i)).toBeNull()
+  })
+
+  it.each(['failed', 'quarantined'] as const)(
+    'maps a ready lifecycle with %s durability back to awaiting checklist',
+    async (durability) => {
+      const snapshot = liveSnapshot()
+      snapshot.current!.durability = durability
+      renderPassport(snapshot, vi.fn(async () => snapshot))
+
+      expect(await screen.findByText(/Awaiting checklist/i)).not.toBeNull()
+      expect(screen.queryByText(/^Ready$/i)).toBeNull()
+      expect(screen.getByText(new RegExp(`Durability: ${durability}`, 'i'))).not.toBeNull()
+    }
+  )
+
+  it.each([
+    ['insufficient coverage', (snapshot: PassportSnapshot) => {
+      snapshot.current!.coverage = 0.75
+      snapshot.current!.coveredItems = 9
+    }],
+    ['overflow', (snapshot: PassportSnapshot) => {
+      snapshot.runtime.overflowBlocked = true
+    }],
+    ['kill switch', (snapshot: PassportSnapshot) => {
+      snapshot.runtime.queue.killSwitch = true
+    }],
+    ['pending durability', (snapshot: PassportSnapshot) => {
+      snapshot.current!.durability = 'pending'
+    }],
+    ['failed durability', (snapshot: PassportSnapshot) => {
+      snapshot.current!.durability = 'failed'
+    }],
+    ['quarantined durability', (snapshot: PassportSnapshot) => {
+      snapshot.current!.durability = 'quarantined'
+    }],
+    ['unavailable integrity', (snapshot: PassportSnapshot) => {
+      snapshot.integrity.state = 'unavailable'
+      snapshot.integrity.verified = false
+    }],
+    ['unanchored integrity', (snapshot: PassportSnapshot) => {
+      snapshot.integrity.state = 'unanchored'
+      snapshot.integrity.verified = false
+    }],
+    ['non-live telemetry', (snapshot: PassportSnapshot) => {
+      snapshot.runtime.telemetryContext = 'disconnected'
+    }]
+  ])('[spec-gap] disables challenge preparation for %s', async (_name, arrange) => {
+    const snapshot = liveSnapshot()
+    arrange(snapshot)
+    renderPassport(snapshot, vi.fn(async () => snapshot))
+
+    expect((await screen.findByRole('button', { name: 'Prepare bound challenge' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+describe('Stint Passport mutation, destructive, and replay boundaries', () => {
+  it('coalesces duplicate challenge clicks while the first mutation is busy', async () => {
+    const snapshot = liveSnapshot()
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:prepareChallenge') return pending
+      return snapshot
+    })
+    renderPassport(snapshot, invoke)
+    fireEvent.change(await screen.findByLabelText('Driver or team-manager owner'), {
+      target: { value: 'driver-1::driver' }
+    })
+    const prepare = screen.getByRole('button', { name: 'Prepare bound challenge' }) as HTMLButtonElement
+
+    fireEvent.click(prepare)
+    await waitFor(() => expect(prepare.disabled).toBe(true))
+    fireEvent.click(prepare)
+
+    expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:prepareChallenge'
+    )).toHaveLength(1)
+    release()
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('stintPassport:getSnapshot'))
+  })
+
+  it('[spec-gap] invalidates stale controls and capability after refresh failure', async () => {
+    const snapshot = liveSnapshot()
+    let updated: (() => void) | undefined
+    let refreshCount = 0
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:getSnapshot') {
+        refreshCount += 1
+        if (refreshCount > 1) throw new Error('refresh disconnected')
+      }
+      return snapshot
+    })
+    const subscribe = vi.fn((_channel: string, callback: () => void) => {
+      updated = callback
+      return () => undefined
+    })
+    renderPassport(snapshot, invoke, vi.fn(), subscribe)
+    const prepare = await screen.findByRole('button', { name: 'Prepare bound challenge' }) as HTMLButtonElement
+
+    updated?.()
+    expect((await screen.findByRole('alert')).textContent).toContain('refresh disconnected')
+    expect(prepare.disabled).toBe(true)
+    fireEvent.click(prepare)
+    expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:prepareChallenge'
+    )).toHaveLength(0)
+  })
+
+  it('[spec-gap] reports close-current persistence rejection without leaving success-shaped UI', async () => {
+    const snapshot = liveSnapshot()
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:closeCurrent') throw new Error('close persistence failed')
+      return snapshot
+    })
+    renderPassport(snapshot, invoke, showToast)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Close current stint' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('close persistence failed')
+    expect(showToast).toHaveBeenCalledWith('close persistence failed', 'error')
+    expect(screen.getByText('Driver One')).not.toBeNull()
+    expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:getSnapshot'
+    )).toHaveLength(1)
+  })
+
+  it('reports export rejection only as an error and never exposes success hash data', async () => {
+    const snapshot = emptySnapshot()
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:saveExport') throw new Error('disk full')
+      return snapshot
+    })
+    renderPassport(snapshot, invoke, showToast)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export pseudonymized' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('disk full')
+    expect(showToast).toHaveBeenCalledWith('disk full', 'error')
+    expect(showToast.mock.calls.some(([, tone]) => tone === 'success')).toBe(false)
+    expect(screen.queryByText(/SHA-256:/i)).toBeNull()
+  })
+
+  it('treats canceled export as non-success without a toast or package hash', async () => {
+    const snapshot = emptySnapshot()
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:saveExport') return { ok: false, canceled: true }
+      return snapshot
+    })
+    renderPassport(snapshot, invoke, showToast)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export race-only' }))
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      'stintPassport:saveExport',
+      { capability: 'test-capability', payload: 'race-only' }
+    ))
+    expect(showToast).not.toHaveBeenCalled()
+    expect(screen.queryByText(/SHA-256:/i)).toBeNull()
+  })
+
+  it.each(['D1', 'D2', 'D3'] as const)(
+    '[spec-gap] requires explicit confirmation before destructive %s deletion',
+    async (dataClass) => {
+      const snapshot = emptySnapshot()
+      const invoke = vi.fn(async (_channel: string) => snapshot)
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      renderPassport(snapshot, invoke)
+      fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+      fireEvent.click(screen.getByRole('button', { name: `Delete/redact ${dataClass} data` }))
+
+      expect(confirm).toHaveBeenCalled()
+      expect(invoke.mock.calls.some(([channel]) =>
+        channel === 'stintPassport:deleteByClass'
+      )).toBe(false)
+    }
+  )
+
+  it('keeps failed audit visibly failed without success toast or hash', async () => {
+    const snapshot = liveSnapshot()
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:runFullAudit') throw new Error('audit failed closed')
+      return snapshot
+    })
+    renderPassport(snapshot, invoke, showToast)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run full integrity audit' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('audit failed closed')
+    expect(showToast).toHaveBeenCalledWith('audit failed closed', 'error')
+    expect(showToast.mock.calls.some(([, tone]) => tone === 'success')).toBe(false)
+    expect(screen.queryByText(/^Ready$/i)).toBeNull()
+    expect(screen.queryByText(/SHA-256:/i)).toBeNull()
+  })
+
+  it('[spec-gap] requires explicit confirmation before persistence repair', async () => {
+    const snapshot = emptySnapshot()
+    snapshot.integrity.state = 'corrupt'
+    snapshot.integrity.repairToken = 'repair-secret'
+    const invoke = vi.fn(async (_channel: string) => snapshot)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderPassport(snapshot, invoke)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.change(screen.getByLabelText('Repair acknowledgement token'), {
+      target: { value: 'repair-secret' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Quarantine corrupt database and reset' }))
+
+    expect(confirm).toHaveBeenCalled()
+    expect(invoke.mock.calls.some(([channel]) =>
+      channel === 'stintPassport:repairPersistence'
+    )).toBe(false)
+  })
+
+  it('keeps replay history inspectable without current or challenge mutation controls', async () => {
+    const snapshot = liveSnapshot()
+    const historical = {
+      ...snapshot.current!,
+      identity: {
+        ...snapshot.current!.identity,
+        stintId: 'stint-replay-history',
+        driverLabel: 'Replay Driver'
+      },
+      lifecycle: 'closed' as const,
+      telemetryContext: 'replay' as const
+    }
+    snapshot.current = null
+    snapshot.history = [historical]
+    snapshot.runtime.telemetryContext = 'replay'
+    renderPassport(snapshot, vi.fn(async () => snapshot))
+
+    expect(await screen.findByText(/Replay is read-only/i)).not.toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }))
+    fireEvent.click(screen.getByRole('button', { name: /Replay Driver/i }))
+    expect(screen.getAllByText('Replay Driver')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Prepare bound challenge' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Complete challenge' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Close current stint' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Apply resolution' })).toBeNull()
+  })
+
+  it('imports authenticated replay packages and reports the replay-only result', async () => {
+    const snapshot = emptySnapshot()
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:importPackage') {
+        return {
+          ok: true,
+          canceled: false,
+          importedPassports: 2,
+          packageHash: 'a'.repeat(64)
+        }
+      }
+      return snapshot
+    })
+    renderPassport(snapshot, invoke, showToast)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Import signed replay' }))
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      'stintPassport:importPackage',
+      { capability: 'test-capability', payload: null }
+    ))
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(
+      'Imported 2 authenticated replay passport(s).',
+      'success'
+    ))
+  })
+})
+
+describe('Stint Passport repair failure truth', () => {
+  it('keeps rejected repair visibly failed without success toast, hash, or Ready text', async () => {
+    const snapshot = emptySnapshot()
+    snapshot.integrity.state = 'corrupt'
+    snapshot.integrity.repairToken = 'repair-secret'
+    const showToast = vi.fn()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'stintPassport:repairPersistence') {
+        throw new Error('repair failed closed')
+      }
+      return snapshot
+    })
+    renderPassport(snapshot, invoke, showToast)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.change(screen.getByLabelText('Repair acknowledgement token'), {
+      target: { value: 'repair-secret' }
+    })
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Quarantine corrupt database and reset'
+    }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('repair failed closed')
+    expect(showToast).toHaveBeenCalledWith('repair failed closed', 'error')
+    expect(showToast.mock.calls.some(([, tone]) => tone === 'success')).toBe(false)
+    expect(screen.queryByText(/^Ready$/i)).toBeNull()
+    expect(screen.queryByText(/SHA-256:/i)).toBeNull()
+  })
+})

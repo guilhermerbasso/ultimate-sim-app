@@ -1,6 +1,7 @@
-import { writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { dialog, type IpcMainInvokeEvent } from 'electron'
+import { dialog, type IpcMainInvokeEvent, type OpenDialogOptions } from 'electron'
 import {
   STINT_PASSPORT_CHANNELS,
   type PassportChallengeInput,
@@ -46,8 +47,40 @@ function authorized<T>(
   input: AuthorizedRequest<T>
 ): T {
   authorizePassportSender(ctx, event)
-  service.assertCapability(input?.capability)
-  return input?.payload
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    Array.isArray(input) ||
+    (Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null) ||
+    !Object.prototype.hasOwnProperty.call(input, 'capability') ||
+    !Object.prototype.hasOwnProperty.call(input, 'payload')
+  ) {
+    throw new Error('Passport mutation envelope or capability is invalid.')
+  }
+  service.assertCapability(input.capability)
+  return input.payload
+}
+
+function boundedExport(bundle: unknown): string {
+  if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+    throw new Error('Passport export package is invalid.')
+  }
+  const candidate = bundle as Record<string, unknown>
+  const counts = [
+    ['passports', candidate.passports, 500],
+    ['canonical events', candidate.canonicalEvents ?? candidate.events, 500],
+    ['deletion tombstones', candidate.deletionTombstones ?? candidate.tombstones, 5_000]
+  ] as const
+  for (const [label, value, limit] of counts) {
+    if (value !== undefined && (!Array.isArray(value) || value.length > limit)) {
+      throw new Error(`Passport export ${label} exceeds its bounded limit.`)
+    }
+  }
+  const serialized = `${JSON.stringify(bundle, null, 2)}\n`
+  if (Buffer.byteLength(serialized, 'utf8') > 5_000_000) {
+    throw new Error('Passport export exceeds the 5 MB size limit.')
+  }
+  return serialized
 }
 
 export function register(ctx: ModuleContext): void {
@@ -131,6 +164,7 @@ export function register(ctx: ModuleContext): void {
     async (event, input: AuthorizedRequest<unknown>): Promise<PassportExportResult> => {
       const profile = exportProfile(authorized(ctx, service, event, input))
       const bundle = await service.exportPackage(profile)
+      const serialized = boundedExport(bundle)
       const owner = ctx.getMainWindow()
       const options = {
         title: 'Export Endurance Stint Passport',
@@ -141,7 +175,14 @@ export function register(ctx: ModuleContext): void {
         ? await dialog.showSaveDialog(owner, options)
         : await dialog.showSaveDialog(options)
       if (result.canceled || !result.filePath) return { ok: false, canceled: true }
-      await writeFile(result.filePath, `${JSON.stringify(bundle, null, 2)}\n`, 'utf8')
+      const temporary = `${result.filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+      try {
+        await writeFile(temporary, serialized, 'utf8')
+        await rename(temporary, result.filePath)
+      } catch (error) {
+        await rm(temporary, { force: true }).catch(() => undefined)
+        throw error
+      }
       return {
         ok: true,
         canceled: false,
@@ -151,5 +192,29 @@ export function register(ctx: ModuleContext): void {
     }
   )
 
-  ctx.registerGracefulTeardown(() => service.dispose(), 'quiesce')
+  ctx.ipcMain.handle(
+    STINT_PASSPORT_CHANNELS.importPackage,
+    async (event, input: AuthorizedRequest<null>) => {
+      authorized(ctx, service, event, input)
+      const owner = ctx.getMainWindow()
+      const options: OpenDialogOptions = {
+        title: 'Import Endurance Stint Passport',
+        properties: ['openFile'],
+        filters: [{ name: 'Passport JSON', extensions: ['json'] }]
+      }
+      const result = owner
+        ? await dialog.showOpenDialog(owner, options)
+        : await dialog.showOpenDialog(options)
+      if (result.canceled || result.filePaths.length !== 1) return { ok: false, canceled: true }
+      const path = result.filePaths[0]
+      const details = await stat(path)
+      if (!details.isFile() || details.size < 2 || details.size > 5_000_000) {
+        throw new Error('Passport import file violates the 5 MB bound.')
+      }
+      const serialized = await readFile(path, 'utf8')
+      return service.importPackage(JSON.parse(serialized))
+    }
+  )
+
+  ctx.registerGracefulTeardown(() => service.dispose(), 'persistence')
 }

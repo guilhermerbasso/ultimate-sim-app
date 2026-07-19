@@ -15,6 +15,7 @@ import {
 import { phase02_n1DescriptorBytes } from './generated/n1-contract-descriptor'
 import {
   STINT_PASSPORT_CONTRACT_VERSION,
+  STINT_PASSPORT_ITEM_COUNT,
   PASSPORT_ITEM_DEFINITIONS,
   calculatePassportCoverage,
   type PassportItem,
@@ -48,6 +49,16 @@ const n1StintPassportSchema = (() => {
   return message
 })()
 
+const MAX_BINARY_BYTES = 5 * 1024 * 1024
+const MAX_PROTO_JSON_BYTES = 5 * 1024 * 1024
+const MAX_JSON_DEPTH = 32
+const MAX_JSON_NODES = 20_000
+const MAX_FACTS = 2_048
+const MAX_EVIDENCE_REFS = 4_096
+const MAX_INTEGRITY_FLAGS = 64
+const MAX_TEXT_BYTES = 64 * 1024
+const UINT64_MAX = 18_446_744_073_709_551_615n
+
 const EVENT_CLASS_TO_PROTO: Record<RaceOpsEventClass, string> = {
   unspecified: 'RACE_OPS_EVENT_CLASS_UNSPECIFIED',
   fact: 'RACE_OPS_EVENT_CLASS_FACT',
@@ -60,6 +71,7 @@ const EVENT_CLASS_TO_PROTO: Record<RaceOpsEventClass, string> = {
 }
 
 export function decodeStintPassportN1(bytes: Uint8Array): StintPassport {
+  assertBinaryInput(bytes, 'N-1 StintPassport')
   const json = object(toJson(
     n1StintPassportSchema,
     fromBinary(n1StintPassportSchema, bytes),
@@ -69,21 +81,30 @@ export function decodeStintPassportN1(bytes: Uint8Array): StintPassport {
     throw new Error(`Unsupported N-1 StintPassport version: ${String(json.contractVersion)}`)
   }
   const identity = object(json.identity)
-  const legacyItems = new Map(array(json.items).map((value) => {
+  const legacyValues = array(json.items)
+  if (legacyValues.length === 0 || legacyValues.length > STINT_PASSPORT_ITEM_COUNT) {
+    throw new Error('N-1 StintPassport must contain a bounded non-empty item set.')
+  }
+  const legacyItems = new Map(legacyValues.map((value) => {
     const item = object(value)
+    const id = reverseMap(ITEM_ID_TO_PROTO, item.itemId)
     return [
-      reverseMap(ITEM_ID_TO_PROTO, item.itemId),
+      id,
       {
-        id: reverseMap(ITEM_ID_TO_PROTO, item.itemId),
+        id,
         status: reverseMap(ITEM_STATUS_TO_PROTO, item.status),
-        detail: text(item.detail),
-        verifiedAt: Number(text(item.capturedAtMs)) || undefined,
+        detail: boundedText(item.detail, 'N-1 item detail', MAX_TEXT_BYTES),
+        verifiedAt: optionalSafeUint(item.capturedAtMs, 'N-1 capturedAtMs'),
         expiresAt: undefined,
         evidence: undefined,
         revision: 1
       } satisfies PassportItem
     ] as const
   }))
+  if (legacyItems.size !== legacyValues.length) {
+    throw new Error('N-1 StintPassport item IDs must be unique.')
+  }
+  const startedAt = requiredSafeUint(identity.startedAtMs, 'N-1 startedAtMs')
   const items = PASSPORT_ITEM_DEFINITIONS.map((definition) =>
     legacyItems.get(definition.id) ?? {
       id: definition.id,
@@ -96,15 +117,15 @@ export function decodeStintPassportN1(bytes: Uint8Array): StintPassport {
   return {
     contractVersion: STINT_PASSPORT_CONTRACT_VERSION,
     identity: {
-      stintId: text(identity.stintId),
-      sessionRef: text(identity.sessionRef),
-      trackRef: text(identity.trackRef),
-      trackLabel: text(identity.trackLabel),
-      carRef: text(identity.carRef),
-      carLabel: text(identity.carLabel),
-      driverRef: text(identity.driverRef),
-      driverLabel: text(identity.driverLabel),
-      startedAt: Number(text(identity.startedAtMs))
+      stintId: requiredText(identity.stintId, 'N-1 stintId', 512),
+      sessionRef: requiredText(identity.sessionRef, 'N-1 sessionRef', 512),
+      trackRef: requiredText(identity.trackRef, 'N-1 trackRef', 512),
+      trackLabel: boundedText(identity.trackLabel, 'N-1 trackLabel', 4_096),
+      carRef: requiredText(identity.carRef, 'N-1 carRef', 512),
+      carLabel: boundedText(identity.carLabel, 'N-1 carLabel', 4_096),
+      driverRef: requiredText(identity.driverRef, 'N-1 driverRef', 512),
+      driverLabel: boundedText(identity.driverLabel, 'N-1 driverLabel', 4_096),
+      startedAt
     },
     lifecycle: 'awaiting-checklist',
     telemetryContext: 'live',
@@ -239,12 +260,120 @@ function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
 
+function assertBinaryInput(bytes: Uint8Array, label: string): void {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw new Error(`${label} binary payload is empty.`)
+  }
+  if (bytes.byteLength > MAX_BINARY_BYTES) {
+    throw new Error(`${label} binary payload exceeds the ${MAX_BINARY_BYTES}-byte limit.`)
+  }
+}
+
+function assertJsonBounds(value: unknown, label: string): void {
+  const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }]
+  let nodes = 0
+  let bytes = 0
+  while (pending.length > 0) {
+    const current = pending.pop()!
+    nodes += 1
+    if (nodes > MAX_JSON_NODES) throw new Error(`${label} exceeds the JSON node limit.`)
+    if (current.depth > MAX_JSON_DEPTH) throw new Error(`${label} exceeds the JSON depth limit.`)
+    if (typeof current.value === 'string') {
+      bytes += Buffer.byteLength(current.value, 'utf8')
+      if (bytes > MAX_PROTO_JSON_BYTES) throw new Error(`${label} exceeds the JSON byte limit.`)
+      continue
+    }
+    if (
+      current.value === null ||
+      current.value === undefined ||
+      typeof current.value === 'boolean'
+    ) continue
+    if (typeof current.value === 'number') {
+      if (!Number.isFinite(current.value)) throw new Error(`${label} contains a non-finite number.`)
+      continue
+    }
+    if (Array.isArray(current.value)) {
+      for (const item of current.value) pending.push({ value: item, depth: current.depth + 1 })
+      continue
+    }
+    if (typeof current.value !== 'object') throw new Error(`${label} contains an invalid JSON value.`)
+    const prototype = Object.getPrototypeOf(current.value)
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error(`${label} contains a non-plain object.`)
+    }
+    for (const [key, item] of Object.entries(current.value as Record<string, unknown>)) {
+      bytes += Buffer.byteLength(key, 'utf8')
+      if (bytes > MAX_PROTO_JSON_BYTES) throw new Error(`${label} exceeds the JSON byte limit.`)
+      pending.push({ value: item, depth: current.depth + 1 })
+    }
+  }
+}
+
+function boundedText(value: unknown, field: string, maxBytes = MAX_TEXT_BYTES): string {
+  if (typeof value !== 'string') throw new Error(`${field} must be a string.`)
+  if (Buffer.byteLength(value, 'utf8') > maxBytes) throw new Error(`${field} exceeds its size limit.`)
+  return value
+}
+
+function requiredText(value: unknown, field: string, maxBytes = MAX_TEXT_BYTES): string {
+  const result = boundedText(value, field, maxBytes)
+  if (!result) throw new Error(`${field} is required.`)
+  return result
+}
+
+function finiteNumber(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${field} must be a finite number.`)
+  }
+  return value
+}
+
+function uintString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)) {
+    throw new Error(`${field} must be a canonical uint64 string.`)
+  }
+  if (BigInt(value) > UINT64_MAX) throw new Error(`${field} exceeds uint64.`)
+  return value
+}
+
+function requiredSafeUint(value: unknown, field: string): number {
+  const parsed = BigInt(uintString(value, field))
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`${field} exceeds the safe integer range.`)
+  return Number(parsed)
+}
+
+function optionalSafeUint(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  const parsed = requiredSafeUint(value, field)
+  return parsed > 0 ? parsed : undefined
+}
+
+function strictBase64(value: unknown, field: string, expectedBytes?: number): Uint8Array {
+  const encoded = boundedText(value, field, MAX_PROTO_JSON_BYTES)
+  if (
+    encoded.length === 0 ||
+    encoded.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)
+  ) {
+    throw new Error(`${field} must be canonical base64.`)
+  }
+  const decoded = Uint8Array.from(Buffer.from(encoded, 'base64'))
+  if (Buffer.from(decoded).toString('base64') !== encoded) {
+    throw new Error(`${field} must be canonical base64.`)
+  }
+  if (expectedBytes !== undefined && decoded.byteLength !== expectedBytes) {
+    throw new Error(`${field} must contain exactly ${expectedBytes} bytes.`)
+  }
+  return decoded
+}
+
 function hexToBase64(value: string): string {
+  if (!/^[a-f0-9]{64}$/i.test(value)) throw new Error('SHA-256 content hash must contain 64 hexadecimal characters.')
   return Buffer.from(value, 'hex').toString('base64')
 }
 
 function base64ToHex(value: unknown): string {
-  return typeof value === 'string' ? Buffer.from(value, 'base64').toString('hex') : ''
+  return Buffer.from(strictBase64(value, 'contentSha256', 32)).toString('hex')
 }
 
 function factToJson(fact: CanonicalFact): Record<string, unknown> {
@@ -287,31 +416,53 @@ function factToJson(fact: CanonicalFact): Record<string, unknown> {
 
 function factFromJson(value: unknown): CanonicalFact {
   const json = object(value)
+  const valueFields = [
+    'doubleValue',
+    'signedValue',
+    'unsignedValue',
+    'boolValue',
+    'stringValue',
+    'bytesValue'
+  ].filter((field) => json[field] !== undefined)
+  if (valueFields.length > 1) throw new Error('Canonical fact contains multiple value variants.')
   let factValue: CanonicalFact['value']
-  if (json.doubleValue !== undefined) factValue = { kind: 'double', value: numeric(json.doubleValue) }
-  else if (json.signedValue !== undefined) factValue = { kind: 'signed', value: text(json.signedValue) }
-  else if (json.unsignedValue !== undefined) factValue = { kind: 'unsigned', value: text(json.unsignedValue) }
-  else if (json.boolValue !== undefined) factValue = { kind: 'bool', value: bool(json.boolValue) }
-  else if (json.stringValue !== undefined) factValue = { kind: 'string', value: text(json.stringValue) }
+  if (json.doubleValue !== undefined) {
+    factValue = { kind: 'double', value: finiteNumber(json.doubleValue, 'fact.doubleValue') }
+  } else if (json.signedValue !== undefined) {
+    const signed = boundedText(json.signedValue, 'fact.signedValue', 32)
+    if (!/^-?(0|[1-9][0-9]*)$/.test(signed)) throw new Error('fact.signedValue must be a canonical int64 string.')
+    const parsed = BigInt(signed)
+    if (parsed < -9_223_372_036_854_775_808n || parsed > 9_223_372_036_854_775_807n) {
+      throw new Error('fact.signedValue exceeds int64.')
+    }
+    factValue = { kind: 'signed', value: signed }
+  } else if (json.unsignedValue !== undefined) {
+    factValue = { kind: 'unsigned', value: uintString(json.unsignedValue, 'fact.unsignedValue') }
+  } else if (json.boolValue !== undefined) {
+    if (typeof json.boolValue !== 'boolean') throw new Error('fact.boolValue must be a boolean.')
+    factValue = { kind: 'bool', value: json.boolValue }
+  } else if (json.stringValue !== undefined) {
+    factValue = { kind: 'string', value: boundedText(json.stringValue, 'fact.stringValue') }
+  }
   else if (json.bytesValue !== undefined) {
-    factValue = { kind: 'bytes', value: Uint8Array.from(Buffer.from(text(json.bytesValue), 'base64')) }
+    factValue = { kind: 'bytes', value: strictBase64(json.bytesValue, 'fact.bytesValue') }
   }
   const provenanceJson = object(json.provenance)
   return {
-    name: text(json.name),
-    canonicalUnit: text(json.canonicalUnit),
+    name: requiredText(json.name, 'fact.name', 512),
+    canonicalUnit: boundedText(json.canonicalUnit, 'fact.canonicalUnit', 256),
     value: factValue,
     provenance: json.provenance
       ? {
-          sourceId: text(provenanceJson.sourceId),
-          transformId: text(provenanceJson.transformId),
-          schemaFingerprint: text(provenanceJson.schemaFingerprint),
-          canonicalUnit: text(provenanceJson.canonicalUnit),
+          sourceId: requiredText(provenanceJson.sourceId, 'fact.provenance.sourceId', 512),
+          transformId: boundedText(provenanceJson.transformId, 'fact.provenance.transformId', 512),
+          schemaFingerprint: boundedText(provenanceJson.schemaFingerprint, 'fact.provenance.schemaFingerprint', 512),
+          canonicalUnit: boundedText(provenanceJson.canonicalUnit, 'fact.provenance.canonicalUnit', 256),
           validity: reverseMap(VALIDITY_TO_PROTO, provenanceJson.validity),
           nullReason: reverseMap(NULL_REASON_TO_PROTO, provenanceJson.nullReason),
-          sourceTick: text(provenanceJson.sourceTick),
-          observedMonotonicNs: text(provenanceJson.observedMonotonicNs),
-          ageMs: text(provenanceJson.ageMs),
+          sourceTick: uintString(provenanceJson.sourceTick, 'fact.provenance.sourceTick'),
+          observedMonotonicNs: uintString(provenanceJson.observedMonotonicNs, 'fact.provenance.observedMonotonicNs'),
+          ageMs: uintString(provenanceJson.ageMs, 'fact.provenance.ageMs'),
           privacyClass: reverseMap(PRIVACY_TO_PROTO, provenanceJson.privacyClass)
         }
       : undefined
@@ -359,51 +510,78 @@ export function raceOpsEventToProtoJson(event: CanonicalRaceOpsEvent): JsonValue
 }
 
 export function raceOpsEventFromProtoJson(value: JsonValue): CanonicalRaceOpsEvent {
+  assertJsonBounds(value, 'RaceOpsEvent ProtoJSON')
   const json = object(value)
   const interval = object(json.observedInterval)
   const confidence = object(json.confidence)
+  const factsJson = array(json.facts)
+  const evidenceRefsJson = array(json.evidenceRefs)
+  const integrityFlagsJson = array(json.integrityFlags)
+  if (factsJson.length > MAX_FACTS) throw new Error(`RaceOpsEvent facts exceed ${MAX_FACTS}.`)
+  if (evidenceRefsJson.length > MAX_EVIDENCE_REFS) {
+    throw new Error(`RaceOpsEvent evidence references exceed ${MAX_EVIDENCE_REFS}.`)
+  }
+  if (integrityFlagsJson.length > MAX_INTEGRITY_FLAGS) {
+    throw new Error(`RaceOpsEvent integrity flags exceed ${MAX_INTEGRITY_FLAGS}.`)
+  }
+  const facts = factsJson.map(factFromJson)
+  if (new Set(facts.map((fact) => fact.name)).size !== facts.length) {
+    throw new Error('RaceOpsEvent fact names must be unique.')
+  }
+  const evidenceRefs = evidenceRefsJson.map((item, index) =>
+    boundedText(item, `RaceOpsEvent evidenceRefs[${index}]`, 2_048)
+  )
+  const integrityFlags = integrityFlagsJson.map((flag) =>
+    reverseMap(INTEGRITY_TO_PROTO, flag)
+  )
+  if (new Set(integrityFlags).size !== integrityFlags.length) {
+    throw new Error('RaceOpsEvent integrity flags must be unique.')
+  }
   const event: CanonicalRaceOpsEvent = {
-    eventId: text(json.eventId),
+    eventId: boundedText(json.eventId, 'RaceOpsEvent eventId', 512),
     eventClass: reverseMap(EVENT_CLASS_TO_PROTO, json.eventClass),
-    eventType: text(json.eventType),
-    sessionRef: text(json.sessionRef),
-    actorRef: text(json.actorRef),
-    subjectRef: text(json.subjectRef),
+    eventType: boundedText(json.eventType, 'RaceOpsEvent eventType', 1_024),
+    sessionRef: boundedText(json.sessionRef, 'RaceOpsEvent sessionRef', 1_024),
+    actorRef: boundedText(json.actorRef, 'RaceOpsEvent actorRef', 1_024),
+    subjectRef: boundedText(json.subjectRef, 'RaceOpsEvent subjectRef', 1_024),
     observedInterval: {
-      sourceTickStart: text(interval.sourceTickStart),
-      sourceTickEnd: text(interval.sourceTickEnd),
-      monotonicNsStart: text(interval.monotonicNsStart),
-      monotonicNsEnd: text(interval.monotonicNsEnd),
-      simTimeMsStart: text(interval.simTimeMsStart),
-      simTimeMsEnd: text(interval.simTimeMsEnd)
+      sourceTickStart: uintString(interval.sourceTickStart, 'RaceOpsEvent observedInterval.sourceTickStart'),
+      sourceTickEnd: uintString(interval.sourceTickEnd, 'RaceOpsEvent observedInterval.sourceTickEnd'),
+      monotonicNsStart: uintString(interval.monotonicNsStart, 'RaceOpsEvent observedInterval.monotonicNsStart'),
+      monotonicNsEnd: uintString(interval.monotonicNsEnd, 'RaceOpsEvent observedInterval.monotonicNsEnd'),
+      simTimeMsStart: uintString(interval.simTimeMsStart, 'RaceOpsEvent observedInterval.simTimeMsStart'),
+      simTimeMsEnd: uintString(interval.simTimeMsEnd, 'RaceOpsEvent observedInterval.simTimeMsEnd')
     },
-    facts: array(json.facts).map(factFromJson),
+    facts,
     confidence: {
-      value: numeric(confidence.value),
-      method: text(confidence.method),
-      abstained: bool(confidence.abstained)
+      value: finiteNumber(confidence.value, 'RaceOpsEvent confidence.value'),
+      method: boundedText(confidence.method, 'RaceOpsEvent confidence.method', 512),
+      abstained: (() => {
+        if (typeof confidence.abstained !== 'boolean') {
+          throw new Error('RaceOpsEvent confidence.abstained must be a boolean.')
+        }
+        return confidence.abstained
+      })()
     },
     severity: reverseMap(SEVERITY_TO_PROTO, json.severity),
     priority: reverseMap(PRIORITY_TO_PROTO, json.priority),
-    evidenceRefs: array(json.evidenceRefs).map(text),
-    policyRef: text(json.policyRef),
-    capabilityRef: text(json.capabilityRef),
-    consentEpoch: text(json.consentEpoch),
-    approvalRef: text(json.approvalRef),
-    correlationId: text(json.correlationId),
-    dedupeKey: text(json.dedupeKey),
+    evidenceRefs,
+    policyRef: boundedText(json.policyRef, 'RaceOpsEvent policyRef', 1_024),
+    capabilityRef: boundedText(json.capabilityRef, 'RaceOpsEvent capabilityRef', 1_024),
+    consentEpoch: uintString(json.consentEpoch, 'RaceOpsEvent consentEpoch'),
+    approvalRef: boundedText(json.approvalRef, 'RaceOpsEvent approvalRef', 1_024),
+    correlationId: boundedText(json.correlationId, 'RaceOpsEvent correlationId', 1_024),
+    dedupeKey: boundedText(json.dedupeKey, 'RaceOpsEvent dedupeKey', 1_024),
     privacyClass: reverseMap(PRIVACY_TO_PROTO, json.privacyClass),
-    integrityFlags: array(json.integrityFlags).map((flag) =>
-      reverseMap(INTEGRITY_TO_PROTO, flag)
-    ),
-    supersedesEventId: text(json.supersedesEventId),
-    sequence: text(json.sequence),
-    partitionKey: text(json.partitionKey),
-    partitionSeq: text(json.partitionSeq),
+    integrityFlags,
+    supersedesEventId: boundedText(json.supersedesEventId, 'RaceOpsEvent supersedesEventId', 512),
+    sequence: uintString(json.sequence, 'RaceOpsEvent sequence'),
+    partitionKey: boundedText(json.partitionKey, 'RaceOpsEvent partitionKey', 1_024),
+    partitionSeq: uintString(json.partitionSeq, 'RaceOpsEvent partitionSeq'),
     telemetryContext: reverseMap(TELEMETRY_TO_PROTO, json.telemetryContext),
-    sourceTick: text(json.sourceTick),
-    observedMonotonicNs: text(json.observedMonotonicNs),
-    ttlMs: text(json.ttlMs)
+    sourceTick: uintString(json.sourceTick, 'RaceOpsEvent sourceTick'),
+    observedMonotonicNs: uintString(json.observedMonotonicNs, 'RaceOpsEvent observedMonotonicNs'),
+    ttlMs: uintString(json.ttlMs, 'RaceOpsEvent ttlMs')
   }
   if (
     event.eventClass === 'unspecified' ||
@@ -427,6 +605,7 @@ export function encodeRaceOpsEvent(event: CanonicalRaceOpsEvent): Uint8Array {
 }
 
 export function decodeRaceOpsEvent(bytes: Uint8Array): CanonicalRaceOpsEvent {
+  assertBinaryInput(bytes, 'RaceOpsEvent')
   const message = fromBinary(raceOpsEventSchema, bytes)
   return raceOpsEventFromProtoJson(
     toJson(raceOpsEventSchema, message, { alwaysEmitImplicit: true })
@@ -518,6 +697,7 @@ function itemToJson(item: PassportItem): Record<string, unknown> {
   }
   if (item.owner) json.owner = ownerToJson(item.owner)
   if (item.overrideReason !== undefined) json.overrideReason = item.overrideReason
+  if (item.reasonCode !== undefined) json.reasonCode = item.reasonCode
   if (item.verifiedAt !== undefined) json.verifiedAtMs = String(item.verifiedAt)
   if (item.expiresAt !== undefined) json.expiresAtMs = String(item.expiresAt)
   if (item.evidence) {
@@ -570,10 +750,11 @@ export function stintPassportToProtoJson(passport: StintPassport): JsonValue {
 }
 
 function ownerFromJson(value: unknown): PassportItem['owner'] {
+  if (value === undefined || value === null) return undefined
   const json = object(value)
-  if (!text(json.memberId)) return undefined
+  const memberId = requiredText(json.memberId, 'Passport owner memberId', 512)
   return {
-    memberId: text(json.memberId),
+    memberId,
     role: reverseMap(ROLE_TO_PROTO, json.role)
   }
 }
@@ -581,83 +762,129 @@ function ownerFromJson(value: unknown): PassportItem['owner'] {
 function itemFromJson(value: unknown): PassportItem {
   const json = object(value)
   const evidence = object(json.evidence)
-  const verifiedAt = Number(text(json.verifiedAtMs))
-  const expiresAt = Number(text(json.expiresAtMs))
+  const verifiedAt = optionalSafeUint(json.verifiedAtMs, 'Passport item verifiedAtMs')
+  const expiresAt = optionalSafeUint(json.expiresAtMs, 'Passport item expiresAtMs')
+  const revision = requiredSafeUint(json.revision, 'Passport item revision')
+  if (revision < 1) throw new Error('Passport item revision must be at least one.')
+  const evidenceState = json.evidence
+    ? boundedText(evidence.state, 'Passport evidence state', 64)
+    : undefined
+  if (
+    evidenceState !== undefined &&
+    evidenceState !== 'available' &&
+    evidenceState !== 'retention-redacted' &&
+    evidenceState !== 'unavailable'
+  ) {
+    throw new Error('Passport evidence state is invalid.')
+  }
   return {
     id: reverseMap(ITEM_ID_TO_PROTO, json.itemId),
     status: reverseMap(ITEM_STATUS_TO_PROTO, json.status),
     owner: ownerFromJson(json.owner),
-    detail: text(json.detail),
-    overrideReason: text(json.overrideReason) || undefined,
-    verifiedAt: verifiedAt > 0 ? verifiedAt : undefined,
-    expiresAt: expiresAt > 0 ? expiresAt : undefined,
+    detail: boundedText(json.detail, 'Passport item detail'),
+    overrideReason: json.overrideReason === undefined
+      ? undefined
+      : boundedText(json.overrideReason, 'Passport item overrideReason', 8_192) || undefined,
+    reasonCode: json.reasonCode === undefined
+      ? undefined
+      : boundedText(json.reasonCode, 'Passport item reasonCode', 1_024) || undefined,
+    verifiedAt,
+    expiresAt,
     evidence: json.evidence
       ? {
-          source: text(evidence.source),
-          summary: text(evidence.summary),
+          source: requiredText(evidence.source, 'Passport evidence source', 1_024),
+          summary: boundedText(evidence.summary, 'Passport evidence summary'),
           contentHash: base64ToHex(evidence.contentSha256),
-          capturedAt: Number(text(evidence.capturedAtMs)),
-          state: text(evidence.state) === 'retention-redacted'
-            ? 'retention-redacted'
-            : text(evidence.state) === 'unavailable'
-              ? 'unavailable'
-              : 'available'
+          capturedAt: requiredSafeUint(evidence.capturedAtMs, 'Passport evidence capturedAtMs'),
+          state: evidenceState!
         }
       : undefined,
-    revision: Number(text(json.revision))
+    revision
   }
 }
 
 export function stintPassportFromProtoJson(value: JsonValue): StintPassport {
+  assertJsonBounds(value, 'StintPassport ProtoJSON')
   const json = object(value)
   if (numeric(json.contractVersion) !== STINT_PASSPORT_CONTRACT_VERSION) {
     throw new Error(`Unsupported StintPassport contract version: ${String(json.contractVersion)}`)
   }
   const identity = object(json.identity)
-  const challengeCompletedAt = Number(text(json.challengeCompletedAtMs))
-  const closedAt = Number(text(json.closedAtMs))
+  const itemValues = array(json.items)
+  if (itemValues.length !== STINT_PASSPORT_ITEM_COUNT) {
+    throw new Error(`StintPassport requires exactly ${STINT_PASSPORT_ITEM_COUNT} items.`)
+  }
+  const items = itemValues.map(itemFromJson)
+  const challengeCompletedAt = optionalSafeUint(json.challengeCompletedAtMs, 'StintPassport challengeCompletedAtMs')
+  const closedAt = optionalSafeUint(json.closedAtMs, 'StintPassport closedAtMs')
+  const revision = requiredSafeUint(json.revision, 'StintPassport revision')
+  if (revision < 1) throw new Error('StintPassport revision must be at least one.')
+  const coverage = finiteNumber(json.coverage, 'StintPassport coverage')
+  if (coverage < 0 || coverage > 1) throw new Error('StintPassport coverage must be between zero and one.')
+  const applicableItems = finiteNumber(json.applicableItems, 'StintPassport applicableItems')
+  const coveredItems = finiteNumber(json.coveredItems, 'StintPassport coveredItems')
+  if (!Number.isInteger(applicableItems) || !Number.isInteger(coveredItems)) {
+    throw new Error('StintPassport coverage counters must be integers.')
+  }
   const passport: StintPassport = {
     contractVersion: STINT_PASSPORT_CONTRACT_VERSION,
     identity: {
-      stintId: text(identity.stintId),
-      sessionRef: text(identity.sessionRef),
-      trackRef: text(identity.trackRef),
-      trackLabel: text(identity.trackLabel),
-      carRef: text(identity.carRef),
-      carLabel: text(identity.carLabel),
-      driverRef: text(identity.driverRef),
-      driverLabel: text(identity.driverLabel),
-      teamRef: text(identity.teamRef) || undefined,
-      teamLabel: text(identity.teamLabel) || undefined,
-      startedAt: Number(text(identity.startedAtMs))
+      stintId: requiredText(identity.stintId, 'StintPassport stintId', 512),
+      sessionRef: requiredText(identity.sessionRef, 'StintPassport sessionRef', 1_024),
+      trackRef: requiredText(identity.trackRef, 'StintPassport trackRef', 1_024),
+      trackLabel: boundedText(identity.trackLabel, 'StintPassport trackLabel', 4_096),
+      carRef: requiredText(identity.carRef, 'StintPassport carRef', 1_024),
+      carLabel: boundedText(identity.carLabel, 'StintPassport carLabel', 4_096),
+      driverRef: requiredText(identity.driverRef, 'StintPassport driverRef', 1_024),
+      driverLabel: boundedText(identity.driverLabel, 'StintPassport driverLabel', 4_096),
+      teamRef: identity.teamRef === undefined
+        ? undefined
+        : boundedText(identity.teamRef, 'StintPassport teamRef', 1_024) || undefined,
+      teamLabel: identity.teamLabel === undefined
+        ? undefined
+        : boundedText(identity.teamLabel, 'StintPassport teamLabel', 4_096) || undefined,
+      startedAt: requiredSafeUint(identity.startedAtMs, 'StintPassport startedAtMs')
     },
     lifecycle: reverseMap(LIFECYCLE_TO_PROTO, json.lifecycle),
     telemetryContext: reverseMap(TELEMETRY_TO_PROTO, json.telemetryContext),
-    items: array(json.items).map(itemFromJson),
-    coverage: numeric(json.coverage),
-    applicableItems: numeric(json.applicableItems),
-    coveredItems: numeric(json.coveredItems),
-    challengeCompletedAt: challengeCompletedAt > 0 ? challengeCompletedAt : undefined,
+    items,
+    coverage,
+    applicableItems,
+    coveredItems,
+    challengeCompletedAt,
     challengeOwner: ownerFromJson(json.challengeOwner),
-    closedAt: closedAt > 0 ? closedAt : undefined,
-    closeReason: text(json.closeReason) as StintPassport['closeReason'] || undefined,
-    interrupted: bool(json.interrupted),
-    persisted: bool(json.persisted),
-    revision: Number(text(json.revision)) || 1,
-    durability: text(json.durability) === 'durable'
+    closedAt,
+    closeReason: json.closeReason === undefined
+      ? undefined
+      : boundedText(json.closeReason, 'StintPassport closeReason', 64) as StintPassport['closeReason'] || undefined,
+    interrupted: (() => {
+      if (typeof json.interrupted !== 'boolean') throw new Error('StintPassport interrupted must be a boolean.')
+      return json.interrupted
+    })(),
+    persisted: (() => {
+      if (typeof json.persisted !== 'boolean') throw new Error('StintPassport persisted must be a boolean.')
+      return json.persisted
+    })(),
+    revision,
+    durability: boundedText(json.durability, 'StintPassport durability', 64) === 'durable'
       ? 'durable'
-      : text(json.durability) === 'failed'
+      : boundedText(json.durability, 'StintPassport durability', 64) === 'failed'
         ? 'failed'
-        : text(json.durability) === 'quarantined'
+        : boundedText(json.durability, 'StintPassport durability', 64) === 'quarantined'
           ? 'quarantined'
-          : text(json.durability) === 'pending'
+          : boundedText(json.durability, 'StintPassport durability', 64) === 'pending'
             ? 'pending'
-            : bool(json.persisted)
+            : json.persisted === true
               ? 'durable'
               : 'ephemeral'
   }
-  if (!passport.identity.stintId || passport.revision < 1) {
-    throw new Error('StintPassport identity or revision is invalid.')
+  const calculated = calculatePassportCoverage(passport.items)
+  if (
+    Math.abs(calculated.coverage - passport.coverage) > Number.EPSILON ||
+    calculated.applicableItems !== passport.applicableItems ||
+    calculated.coveredItems !== passport.coveredItems
+  ) {
+    throw new Error('StintPassport coverage counters do not match the item set.')
   }
   return passport
 }
@@ -667,6 +894,7 @@ export function encodeStintPassport(passport: StintPassport): Uint8Array {
 }
 
 export function decodeStintPassport(bytes: Uint8Array): StintPassport {
+  assertBinaryInput(bytes, 'StintPassport')
   const message = fromBinary(stintPassportSchema, bytes)
   return stintPassportFromProtoJson(
     toJson(stintPassportSchema, message, { alwaysEmitImplicit: true })

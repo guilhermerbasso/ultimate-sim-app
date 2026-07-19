@@ -2,13 +2,13 @@
   "contractVersion": 1,
   "id": "AC-PASSPORT-V2",
   "branch": "feat/phase2-stint-passport-v2",
-  "baseCommit": "31a414d90df8ddf639672453ff00d42b5d46a574",
+  "baseCommit": "ef7778181b73759a090079d666de986d3774561f",
   "autonomousOverride": true,
   "humanTokenRequired": false,
   "scope": "Endurance Stint Passport only; Decision Flight Recorder excluded",
   "requirements": [
     "Bounded asynchronous Phase 02 tap with gap-on-drop and lifecycle boundary bypass",
-    "Dedicated persistence worker with deadlines, backpressure, circuit breaker, kill switch and restart",
+    "Dedicated persistence process crash boundary with deadlines, backpressure, circuit breaker, kill switch and restart",
     "Provenance-driven freshness with no snapshot-based renewal",
     "Twelve specific role-owned readiness items with explicit N/A eligibility",
     "Revision-bound expiring nonce challenge with authenticated sender capability",
@@ -33,6 +33,7 @@
     "Targeted Vitest audit suite",
     "TypeScript typecheck",
     "Electron production build with packaged worker smoke",
-    "Buf lint/breaking plus v1 and true N-1 descriptor/golden verification"
+    "Buf lint/breaking plus v1 and true N-1 descriptor/golden verification",
+    "GitHub OIDC-backed artifact attestation bound to the tested commit and tree"
   ]
 }
