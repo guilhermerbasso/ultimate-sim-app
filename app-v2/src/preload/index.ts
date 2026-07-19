@@ -112,6 +112,7 @@ const ALLOWED_PREFIXES = [
   'search:',
   'strategy:',
   'incidents:',
+  'steward:',
   'story:',
   'community:',
   'collaboration:',

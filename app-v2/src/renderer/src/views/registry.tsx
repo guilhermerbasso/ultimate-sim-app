@@ -28,6 +28,7 @@ const EngineerView = lazy(() => import('./EngineerView'))
 const CoachView = lazy(() => import('./CoachView'))
 const StrategyView = lazy(() => import('./StrategyView'))
 const CommunityView = lazy(() => import('./CommunityView'))
+const StewardDeskView = lazy(() => import('./StewardDeskView'))
 const DashboardBuilderView = lazy(() => import('./DashboardBuilderView'))
 const AdaptiveDashboardView = lazy(() => import('./AdaptiveDashboardView'))
 const BiometricsView = lazy(() => import('./BiometricsView'))
@@ -85,6 +86,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'dashboard-adaptive', group: 'Sim Racing', label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'Single panel that reorganizes itself by session phase and lap moment.', shortcut: 'TN', Component: AdaptiveDashboardView },
   { id: 'biometrics', group: 'Sim Racing', label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress × pace, and AR HUD.', shortcut: 'TJ', Component: BiometricsView },
   { id: 'community', group: 'Sim Racing', label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files; compare where you gain/lose.', shortcut: 'TK', Component: CommunityView },
+  { id: 'steward-desk', group: 'League Ops', label: 'Steward Desk', eyebrow: 'Human decision', description: 'Local evidence cases with rule versions, dissent, appeals, and anonymized export.', shortcut: 'TO', Component: StewardDeskView },
   { id: 'haptics-zonal', group: 'Sim Racing', label: 'Haptics Zonal', eyebrow: 'Zones', description: 'Events→zones (seat/pedals/wheel) + visual simulator.', shortcut: 'TL', Component: HapticsZonalView },
   { id: 'spotter-3d', group: 'Sim Racing', label: '3D Spotter', eyebrow: 'Spatial audio', description: 'Positional HRTF cues for nearby cars.', shortcut: 'TM', Component: Spotter3DView },
   { id: 'devices', group: 'ButtonBox', label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.', shortcut: '01', Component: DevicesView },

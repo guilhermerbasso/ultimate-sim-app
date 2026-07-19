@@ -69,6 +69,7 @@ import { register as spotter3d } from './spotter3d'
 import { register as stt } from './stt'
 import { register as iflagDynamic } from './iflag-dynamic'
 import { register as streaming } from './streaming'
+import { register as stewardDesk } from './steward-desk'
 import { register as streamPresentation } from './stream-presentation'
 import { register as simhubImport } from './simhub-import'
 import { register as configExport } from './config-export'
@@ -138,6 +139,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   spotter3d,
   stt,
   streaming,
+  stewardDesk,
   mqttTarget,
   simhubImport,
   configExport,
