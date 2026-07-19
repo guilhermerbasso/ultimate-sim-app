@@ -450,8 +450,8 @@ function SoundshiftPanel({
 }): ReactElement {
   const useIracingIndicator = config.defaultMode === 'shiftLight'
   // PlayerCarSLShiftRPM only comes from iRacing's real shift-light data, so it is a
-  // reliable "the yes is providing its own shift signal" flag (unlike shiftIndicatorPct,
-  // which falls back to a synthetic rpm/maxRpm proxy for dashboards).
+  // reliable "the sim is providing its own shift signal" flag. shiftIndicatorPct can
+  // fall back to a synthetic redline-relative top slice for visual surfaces.
   const iracingShiftRpm = live?.shiftRpm
   const iracingProvidingShift = iracingShiftRpm != null && iracingShiftRpm > 0
   const liveShiftPct = live?.shiftIndicatorPct

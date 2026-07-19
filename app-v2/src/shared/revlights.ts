@@ -35,6 +35,37 @@ export function redlineBandPct(rpm: number, redlineRpm: number): number {
   return clamp01((rpm - start) / (end - start))
 }
 
+export type ShiftIndicatorSource = Partial<Pick<
+  TelemetrySnapshot,
+  'shiftIndicatorPct' | 'revLights' | 'rpm' | 'maxRpm'
+>>
+
+// Canonical shift-light fill for every visual and physical surface. The sim's
+// per-car band wins, then the mirrored rev-lights band, then a redline-relative
+// top slice. Never substitute a proportional rpm/maxRpm fill.
+export function resolveShiftIndicatorPct(
+  snapshot: ShiftIndicatorSource | null | undefined
+): number {
+  const indicator = snapshot?.shiftIndicatorPct
+  if (typeof indicator === 'number' && Number.isFinite(indicator)) return clamp01(indicator)
+
+  const revPct = snapshot?.revLights?.pct
+  if (typeof revPct === 'number' && Number.isFinite(revPct)) return clamp01(revPct)
+
+  const rpm = snapshot?.rpm
+  const maxRpm = snapshot?.maxRpm
+  return typeof rpm === 'number' && typeof maxRpm === 'number'
+    ? redlineBandPct(rpm, maxRpm)
+    : 0
+}
+
+export function resolveShiftNow(
+  blink: boolean | null | undefined,
+  fallbackActive: boolean
+): boolean {
+  return typeof blink === 'boolean' ? blink : fallbackActive
+}
+
 export type RevlightsPresetId =
   | 'progressive'
   | 'segmented-gtr'
@@ -72,7 +103,7 @@ export interface RevlightsConfig {
   shiftBlinkPattern: RevlightsBlinkPattern
   // Prefer the sim's per-car shift-light band (snapshot.shiftIndicatorPct /
   // revLights.pct, which the provider maps across DriverCarSLFirstRPM →
-  // DriverCarSLLastRPM). When false, fall back to a redline-relative top-slice
+  // DriverCarSLShiftRPM). When false, fall back to a redline-relative top-slice
   // band (redlineBandPct) — never a 0..maxRpm proportional fill.
   useShiftIndicatorPct: boolean
   preset: RevlightsPresetId
@@ -324,14 +355,10 @@ export function computeRevlights(snapshot: TelemetrySnapshot | null, config: Rev
 
   // The provider already maps RPM across the per-car shift-light band into
   // shiftIndicatorPct (and the identical revLights.pct): 0 below the first light,
-  // 1 at/after the last. Drive the LEDs straight off that band — NEVER rpm/maxRpm,
+  // 1 at/after the raw shift RPM. Drive the LEDs straight off that band — NEVER rpm/maxRpm,
   // which lights the strip proportionally at all RPM (the bug this replaces).
-  const indicator = snapshot.shiftIndicatorPct
-  const bandPct = snapshot.revLights?.pct
-  if (config.useShiftIndicatorPct && typeof indicator === 'number' && Number.isFinite(indicator)) {
-    pct = clamp01(indicator)
-  } else if (config.useShiftIndicatorPct && typeof bandPct === 'number' && Number.isFinite(bandPct)) {
-    pct = clamp01(bandPct)
+  if (config.useShiftIndicatorPct) {
+    pct = resolveShiftIndicatorPct(snapshot)
   } else if (maxRpm > 0 && Number.isFinite(rpm)) {
     // No sim band available (or user opted out): synthesise a redline-relative
     // top-slice band instead of a 0..maxRpm proportional fill.
@@ -348,7 +375,11 @@ export function computeRevlights(snapshot: TelemetrySnapshot | null, config: Rev
   }
   level = clamp(level, 0, config.ledCount)
 
-  const shiftActive = config.shiftBlink && pct >= config.shiftRpmPct
+  const shiftActive = config.shiftBlink && resolveShiftNow(
+    snapshot.revLights?.blink,
+    pct >= config.shiftRpmPct
+  )
+  if (shiftActive) level = config.ledCount
 
   return { level, shiftActive, rpmPct: pct, flag: detectFlag(snapshot) }
 }

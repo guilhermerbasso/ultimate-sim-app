@@ -77,11 +77,11 @@ describe('IR_EXTRA_WIDGETS', () => {
 
   it('uses the shared blue strobe for the rev-lights widget', () => {
     const widget = IR_EXTRA_WIDGETS.find((candidate) => candidate.id === 'revLightsBar')!
-    const mid = renderWidget(widget, { ...dataSnapshot(), revLights: { pct: 0.6, blink: false } })
+    const mid = renderWidget(widget, { ...dataSnapshot(), revLights: { pct: 0.999, blink: false } })
     expect(mid).not.toContain(SHIFT_STROBE_BLUE)
     expect(mid).not.toContain('repeatCount="indefinite"')
 
-    const shift = renderWidget(widget, { ...dataSnapshot(), revLights: { pct: 1, blink: true } })
+    const shift = renderWidget(widget, { ...dataSnapshot(), revLights: { pct: 0.2, blink: true } })
     expect(shift).toContain(SHIFT_STROBE_BLUE)
     expect(shift).toContain('repeatCount="indefinite"')
   })

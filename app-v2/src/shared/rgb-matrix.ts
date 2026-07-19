@@ -1,8 +1,14 @@
 import type { Flags, SimId, TelemetrySnapshot } from './telemetry'
-import { redlineBandPct } from './revlights'
+import {
+  FALLBACK_SHIFT_BLINK_PCT,
+  resolveShiftIndicatorPct,
+  resolveShiftNow
+} from './revlights'
 
 export const RGB_MATRIX_SIZE = 8
 export const RGB_MATRIX_PROFILE_VERSION = 2
+export const RGB_MATRIX_SHIFT_BLUE = '#1f8dff'
+export const RGB_MATRIX_SHIFT_BLINK_MS = 90
 
 // Per-effect brightness is an 8-bit scale (0–255); 255 = full / unchanged. Each
 // effect's rendered colour is multiplied by brightness/255 before it is
@@ -1071,6 +1077,9 @@ export function renderMatrixFrame(
   timeMs: number,
   options: RgbMatrixRenderOptions = {}
 ): RgbFrame {
+  const shiftOverride = renderMatrixShiftOverrideFrame(telemetry, timeMs)
+  if (shiftOverride) return shiftOverride
+
   const frame = emptyFrame()
   // FLAGS PREVAIL OVER THE GEAR: when a caution flag is active (and an enabled
   // flags effect opts in — the default), the gear effect renders nothing, so the
@@ -1384,7 +1393,7 @@ function statusLedActive(status: RgbMatrixStatusLedId, telemetry: TelemetrySnaps
     case 'lowFuel':
       return lowFuel(telemetry)
     case 'redlineReached':
-      return shiftIndicatorLevel(telemetry) >= 0.97
+      return resolveShiftNow(telemetry.revLights?.blink, shiftIndicatorLevel(telemetry) >= 0.97)
     case 'speedLimiterOn':
       return Boolean(telemetry.pitLimiter)
     case 'spotterCarLeft':
@@ -1629,15 +1638,26 @@ export function selectRedlineReachedWithHysteresis(level: number, wasReached: bo
 // the marker at idle. This keeps the gear-marker/status-LED on the SAME band
 // pipeline as every other surface. Always returns a finite number ≥ 0.
 export function shiftIndicatorLevel(telemetry: TelemetrySnapshot | null): number {
-  if (!telemetry) return 0
-  const shiftPct = telemetry.shiftIndicatorPct
-  if (typeof shiftPct === 'number' && Number.isFinite(shiftPct)) return Math.max(0, shiftPct)
-  const revPct = telemetry.revLights?.pct
-  if (typeof revPct === 'number' && Number.isFinite(revPct)) return Math.max(0, revPct)
-  if (typeof telemetry.maxRpm === 'number' && telemetry.maxRpm > 0 && Number.isFinite(telemetry.rpm)) {
-    return redlineBandPct(telemetry.rpm, telemetry.maxRpm)
-  }
-  return 0
+  return resolveShiftIndicatorPct(telemetry)
+}
+
+export function renderMatrixShiftOverrideFrame(
+  telemetry: TelemetrySnapshot | null,
+  timeMs: number
+): RgbFrame | null {
+  if (!telemetry?.connected) return null
+  const active = resolveShiftNow(
+    telemetry.revLights?.blink,
+    resolveShiftIndicatorPct(telemetry) >= FALLBACK_SHIFT_BLINK_PCT
+  )
+  if (!active) return null
+
+  const phaseOn = Math.floor((Number.isFinite(timeMs) ? timeMs : 0) / RGB_MATRIX_SHIFT_BLINK_MS) % 2 === 0
+  const color = phaseOn ? hexToRgb(RGB_MATRIX_SHIFT_BLUE) : { r: 0, g: 0, b: 0 }
+  return Array.from(
+    { length: RGB_MATRIX_SIZE },
+    () => Array.from({ length: RGB_MATRIX_SIZE }, () => ({ ...color }))
+  )
 }
 
 function autoCautionFlagBlinkOn(effect: RgbMatrixFlagsEffect, timeMs: number): boolean {

@@ -434,10 +434,15 @@ describe('local MQTT v1 contracts', () => {
   it('generates a loopback-only broker profile with commands absent by default', () => {
     const config = buildMosquittoLoopbackConfig(DEFAULT_MQTT_LOCAL_CONFIG)
     const acl = buildMosquittoAclFiles(DEFAULT_MQTT_LOCAL_CONFIG)
+    const referenceConfig = readFileSync(
+      new URL('../../../contracts/mqtt/v1/mosquitto-loopback.conf', import.meta.url),
+      'utf8'
+    )
     expect(config).toContain('listener 1883 127.0.0.1')
     expect(config).toContain('listener 1884 127.0.0.1')
     expect(config).not.toContain('listener 1885')
     expect(config).not.toContain('0.0.0.0')
+    expect(referenceConfig).toMatch(/replace every[\s\S]*127\.0\.0\.1[\s\S]*::1/i)
     expect(config).toContain('allow_anonymous false')
     expect(config).toContain('password_file mqtt-publisher.passwd')
     expect(config).toContain('password_file mqtt-reader.passwd')

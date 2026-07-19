@@ -40,6 +40,7 @@ export default defineConfig({
           compositor: resolve('src/renderer/compositor.html'),
           dashboard: resolve('src/renderer/dashboard.html'),
           stream: resolve('src/renderer/stream.html'),
+          receiver: resolve('src/renderer/receiver.html'),
           // Touch Pit & Command panel (7" touchscreen).
           pitpanel: resolve('src/renderer/pitpanel.html'),
           // Editable RGB button-box panel (fullscreen touch window).

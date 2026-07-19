@@ -119,6 +119,16 @@ describe('evaluateOverlayTrigger', () => {
     )).toBe(true)
     expect(evaluateOverlayTrigger(
       { kind: 'shiftPoint' },
+      snap({ shiftIndicatorPct: 0.999, rpm: 7999, maxRpm: 8000, revLights: { pct: 0.999, blink: false } }),
+      config
+    )).toBe(false)
+    expect(evaluateOverlayTrigger(
+      { kind: 'shiftPoint' },
+      snap({ shiftIndicatorPct: 0.2, rpm: 2000, maxRpm: 8000, revLights: { pct: 0.2, blink: true } }),
+      config
+    )).toBe(true)
+    expect(evaluateOverlayTrigger(
+      { kind: 'shiftPoint' },
       snap({ shiftIndicatorPct: 1, rpm: 8000, maxRpm: 8000 }),
       {
         ...config,
