@@ -339,6 +339,14 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }, [])
 
   useEffect(() => {
+    if (!status?.running || statusAccessMode(status) !== 'internet' || !status.autoTunnelEnabled) return
+    const timer = setInterval(() => {
+      void refreshStatus().catch(() => undefined)
+    }, 2_000)
+    return () => clearInterval(timer)
+  }, [status?.running, status?.accessMode, status?.autoTunnelEnabled])
+
+  useEffect(() => {
     if (!createOpen) return
     const selectedSource = newSourceOptions.find((source) => source.id === newSourceId)
     if (selectedSource) return
