@@ -37,6 +37,8 @@
 - **Fail-closed Rig Preflight certification** for pre-session desired-vs-observed checks,
   remediation, governed waivers, known-good drift, expiring certificates, and continuous
   evidence-freshness monitoring.
+- **Fail-closed multimodal accessibility cue profiles** with visual, caption, auditory, LED, and
+  haptic redundancy, critical priority/preemption, localized cue copy, and bounded delivery state.
 - **Local-first Steward Desk** for evidence-backed league incident review, versioned rules, human
   verdicts, dissent, appeals, and rights-gated case exchange. Penalties and final decisions remain
   explicitly human-owned.
@@ -76,6 +78,12 @@
   serialized atomic persistence, and fail-closed recovery/quarantine for interrupted replacements.
 - Pre-existing generated touch-panel snapshot and visual-audit working-tree drift remain explicitly
   excluded from the Rig Preflight change set and release documentation update.
+- Accessibility delivery counts only truthful available output channels. Sender-scoped TTS/haptic
+  capability leases expire, critical cues preempt lower priorities, zero-output haptics fail safe,
+  localized Web Speech fallback matches the selected language, and Piper downloads remain disabled
+  without trusted metadata/digests.
+- Voice recovery and accessibility config import/delete are serialized and published atomically,
+  preserving the last verified voice/config state through failures and rollback.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 
