@@ -79,7 +79,7 @@
 - Pre-existing generated touch-panel snapshot and visual-audit working-tree drift remain explicitly
   excluded from the Rig Preflight change set and release documentation update.
 - Accessibility delivery counts only truthful available output channels. Sender-scoped TTS/haptic
-  capability leases expire, critical cues preempt lower priorities, zero-output haptics fail safe,
+  capability leases expire, critical cues preempt lower priorities, zero-output haptics fail closed,
   localized Web Speech fallback matches the selected language, and Piper downloads remain disabled
   without trusted metadata/digests.
 - Voice recovery and accessibility config import/delete are serialized and published atomically,
