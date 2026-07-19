@@ -577,7 +577,7 @@ const MIN_LAP_SAMPLES = 30
 const MAX_REPORTS = 6
 const RECENT_LAPS = 8
 const EXPLAIN_TIMEOUT_MS = 8000
-const EXPLAIN_MAX_TOKENS = 96
+const EXPLAIN_MAX_TOKENS = 8
 const COACH_EXPLAIN_SESSION_KINDS: readonly SessionKind[] = [
   'practice',
   'qualify',
@@ -616,81 +616,15 @@ function coachFindingFingerprint(finding: CoachFinding): string {
   })
 }
 
-function explanationWords(text: string): Set<string> {
-  const words = text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .match(/[a-z\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]{4,}/g) ?? []
-  return new Set(words.map((word) => word.replace(/(ing|ed|es|s)$/u, '')))
-}
+const CONTROLLED_COACH_TEMPLATE_TOKEN = 'PRIMARY'
 
-function explanationNumbers(text: string): number[] {
-  return [...text.matchAll(/-?\d+(?:[.,]\d+)?/g)]
-    .map((match) => Number(match[0].replace(',', '.')))
-    .filter(Number.isFinite)
-}
-
-function groundedCoachExplanation(
-  text: string,
-  finding: CoachFinding,
+function controlledCoachTemplate(
+  modelOutput: string,
   deterministic: string
-): boolean {
-  if (!text || text.length > 480) return false
-  const normalized = text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-  if (
-    /\b(ignore|disregard|override).{0,24}\b(flag|yellow|red|race control|safety car|vsc)\b/.test(normalized) ||
-    /\b(pass|overtake|attack|divebomb|send it|block the car|defend the position|fight for position|take the position|push past)\b/.test(normalized) ||
-    /\b(under yellow|during (?:the )?(?:safety car|vsc)|before the restart)\b/.test(normalized) ||
-    /\b(ignorar?|desobedecer).{0,24}\b(bandeira|amarela|vermelha|direcao de prova|safety car)\b/.test(normalized) ||
-    /\b(ultrapass|ataqu|adelant|depasse|angreif|uberhol).*\b(carro|coche|voiture|auto|rival)\b/.test(normalized) ||
-    /(无视|無視).*(黄旗|黃旗|赤旗|レッド|イエロー)|(超车|超車|攻击|攻擊|追い越|攻め)/
-      .test(normalized)
-  ) return false
-
-  const allowedText = [
-    deterministic,
-    finding.title,
-    finding.detail,
-    finding.evidence,
-    String(finding.sector),
-    finding.corner === undefined ? '' : String(finding.corner),
-    String(finding.estTimeLossSec),
-    finding.estTimeDeltaSec === undefined ? '' : String(finding.estTimeDeltaSec),
-    ...Object.keys(finding.metrics),
-    ...Object.values(finding.metrics).map(String)
-  ].join(' ')
-  const allowedNumbers = explanationNumbers(allowedText)
-  if (
-    explanationNumbers(text).some(
-      (value) => !allowedNumbers.some((allowed) => Math.abs(allowed - value) <= 0.011)
-    )
-  ) return false
-
-  const allowedWords = explanationWords(allowedText)
-  const outputWords = explanationWords(text)
-  const genericWords = new Set([
-    'turn',
-    'corner',
-    'sector',
-    'curva',
-    'virage',
-    'kurve',
-    'driver',
-    'pilot',
-    'observation',
-    'advice',
-    'estimated',
-    'loss',
-    'tempo',
-    'time'
-  ])
-  return [...outputWords].some(
-    (word) => allowedWords.has(word) && !genericWords.has(word)
-  )
+): string | null {
+  return modelOutput.trim() === CONTROLLED_COACH_TEMPLATE_TOKEN
+    ? deterministic
+    : null
 }
 
 export interface LapCoachDeps {
@@ -781,6 +715,7 @@ export class LapCoachAnalyzer {
       safety.flagDisqualify,
       safety.flagCheckered,
       safety.flagsKnown,
+      safety.raceControlUnknownReason,
       safety.pitStateKnown,
       safety.paceStateKnown,
       safety.caution,
@@ -1017,26 +952,24 @@ export class LapCoachAnalyzer {
       const result = await this.deps
         .generate({
           system:
-            fence.language === 'pt-BR'
-              ? 'Você reescreve somente a observação determinística fornecida. Não acrescente ultrapassagem, ataque, defesa, adversários, direção de prova, setup ou números novos. Se não puder manter exatamente essa evidência, repita a frase determinística.'
-              : 'Rewrite only the supplied deterministic observation. Do not add passing, attacking, defending, opponents, race-control, setup, or new numeric advice. If you cannot stay within that evidence, repeat the deterministic sentence.',
+            'Return exactly the single token PRIMARY and nothing else. Do not produce prose, punctuation, explanations, or additional clauses.',
           prompt: [
             explainPrompt(finding),
             `Deterministic sentence: ${deterministic}`,
-            'Safety envelope: known-safe at request time; do not add live tactical advice.'
+            'Allowed output grammar: PRIMARY'
           ].join('\n'),
           maxTokens: EXPLAIN_MAX_TOKENS,
-          temperature: 0.3,
+          temperature: 0,
           signal: controller.signal
         })
         .finally(() => clearTimeout(timer))
       const text = (result.text ?? '').trim()
-      if (
-        result.ok &&
-        text.length > 0 &&
-        groundedCoachExplanation(text, finding, deterministic)
-      ) {
-        return this.finalizeExplanation(fence, finding, { text, source: 'llm' })
+      const controlled = controlledCoachTemplate(text, deterministic)
+      if (result.ok && controlled !== null) {
+        return this.finalizeExplanation(fence, finding, {
+          text: controlled,
+          source: 'llm'
+        })
       }
     } catch {
       // fall through to deterministic

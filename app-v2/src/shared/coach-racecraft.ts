@@ -67,6 +67,7 @@ export interface RacecraftSafetyContext {
   flagDisqualify?: boolean
   flagCheckered?: boolean
   flagsKnown?: boolean
+  raceControlUnknownReason?: string
   pitStateKnown?: boolean
   paceStateKnown?: boolean
   carLeftRight?: CarLeftRightState
@@ -398,7 +399,11 @@ export function racecraftSafetyFromSnapshot(
     flagRepair: snapshot?.flags?.repair,
     flagDisqualify: snapshot?.flags?.disqualify,
     flagCheckered: snapshot?.flags?.checkered,
-    flagsKnown: snapshot?.flags !== undefined,
+    flagsKnown:
+      snapshot?.raceControlState === 'unknown'
+        ? false
+        : snapshot?.flags !== undefined,
+    raceControlUnknownReason: snapshot?.raceControlUnknownReason,
     pitStateKnown:
       typeof snapshot?.onPitRoad === 'boolean' ||
       typeof snapshot?.pit?.inPitStall === 'boolean',
@@ -443,6 +448,9 @@ export function racecraftSafetyReason(
   if (safety.flagRepair === true) return 'repair'
   if (safety.flagYellow === true) return 'yellow-flag'
   if (safety.flagBlue === true) return 'blue-flag'
+  if (requireKnownRaceControl && safety.raceControlUnknownReason) {
+    return 'race-control-unknown'
+  }
   if (safety.paceMode !== undefined && safety.paceMode !== 'notPacing') return 'pacing'
   if (safety.caution === true) return 'caution'
   if (
@@ -605,6 +613,29 @@ function isPurelyInformationalRacecraftQuestion(question: string): boolean {
     /\b(what is|what are|define|meaning of|explain the term|tell me about the concept|o que e|que significa|qu est ce que|was ist)\b/.test(question)
   if (!informational) return false
   return !/\b(can i|should i|could i|may i|do i|would it|when should|where should|how to|best way|next|now|this lap|restart|corner|turn|hairpin|chicane|t\d+|car ahead|opponent)\b/.test(question)
+}
+
+export function isExplicitSafeInformationalQuestion(question: string): boolean {
+  const q = normalize(question)
+    .replace(/[’']/g, ' ')
+    .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!q) return false
+  const englishTopic =
+    '(?:understeer|oversteer|abs|anti lock|traction control|brake bias|camber|caster|toe|downforce|apex|slipstream|draft|dirty air|telemetry|lap delta|tire pressure|tyre pressure|fuel delta|pit limiter|yellow flag|red flag|blue flag|black flag|meatball flag|safety car|virtual safety car|vsc|overtake|racecraft)'
+  const english = new RegExp(
+    `^(?:(?:what is|define) (?:an? |the )?${englishTopic}|` +
+    `explain (?:the )?(?:(?:term|concept|meaning of) )?(?:an? |the )?${englishTopic}|` +
+    `what does (?:the )?${englishTopic} (?:mean|do)|` +
+    `tell me what (?:the )?${englishTopic} means)$`
+  )
+  if (english.test(q)) return true
+  return /^(?:o que e|defina|explique(?: o (?:termo|conceito))?) (?:a |o )?(?:subviragem|sobreviragem|abs|controle de tracao|pressao dos pneus|bandeira amarela|safety car)$/.test(q) ||
+    /^(?:que es|define|explica(?: el (?:termino|concepto))?) (?:el |la )?(?:subviraje|sobreviraje|abs|control de traccion|presion de neumaticos|bandera amarilla|coche de seguridad)$/.test(q) ||
+    /^(?:qu est ce que|definis|explique(?: le (?:terme|concept))?) (?:le |la |un |une )?(?:sous virage|survirage|abs|controle de traction|pression des pneus|drapeau jaune|voiture de securite)$/.test(q) ||
+    /^(?:was ist|definiere|erklare(?: den (?:begriff|konzept))?) (?:der |die |das |ein )?(?:untersteuern|ubersteuern|abs|traktionskontrolle|reifendruck|gelbe flagge|sicherheitsauto|safety car)$/.test(q) ||
+    /^(?:(?:转向不足|转向过度|防抱死|牵引力控制|黄旗|红旗|安全车)(?:是什么|是什么意思)|(?:アンダーステア|オーバーステア|イエローフラッグ|セーフティカー)とは(?:何)?)$/.test(q)
 }
 
 export function detectRacecraftQuestionWithLanguage(question: string): DetectedRacecraftQuestion | null {

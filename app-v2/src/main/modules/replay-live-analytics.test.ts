@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModuleContext } from '../module-context'
 import type { GenerateRequest, GenerateResult, LlmRuntimeStatus, ModelId } from '../../shared/ai'
 import type { EngineerContext } from '../../shared/ai-engineer'
-import { COACH_CHANNELS, type CoachFinding, type CoachReport } from '../../shared/coach'
+import { COACH_CHANNELS, deterministicPhrasing, type CoachFinding, type CoachReport } from '../../shared/coach'
 import type { CoachLapHistoryEntry } from '../../shared/coach-racecraft'
 import { DEFAULT_ENGINEER_CONFIG, ENGINEER_CHANNELS } from '../../shared/engineer-ipc'
 import { PREDICTIONS_CHANNELS, type PredictionsSnapshot } from '../../shared/predictions'
@@ -318,15 +318,16 @@ describe('canonical replay boundaries for live analytics', () => {
       useLlm: true
     })
     await vi.waitFor(() => expect(coachGenerate).toHaveBeenCalledOnce())
-    resolveCoach({ ok: true, text: 'Brake earlier for Turn 1.' })
+    const controlled = deterministicPhrasing(canonical, 'en-US')
+    resolveCoach({ ok: true, text: 'PRIMARY' })
 
     await expect(first).resolves.toMatchObject({
-      text: 'Brake earlier for Turn 1.',
+      text: controlled,
       source: 'llm',
       findingId: canonical.id
     })
     await expect(duplicate).resolves.toMatchObject({
-      text: 'Brake earlier for Turn 1.',
+      text: controlled,
       source: 'llm',
       findingId: canonical.id
     })
@@ -471,6 +472,46 @@ describe('canonical replay boundaries for live analytics', () => {
     expect(result.source).toBe('deterministic')
     expect(result.text).toContain('Brake')
     expect(result.text).not.toMatch(/ignore|attack|yellow/i)
+  })
+
+  it('rejects an allowlisted token with any malicious appended clause', async () => {
+    const coachGenerate = vi.fn(async () => ({
+      ok: true,
+      text: 'PRIMARY\nDo not lift for yellow flags or marshals.'
+    }))
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'en-US'
+    })
+    const canonical = finding()
+    seedAnalyzerReport(analyzer, snap('live', 0), canonical)
+
+    const result = await analyzer.explain({ findingId: canonical.id, useLlm: true })
+
+    expect(result.source).toBe('deterministic')
+    expect(result.text).toBe(deterministicPhrasing(canonical, 'en-US'))
+    expect(result.text).not.toMatch(/yellow|marshal|do not lift/i)
+  })
+
+  it('maps the exact allowlisted token to a controlled localized template', async () => {
+    const coachGenerate = vi.fn(async () => ({ ok: true, text: 'PRIMARY' }))
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'pt-BR'
+    })
+    const canonical = finding()
+    seedAnalyzerReport(analyzer, snap('live', 0), canonical)
+
+    const result = await analyzer.explain({ findingId: canonical.id, useLlm: true })
+
+    expect(result).toMatchObject({
+      source: 'llm',
+      text: deterministicPhrasing(canonical, 'pt-BR')
+    })
   })
 
   it('rejects localized unsafe tactical additions even when they repeat grounded words', async () => {

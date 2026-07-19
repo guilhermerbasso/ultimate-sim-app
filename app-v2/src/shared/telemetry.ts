@@ -775,6 +775,10 @@ export interface TelemetrySnapshot {
 
   // Bandeiras / iRacing extras
   flags?: Flags
+  /** Whether the provider's raw race-control flag value was recognized. */
+  raceControlState?: 'known' | 'unknown'
+  /** Provider-specific fail-closed reason when raceControlState is unknown. */
+  raceControlUnknownReason?: string
   sessionFlagsRaw?: number
   pitLimiter?: boolean
   onPitRoad?: boolean

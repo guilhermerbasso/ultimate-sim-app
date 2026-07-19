@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 import {
+  racecraftSafetyFromSnapshot,
+  racecraftSafetyReason
+} from '../../shared/coach-racecraft'
+import {
   ACC_GRAPHICS_PAGE_SIZE,
   ACC_PHYSICS_PAGE_SIZE,
   ACC_STATIC_PAGE_SIZE,
@@ -80,8 +84,8 @@ describe('ACC v1.8.12 binary layout', () => {
       trackTempC: 36
     })
     expect(snapshot?.tyres?.lf.pressureKpa).toBeCloseTo(172.369, 3)
-    expect(accFlags({ ...graphics!, penalty: 11 }).disqualify).toBe(true)
-    expect(accFlags({ ...graphics!, penalty: 12 }).disqualify).toBe(false)
+    expect(accFlags({ ...graphics!, penalty: 11 })!.disqualify).toBe(true)
+    expect(accFlags({ ...graphics!, penalty: 12 })!.disqualify).toBe(false)
   })
 
   it('fails closed for truncated pages and an unsupported shared-memory version', () => {
@@ -122,6 +126,39 @@ describe('ACC v1.8.12 binary layout', () => {
       onTrack: false,
       replayContext: { state: 'unknown', active: true }
     })
+  })
+
+  it('maps ACC orange/mechanical flag 8 and fails unsupported flags closed', () => {
+    const physics = decodeACCPhysicsPage(fixture('acc-physics-v1.8.bin'))!
+    const staticInfo = decodeACCStaticPage(fixture('acc-static-v1.8.bin'))!
+    const graphics = decodeACCGraphicsPage(fixture('acc-graphics-v1.8.bin'))!
+
+    const orange = accSnapshotFromPages(
+      physics,
+      { ...graphics, flag: 8 },
+      staticInfo,
+      10
+    )!
+    expect(orange).toMatchObject({
+      raceControlState: 'known',
+      flags: { meatball: true, repair: true }
+    })
+    expect(racecraftSafetyReason(racecraftSafetyFromSnapshot(orange))).toBe('meatball')
+
+    const unsupported = accSnapshotFromPages(
+      physics,
+      { ...graphics, flag: 99 },
+      staticInfo,
+      11
+    )!
+    expect(unsupported).toMatchObject({
+      raceControlState: 'unknown',
+      raceControlUnknownReason: 'acc-flag-unsupported:99',
+      flags: undefined
+    })
+    expect(racecraftSafetyReason(racecraftSafetyFromSnapshot(unsupported))).toBe(
+      'race-control-unknown'
+    )
   })
 })
 
@@ -224,5 +261,27 @@ describe('AMS2 Project CARS 2 v13/v14 binary layout', () => {
     tracker.disconnect()
     const reconnected = tracker.observe(accReplayResolution(2)!, 'acc:session')
     expect(reconnected).toMatchObject({ state: 'live', connectionEpoch: 2 })
+  })
+
+  it('keeps known AMS2 flags explicit and fails unsupported flag colours closed', () => {
+    const page = decodeAMS2SharedMemoryPage(fixture('ams2-v14-prefix.bin'))!
+    const green = ams2SnapshotFromPage(page, 20)!
+    expect(green).toMatchObject({
+      raceControlState: 'known',
+      flags: { green: true }
+    })
+
+    const unsupported = ams2SnapshotFromPage(
+      { ...page, highestFlagColour: 99 },
+      21
+    )!
+    expect(unsupported).toMatchObject({
+      raceControlState: 'unknown',
+      raceControlUnknownReason: 'ams2-flag-colour-unsupported:99',
+      flags: undefined
+    })
+    expect(racecraftSafetyReason(racecraftSafetyFromSnapshot(unsupported))).toBe(
+      'race-control-unknown'
+    )
   })
 })

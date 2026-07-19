@@ -265,20 +265,43 @@ export function ams2TrackIdentity(
   }
 }
 
-export function ams2Flags(highestFlagColour: number): Flags {
-  return {
-    green: highestFlagColour === 1,
-    blue: highestFlagColour === 2,
-    white: highestFlagColour === 3 || highestFlagColour === 4,
-    red: highestFlagColour === 5,
-    yellow: highestFlagColour === 6 || highestFlagColour === 7,
-    black: highestFlagColour === 10,
-    checkered: highestFlagColour === 11,
-    meatball: highestFlagColour === 9,
-    repair: false,
-    disqualify: highestFlagColour === 10,
-    greenWhiteCheckered: false
+export interface AMS2RaceControlResult {
+  flags?: Flags
+  state: 'known' | 'unknown'
+  reason?: string
+}
+
+export function ams2RaceControl(highestFlagColour: number): AMS2RaceControlResult {
+  if (
+    !Number.isInteger(highestFlagColour) ||
+    highestFlagColour < 0 ||
+    highestFlagColour > 11
+  ) {
+    return {
+      state: 'unknown',
+      reason: `ams2-flag-colour-unsupported:${highestFlagColour}`
+    }
   }
+  return {
+    state: 'known',
+    flags: {
+      green: highestFlagColour === 1,
+      blue: highestFlagColour === 2,
+      white: highestFlagColour === 3 || highestFlagColour === 4,
+      red: highestFlagColour === 5,
+      yellow: highestFlagColour === 6 || highestFlagColour === 7,
+      black: highestFlagColour === 8 || highestFlagColour === 10,
+      checkered: highestFlagColour === 11,
+      meatball: highestFlagColour === 9,
+      repair: highestFlagColour === 9,
+      disqualify: highestFlagColour === 10,
+      greenWhiteCheckered: false
+    }
+  }
+}
+
+export function ams2Flags(highestFlagColour: number): Flags | undefined {
+  return ams2RaceControl(highestFlagColour).flags
 }
 
 export function coherentAMS2PagePair(
@@ -394,6 +417,7 @@ export function ams2SnapshotFromPage(
   ].join(':')
   const normalizedReplayContext =
     replayContext ?? fixtureReplayContext(replayResolution, sessionIdentity)
+  const raceControl = ams2RaceControl(data.highestFlagColour)
 
   return {
     sim: 'ams2',
@@ -440,7 +464,9 @@ export function ams2SnapshotFromPage(
       pitsOpen: false,
       inPitStall: data.pitMode === 2 || data.pitMode === 4
     },
-    flags: ams2Flags(data.highestFlagColour),
+    flags: raceControl.flags,
+    raceControlState: raceControl.state,
+    raceControlUnknownReason: raceControl.reason,
     fuelLiters,
     fuelCapacityLiters: data.fuelCapacity > 0 ? data.fuelCapacity : undefined,
     airTempC: data.ambientTemperature,

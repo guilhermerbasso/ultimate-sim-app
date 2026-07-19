@@ -292,21 +292,40 @@ export function accWeatherFromGraphics(
   }
 }
 
-export function accFlags(graphics: ACCGraphicsPage): Flags {
+export interface ProviderRaceControlResult {
+  flags?: Flags
+  state: 'known' | 'unknown'
+  reason?: string
+}
+
+export function accRaceControl(graphics: ACCGraphicsPage): ProviderRaceControlResult {
+  if (!Number.isInteger(graphics.flag) || graphics.flag < 0 || graphics.flag > 8) {
+    return {
+      state: 'unknown',
+      reason: `acc-flag-unsupported:${graphics.flag}`
+    }
+  }
   const disqualify = new Set([5, 11, 13, 15, 16, 17, 18, 20, 21]).has(graphics.penalty)
   return {
-    green: graphics.flag === 7 || graphics.globalGreen !== 0,
-    yellow: graphics.flag === 2 || graphics.globalYellow !== 0,
-    blue: graphics.flag === 1,
-    white: graphics.flag === 4 || graphics.globalWhite !== 0,
-    checkered: graphics.flag === 5 || graphics.globalChequered !== 0,
-    red: graphics.globalRed !== 0,
-    black: graphics.flag === 3,
-    meatball: false,
-    repair: false,
-    disqualify,
-    greenWhiteCheckered: false
+    state: 'known',
+    flags: {
+      green: graphics.flag === 7 || graphics.globalGreen !== 0,
+      yellow: graphics.flag === 2 || graphics.globalYellow !== 0,
+      blue: graphics.flag === 1,
+      white: graphics.flag === 4 || graphics.globalWhite !== 0,
+      checkered: graphics.flag === 5 || graphics.globalChequered !== 0,
+      red: graphics.globalRed !== 0,
+      black: graphics.flag === 3 || graphics.flag === 6,
+      meatball: graphics.flag === 8,
+      repair: graphics.flag === 8,
+      disqualify,
+      greenWhiteCheckered: false
+    }
   }
+}
+
+export function accFlags(graphics: ACCGraphicsPage): Flags | undefined {
+  return accRaceControl(graphics).flags
 }
 
 function stablePacket<T extends { packetId: number }>(
@@ -406,6 +425,7 @@ export function accSnapshotFromPages(
   ].join(':')
   const normalizedReplayContext =
     replayContext ?? fixtureReplayContext(replayResolution, sessionIdentity)
+  const raceControl = accRaceControl(graphics)
 
   return {
     sim: 'acc',
@@ -447,7 +467,9 @@ export function accSnapshotFromPages(
       pitsOpen: false,
       inPitStall: graphics.isInPit !== 0
     },
-    flags: accFlags(graphics),
+    flags: raceControl.flags,
+    raceControlState: raceControl.state,
+    raceControlUnknownReason: raceControl.reason,
     fuelLiters: physics.fuel >= 0 ? physics.fuel : undefined,
     fuelCapacityLiters: staticInfo.maxFuel > 0 ? staticInfo.maxFuel : undefined,
     tyres: {

@@ -132,6 +132,8 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
   tireColdPressuresKpa: true,
   pitTyreTargetsKpa: true,
   flags: true,
+  raceControlState: true,
+  raceControlUnknownReason: true,
   sessionFlagsRaw: true,
   pitLimiter: true,
   onPitRoad: true,

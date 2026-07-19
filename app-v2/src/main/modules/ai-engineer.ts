@@ -35,6 +35,7 @@ import {
   coachAdviceLanguageFromAppLanguage,
   detectRacecraftLikeQuestionLanguage,
   detectRacecraftQuestionWithLanguage,
+  isExplicitSafeInformationalQuestion,
   racecraftClarificationText,
   racecraftSafetyFromSnapshot,
   racecraftSafetyMessage,
@@ -644,11 +645,31 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     }
 
     const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en', unitSystem)
-    if (intent.type === 'answer') {
-      return finalize(question, intent.text, 'answer', 'intent', undefined, context)
-    }
     if (intent.type === 'command') {
       return runCommand(question, intent.kind, intent.speak, intent.args, context)
+    }
+    const freeFormSafety =
+      deps.racecraftContext?.()?.safety ??
+      makeFallbackContext().safety
+    const freeFormSafetyReason = racecraftSafetyReason(freeFormSafety)
+    if (
+      freeFormSafetyReason &&
+      !isExplicitSafeInformationalQuestion(question)
+    ) {
+      const text = racecraftSafetyMessage(freeFormSafetyReason, adviceLanguage)
+      return finalize(
+        question,
+        text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        text
+      )
+    }
+    if (intent.type === 'answer') {
+      return finalize(question, intent.text, 'answer', 'intent', undefined, context)
     }
     return llmAnswer(question, context)
   }

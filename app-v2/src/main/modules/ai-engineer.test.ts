@@ -152,7 +152,12 @@ function makeHarness(overrides?: {
   const broadcast = vi.fn()
   const saveConfig = vi.fn(async () => undefined)
   const context: EngineerContext = { getSnapshot: () => overrides?.snapshot ?? null }
-  const racecraftContext = overrides?.racecraftContext
+  const racecraftContext =
+    overrides?.racecraftContext === undefined
+      ? overrides?.snapshot === undefined
+        ? { safety: KNOWN_SAFE_RACE }
+        : undefined
+      : overrides.racecraftContext
   const deps: EngineerOrchestratorDeps = {
     runtime,
     modelManager,
@@ -403,6 +408,64 @@ describe('createEngineerOrchestrator.ask', () => {
       expect(answer.text).toContain(marker)
       expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
       expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    ['send one up the inside', 'yellow'],
+    ['sennd won up th insyde', 'yellow'],
+    ['stick a nose in before T1', 'yellow'],
+    ['put it alongside in the braking zone', 'unknown'],
+    ['close the gap and pressure him', 'unknown'],
+    ['carry more speed into the next corner', 'yellow'],
+    ['hold him behind me on this lap', 'unknown'],
+    ['explain understeer then how i overtake the leader', 'yellow'],
+    ['define the best overtake line into turn 1', 'unknown']
+  ] as const)(
+    'default-denies unsafe free-form driving request %s',
+    async (question, state) => {
+      const safety =
+        state === 'yellow'
+          ? { ...KNOWN_SAFE_RACE, flagYellow: true }
+          : {
+              ...KNOWN_SAFE_RACE,
+              flagsKnown: false,
+              pitStateKnown: false,
+              paceStateKnown: false
+            }
+      const harness = makeHarness({ racecraftContext: { safety } })
+
+      const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+      expect(answer.source).toBe('intent')
+      expect(answer.text).toContain(
+        state === 'yellow' ? 'TACTICS PAUSED' : 'RACE-CONTROL STATE UNAVAILABLE'
+      )
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }],
+    [
+      'unknown',
+      {
+        ...KNOWN_SAFE_RACE,
+        flagsKnown: false,
+        pitStateKnown: false,
+        paceStateKnown: false
+      }
+    ]
+  ] as const)(
+    'allows explicit non-tactical informational questions through during %s',
+    async (_label, safety) => {
+      const harness = makeHarness({ racecraftContext: { safety } })
+
+      const answer = await createEngineerOrchestrator(harness.deps).ask('Define understeer.')
+
+      expect(answer.source).toBe('llm')
+      expect(harness.runtime.generateWithTools).toHaveBeenCalledOnce()
     }
   )
 

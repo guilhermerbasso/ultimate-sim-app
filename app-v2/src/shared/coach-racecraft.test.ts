@@ -11,6 +11,7 @@ import {
   detectRacecraftQuestion,
   detectRacecraftQuestionWithLanguage,
   detectRacecraftLikeQuestionLanguage,
+  isExplicitSafeInformationalQuestion,
   MAX_QUALI_BRIEFING_LENGTH,
   MAX_RACECRAFT_ADVICE_LENGTH,
   MAX_RACECRAFT_SPEECH_LENGTH,
@@ -200,6 +201,31 @@ describe('racecraft question routing', () => {
   })
 
   it.each([
+    'What is understeer?',
+    'What does ABS do?',
+    'Define an overtake.',
+    'Explain the meaning of a yellow flag.',
+    'O que é subviragem?',
+    'Was ist ein Safety Car?'
+  ])('allowlists an explicitly informational non-tactical question: %s', (question) => {
+    expect(isExplicitSafeInformationalQuestion(question)).toBe(true)
+  })
+
+  it.each([
+    'Can I pass on the next corner?',
+    'How should I approach this corner?',
+    'Tell me how to push harder now.',
+    'What is the best way to attack the car ahead?',
+    'Explain whether I should send it.',
+    'Explain understeer then how I overtake the leader.',
+    'Define the best overtake line into Turn 1.',
+    'Define oversteer so I can overtake the leader immediately.',
+    'Explain apex and which apex to take to overtake here.'
+  ])('does not allowlist actionable or ambiguous driving wording: %s', (question) => {
+    expect(isExplicitSafeInformationalQuestion(question)).toBe(false)
+  })
+
+  it.each([
     ['Should I send it down the inside?', 'en-US'],
     ['Devo mergulhar por dentro?', 'pt-BR'],
     ['¿Debo tirarme por dentro?', 'es'],
@@ -273,6 +299,36 @@ describe('racecraft question routing', () => {
         }
       }
     }
+  })
+
+  it('treats an explicit provider race-control unknown state as unknown even if a stale flags object exists', () => {
+    const safety = racecraftSafetyFromSnapshot({
+      sim: 'acc',
+      connected: true,
+      onTrack: true,
+      onPitRoad: false,
+      paceMode: 'notPacing',
+      sessionKind: 'race',
+      raceControlState: 'unknown',
+      raceControlUnknownReason: 'acc-flag-unsupported:99',
+      flags: {
+        green: false,
+        yellow: false,
+        blue: false,
+        white: false,
+        checkered: false,
+        red: false,
+        black: false,
+        meatball: false,
+        repair: false,
+        disqualify: false,
+        greenWhiteCheckered: false
+      }
+    } as TelemetrySnapshot)
+
+    expect(safety.flagsKnown).toBe(false)
+    expect(safety.raceControlUnknownReason).toBe('acc-flag-unsupported:99')
+    expect(racecraftSafetyReason(safety)).toBe('race-control-unknown')
   })
 
   it.each(['acc', 'ac', 'ams2'] as const)(
