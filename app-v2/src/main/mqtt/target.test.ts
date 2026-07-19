@@ -303,6 +303,31 @@ describe('MQTT certification target conformance', () => {
     expect(target.getStatus().metrics.schemaRejects).toBe(1)
   })
 
+  it('rejects command packets delivered below the required QoS 1', async () => {
+    let now = 450_000
+    const config = normalizeMqttLocalConfig({
+      enabled: true,
+      commandsEnabled: true,
+      instanceId: 'rig-command-qos'
+    })
+    const broker = new InMemoryMqttBroker(() => now)
+    const effect = vi.fn()
+    const target = new MqttCertificationTarget(broker.transportFactory, {
+      now: () => now,
+      monotonicNs: () => BigInt(now) * 1_000_000n,
+      commandHandlers: { 'app.overlay.show': effect }
+    })
+    await target.start(config)
+    await settle(target)
+
+    const request = commandPacket(config, now, 'qos-zero')
+    broker.inject({ ...request.packet, qos: 0 }, 'local-command')
+    await settle(target)
+
+    expect(effect).not.toHaveBeenCalled()
+    expect(target.getStatus().metrics.denied).toBeGreaterThan(0)
+  })
+
   it('bounds overload, coalesces state, and rejects oversized payloads', async () => {
     let now = 500_000
     const config = normalizeMqttLocalConfig({ enabled: true, instanceId: 'rig-load' })
