@@ -886,7 +886,7 @@ describe('setup experiment seeded cluster bootstrap', () => {
         expect.objectContaining({
           iteration: 0,
           sampledClusters: ['block-001', 'block-002'],
-          effectSec: expect.closeTo(1.2, 8)
+          effectSec: expect.closeTo(1.275, 8)
         })
       ])
     })
@@ -935,6 +935,130 @@ describe('setup experiment seeded cluster bootstrap', () => {
         ])
       }
     }
+  })
+
+  it('equally weights matched ABA and BAB block contrasts despite unequal lap counts and pace offsets', () => {
+    const fixture = runtimeExperiment('equal-matched-block-weights')
+    fixture.analysisPlan = runtimeAnalysisPlan({ lapBlockLength: 20 })
+    addProtocolBlock(fixture, {
+      blockId: 'block-001',
+      sequence: 'ABA',
+      values: [
+        Array(5).fill(100),
+        Array(5).fill(99),
+        Array(5).fill(100)
+      ],
+      timestampBase: 35_000
+    })
+    addProtocolBlock(fixture, {
+      blockId: 'block-002',
+      sequence: 'BAB',
+      values: [
+        Array(20).fill(197),
+        Array(20).fill(200),
+        Array(20).fill(197)
+      ],
+      timestampBase: 36_000
+    })
+
+    const analysis = analyzeSetupExperiment(fixture)
+    const bootstrap = runtimeRecord(analysisRuntime(analysis).bootstrap)
+    const draws = bootstrap.draws as unknown[]
+    let mixedDraws = 0
+    for (const drawValue of draws) {
+      const draw = runtimeRecord(drawValue)
+      const clusters = draw.sampledClusters as string[]
+      expect(clusters).toHaveLength(2)
+      expect(clusters.every((id) => id === 'block-001' || id === 'block-002')).toBe(true)
+      const mixed = clusters[0] !== clusters[1]
+      if (mixed) mixedDraws += 1
+      const expectedEffect = mixed ? 2 : clusters[0] === 'block-001' ? 1 : 3
+      expect(Number(draw.effectSec)).toBeCloseTo(expectedEffect, 10)
+    }
+
+    expect(mixedDraws).toBeGreaterThan(0)
+    expect(analysisRuntime(analysis).blocks).toEqual([
+      { blockId: 'block-001', sequence: 'ABA' },
+      { blockId: 'block-002', sequence: 'BAB' }
+    ])
+    expect(analysis.effectSec).toBeCloseTo(2, 10)
+    expect(fixture.variable).toMatchObject({
+      section: 'Aero',
+      key: 'Rear Wing',
+      before: '8',
+      after: '7'
+    })
+  })
+
+  it('reports the matched-block point estimate beside its interval when pooled laps reverse sign', () => {
+    const fixture = runtimeExperiment('matched-point-estimate')
+    fixture.analysisPlan = runtimeAnalysisPlan({ lapBlockLength: 20 })
+    addProtocolBlock(fixture, {
+      blockId: 'block-001',
+      sequence: 'ABA',
+      values: [
+        Array(20).fill(100),
+        Array(20).fill(99.8),
+        Array(20).fill(100)
+      ],
+      timestampBase: 36_500
+    })
+    addProtocolBlock(fixture, {
+      blockId: 'block-002',
+      sequence: 'BAB',
+      values: [
+        Array(20).fill(100.6),
+        Array(20).fill(101),
+        Array(20).fill(100.6)
+      ],
+      timestampBase: 36_750
+    })
+
+    const analysis = analyzeSetupExperiment(fixture)
+    const interval = runtimeRecord(analysis.confidence95Sec)
+
+    expect(analysis.effectSec).toBeCloseTo(0.3, 10)
+    expect(analysis.effectPct).toBeGreaterThan(0)
+    expect(Number(interval.low)).toBeGreaterThan(0)
+    expect(analysis.exploratoryDirection).toBe('variant')
+    expect(analysis.direction).toBe('variant')
+    expect(analysis.evidenceStrength).toBe('confirmatory')
+  })
+
+  it('abstains when a one-sided bootstrap interval opposes every matched-block direction', () => {
+    const fixture = runtimeExperiment('interval-block-direction-conflict')
+    fixture.analysisPlan = runtimeAnalysisPlan({ lapBlockLength: 3 })
+    const control = [100.2, 99.8, 99.9, 100.1, 100.3]
+    const variant = [99.8, 100.3, 100.2, 100, 99.7]
+    for (let index = 0; index < 4; index++) {
+      addProtocolBlock(fixture, {
+        blockId: `block-${String(index + 1).padStart(3, '0')}`,
+        sequence: 'ABA',
+        values: [control, variant, control],
+        timestampBase: 37_000 + index * 1_000
+      })
+    }
+
+    const analysis = analyzeSetupExperiment(fixture)
+    const sensitivity = runtimeRecord(analysisRuntime(analysis).sensitivity)
+    const metrics = setupExperimentPortfolioMetrics([fixture])
+    expect(runtimeRecord(sensitivity.allClean)).toMatchObject({
+      independentBlocks: 4,
+      blockDirectionPass: true,
+      uncertaintyPass: true,
+      intervalDirectionPass: false
+    })
+    expect(analysis.exploratoryDirection).toBe('variant')
+    expect(Number(runtimeRecord(analysis.confidence95Sec).high)).toBeLessThan(0)
+    expect(analysis.direction).toBe('abstain')
+    expect(analysis.reasons).toContain('interval-direction-conflict')
+    expect(analysis.falseDirectionProtected).toBe(true)
+    expect(metrics.rollbackAgreementSignals).toBe(0)
+    expect(metrics.confirmatoryDirections).toBe(0)
+    expect(analysis.evidenceStrength).not.toBe('confirmatory')
+    expect(() => assertSetupExperimentDecision(analysis, 'keep-variant')).toThrow(/abstain|exploratory/i)
+    expect(() => assertSetupExperimentDecision(analysis, 'keep-baseline')).toThrow(/abstain|exploratory/i)
+    expect(() => assertSetupExperimentDecision(analysis, 'abstain')).not.toThrow()
   })
 
   it('widens uncertainty for strongly correlated runs relative to the fixed IID-lap oracle', () => {

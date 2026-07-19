@@ -251,6 +251,7 @@ export interface SetupExperimentSensitivityResult {
   driftPass: boolean
   uncertaintyPass: boolean
   blockDirectionPass: boolean
+  intervalDirectionPass: boolean
 }
 
 export interface SetupExperimentSensitivity {
@@ -1003,14 +1004,26 @@ function movingBlockResample(
   return { values: output.slice(0, values.length), windows }
 }
 
-function fullMedianContrast(
+function matchedBlockContrast(
   sampled: Array<{ treatment: SetupExperimentTreatment; values: number[] }>
 ): number | null {
-  const control = sampled.filter((entry) => entry.treatment === 'A').flatMap((entry) => entry.values)
-  const variant = sampled.filter((entry) => entry.treatment === 'B').flatMap((entry) => entry.values)
-  const controlMedian = median(control)
-  const variantMedian = median(variant)
-  return controlMedian === null || variantMedian === null ? null : controlMedian - variantMedian
+  const control = sampled
+    .filter((entry) => entry.treatment === 'A')
+    .map((entry) => median(entry.values))
+  const variant = sampled
+    .filter((entry) => entry.treatment === 'B')
+    .map((entry) => median(entry.values))
+  if (
+    control.length === 0 ||
+    variant.length === 0 ||
+    control.some((value) => value === null) ||
+    variant.some((value) => value === null)
+  ) {
+    return null
+  }
+  const controlMean = (control as number[]).reduce((sum, value) => sum + value, 0) / control.length
+  const variantMean = (variant as number[]).reduce((sum, value) => sum + value, 0) / variant.length
+  return controlMean - variantMean
 }
 
 function bootstrapMedianContrast(
@@ -1024,20 +1037,25 @@ function bootstrapMedianContrast(
   const draws: SetupExperimentBootstrapDraw[] = []
   for (let iteration = 0; iteration < plan.iterations; iteration++) {
     const sampledClusters: string[] = []
-    const sampledRuns: Array<{ treatment: SetupExperimentTreatment; values: number[] }> = []
+    const sampledBlockEffects: number[] = []
     const windows: SetupExperimentBootstrapWindow[] = []
     for (let clusterIndex = 0; clusterIndex < blocks.length; clusterIndex++) {
       const block = blocks[Math.floor(random() * blocks.length)]
       sampledClusters.push(block.plan.blockId)
+      const sampledRuns: Array<{ treatment: SetupExperimentTreatment; values: number[] }> = []
       for (const entry of block.steps) {
         const source = excludeFlagged ? entry.laps.filter((lap) => !lap.flagged) : entry.laps
         const sampled = movingBlockResample(entry.run.id, source, plan.lapBlockLength, random)
         sampledRuns.push({ treatment: entry.step.treatment, values: sampled.values })
         windows.push(...sampled.windows)
       }
+      const blockEffect = matchedBlockContrast(sampledRuns)
+      if (blockEffect === null) break
+      sampledBlockEffects.push(blockEffect)
     }
-    const effect = fullMedianContrast(sampledRuns)
-    if (effect === null) continue
+    if (sampledBlockEffects.length !== blocks.length) continue
+    const effect =
+      sampledBlockEffects.reduce((sum, value) => sum + value, 0) / sampledBlockEffects.length
     effects.push(effect)
     if (draws.length < 8) {
       draws.push({ iteration, sampledClusters, windows, effectSec: effect })
@@ -1099,9 +1117,9 @@ function sensitivityResult(
     .map((lap) => lap.value)
   const aMedian = median(control)
   const bMedian = median(variant)
-  const effect = aMedian === null || bMedian === null ? null : aMedian - bMedian
   const threshold = materialEffect(aMedian)
   const blockDirections: SetupExperimentDirection[] = []
+  const blockContrasts: number[] = []
   const firstContrasts: number[] = []
   const rollbackContrasts: number[] = []
   const drifts: number[] = []
@@ -1117,12 +1135,17 @@ function sensitivityResult(
     const first = block.plan.sequence === 'ABA' ? medians[0] - medians[1] : medians[1] - medians[0]
     const rollback = block.plan.sequence === 'ABA' ? medians[2] - medians[1] : medians[1] - medians[2]
     const drift = medians[2] - medians[0]
+    const contrast = (first + rollback) / 2
+    blockContrasts.push(contrast)
     firstContrasts.push(first)
     rollbackContrasts.push(rollback)
     drifts.push(drift)
-    blockDirections.push(directionFromEffect((first + rollback) / 2, threshold))
+    blockDirections.push(directionFromEffect(contrast, threshold))
   }
 
+  const effect = blockContrasts.length === usable.length && blockContrasts.length > 0
+    ? blockContrasts.reduce((sum, value) => sum + value, 0) / blockContrasts.length
+    : null
   const materialPairs = firstContrasts.map((first, index) => ({
     first,
     rollback: rollbackContrasts[index]
@@ -1151,12 +1174,19 @@ function sensitivityResult(
         ? 'baseline'
         : 'abstain'
     : 'abstain'
+  const blockDirection = blockDirectionPass
+    ? nonAbstainedBlockDirections[0] ?? 'abstain'
+    : 'abstain'
+  const intervalDirectionPass =
+    uncertaintyPass &&
+    blockDirection !== 'abstain' &&
+    intervalDirection === blockDirection
   const robustDirection =
     usable.length >= plan.minimumIndependentBlocks &&
     blockDirectionPass &&
     driftPass &&
     rollbackRelation === 'agreement' &&
-    uncertaintyPass
+    intervalDirectionPass
       ? intervalDirection
       : 'abstain'
   return {
@@ -1169,6 +1199,7 @@ function sensitivityResult(
     driftPass,
     uncertaintyPass,
     blockDirectionPass,
+    intervalDirectionPass,
     bootstrap,
     robustDirection,
     firstContrastSec: median(firstContrasts),
@@ -1244,6 +1275,11 @@ export function analyzeSetupExperiment(
   else if (allClean.bootstrap && !allClean.uncertaintyPass) {
     reasons.push('uncertainty-crosses-zero')
   }
+  const intervalDirectionConflict =
+    allClean.blockDirectionPass &&
+    allClean.uncertaintyPass &&
+    !allClean.intervalDirectionPass
+  if (intervalDirectionConflict) reasons.push('interval-direction-conflict')
   const exploratoryDirection = directionFromEffect(
     allClean.effectSec,
     materialEffect(allClean.medians.A)
@@ -1290,6 +1326,7 @@ export function analyzeSetupExperiment(
     falseDirectionProtected:
       allClean.rollbackRelation === 'conflict' ||
       !allClean.driftPass ||
+      intervalDirectionConflict ||
       !sensitivitySurvives,
     evidenceStrength,
     exploratoryDirection,
@@ -1351,6 +1388,7 @@ export function setupExperimentPortfolioMetrics(
     (analysis.confidence95Sec.low > 0 || analysis.confidence95Sec.high < 0) &&
     !analysis.reasons.includes('rollback-drift') &&
     !analysis.reasons.includes('block-direction-conflict') &&
+    !analysis.reasons.includes('interval-direction-conflict') &&
     !analysis.reasons.includes('outlier-sensitive')
   )
   const rollbackConflict = evaluated.filter(({ analysis }) =>

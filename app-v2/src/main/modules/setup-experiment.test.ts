@@ -595,6 +595,24 @@ function knownValidTelemetry(overrides: Phase2Record = {}): TelemetrySnapshot {
   }, overrides) as unknown as TelemetrySnapshot
 }
 
+function productionIRacingTyreTelemetry(
+  wearPct: readonly [number, number, number, number],
+  overrides: Phase2Record = {}
+): TelemetrySnapshot {
+  const [lf, rf, lr, rr] = wearPct
+  const snapshot = knownValidTelemetry({
+    ...overrides,
+    tyres: {
+      lf: { wearPct: lf, wearLeftPct: lf, wearMiddlePct: lf, wearRightPct: lf },
+      rf: { wearPct: rf, wearLeftPct: rf, wearMiddlePct: rf, wearRightPct: rf },
+      lr: { wearPct: lr, wearLeftPct: lr, wearMiddlePct: lr, wearRightPct: lr },
+      rr: { wearPct: rr, wearLeftPct: rr, wearMiddlePct: rr, wearRightPct: rr }
+    }
+  })
+  delete snapshot.tyreStatePct
+  return snapshot
+}
+
 function phase2CreateInput(
   name: string,
   tolerances: Phase2Environment = clone(PHASE2_TOLERANCES)
@@ -1343,6 +1361,65 @@ describe('SetupExperimentService Phase 2 red regressions', () => {
       eligible: true,
       exclusionReasons: []
     })
+  })
+
+  it('validates monotonic iRacing tyre wear from production corner telemetry without top-level tyreStatePct', async () => {
+    const initial = productionIRacingTyreTelemetry([0.82, 0.81, 0.79, 0.78])
+    expect('tyreStatePct' in initial).toBe(false)
+    const target = phase2Harness({ current: initial })
+    const experimentId = await phase2CreateExperiment(target)
+    await target.service.startArm(phase2StartInput(experimentId, 'A1'))
+
+    const midLap = productionIRacingTyreTelemetry(
+      [0.815, 0.805, 0.785, 0.775],
+      { currentLap: 1, lapDistPct: 0.5, fuelLiters: 39.5 }
+    )
+    target.setTelemetry(midLap)
+    target.service.onSnapshot(midLap)
+    const crossing = productionIRacingTyreTelemetry(
+      [0.81, 0.8, 0.78, 0.77],
+      { currentLap: 2, lapDistPct: 0.02, lastLapTimeSec: 100, fuelLiters: 39 }
+    )
+    target.setTelemetry(crossing)
+    target.service.onSnapshot(crossing)
+
+    const lap = (await target.service.snapshot()).state.experiments[0].runs[0].laps[0]
+    expect(lap).toMatchObject({
+      eligible: true,
+      exclusionReasons: [],
+      validitySource: 'telemetry',
+      comparability: { status: 'comparable', issues: [] }
+    })
+    expect(lap.context.tyreStatePct).toBeCloseTo(0.79, 10)
+  })
+
+  it('detects an iRacing tyre reset from production corner telemetry without top-level tyreStatePct', async () => {
+    const target = phase2Harness({
+      current: productionIRacingTyreTelemetry([0.82, 0.81, 0.79, 0.78])
+    })
+    const experimentId = await phase2CreateExperiment(target)
+    await target.service.startArm(phase2StartInput(experimentId, 'A1'))
+
+    const midLap = productionIRacingTyreTelemetry(
+      [0.82, 0.8, 0.78, 0.76],
+      { currentLap: 1, lapDistPct: 0.5, fuelLiters: 39.5 }
+    )
+    target.setTelemetry(midLap)
+    target.service.onSnapshot(midLap)
+    const crossing = productionIRacingTyreTelemetry(
+      [0.835, 0.815, 0.795, 0.775],
+      { currentLap: 2, lapDistPct: 0.02, lastLapTimeSec: 100, fuelLiters: 39 }
+    )
+    target.setTelemetry(crossing)
+    target.service.onSnapshot(crossing)
+
+    const lap = (await target.service.snapshot()).state.experiments[0].runs[0].laps[0]
+    expect(lap).toMatchObject({
+      eligible: false,
+      exclusionReasons: ['tyre-discontinuity'],
+      comparability: { status: 'comparable', issues: [] }
+    })
+    expect(lap.context.tyreStatePct).toBeCloseTo(0.805, 10)
   })
 
   it('gates fuel and tyre state at run start but permits monotonic within-run depletion', async () => {

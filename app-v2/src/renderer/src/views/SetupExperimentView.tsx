@@ -10,13 +10,16 @@ import {
 } from 'react'
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
+import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   SETUP_EXPERIMENT_CHANNELS,
   DEFAULT_SETUP_EXPERIMENT_TOLERANCES,
   compareSetupExperimentContexts,
   expectedSetupPathForTreatment,
   nextSetupExperimentStep,
+  setupExperimentContextFromTelemetry,
   type SetupExperimentAnalysis,
+  type SetupExperimentContext,
   type SetupExperimentDefinition,
   type SetupExperimentDisposition,
   type SetupExperimentExportResult,
@@ -70,6 +73,37 @@ const secondaryButton: CSSProperties = {
   ...button,
   background: 'var(--surface-sunken)',
   color: 'var(--text-primary)'
+}
+const LIVE_CONTEXT_UPDATE_INTERVAL_MS = 250
+const LIVE_CONTEXT_FIELDS = [
+  'sim',
+  'car',
+  'carLabel',
+  'track',
+  'layout',
+  'layoutSource',
+  'condition',
+  'session',
+  'sessionId',
+  'fuelMassSource',
+  'trackWetnessPct',
+  'trackTempC',
+  'airTempC',
+  'fuelMassKg',
+  'tyreStatePct',
+  'trafficDensity',
+  'flagStateIndex',
+  'damagePct',
+  'gripPct'
+] as const satisfies readonly (keyof SetupExperimentContext)[]
+
+function sameLiveContext(
+  left: SetupExperimentContext | null | undefined,
+  right: SetupExperimentContext | null | undefined
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return LIVE_CONTEXT_FIELDS.every((field) => left[field] === right[field])
 }
 
 function pct(value: number | null): string {
@@ -134,6 +168,9 @@ export default function SetupExperimentView({
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [liveTelemetryContext, setLiveTelemetryContext] = useState<
+    SetupExperimentContext | null | undefined
+  >(undefined)
   const revisionRef = useRef<number | null>(null)
   const liveGenerationRef = useRef(0)
 
@@ -151,7 +188,7 @@ export default function SetupExperimentView({
     }
     if (currentRevision !== null) {
       if (nextRevision === null || nextRevision < currentRevision) return
-      if (nextRevision === currentRevision) return
+      if (nextRevision === currentRevision && source === 'hydrate') return
     }
     if (source === 'live') liveGenerationRef.current += 1
     revisionRef.current = nextRevision
@@ -175,11 +212,42 @@ export default function SetupExperimentView({
   }, [applySnapshot])
 
   useEffect(() => {
+    let lastContextUpdateAt = 0
+    let pendingContext: SetupExperimentContext | null = null
+    let hasPendingContext = false
+    let contextTimer: ReturnType<typeof setTimeout> | null = null
+    const publishPendingContext = (): void => {
+      contextTimer = null
+      if (!hasPendingContext) return
+      const next = pendingContext
+      hasPendingContext = false
+      lastContextUpdateAt = Date.now()
+      setLiveTelemetryContext((current) => sameLiveContext(current, next) ? current : next)
+    }
+    const onTelemetry = (next: TelemetrySnapshot | null): void => {
+      pendingContext = setupExperimentContextFromTelemetry(next)
+      hasPendingContext = true
+      const remaining = LIVE_CONTEXT_UPDATE_INTERVAL_MS - (Date.now() - lastContextUpdateAt)
+      if (remaining <= 0 && contextTimer === null) {
+        publishPendingContext()
+      } else if (contextTimer === null) {
+        contextTimer = setTimeout(publishPendingContext, remaining)
+      }
+    }
     void refresh()
-    return window.ipc.subscribe<SetupExperimentSnapshot>(
+    const offExperiment = window.ipc.subscribe<SetupExperimentSnapshot>(
       SETUP_EXPERIMENT_CHANNELS.updated,
       (next) => applySnapshot(next, 'live')
     )
+    const offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>(
+      'telemetry:snapshot',
+      onTelemetry
+    )
+    return () => {
+      if (contextTimer !== null) clearTimeout(contextTimer)
+      offExperiment()
+      offTelemetry()
+    }
   }, [applySnapshot, refresh])
 
   const run = useCallback(async (
@@ -216,7 +284,9 @@ export default function SetupExperimentView({
   }
 
   const metrics = snapshot?.metrics
-  const liveContext = snapshot?.liveContext
+  const liveContext = liveTelemetryContext === undefined
+    ? snapshot?.liveContext
+    : liveTelemetryContext
   const liveContextComparable = liveContext
     ? compareSetupExperimentContexts(
         liveContext,

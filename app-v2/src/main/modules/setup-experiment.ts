@@ -35,6 +35,7 @@ import {
   type RecordSetupExperimentDecisionInput,
   type SetupExperimentArm,
   type SetupExperimentComparability,
+  type SetupExperimentContext,
   type SetupExperimentDefinition,
   type SetupExperimentEnvironmentField,
   type SetupExperimentEnvironmentTolerances,
@@ -429,7 +430,7 @@ export class SetupExperimentService {
         pendingLaps: [],
         flushingPending: false
       }
-      observeLapSignals(nextActive, telemetry, current, gate)
+      observeLapSignals(nextActive, telemetry, context, gate)
       return this.commit((draft) => {
         const experiment = this.experiment(draft, current.id)
         if (appendedBlock) {
@@ -607,7 +608,7 @@ export class SetupExperimentService {
       return
     }
 
-    observeLapSignals(active, snapshot, experiment, gate)
+    observeLapSignals(active, snapshot, context, gate)
     const lapNumber = finiteInteger(snapshot?.currentLap)
     const lapDistPct = finite(snapshot?.lapDistPct)
     const crossedLine =
@@ -622,8 +623,8 @@ export class SetupExperimentService {
     if (crossedLine && snapshot && context) {
       const lap = this.captureLap(snapshot, context, lapComparability(gate))
       active.pendingLaps.push(lap)
-      resetLapEvidence(active, snapshot)
-      observeLapSignals(active, snapshot, experiment, gate)
+      resetLapEvidence(active, snapshot, context)
+      observeLapSignals(active, snapshot, context, gate)
       void this.flushPendingLaps(active).catch(() => {})
     }
     active.previousLapNumber = lapNumber ?? active.previousLapNumber
@@ -1142,7 +1143,7 @@ function validateRequestedStep(
 function observeLapSignals(
   active: ActiveCapture,
   snapshot: TelemetrySnapshot | null,
-  experiment: SetupExperimentDefinition,
+  context: SetupExperimentContext | null,
   gate: SetupExperimentComparability
 ): void {
   for (const issue of gate.issues) {
@@ -1244,7 +1245,7 @@ function observeLapSignals(
     active.lastFuelLiters = fuel
   }
 
-  const fuelMass = finite(snapshot.fuelMassKg)
+  const fuelMass = finite(context?.fuelMassKg)
   if (fuelMass === null) {
     active.lapInvalidReasons.add('environment-unknown:fuelMassKg')
   } else {
@@ -1254,7 +1255,7 @@ function observeLapSignals(
     active.lastFuelMassKg = fuelMass
   }
 
-  const tyreState = finite(snapshot.tyreStatePct)
+  const tyreState = finite(context?.tyreStatePct)
   if (tyreState === null) {
     active.lapInvalidReasons.add('environment-unknown:tyreStatePct')
   } else {
@@ -1263,15 +1264,18 @@ function observeLapSignals(
     }
     active.lastTyreStatePct = tyreState
   }
-  void experiment
 }
 
-function resetLapEvidence(active: ActiveCapture, snapshot: TelemetrySnapshot): void {
+function resetLapEvidence(
+  active: ActiveCapture,
+  snapshot: TelemetrySnapshot,
+  context: SetupExperimentContext
+): void {
   active.hasSeenStartLine = true
   active.incidentBaseline = incidentCount(snapshot)
   active.lastFuelLiters = finite(snapshot.fuelLiters)
-  active.lastFuelMassKg = finite(snapshot.fuelMassKg)
-  active.lastTyreStatePct = finite(snapshot.tyreStatePct)
+  active.lastFuelMassKg = finite(context.fuelMassKg)
+  active.lastTyreStatePct = finite(context.tyreStatePct)
   active.lapValiditySource = 'unknown'
   active.lapInvalidReasons = new Set()
 }

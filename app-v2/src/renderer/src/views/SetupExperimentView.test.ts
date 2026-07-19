@@ -4,6 +4,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppViewProps } from '../App'
 import type { IpcBridge } from '../../../shared/bridge'
+import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   SETUP_EXPERIMENT_CHANNELS,
   type SetupExperimentAnalysis,
@@ -37,6 +38,9 @@ type RuntimeSnapshot = SetupExperimentSnapshot & {
 }
 
 type SnapshotListener = (snapshot: SetupExperimentSnapshot) => void
+type TelemetryListener = (snapshot: TelemetrySnapshot | null) => void
+
+const TELEMETRY_SNAPSHOT_CHANNEL = 'telemetry:snapshot'
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -202,26 +206,46 @@ function props(): AppViewProps {
   }
 }
 
-function installIpc(initial: ReturnType<typeof deferred<SetupExperimentSnapshot>>): {
+function installIpc(
+  initial: ReturnType<typeof deferred<SetupExperimentSnapshot>>,
+  refreshedSnapshots: SetupExperimentSnapshot[] = []
+): {
   invoke: ReturnType<typeof vi.fn>
   subscribe: ReturnType<typeof vi.fn>
   unsubscribe: ReturnType<typeof vi.fn>
+  telemetryUnsubscribe: ReturnType<typeof vi.fn>
   listener(): SnapshotListener
+  telemetryListener(): TelemetryListener
 } {
   const library: SetupLibraryResult = { root: 'C:\\fixed\\setups', items: [] }
   const unsubscribe = vi.fn()
+  const telemetryUnsubscribe = vi.fn()
   let updatedListener: SnapshotListener | undefined
+  let liveTelemetryListener: TelemetryListener | undefined
+  let snapshotInvocations = 0
   const invoke = vi.fn((channel: string): Promise<unknown> => {
-    if (channel === SETUP_EXPERIMENT_CHANNELS.getSnapshot) return initial.promise
+    if (channel === SETUP_EXPERIMENT_CHANNELS.getSnapshot) {
+      snapshotInvocations += 1
+      if (snapshotInvocations === 1) return initial.promise
+      const refreshed = refreshedSnapshots.shift()
+      return refreshed ? Promise.resolve(refreshed) : initial.promise
+    }
     if (channel === SETUP_MANAGER_CHANNELS.libraryList) return Promise.resolve(library)
     return Promise.reject(new Error(`Unexpected IPC invoke channel: ${channel}`))
   })
-  const subscribe = vi.fn((channel: string, callback: SnapshotListener): (() => void) => {
-    if (channel !== SETUP_EXPERIMENT_CHANNELS.updated) {
-      throw new Error(`Unexpected IPC subscribe channel: ${channel}`)
+  const subscribe = vi.fn((
+    channel: string,
+    callback: SnapshotListener | TelemetryListener
+  ): (() => void) => {
+    if (channel === SETUP_EXPERIMENT_CHANNELS.updated) {
+      updatedListener = callback as SnapshotListener
+      return unsubscribe
     }
-    updatedListener = callback
-    return unsubscribe
+    if (channel === TELEMETRY_SNAPSHOT_CHANNEL) {
+      liveTelemetryListener = callback as TelemetryListener
+      return telemetryUnsubscribe
+    }
+    throw new Error(`Unexpected IPC subscribe channel: ${channel}`)
   })
   Object.defineProperty(window, 'ipc', {
     configurable: true,
@@ -231,20 +255,27 @@ function installIpc(initial: ReturnType<typeof deferred<SetupExperimentSnapshot>
     invoke,
     subscribe,
     unsubscribe,
+    telemetryUnsubscribe,
     listener: () => {
       expect(updatedListener).toBeTypeOf('function')
       return updatedListener as SnapshotListener
+    },
+    telemetryListener: () => {
+      expect(liveTelemetryListener).toBeTypeOf('function')
+      return liveTelemetryListener as TelemetryListener
     }
   }
 }
 
-async function renderView(initial: ReturnType<typeof deferred<SetupExperimentSnapshot>>) {
-  const ipc = installIpc(initial)
+async function renderView(
+  initial: ReturnType<typeof deferred<SetupExperimentSnapshot>>,
+  refreshedSnapshots: SetupExperimentSnapshot[] = []
+) {
+  const ipc = installIpc(initial, refreshedSnapshots)
   const rendered = render(createElement(SetupExperimentView, props()))
   await waitFor(() => {
     expect(ipc.invoke).toHaveBeenCalledWith(SETUP_EXPERIMENT_CHANNELS.getSnapshot)
     expect(ipc.invoke).toHaveBeenCalledWith(SETUP_MANAGER_CHANNELS.libraryList)
-    expect(ipc.subscribe).toHaveBeenCalledOnce()
     expect(ipc.subscribe).toHaveBeenCalledWith(
       SETUP_EXPERIMENT_CHANNELS.updated,
       expect.any(Function)
@@ -298,6 +329,28 @@ describe('SetupExperimentView revision arbitration', () => {
     expect(screen.queryByText('HYDRATED EQUAL REVISION 5')).toBeNull()
   })
 
+  it('applies equal-revision live persistence-failure state after hydration', async () => {
+    const initial = deferred<SetupExperimentSnapshot>()
+    const target = await renderView(initial)
+    await hydrate(initial, namedSnapshot(9, 'persisting-9', 'PERSISTED REVISION 9'))
+    const failed = namedSnapshot(9, 'persisting-9', 'PERSISTED REVISION 9')
+    failed.activeCapture = {
+      experimentId: 'persisting-9',
+      runId: 'pending-run',
+      arm: 'A1',
+      pendingLapCount: 2,
+      persistenceError: 'fixed EIO while replacing equal-revision state'
+    }
+
+    await emit(target.listener(), failed)
+
+    const alert = screen.queryByRole('alert')
+    expect(alert).not.toBeNull()
+    expect(alert?.textContent).toContain('fixed EIO while replacing equal-revision state')
+    expect(within(alert as HTMLElement).queryByText(/2 lap/i)).not.toBeNull()
+    expect(screen.queryByText('PERSISTED REVISION 9')).not.toBeNull()
+  })
+
   it('ignores an older broadcast delivered after a newer revision', async () => {
     const initial = deferred<SetupExperimentSnapshot>()
     const target = await renderView(initial)
@@ -327,7 +380,6 @@ describe('SetupExperimentView revision arbitration', () => {
     const target = await renderView(initial)
     await hydrate(initial, snapshot(1))
 
-    expect(target.subscribe).toHaveBeenCalledOnce()
     expect(target.subscribe).toHaveBeenCalledWith(
       SETUP_EXPERIMENT_CHANNELS.updated,
       expect.any(Function)
@@ -336,6 +388,57 @@ describe('SetupExperimentView revision arbitration', () => {
     target.unmount()
 
     expect(target.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('refreshes idle live context from telemetry without requiring a persisted revision change', async () => {
+    const initial = deferred<SetupExperimentSnapshot>()
+    const refreshed = snapshot(0)
+    refreshed.liveContext = experiment('idle-context', 'IDLE CONTEXT').context
+    const target = await renderView(initial, [refreshed])
+    await hydrate(initial, snapshot(0))
+    expect(screen.queryByText('Spa · Grand Prix')).toBeNull()
+    expect(target.subscribe).toHaveBeenCalledWith(
+      TELEMETRY_SNAPSHOT_CHANNEL,
+      expect.any(Function)
+    )
+
+    const liveTelemetry: TelemetrySnapshot = {
+      sim: 'iracing',
+      connected: true,
+      timestamp: 1_700_000_000_100,
+      speedKmh: 0,
+      rpm: 0,
+      gear: 0,
+      throttle: 0,
+      brake: 0,
+      clutch: 0,
+      carName: 'Ferrari 488 GT3',
+      carPath: 'ferrari488gt3',
+      trackName: 'Spa',
+      trackConfigName: 'Grand Prix',
+      sessionType: 'Practice',
+      sessionUniqueId: 42,
+      trackWetnessPct: 0,
+      trackTempC: 31,
+      airTempC: 22,
+      fuelMassKg: 45,
+      tyreStatePct: 0.8,
+      trafficDensity: 0.3,
+      flagStateIndex: 0,
+      damagePct: 0,
+      gripPct: 0.8
+    }
+    await act(async () => {
+      target.telemetryListener()(liveTelemetry)
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Spa · Grand Prix')).not.toBeNull()
+      expect(screen.queryByText('Ferrari 488 GT3')).not.toBeNull()
+    })
+    target.unmount()
+    expect(target.telemetryUnsubscribe).toHaveBeenCalledOnce()
   })
 
   it('surfaces corrupt-store source path code and quarantine status from the snapshot', async () => {
