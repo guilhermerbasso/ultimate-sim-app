@@ -66,6 +66,7 @@ import { ALL_VARIANTS, variantToElement } from '../../renderer/src/views/dashboa
 import type { ModuleContext } from '../module-context'
 import { RgbMatrixModule } from './rgb-matrix'
 import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
+import { normalizeThirdPartyImportMetadata } from '../../shared/third-party-dashboard-catalog'
 
 const SEEDED_RGB_PAYLOAD = parseRgbMatrixProfilesPayload({
   version: RGB_MATRIX_PROFILE_VERSION,
@@ -171,6 +172,42 @@ describe('config-io bundle shape', () => {
   it('refuses to claim a successful iFlag export when no profiles are saved', async () => {
     const engine = createConfigEngine(createMemoryStorage())
     await expect(engine.exportSection('rgb-matrix')).rejects.toThrow(/No iFlag profiles/)
+  })
+
+  it('blocks dashboard section and full-profile sharing when third-party rights deny it', async () => {
+    const thirdParty = normalizeThirdPartyImportMetadata({ catalogEntryId: 'lovely-dashboard' }, 123)
+    const engine = createConfigEngine(createMemoryStorage({
+      dashboards: {
+        'restricted.json': {
+          id: 'restricted',
+          name: 'Restricted third-party dashboard',
+          thirdParty
+        }
+      }
+    }))
+
+    await expect(engine.exportSection('dashboards')).rejects.toThrow(/sharing blocked.*restricted\.json/i)
+    await expect(engine.exportAll()).rejects.toThrow(/sharing blocked.*restricted\.json/i)
+  })
+
+  it('fails closed when a third-party dashboard omits rights metadata', async () => {
+    const engine = createConfigEngine(createMemoryStorage({
+      dashboards: {
+        'unknown.json': {
+          id: 'unknown',
+          thirdParty: {
+            schemaVersion: 1,
+            provenance: {
+              schemaVersion: 1,
+              publisher: 'Unknown',
+              sourceType: 'user-supplied'
+            }
+          }
+        }
+      }
+    }))
+
+    await expect(engine.exportSection('dashboards')).rejects.toThrow(/rights are missing or invalid/i)
   })
 })
 
