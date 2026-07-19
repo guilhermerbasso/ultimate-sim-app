@@ -43,6 +43,7 @@ const CollaborationView = lazy(() => import('./CollaborationView'))
 const StoryEngineView = lazy(() => import('./StoryEngineView'))
 const StreamingMobileEditorView = lazy(() => import('./StreamingMobileEditorView'))
 const MissionRehearsalView = lazy(() => import('./MissionRehearsalView'))
+const SocialConnectorsView = lazy(() => import('./SocialConnectorsView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
 export interface ViewDef {
@@ -89,6 +90,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'steward-desk', group: 'League Ops', label: 'Steward Desk', eyebrow: 'Human decision', description: 'Local evidence cases with rule versions, dissent, appeals, and anonymized export.', shortcut: 'TO', Component: StewardDeskView },
   { id: 'haptics-zonal', group: 'Sim Racing', label: 'Haptics Zonal', eyebrow: 'Zones', description: 'Events→zones (seat/pedals/wheel) + visual simulator.', shortcut: 'TL', Component: HapticsZonalView },
   { id: 'spotter-3d', group: 'Sim Racing', label: '3D Spotter', eyebrow: 'Spatial audio', description: 'Positional HRTF cues for nearby cars.', shortcut: 'TM', Component: Spotter3DView },
+  { id: 'social-connectors', group: 'Broadcast', label: 'Social Connectors', eyebrow: 'Mock conformance', description: 'Capability, policy and readiness matrix for Twitch, YouTube and Discord connector fixtures.', shortcut: 'SO', Component: SocialConnectorsView },
   { id: 'devices', group: 'ButtonBox', label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.', shortcut: '01', Component: DevicesView },
   { id: 'arduinos', group: 'ButtonBox', label: 'Arduinos', eyebrow: 'Hardware', description: 'SimHub-style hub: RGB, matrix, screens, gauges, controls, pinout, and firmware.', shortcut: '00', Component: ArduinosView },
   { id: 'revlights', group: 'ButtonBox', label: 'Rev Lights', eyebrow: 'LEDs', description: 'Rev lights configuration and presets.', shortcut: '06', Component: RevlightsView },
