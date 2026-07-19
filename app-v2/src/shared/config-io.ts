@@ -79,7 +79,13 @@ export const CONFIG_SECTION_RELOAD_SIGNAL = 'config:section-reload.internal' as 
 // renderer uses this to show "Importado e aplicado ✓" for these and to keep an
 // optional "Reiniciar" affordance for every other section (whose live module
 // still caches its store until the next launch).
-export const CONFIG_HOT_RELOAD_SECTIONS: readonly string[] = ['rgb-matrix', 'spotter', 'revlights', 'expressions'] as const
+export const CONFIG_HOT_RELOAD_SECTIONS: readonly string[] = [
+  'rgb-matrix',
+  'spotter',
+  'revlights',
+  'expressions',
+  'accessibility-cues'
+] as const
 
 export function isHotReloadSection(id: string): boolean {
   return CONFIG_HOT_RELOAD_SECTIONS.includes(id)
@@ -119,6 +125,7 @@ export const CONFIG_SECTIONS: readonly ConfigSectionDescriptor[] = [
   { id: 'expressions', label: 'Expressions', kind: 'file', path: 'expressions.json' },
   { id: 'output-routes', label: 'Output routing', kind: 'file', path: 'output-routes.json' },
   { id: 'alerts', label: 'Alerts', kind: 'file', path: 'alerts-config.json' },
+  { id: 'accessibility-cues', label: 'Accessibility cue profiles', kind: 'file', path: 'accessibility-cues.json' },
   { id: 'setups', label: 'Setups (library)', kind: 'file', path: 'setups.json' },
   { id: 'setup-manager', label: 'Setup manager', kind: 'file', path: 'setup-manager.json' },
   { id: 'race-profiles', label: 'Race profiles', kind: 'file', path: 'race-profiles.json' },

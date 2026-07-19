@@ -10,6 +10,7 @@ import type { SettingsStore } from '../settings/store'
 import type { RevlightsEngine } from '../revlights/engine'
 import type { RgbMatrixModule } from './rgb-matrix'
 import { register as actionEngine } from './action-engine'
+import { register as accessibilityCues } from './accessibility-cues'
 import { register as alerts } from './alerts'
 import { register as appShellUi } from './app-shell-ui'
 import { register as arduino } from './arduino'
@@ -99,6 +100,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   fuelStrategy,
   tireStrategy,
   lapTiming,
+  accessibilityCues,
   alerts,
   recordingAnalysis,
   diagnosticsLog,
