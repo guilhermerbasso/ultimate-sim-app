@@ -327,10 +327,23 @@ describe('racecraft question routing', () => {
     'Please explain how to reduce tyre pressure.',
     'Please explain whether I should lower tyre pressure.',
     'Could you explain what tyre pressure I should run?',
-    'Explain which tyre compound I should pick.'
+    'Explain which tyre compound I should pick.',
+    'What is the tyre pressure I should run?',
+    'What is the compound I should choose?',
+    'Define how I should conserve fuel.'
   ])('does not mistake ordinary words for definition markers: %s', (question) => {
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
+  })
+
+  it.each([
+    'Could you tell me the meaning of change tyres?',
+    'Can you tell me what change tyres means?'
+  ])('keeps alternate explicit meaning envelopes controlled: %s', (question) => {
+    expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
+    expect(controlledDefinitionResponse(question, 'en-US')).toContain(
+      'controlled glossary'
+    )
   })
 
   it('parses tactical compound definitions once and marks them impure', () => {

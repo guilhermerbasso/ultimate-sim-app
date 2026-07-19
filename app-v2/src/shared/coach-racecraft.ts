@@ -645,11 +645,23 @@ const DEFINITION_ACTION_CLAUSE =
 
 function isExplicitMeaningEnvelope(question: string): boolean {
   return (
-    /^(?:please )?(?:define\b|definition\b|meaning\b|what (?:is|s)\b|what does .+ mean\b|how (?:is|are) .+ defined\b|(?:can|could|would) .+ be explained\b)/.test(question) ||
-    /^(?:por favor )?(?:defina\b|definicao\b|significado\b|o que (?:e|significa)\b|que significa\b|qual e o (?:significado|conceito|definicao|explicacao)\b)/.test(question) ||
-    /^(?:por favor )?(?:define\b|definicion\b|significado\b|que (?:es|significa)\b)/.test(question) ||
-    /^(?:s il vous plait )?(?:definis\b|definissez\b|definition\b|signification\b|qu est ce que\b|que signifie\b)/.test(question) ||
-    /^(?:bitte )?(?:definiere\b|definition\b|bedeutung\b|was (?:ist|bedeutet|heisst|heißt)\b)/.test(question) ||
+    /^(?:the )?(?:definition|meaning|explanation)(?: of)?\b/.test(question) ||
+    /^what does .+ (?:mean|do)$/.test(question) ||
+    /^what s the (?:definition|meaning|explanation) of\b/.test(question) ||
+    /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of\b/.test(question) ||
+    /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me what .+ means$/.test(question) ||
+    /^(?:por favor )?(?:a |o )?(?:definicao|significado|explicacao)(?: de)?\b/.test(question) ||
+    /^(?:o que|que) significa\b/.test(question) ||
+    /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)diga o que significa\b/.test(question) ||
+    /^(?:por favor )?(?:la |el )?(?:definicion|significado|explicacion)(?: de)?\b/.test(question) ||
+    /^que significa\b/.test(question) ||
+    /^(?:(?:puedes|podrias) )?decirme que significa\b/.test(question) ||
+    /^(?:s il vous plait )?(?:la |le )?(?:definition|signification|explication)(?: de)?\b/.test(question) ||
+    /^que signifie\b/.test(question) ||
+    /^(?:(?:peux tu|pourrais tu) )?me dire ce que signifie\b/.test(question) ||
+    /^(?:bitte )?(?:die |der |das )?(?:definition|bedeutung|erklarung)(?: von)?\b/.test(question) ||
+    /^was (?:bedeutet|heisst|heißt)\b/.test(question) ||
+    /^(?:(?:kannst|konntest) du )?mir sagen was .+ bedeutet$/.test(question) ||
     /(?:是什么|是什么意思|的定义是什么|含义是什么|とは|の定義は|の意味は)/u.test(question)
   )
 }

@@ -580,7 +580,10 @@ describe('createEngineerOrchestrator.ask', () => {
     'Please explain how to reduce tyre pressure.',
     'Please explain whether I should lower tyre pressure.',
     'Could you explain what tyre pressure I should run?',
-    'Explain which tyre compound I should pick.'
+    'Explain which tyre compound I should pick.',
+    'What is the tyre pressure I should run?',
+    'What is the compound I should choose?',
+    'Define how I should conserve fuel.'
   ])('does not bypass caution safety through ordinary words: %s', async (question) => {
     const harness = makeHarness({
       racecraftContext: {
@@ -592,6 +595,19 @@ describe('createEngineerOrchestrator.ask', () => {
 
     expect(answer.text).toContain('TACTICS PAUSED')
     expect(answer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'Could you tell me the meaning of change tyres?',
+    'Can you tell me what change tyres means?'
+  ])('keeps alternate explicit meaning envelopes out of the LLM: %s', async (question) => {
+    const harness = makeHarness()
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('controlled glossary')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
 
