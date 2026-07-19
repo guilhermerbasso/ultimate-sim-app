@@ -6,11 +6,18 @@
 // Skin-token only. A null snapshot parks the needle at idle and shows "—".
 import type { ReactElement } from 'react'
 import type { WidgetProps } from './types'
-import { formatGear, pctOrUndefined } from './format'
+import { formatGear } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { AnalogDial } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import {
+  SHIFT_STROBE_BLUE,
+  ShiftStrobe,
+  atShiftPoint,
+  resolveRevLightPct,
+  resolveRpmGaugePct
+} from '../../lib/rev-lights'
 
 export const ANALOG_TACH_STREAM_SAFE = true
 
@@ -36,11 +43,10 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
   const maxRpm = s?.maxRpm
   const hasRpm = rpm !== undefined && Number.isFinite(rpm) && maxRpm !== undefined && Number.isFinite(maxRpm) && maxRpm > 0
   const maxK = hasRpm ? (maxRpm as number) / 1000 : 9
-  const frac = hasRpm ? Math.max(0, Math.min(1, (rpm as number) / (maxRpm as number))) : 0
+  const rpmPct = resolveRpmGaugePct(s)
 
-  const shiftPct = pctOrUndefined(s?.shiftIndicatorPct)
-  const inShiftBand = shiftPct !== undefined && shiftPct >= 0.85
-  const redlining = frac >= REDLINE_FRAC || inShiftBand
+  const shiftPct = resolveRevLightPct(s)
+  const redlining = atShiftPoint(shiftPct, s?.revLights?.blink, REDLINE_FRAC)
 
   const gear = formatGear(s?.gear)
   const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
@@ -58,8 +64,8 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
   const dialX = cx - dialSize / 2
   const dialY = cy - dialSize / 2
 
-  const needleColor = redlining ? palette.crit : palette.accent
-  const rpmColor = redlining ? palette.crit : palette.text
+  const needleColor = redlining ? SHIFT_STROBE_BLUE : palette.accent
+  const rpmColor = redlining ? SHIFT_STROBE_BLUE : palette.text
 
   return (
     <div className="overlay-card dr-root rd-analog-tach" data-overlay-id={config?.id} data-widget="analogTach" style={{ width: '100%', height: '100%', overflow: 'hidden', background: 'transparent', border: 'none', boxShadow: 'none', backdropFilter: 'none' }}>
@@ -69,7 +75,8 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
         <FitText x={W - P} y={headY + headH * 0.94} boxW={W * 0.4} boxH={headH * 0.24} text="×1000 RPM" anchor="end" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={13} weight={700} letterSpacing={1} />
 
         {/* Dial (ticks off on this small dial) */}
-        <g transform={`translate(${dialX}, ${dialY})`}>
+        <g transform={`translate(${dialX}, ${dialY})`} data-rpm-gauge="analog-tach" data-rpm-pct={rpmPct.toFixed(4)}>
+          <ShiftStrobe active={redlining} />
           <AnalogDial
             value={hasRpm ? (rpm as number) / 1000 : 0}
             min={0}

@@ -5,7 +5,7 @@
 // the shared LedShiftBar LED rig. Skin tokens drive all chrome so a P4/skin swap
 // re-styles everything; the hud skin renders a translucent glass bar.
 //
-// Reads snapshot.gear, speedKmh, shiftIndicatorPct||rpm/maxRpm, deltaToBestSec,
+// Reads snapshot.gear, speedKmh, the canonical shift-light band, deltaToBestSec,
 // fuelLiters. A null/absent snapshot degrades every segment to "—" — never NaN.
 
 import type { ReactElement } from 'react'
@@ -13,10 +13,11 @@ import { resolveSkin, FitText } from '../../skins'
 import { FONT_SEG7 } from '../../instruments'
 import { LedShiftBar } from './LedShiftBar'
 import { DASH, FONT_COND } from './dashboard-tiles'
-import { formatDelta, formatGear, pct } from './format'
+import { formatDelta, formatGear } from './format'
 import type { WidgetProps } from './types'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const OLED_STRIP_STREAM_SAFE = true
 
@@ -65,16 +66,8 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
   const deltaStr = formatDelta(delta)
   const dColor = deltaColor(delta)
 
-  const rpm = snapshot?.rpm
-  const maxRpm = snapshot?.maxRpm
-  const shiftRaw =
-    typeof snapshot?.shiftIndicatorPct === 'number' && Number.isFinite(snapshot.shiftIndicatorPct)
-      ? snapshot.shiftIndicatorPct
-      : typeof rpm === 'number' && typeof maxRpm === 'number' && maxRpm > 0
-        ? rpm / maxRpm
-        : undefined
-  const shiftPct = pct(shiftRaw)
-  const redline = shiftPct >= 0.99
+  const shiftPct = resolveRevLightPct(snapshot)
+  const redline = atShiftPoint(shiftPct, snapshot?.revLights?.blink, 0.99)
 
   const barH = Math.max(8, Math.min(valueH, Math.round(H * 0.34)))
   const barY = valueY + Math.max(0, (valueH - barH) / 2)
