@@ -9,7 +9,7 @@
 ## 2.54.0 — managed streaming, local integrations, and offline race preparation
 
 ### Added
-- **Local-only MQTT certification target**, disabled by default, with authenticated publisher,
+- **Loopback-only MQTT certification target**, disabled by default, with authenticated publisher,
   reader, and command roles, narrow topic permissions, retained health/session state, and commands
   disabled unless explicitly enabled.
 - **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and

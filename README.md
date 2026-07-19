@@ -29,7 +29,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 <!-- WHATS_NEW:START -->
 ### 2.54.0 — managed streaming, local integrations, and offline race preparation
 
-- **Connect local tools through a hardened MQTT target** ([#70](https://github.com/guilhermerbasso/ultimate-sim-app/pull/70)): it is disabled by default, local/loopback only, separates authenticated publisher, reader, and command roles, and keeps command execution off unless explicitly enabled.
+- **Connect local tools through a hardened MQTT target** ([#70](https://github.com/guilhermerbasso/ultimate-sim-app/pull/70)): it is disabled by default, binds only to loopback (`127.0.0.1` / `::1`), separates authenticated publisher, reader, and command roles, and keeps command execution off unless explicitly enabled.
 - **Choose and keep your own Streaming targets** ([#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71)): the dedicated Streaming area stores dashboard and Touch Controls profiles, and edited dashboard copies remain available after migration and restart.
 - **Share securely over the Internet without manual tunnel setup** ([#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72)): Internet mode can start the bundled checksum-verified Cloudflare quick tunnel, establish the authenticated viewer session, show receiver health, and reconnect with bounded retries.
 - **Practice race operations completely offline** ([#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73)): Mission Rehearsal supports branching scenarios, assigned roles, checkpoints, resume/archive recovery, repeat comparisons, and scored blameless debriefs.
@@ -114,7 +114,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Sounds/audio cues** for shift beeps, incidents, ABS, TCS, and race warnings.
 - **Haptics and zonal haptics** for bass shakers/tactile feedback mapped to cockpit zones.
 - **Arduino and ESP32 device support** for RGB, matrix LEDs, displays, gauges, controls, pinout design, and firmware-oriented workflows.
-- **Local-only MQTT certification target**, disabled by default, with authenticated roles, narrow topic permissions, retained health/session state, and command execution disabled unless explicitly enabled.
+- **Loopback-only MQTT certification target**, disabled by default, with authenticated roles, narrow topic permissions, retained health/session state, and command execution disabled unless explicitly enabled.
 - **Input monitor, controls, and keyboard bindings** for buttons, axes, keystrokes, virtual gamepad actions, iRacing commands, and app actions.
 
 ### Live/replay and configuration safety

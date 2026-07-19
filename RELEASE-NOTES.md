@@ -5,9 +5,9 @@
 Version 2.54.0 adds safer local integrations, exact phone/tablet stream presentations, editor-only
 trigger previews, an experimental pre-race Context-Debt audit, and offline race-operation rehearsal.
 
-### Local-only MQTT integration
+### Loopback-only MQTT integration
 - 🔌 **A hardened MQTT certification target connects local tools without cloud credentials.** It is
-  disabled by default and constrained to local/loopback operation.
+  disabled by default and binds only to loopback (`127.0.0.1` / `::1`).
 - 🔐 Authenticated publisher, reader, and command roles use narrow topic permissions and preserve
   retained availability, health, and session state through reconnects.
 - ⛔ Command execution remains disabled unless explicitly enabled, and the target does not enable
@@ -62,11 +62,11 @@ trigger previews, an experimental pre-race Context-Debt audit, and offline race-
   decisions cannot actuate live race controls.
 
 ### Validation
-- Full test suite: **4,139 tests passing across 331 files. Typecheck clean.**
+- Full test suite: **4,314 tests passing across 335 files. Typecheck clean.**
 - Merged-feature suite: **296 tests passing across 36 files**, including the Electron browser
   lifecycle regression; updater/package release gate: **5 tests passing**.
-- Production build: **362 main-process modules, 8 preload modules, and 2,373 renderer modules**;
-  the **55-file streaming resource graph** passes with 28 JavaScript and 6 CSS files.
+- Production build: **364 main-process modules, 8 preload modules, and 2,376 renderer modules**;
+  the **56-file streaming resource graph** passes with 29 JavaScript and 6 CSS files.
 - The final `npm run dist:win` and `npm run verify:win-package` runs passed. Packaging used the
   documented fallback for the optional ViGEm module because the host has no Visual Studio Build
   Tools.
@@ -80,7 +80,7 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
 
 ### What's Changed
 - [#70](https://github.com/guilhermerbasso/ultimate-sim-app/pull/70) — add the disabled-by-default,
-  local-only MQTT certification target.
+  loopback-only MQTT certification target.
 - [#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71) — add persistent,
   user-managed dashboard and Touch Controls streaming targets.
 - [#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72) — restore and harden secure
