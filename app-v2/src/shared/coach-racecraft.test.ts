@@ -265,13 +265,18 @@ describe('racecraft question routing', () => {
     ['Tell me about the concept of safety car.', 'safety-car'],
     ['Por favor, poderia você explicar subviragem?', 'understeer'],
     ['Pode me explicar subviragem?', 'understeer'],
+    ['Você pode me explicar subviragem?', 'understeer'],
+    ['Qual é o significado de subviragem?', 'understeer'],
     ['Me explique sobreviragem.', 'oversteer'],
     ['¿Podrías explicar el sobreviraje?', 'oversteer'],
     ['¿Puedes explicarme el subviraje?', 'understeer'],
+    ['¿Me puedes explicar el subviraje?', 'understeer'],
     ['Peux-tu expliquer le sous-virage ?', 'understeer'],
     ["Pouvez-vous m'expliquer le survirage ?", 'oversteer'],
     ['Bitte kannst du ABS erklären?', 'abs'],
     ['Kannst du mir Untersteuern erklären?', 'understeer'],
+    ['Können Sie Untersteuern erklären?', 'understeer'],
+    ["What's the meaning of understeer?", 'understeer'],
     ['アンダーステアについて説明してください', 'understeer']
   ] as const)('parses localized definition form %s', (question, topic) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({
@@ -295,7 +300,10 @@ describe('racecraft question routing', () => {
     'Explique-moi comment améliorer mon freinage.',
     'Erkläre mir, wie ich besser bremsen kann.',
     'Tell me about Turn 3.',
-    'Tell me about the last lap.'
+    'Tell me about the last lap.',
+    'Tell me about the car ahead.',
+    'Tell me about P2.',
+    'Tell me about the leader.'
   ])('does not treat personal coaching wording as a pure glossary request: %s', (question) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({ pure: false })
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()

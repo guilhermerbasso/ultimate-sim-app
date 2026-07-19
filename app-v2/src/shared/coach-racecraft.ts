@@ -611,9 +611,22 @@ export interface ParsedDefinitionQuestion {
 }
 
 function definitionTopic(body: string): SafeInformationalTopic | null {
-  const q = body
-    .replace(/^(?:an?|the|o|a|el|la|le|un|une|der|die|das|ein)\s+/u, '')
-    .trim()
+  let q = body.trim()
+  const wrappers = [
+    /^(?:the )?(?:meaning|definition|explanation) of /,
+    /^(?:o |a )?(?:significado|definicao|explicacao) de /,
+    /^(?:el |la )?(?:significado|definicion|explicacion) de /,
+    /^(?:le |la )?(?:sens|signification|definition|explication) de /,
+    /^(?:die |der |das )?(?:bedeutung|definition|erklarung) von /
+  ]
+  let previous = ''
+  while (q !== previous) {
+    previous = q
+    q = q
+      .replace(/^(?:an?|the|o|a|el|la|le|un|une|der|die|das|ein)\s+/u, '')
+      .trim()
+    for (const wrapper of wrappers) q = q.replace(wrapper, '').trim()
+  }
   if (/^(?:understeer|subviragem|subviraje|sous virage|untersteuern|转向不足|アンダーステア)$/.test(q)) return 'understeer'
   if (/^(?:oversteer|sobreviragem|sobreviraje|survirage|ubersteuern|转向过度|オーバーステア)$/.test(q)) return 'oversteer'
   if (/^(?:abs|anti lock braking|防抱死)$/.test(q)) return 'abs'
@@ -646,7 +659,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:please )?(?:(?:the |an? )?(?:definition|meaning|explanation)(?: of)?|give me (?:the )?(?:definition|meaning|explanation) of) (.+)$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)explain (?:the )?(?:(?:term|concept|meaning of) )?(.+)$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me about (?!my\b|this\b|our\b|the race\b)(?:the )?(?:concept(?: of)? )?(.+)$/,
-        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of (.+)$/
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of (.+)$/,
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me about (.+)$/
       ]
     },
     {
@@ -665,7 +679,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)defina (?:o )?(?:termo |conceito )?(.+)$/,
         /^(?:por favor )?(?:(?:a |o )?(?:definicao|significado|explicacao)(?: de)?|me de (?:a |o )?(?:definicao|significado|explicacao) de) (.+)$/,
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)(?:me )?(?:explique|explicar) (?:o )?(?:(?:termo|conceito|significado de) )?(.+)$/,
-        /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)fale sobre (?:o )?conceito(?: de)? (.+)$/
+        /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)fale sobre (?:o )?conceito(?: de)? (.+)$/,
+        /^(?:(?:por favor )?voce (?:pode|poderia) )(?:me )?(?:explicar|explique) (?:o )?(.+)$/,
+        /^(?:qual e o )?(?:significado|conceito|definicao|explicacao) de (.+)$/
       ]
     },
     {
@@ -684,7 +700,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)define (?:el )?(?:termino |concepto )?(.+)$/,
         /^(?:por favor )?(?:(?:la |el )?(?:definicion|significado|explicacion)(?: de)?|dame (?:la |el )?(?:definicion|significado|explicacion) de) (.+)$/,
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)(?:me )?(?:explica|explicar|explicame|explicarme) (?:el )?(?:(?:termino|concepto|significado de) )?(.+)$/,
-        /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)hablame del concepto(?: de)? (.+)$/
+        /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)hablame del concepto(?: de)? (.+)$/,
+        /^(?:(?:por favor )?me (?:puedes|podrias) )(?:explicar|explica) (?:el )?(.+)$/,
+        /^(?:(?:por favor )?(?:puede|puedes|podria|podrias) )(?:explicarme|explicar) (?:el )?(.+)$/
       ]
     },
     {
@@ -699,7 +717,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)definis (?:le )?(?:terme |concept )?(.+)$/,
         /^(?:s il vous plait )?(?:(?:la |le )?(?:definition|signification|explication)(?: de)?|donne moi (?:la |le )?(?:definition|signification|explication) de) (.+)$/,
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu|pouvez vous) )?)(?:m )?(?:explique|expliquer) (?:le )?(?:(?:terme|concept|sens de) )?(.+)$/,
-        /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)parle moi du concept(?: de)? (.+)$/
+        /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)parle moi du concept(?: de)? (.+)$/,
+        /^(?:(?:s il vous plait )?pouvez vous )(?:m )?expliquer (?:le )?(.+)$/
       ]
     },
     {
@@ -715,7 +734,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:bitte )?(?:(?:die |der |das )?(?:definition|bedeutung|erklarung)(?: von)?|gib mir (?:die |der |das )?(?:definition|bedeutung|erklarung) von) (.+)$/,
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erklare (?:den )?(?:(?:begriff|konzept|bedeutung von) )?(.+)$/,
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du ))(?:mir )?(.+) erklaren$/,
-        /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erzahl mir vom konzept(?: von)? (.+)$/
+        /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erzahl mir vom konzept(?: von)? (.+)$/,
+        /^(?:(?:bitte )?konnen sie )(.+) erklaren$/
       ]
     },
     {
@@ -752,7 +772,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       const match = pattern.exec(q)
       if (!match) continue
       const body = match[1]?.trim() ?? ''
-      const pure = !/\b(my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the|meu|minha|como|como faco|como posso|devo|melhorar|volta \d+|curva \d+|mi|como puedo|debo|mejorar|vuelta \d+|mon|ma|comment|dois je|ameliorer|tour \d+|virage \d+|mein|meine|wie|wie kann|soll ich|runde \d+|kurve \d+)\b/.test(body)
+      const pure = !/\b(my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|como|como faco|como posso|devo|melhorar|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|como puedo|debo|mejorar|vuelta \d+|mon|ma|comment|dois je|ameliorer|tour \d+|virage \d+|mein|meine|wie|wie kann|soll ich|runde \d+|kurve \d+)\b/.test(body)
       return {
         language: form.language,
         body,
@@ -760,6 +780,20 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         pure,
         command: form.command
       }
+    }
+  }
+  const definitionLike =
+    /\b(?:define|definition|meaning|explain|explanation|defina|definicao|significado|explique|explicar|define|definicion|explica|explicar|definition|signification|explique|expliquer|definiere|definition|bedeutung|erklare|erklaren)\b/.test(q) ||
+    /(?:是什么|是什么意思|的定义|含义|定義|意味|説明)/u.test(q)
+  if (definitionLike) {
+    const liveRaceContext =
+      /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|position|gap|target|pit|attack|pass|overtake|meu|minha|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|vuelta \d+|mon|ma|tour \d+|virage \d+|mein|meine|runde \d+|kurve \d+)\b/.test(q)
+    return {
+      language: 'en-US',
+      body: q,
+      topic: null,
+      pure: !liveRaceContext,
+      command: true
     }
   }
   return null

@@ -519,6 +519,37 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
+    'Devo trocar os pneus?',
+    'Qual pneu devo usar?',
+    'Qual a pressão alvo dos pneus?',
+    'Preciso trocar os pneus agora?',
+    'Should I change tyres?',
+    'What tyre pressure target should I use?'
+  ])('pauses tyre strategy under yellow: %s', async (question) => {
+    const harness = makeHarness({
+      config: { language: 'pt-BR' },
+      snapshot: {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        tyres: {
+          lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 }
+        }
+      } as TelemetrySnapshot,
+      racecraftContext: {
+        safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
+      }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.text).toContain('TÁTICA PAUSADA')
+    expect(answer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it.each([
     ['yellow', { flagYellow: true }, 'Can I pass on the next corner?', 'TACTICS PAUSED'],
     ['red', { flagRed: true }, 'C.a.n I p@ss on the next c0rner?', 'safety or penalty flag'],
     ['safety car', { paceMode: 'singleFileRestart' as const }, 'Should I push past this car after the restart?', 'TACTICS PAUSED'],

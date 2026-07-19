@@ -75,6 +75,22 @@ function detectLang(text: string): IntentLang {
   return en >= pt ? 'en' : 'pt'
 }
 
+function isTyreStatusQuestion(text: string): boolean {
+  const tyreNoun = '(?:tire|tires|tyre|tyres|pneu|pneus)'
+  const statusPatterns = [
+    new RegExp(`^how are (?:my |the )?${tyreNoun}\\??$`),
+    new RegExp(`^what (?:is|are) (?:my |the )?${tyreNoun} (?:pressure|pressures|temperature|temperatures|wear|condition)\\??$`),
+    new RegExp(`^what (?:is|are) (?:my |the )?(?:pressure|pressures|temperature|temperatures|wear|condition) (?:of |on )?(?:my |the )?${tyreNoun}\\??$`),
+    new RegExp(`^(?:current )?${tyreNoun} (?:pressure|pressures|temperature|temperatures|wear|condition)\\??$`),
+    /^como estao (?:os |meus )?pneus\??$/,
+    /^qual (?:e )?a (?:pressao|temperatura|condicao) (?:atual )?(?:dos |nos )?pneus\??$/,
+    /^qual (?:e )?o desgaste (?:atual )?(?:dos |nos )?pneus\??$/,
+    /^qual (?:e )?a temperatura e (?:o )?desgaste (?:dos |nos )?pneus\??$/,
+    /^estado (?:atual )?(?:dos |dos meus )?pneus\??$/
+  ]
+  return statusPatterns.some((pattern) => pattern.test(text))
+}
+
 // ─── token groups ────────────────────────────────────────────────────────────
 
 const DASH_NOUNS = ['dashboard', 'dash', 'painel', 'tela', 'hud']
@@ -218,7 +234,10 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, uni
   }
 
   // TYRES
-  if (hasWord(text, 'tire', 'tires', 'tyre', 'tyres', 'pneu', 'pneus', 'borracha')) {
+  if (
+    hasWord(text, 'tire', 'tires', 'tyre', 'tyres', 'pneu', 'pneus') &&
+    isTyreStatusQuestion(text)
+  ) {
     if (!snapshot?.connected) return answer('tyres', lang, noData)
     return answer('tyres', lang, buildTyresAnswer(ctx, lang, unitSystem))
   }

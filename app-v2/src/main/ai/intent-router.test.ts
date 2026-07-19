@@ -283,6 +283,18 @@ describe('routeIntent -- PT-BR questions', () => {
   })
 
   it.each([
+    'Devo trocar os pneus?',
+    'Qual pneu devo usar?',
+    'Qual a pressão alvo dos pneus?',
+    'Preciso trocar os pneus agora?',
+    'Should I change tyres?',
+    'Which tyre should I use?',
+    'What tyre pressure target should I use?'
+  ])('does not route tyre strategy as read-only status: %s', (question) => {
+    expect(routeIntent(question, ctx(), 'pt')).toEqual({ type: 'passthrough' })
+  })
+
+  it.each([
     'Quantas voltas faltam?',
     'Quantas voltas restam?',
     'Voltas restantes?'
