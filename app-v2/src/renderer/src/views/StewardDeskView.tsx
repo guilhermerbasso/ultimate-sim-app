@@ -40,6 +40,11 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function latestTrustedVerdictId(value: StewardCase | null | undefined): string {
+  return value?.verdicts.filter((entry) =>
+    entry.authority !== 'imported-source-claim').at(-1)?.verdictId ?? ''
+}
+
 function Field({
   label,
   children,
@@ -167,7 +172,8 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     [create.incidentId, incidentClips]
   )
   const healthy = selected?.integrity.state === 'unanchored'
-  const openAppeals = selected?.appeals.filter((entry) => entry.status === 'open') ?? []
+  const openAppeals = selected?.appeals.filter((entry) =>
+    entry.authority !== 'imported-source-claim' && entry.status === 'open') ?? []
   const statusLockedByAppeal = openAppeals.length > 0
   const caseDraftDirty = useMemo(
     () =>
@@ -181,8 +187,8 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       Boolean(resolution.reasoning) ||
       Boolean(evidenceIncidentId) ||
       verdict.finding !== 'insufficient-evidence' ||
-      dissent.verdictId !== (selected?.verdicts.at(-1)?.verdictId ?? '') ||
-      appeal.verdictId !== (selected?.verdicts.at(-1)?.verdictId ?? '') ||
+      dissent.verdictId !== latestTrustedVerdictId(selected) ||
+      appeal.verdictId !== latestTrustedVerdictId(selected) ||
       resolution.appealId !== (openAppeals[0]?.appealId ?? '') ||
       resolution.resolution !== 'upheld',
     [
@@ -201,8 +207,9 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   )
 
   function resetCaseDrafts(caseValue: StewardCase | null): void {
-    const latestVerdict = caseValue?.verdicts.at(-1)?.verdictId ?? ''
-    const firstOpenAppeal = caseValue?.appeals.find((entry) => entry.status === 'open')?.appealId ?? ''
+    const latestVerdict = latestTrustedVerdictId(caseValue)
+    const firstOpenAppeal = caseValue?.appeals.find((entry) =>
+      entry.authority !== 'imported-source-claim' && entry.status === 'open')?.appealId ?? ''
     setBookmark({ sourceId: '', label: '', lap: '', sessionTimeSec: '', replayFrame: '' })
     setManualEvidence({ summary: '', sourceRef: '', content: '' })
     setRule({ rulesetId: '', version: '', section: '', title: '', text: '', source: '' })
@@ -270,7 +277,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     setSelectedRuleIds(selected.rules.at(-1) ? [selected.rules.at(-1)!.citationId] : [])
     setSelectedEvidenceIds(selected.evidence.filter((entry) => entry.state === 'available').map((entry) => entry.evidenceId))
     setReferencesDirty(false)
-    const latestVerdict = selected.verdicts.at(-1)?.verdictId ?? ''
+    const latestVerdict = latestTrustedVerdictId(selected)
     setDissent((current) => ({ ...current, verdictId: latestVerdict }))
     setAppeal((current) => ({ ...current, verdictId: latestVerdict }))
     setResolution((current) => ({ ...current, appealId: openAppeals[0]?.appealId ?? '' }))
@@ -330,7 +337,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.createCase,
       {
         title: create.title,
-        actorDisplayName: stewardName,
+        actorLabel: stewardName,
         identity: {
           leagueId: create.leagueId,
           leagueName: create.leagueName,
@@ -366,7 +373,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.addBookmark,
       {
         caseId: selected.caseId,
-        actorDisplayName: stewardName,
+        actorLabel: stewardName,
         bookmark: {
           source: 'replay',
           sourceId: bookmark.sourceId,
@@ -392,7 +399,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       const next = await window.ipc.invoke<StewardCase>(STEWARD_CHANNELS.lockIncidentEvidence, {
         caseId: selected.caseId,
         incidentId: evidenceIncidentId,
-        actorDisplayName: stewardName
+        actorLabel: stewardName
       })
       upsert(next)
       setEvidenceIncidentId('')
@@ -411,7 +418,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.lockEvidence,
       {
         caseId: selected.caseId,
-        actorDisplayName: stewardName,
+        actorLabel: stewardName,
         summary: manualEvidence.summary,
         mediaType: 'text/plain',
         content: { note: manualEvidence.content },
@@ -437,7 +444,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.citeRule,
       {
         caseId: selected.caseId,
-        actorDisplayName: stewardName,
+        actorLabel: stewardName,
         ...rule
       },
       'steward.toast.rule'
@@ -452,7 +459,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.recordVerdict,
       {
         caseId: selected.caseId,
-        actorDisplayName: stewardName,
+        actorLabel: stewardName,
         ...verdict,
         ruleCitationIds: selectedRuleIds,
         evidenceIds: selectedEvidenceIds,
@@ -470,7 +477,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.recordDissent,
       {
         caseId: selected.caseId,
-        actorDisplayName: participantName,
+        actorLabel: participantName,
         ...dissent
       },
       'steward.toast.dissent'
@@ -485,7 +492,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.fileAppeal,
       {
         caseId: selected.caseId,
-        actorDisplayName: participantName,
+        actorLabel: participantName,
         ...appeal
       },
       'steward.toast.appeal'
@@ -500,7 +507,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       STEWARD_CHANNELS.resolveAppeal,
       {
         caseId: selected.caseId,
-        actorDisplayName: stewardName,
+        actorLabel: stewardName,
         ...resolution
       },
       'steward.toast.resolution'
@@ -763,7 +770,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                       STEWARD_CHANNELS.setStatus,
                       {
                         caseId: selected.caseId,
-                        actorDisplayName: stewardName,
+                        actorLabel: stewardName,
                         status: event.target.value
                       },
                       'steward.toast.status'
@@ -787,7 +794,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                     STEWARD_CHANNELS.assignCase,
                     {
                       caseId: selected.caseId,
-                      actorDisplayName: stewardName
+                      actorLabel: stewardName
                     },
                     'steward.toast.assigned'
                   )}
@@ -1037,8 +1044,9 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                             [tt(language, 'steward.details.ruleRefs'), entry.ruleCitationIds.join(', ')],
                             [tt(language, 'steward.details.evidenceRefs'), entry.evidenceIds.join(', ')],
                             [tt(language, 'steward.details.supersedes'), entry.supersedesVerdictId],
+                            [tt(language, 'steward.details.authority'), entry.authority ?? 'local-trusted'],
                             [tt(language, 'steward.details.decidedAt'), formatDate(entry.decidedAt, language)],
-                            [tt(language, 'steward.details.decidedBy'), `${entry.decidedBy.displayName} · ${entry.decidedBy.id} · ${entry.decidedBy.role}`]
+                            [tt(language, 'steward.details.decidedBy'), `${entry.decidedBy.displayName} · ${entry.decidedBy.id} · ${entry.decidedBy.role}${entry.decidedBy.claimedRole ? ` · claimed ${entry.decidedBy.claimedRole}` : ''}`]
                           ]} />
                         </ReadOnlyDetails>
                       </div>
@@ -1179,8 +1187,9 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                               [tt(language, 'steward.details.verdictId'), entry.verdictId],
                               [tt(language, 'steward.details.grounds'), entry.grounds],
                               [tt(language, 'steward.details.remedy'), entry.requestedRemedy],
+                              [tt(language, 'steward.details.authority'), entry.authority ?? 'local-trusted'],
                               [tt(language, 'steward.details.filedAt'), formatDate(entry.filedAt, language)],
-                              [tt(language, 'steward.details.filedBy'), `${entry.filedBy.displayName} · ${entry.filedBy.id} · ${entry.filedBy.role}`],
+                              [tt(language, 'steward.details.filedBy'), `${entry.filedBy.displayName} · ${entry.filedBy.id} · ${entry.filedBy.role}${entry.filedBy.claimedRole ? ` · claimed ${entry.filedBy.claimedRole}` : ''}`],
                               [tt(language, 'steward.details.status'), entry.status]
                             ]} />
                             {entry.resolutions.map((item) => (
@@ -1190,8 +1199,9 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                                   [tt(language, 'steward.details.id'), item.resolutionId],
                                   [tt(language, 'steward.details.resolution'), item.resolution],
                                   [tt(language, 'steward.details.reasoning'), item.reasoning],
+                                  [tt(language, 'steward.details.authority'), item.authority ?? 'local-trusted'],
                                   [tt(language, 'steward.details.resolvedAt'), formatDate(item.resolvedAt, language)],
-                                  [tt(language, 'steward.details.resolvedBy'), `${item.resolvedBy.displayName} · ${item.resolvedBy.id} · ${item.resolvedBy.role}`]
+                                  [tt(language, 'steward.details.resolvedBy'), `${item.resolvedBy.displayName} · ${item.resolvedBy.id} · ${item.resolvedBy.role}${item.resolvedBy.claimedRole ? ` · claimed ${item.resolvedBy.claimedRole}` : ''}`]
                                 ]} />
                               </div>
                             ))}

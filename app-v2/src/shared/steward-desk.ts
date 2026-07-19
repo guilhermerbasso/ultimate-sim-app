@@ -11,12 +11,18 @@ export type StewardActorRole =
   | 'league-admin'
   | 'participant'
   | 'observer'
+  | 'source-claim'
+
+export type StewardClaimedActorRole = Exclude<StewardActorRole, 'source-claim'>
 
 export interface StewardActor {
   id: string
   displayName: string
   role: StewardActorRole
+  claimedRole?: StewardClaimedActorRole
 }
+
+export type StewardRecordAuthority = 'local-trusted' | 'imported-source-claim'
 
 export type StewardCaseStatus = 'triage' | 'under-review' | 'decided' | 'appealed' | 'closed'
 
@@ -112,6 +118,7 @@ export interface StewardHumanVerdict {
   ruleCitationIds: string[]
   evidenceIds: string[]
   supersedesVerdictId?: string
+  authority?: StewardRecordAuthority
   decidedAt: number
   decidedBy: StewardActor
 }
@@ -131,6 +138,7 @@ export interface StewardAppealResolution {
   resolutionId: string
   resolution: StewardAppealResolutionKind
   reasoning: string
+  authority?: StewardRecordAuthority
   resolvedAt: number
   resolvedBy: StewardActor
 }
@@ -140,6 +148,7 @@ export interface StewardAppeal {
   verdictId: string
   grounds: string
   requestedRemedy: string
+  authority?: StewardRecordAuthority
   filedAt: number
   filedBy: StewardActor
   status: 'open' | 'resolved'
@@ -368,7 +377,7 @@ export interface StewardEvidenceDetailsRequest {
 export interface StewardIncidentEvidenceLockRequest {
   caseId: string
   incidentId: string
-  actorDisplayName?: string
+  actorLabel?: string
 }
 
 export interface StewardEvidenceDetails {

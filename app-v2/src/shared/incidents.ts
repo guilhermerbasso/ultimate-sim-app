@@ -44,6 +44,7 @@ export interface IncidentCaptureSessionIdentity {
   captureSessionId: string
   sim: TelemetrySnapshot['sim']
   startedAt: number
+  lifecycleGeneration?: number
   sessionUniqueId?: number
   sessionNumber?: number
   sessionType?: string
@@ -163,7 +164,8 @@ export function incidentCaptureSessionKey(snapshot: TelemetrySnapshot): string {
 
 export function createIncidentCaptureSessionIdentity(
   snapshot: TelemetrySnapshot,
-  startedAt = snapshot.timestamp
+  startedAt = snapshot.timestamp,
+  lifecycleGeneration?: number
 ): IncidentCaptureSessionIdentity {
   const sessionUniqueId = finite(snapshot.sessionUniqueId)
     ? Math.trunc(snapshot.sessionUniqueId as number)
@@ -172,7 +174,7 @@ export function createIncidentCaptureSessionIdentity(
     ? Math.trunc(snapshot.sessionNumber as number)
     : undefined
   const stableId = sessionUniqueId === undefined
-    ? `${incidentCaptureSessionKey(snapshot)}:${Math.trunc(startedAt)}`
+    ? `${incidentCaptureSessionKey(snapshot)}:generation:${lifecycleGeneration ?? 1}:${Math.trunc(startedAt)}`
     : incidentCaptureSessionKey(snapshot)
   const captureSessionId = `capture-${stableId}`
     .replace(/[^A-Za-z0-9._:@-]/g, '-')
@@ -182,6 +184,7 @@ export function createIncidentCaptureSessionIdentity(
     captureSessionId,
     sim: snapshot.sim,
     startedAt: Math.trunc(startedAt),
+    ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration }),
     ...(sessionUniqueId === undefined ? {} : { sessionUniqueId }),
     ...(sessionNumber === undefined ? {} : { sessionNumber }),
     ...(snapshot.sessionType ? { sessionType: snapshot.sessionType } : {}),

@@ -1,31 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { trustedParticipantActor, trustedStewardActor } from './actors'
+import {
+  STEWARD_LOCAL_ACTOR_CONFIG,
+  trustedImportActor,
+  trustedParticipantActor,
+  trustedStewardActor
+} from './actors'
 
 describe('Steward Desk trusted actors', () => {
-  it('ignores renderer-supplied ids and elevated roles', () => {
-    const spoofed = {
-      actorDisplayName: '  Race Control  ',
-      actor: {
-        id: 'attacker',
-        displayName: 'Forged chief',
-        role: 'league-admin'
-      }
-    }
-
-    expect(trustedStewardActor(spoofed)).toEqual({
+  it('returns complete stable identities only from frozen main-owned configuration', () => {
+    expect(Object.isFrozen(STEWARD_LOCAL_ACTOR_CONFIG)).toBe(true)
+    expect(Object.isFrozen(STEWARD_LOCAL_ACTOR_CONFIG.steward)).toBe(true)
+    expect(trustedStewardActor()).toEqual({
       id: 'local-steward',
-      displayName: 'Race Control',
+      displayName: 'Local steward',
       role: 'steward'
     })
-    expect(trustedParticipantActor(spoofed)).toEqual({
+    expect(trustedParticipantActor()).toEqual({
       id: 'local-participant',
-      displayName: 'Race Control',
+      displayName: 'League participant',
       role: 'participant'
     })
-  })
-
-  it('falls back instead of accepting invalid display-name claims', () => {
-    expect(trustedStewardActor({ actorDisplayName: 'x'.repeat(121) }).displayName).toBe('Local steward')
-    expect(trustedParticipantActor({ actorDisplayName: '\u0000admin' }).displayName).toBe('League participant')
+    expect(trustedImportActor()).toEqual({
+      id: 'steward-import',
+      displayName: 'Imported steward package',
+      role: 'league-admin'
+    })
+    expect(trustedStewardActor()).not.toBe(STEWARD_LOCAL_ACTOR_CONFIG.steward)
   })
 })

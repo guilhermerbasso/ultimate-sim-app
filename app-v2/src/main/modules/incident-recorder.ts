@@ -9,7 +9,6 @@
 // a clip ON DEMAND (`incidents:analyze`), with a deterministic fallback that fully
 // works without any model — the LLM is NEVER loaded or run from the telemetry loop.
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
@@ -19,8 +18,6 @@ import {
   INCIDENT_CHANNELS,
   buildIncidentWindow,
   classifyIncident,
-  createIncidentCaptureSessionIdentity,
-  incidentCaptureSessionKey,
   summarizeIncident,
   toClipMeta,
   toIncidentSample,
@@ -28,7 +25,6 @@ import {
   type IncidentAnalyzeRequest,
   type IncidentCaptureSessionIdentity,
   type IncidentClip,
-  type IncidentClipMeta,
   type IncidentEvent,
   type IncidentSample
 } from '../../shared/incidents'
@@ -36,6 +32,11 @@ import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
+import {
+  IncidentClipStore,
+  type IncidentClipRepository
+} from '../incidents/clip-store'
+import { IncidentCaptureSessionLifecycle } from '../incidents/session-lifecycle'
 
 const LOG_AREA = 'incidents'
 const CLIPS_DIR = 'incident-clips'
@@ -44,8 +45,6 @@ const RING_MS = 60_000
 const MAX_RING_SAMPLES = 2_400
 const PRE_MS = 4_000
 const POST_MS = 3_000
-// Keep the newest N clips on disk; older ones are pruned.
-const MAX_CLIPS = 60
 const ANALYZE_MAX_TOKENS = 130
 
 interface PendingCapture {
@@ -56,99 +55,6 @@ interface PendingCapture {
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
-}
-
-function safeFileName(id: string): string {
-  return `${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
-}
-
-// ─── clip store (userData/incident-clips/*.json) ─────────────────────────────────
-
-class ClipStore {
-  private index: IncidentClipMeta[] = []
-
-  constructor(private readonly dir: string) {}
-
-  load(): void {
-    try {
-      if (!existsSync(this.dir)) {
-        mkdirSync(this.dir, { recursive: true })
-        return
-      }
-      const files = readdirSync(this.dir).filter((name) => name.endsWith('.json'))
-      const metas: IncidentClipMeta[] = []
-      for (const file of files) {
-        try {
-          const clip = JSON.parse(readFileSync(join(this.dir, file), 'utf8')) as IncidentClip
-          if (clip && typeof clip.id === 'string' && Array.isArray(clip.window)) metas.push(toClipMeta(clip))
-        } catch {
-          // skip a corrupt clip file
-        }
-      }
-      metas.sort((a, b) => b.createdAt - a.createdAt)
-      this.index = metas
-    } catch (error) {
-      logger.warn(LOG_AREA, 'failed to load incident clips', { message: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
-  list(): IncidentClipMeta[] {
-    return this.index.slice()
-  }
-
-  get(id: string): IncidentClip | null {
-    const path = join(this.dir, safeFileName(id))
-    try {
-      if (!existsSync(path)) return null
-      const clip = JSON.parse(readFileSync(path, 'utf8')) as IncidentClip
-      return clip?.id === id && Array.isArray(clip.window) ? clip : null
-    } catch {
-      return null
-    }
-  }
-
-  save(clip: IncidentClip): IncidentClipMeta | null {
-    try {
-      mkdirSync(this.dir, { recursive: true })
-      writeFileSync(join(this.dir, safeFileName(clip.id)), JSON.stringify(clip), 'utf8')
-      this.index.unshift(toClipMeta(clip))
-      this.prune()
-      return this.index[0]
-    } catch (error) {
-      logger.warn(LOG_AREA, 'failed to save incident clip', { message: error instanceof Error ? error.message : String(error) })
-      return null
-    }
-  }
-
-  clear(): number {
-    const count = this.index.length
-    for (const meta of this.index) {
-      try {
-        rmSync(join(this.dir, safeFileName(meta.id)), { force: true })
-      } catch {
-        // best effort
-      }
-    }
-    this.index = []
-    return count
-  }
-
-  private prune(): void {
-    while (this.index.length > MAX_CLIPS) {
-      const oldest = this.index.pop()
-      if (!oldest) break
-      try {
-        rmSync(join(this.dir, safeFileName(oldest.id)), { force: true })
-      } catch {
-        // best effort
-      }
-    }
-  }
-}
-
-export function readIncidentClipFromUserData(userDataPath: string, id: string): IncidentClip | null {
-  if (!id || id.length > 300) return null
-  return new ClipStore(join(userDataPath, CLIPS_DIR)).get(id)
 }
 
 // ─── optional LLM analysis (deterministic fallback always works) ─────────────────
@@ -200,13 +106,23 @@ function analyzePrompt(clip: IncidentClip, lang: 'pt' | 'en', unitSystem: UnitSy
 
 // ─── registration ────────────────────────────────────────────────────────────────
 
-export function register(ctx: ModuleContext): void {
+export interface IncidentRecorderOptions {
+  clipStore?: IncidentClipRepository
+}
+
+export function register(ctx: ModuleContext, options: IncidentRecorderOptions = {}): void {
   let unitSystem: UnitSystem = 'metric'
   settingsEvents.onChanged((settings) => {
     unitSystem = settings.unitSystem
   })
-  const store = new ClipStore(join(ctx.app.getPath('userData'), CLIPS_DIR))
-  store.load()
+  const store = options.clipStore ?? new IncidentClipStore(join(ctx.app.getPath('userData'), CLIPS_DIR))
+  try {
+    store.load()
+  } catch (error) {
+    logger.warn(LOG_AREA, 'failed to load incident clips', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  }
 
   const config = DEFAULT_INCIDENT_CONFIG
   let ring: IncidentSample[] = []
@@ -214,7 +130,7 @@ export function register(ctx: ModuleContext): void {
   let lastDetectedAt: Partial<Record<IncidentEvent['type'], number>> = {}
   let pending: PendingCapture[] = []
   let captureSession: IncidentCaptureSessionIdentity | null = null
-  let captureSessionKey = ''
+  const sessionLifecycle = new IncidentCaptureSessionLifecycle()
 
   const finalizeReady = (nowMs: number): void => {
     if (pending.length === 0) return
@@ -231,10 +147,15 @@ export function register(ctx: ModuleContext): void {
         createdAt: Date.now(),
         captureSession: capture.captureSession
       }
-      const meta = store.save(clip)
-      if (meta) {
+      try {
+        const verified = store.save(clip)
+        const meta = toClipMeta(verified.clip)
         ctx.broadcast(INCIDENT_CHANNELS.added, meta)
         logger.info(LOG_AREA, 'incident clip saved', { type: clip.type, severity: clip.severity, lap: clip.lap })
+      } catch (error) {
+        logger.warn(LOG_AREA, 'failed to save incident clip', {
+          message: error instanceof Error ? error.message : String(error)
+        })
       }
     }
   }
@@ -249,19 +170,20 @@ export function register(ctx: ModuleContext): void {
       prevSnapshot = null
       lastDetectedAt = {}
       captureSession = null
-      captureSessionKey = ''
+      sessionLifecycle.observe(null)
       return
     }
 
-    const nextCaptureSessionKey = incidentCaptureSessionKey(snapshot)
-    if (!captureSession || captureSessionKey !== nextCaptureSessionKey) {
-      if (captureSession) finalizeReady(Number.MAX_SAFE_INTEGER)
+    const previousCaptureSession = captureSession
+    const session = sessionLifecycle.observe(snapshot)
+    if (session.changed) {
+      if (previousCaptureSession) finalizeReady(Number.MAX_SAFE_INTEGER)
       ring = []
       prevSnapshot = null
       lastDetectedAt = {}
-      captureSession = createIncidentCaptureSessionIdentity(snapshot)
-      captureSessionKey = nextCaptureSessionKey
+      captureSession = session.identity
     }
+    if (!captureSession) return
 
     const sample = toIncidentSample(snapshot)
     ring.push(sample)
@@ -289,13 +211,16 @@ export function register(ctx: ModuleContext): void {
   })
 
   ctx.ipcMain.handle(INCIDENT_CHANNELS.list, () => store.list())
-  ctx.ipcMain.handle(INCIDENT_CHANNELS.get, (_event, id: unknown) => (typeof id === 'string' ? store.get(id) : null))
+  ctx.ipcMain.handle(
+    INCIDENT_CHANNELS.get,
+    (_event, id: unknown) => (typeof id === 'string' ? store.getVerified(id)?.clip ?? null : null)
+  )
   ctx.ipcMain.handle(INCIDENT_CHANNELS.clear, () => store.clear())
 
   ctx.ipcMain.handle(INCIDENT_CHANNELS.analyze, async (_event, request?: IncidentAnalyzeRequest): Promise<IncidentAnalysis> => {
     const id = request?.id ?? ''
     const lang: 'pt' | 'en' = request?.lang === 'en' ? 'en' : 'pt'
-    const clip = id ? store.get(id) : null
+    const clip = id ? store.getVerified(id)?.clip ?? null : null
     if (!clip) {
       return { id, text: lang === 'pt' ? 'Incident clip not found.' : 'Incident clip not found.', source: 'deterministic' }
     }

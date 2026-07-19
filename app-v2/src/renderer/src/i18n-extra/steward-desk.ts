@@ -2,11 +2,11 @@ import type { ResolvedLanguage } from '../i18n'
 
 const en = {
   'steward.owner.title': 'Human decision owner',
-  'steward.owner.body': 'Steward Desk packages evidence and history. It never issues automatic penalties or changes a verdict automatically.',
+  'steward.owner.body': 'Steward Desk packages evidence and history. Main-owned identities control audit ownership; renderer labels are untrusted notes. It never issues automatic penalties or changes a verdict automatically.',
   'steward.toolbarAria': 'Steward Desk controls',
   'steward.caseAria': 'Selected steward case',
-  'steward.stewardName': 'Steward name',
-  'steward.participantName': 'Participant name',
+  'steward.stewardName': 'Untrusted steward label',
+  'steward.participantName': 'Untrusted participant label',
   'steward.refresh': 'Refresh',
   'steward.import': 'Import package',
   'steward.localFirst': 'Local-first · append-only',
@@ -174,6 +174,7 @@ const en = {
   'steward.details.ruleRefs': 'Rule references',
   'steward.details.evidenceRefs': 'Evidence references',
   'steward.details.supersedes': 'Supersedes verdict',
+  'steward.details.authority': 'Authority',
   'steward.details.decidedAt': 'Decided at',
   'steward.details.decidedBy': 'Decided by',
   'steward.details.verdictId': 'Verdict id',

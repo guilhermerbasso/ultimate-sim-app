@@ -18,6 +18,7 @@ import {
   STEWARD_EXPORT_MAGIC,
   STEWARD_EXPORT_VERSION,
   type StewardActor,
+  type StewardClaimedActorRole,
   type StewardActorRole,
   type StewardAppeal,
   type StewardAppealInput,
@@ -49,6 +50,7 @@ import {
   type StewardIncidentBookmarkInput,
   type StewardPortableCase,
   type StewardRaceSessionIdentity,
+  type StewardRecordAuthority,
   type StewardRuleCitation,
   type StewardRuleCitationInput,
   type StewardVerdictFinding,
@@ -56,10 +58,11 @@ import {
 } from '../../shared/steward-desk'
 import {
   INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION,
-  type IncidentCaptureSessionIdentity,
-  type IncidentClip
+  type IncidentCaptureSessionIdentity
 } from '../../shared/incidents'
 import { thirdPartyDistributionRestrictionReason } from '../../shared/third-party-dashboard-catalog'
+import { assertVerifiedIncidentClip, type VerifiedIncidentClip } from '../incidents/clip-store'
+import { trustedImportActor } from './actors'
 import {
   PACKAGE_MAX_CANONICAL_BYTES,
   canonicalStringify,
@@ -92,7 +95,8 @@ const ACTOR_ROLES = new Set<StewardActorRole>([
   'chief-steward',
   'league-admin',
   'participant',
-  'observer'
+  'observer',
+  'source-claim'
 ])
 const DECISION_ROLES = new Set<StewardActorRole>(['steward', 'chief-steward', 'league-admin'])
 const CASE_STATUSES = new Set<StewardCaseStatus>(['triage', 'under-review', 'decided', 'appealed', 'closed'])
@@ -161,6 +165,12 @@ function hash(value: unknown, label: string): string {
   return value
 }
 
+function recordAuthority(value: unknown, label: string): StewardRecordAuthority {
+  if (value === undefined) return 'local-trusted'
+  if (value === 'local-trusted' || value === 'imported-source-claim') return value
+  throw new Error(`${label} is not supported.`)
+}
+
 function numberValue(
   value: unknown,
   label: string,
@@ -201,13 +211,24 @@ function onlyKeys(source: Record<string, unknown>, label: string, allowed: reado
 
 function actor(value: unknown, label = 'actor'): StewardActor {
   const source = plain(value, label)
-  onlyKeys(source, label, ['id', 'displayName', 'role'])
+  onlyKeys(source, label, ['id', 'displayName', 'role', 'claimedRole'])
   const role = text(source.role, `${label}.role`, 32) as StewardActorRole
   if (!ACTOR_ROLES.has(role)) throw new Error(`${label}.role is not supported.`)
+  const claimedRole = source.claimedRole === undefined
+    ? undefined
+    : text(source.claimedRole, `${label}.claimedRole`, 32) as StewardClaimedActorRole
+  if (
+    (role === 'source-claim' &&
+      (!claimedRole || source.claimedRole === 'source-claim' || !ACTOR_ROLES.has(claimedRole))) ||
+    (role !== 'source-claim' && claimedRole !== undefined)
+  ) {
+    throw new Error(`${label}.claimedRole is valid only for an explicit source-claim actor.`)
+  }
   return {
     id: identifier(source.id, `${label}.id`),
     displayName: text(source.displayName, `${label}.displayName`, 120),
-    role
+    role,
+    ...(claimedRole ? { claimedRole } : {})
   }
 }
 
@@ -219,10 +240,19 @@ function decisionActor(value: unknown, label = 'actor'): StewardActor {
   return normalized
 }
 
+function decisionOrSourceClaimActor(value: unknown, label = 'actor'): StewardActor {
+  const normalized = actor(value, label)
+  if (normalized.role !== 'source-claim' && !DECISION_ROLES.has(normalized.role)) {
+    throw new Error('A human steward, chief steward, league admin, or imported source claim must own this record.')
+  }
+  return normalized
+}
+
 function actorsMatch(left: StewardActor, right: StewardActor): boolean {
   return left.id === right.id &&
     left.displayName === right.displayName &&
-    left.role === right.role
+    left.role === right.role &&
+    left.claimedRole === right.claimedRole
 }
 
 function requireMatchingActor(eventActor: StewardActor, payloadActor: StewardActor, label: string): void {
@@ -236,6 +266,7 @@ function incidentCaptureSession(value: unknown): IncidentCaptureSessionIdentity 
     'captureSessionId',
     'sim',
     'startedAt',
+    'lifecycleGeneration',
     'sessionUniqueId',
     'sessionNumber',
     'sessionType',
@@ -247,6 +278,11 @@ function incidentCaptureSession(value: unknown): IncidentCaptureSessionIdentity 
   }
   const sessionUniqueId = optionalNumber(source.sessionUniqueId, 'incident.captureSession.sessionUniqueId')
   const sessionNumber = optionalNumber(source.sessionNumber, 'incident.captureSession.sessionNumber')
+  const lifecycleGeneration = optionalNumber(
+    source.lifecycleGeneration,
+    'incident.captureSession.lifecycleGeneration',
+    1
+  )
   const sessionType = optionalText(source.sessionType, 'incident.captureSession.sessionType', 80)
   const trackName = optionalText(source.trackName, 'incident.captureSession.trackName', 200)
   const trackConfigName = optionalText(source.trackConfigName, 'incident.captureSession.trackConfigName', 200)
@@ -255,6 +291,7 @@ function incidentCaptureSession(value: unknown): IncidentCaptureSessionIdentity 
     captureSessionId: text(source.captureSessionId, 'incident.captureSession.captureSessionId', 200),
     sim: text(source.sim, 'incident.captureSession.sim', 80) as IncidentCaptureSessionIdentity['sim'],
     startedAt: numberValue(source.startedAt, 'incident.captureSession.startedAt'),
+    ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration: Math.trunc(lifecycleGeneration) }),
     ...(sessionUniqueId === undefined ? {} : { sessionUniqueId }),
     ...(sessionNumber === undefined ? {} : { sessionNumber }),
     ...(sessionType ? { sessionType } : {}),
@@ -371,7 +408,7 @@ function bookmarkRecord(value: unknown): StewardIncidentBookmark {
     ...input,
     bookmarkId: identifier(source.bookmarkId, 'bookmark.bookmarkId'),
     createdAt: numberValue(source.createdAt, 'bookmark.createdAt'),
-    createdBy: decisionActor(source.createdBy, 'bookmark.createdBy')
+    createdBy: decisionOrSourceClaimActor(source.createdBy, 'bookmark.createdBy')
   }
 }
 
@@ -440,7 +477,7 @@ function evidenceRecord(value: unknown): StewardEvidenceLock {
     byteLength: numberValue(source.byteLength, 'evidence.byteLength', 0, 4 * 1024 * 1024),
     provenance: evidenceProvenance(source.provenance),
     lockedAt: numberValue(source.lockedAt, 'evidence.lockedAt'),
-    lockedBy: decisionActor(source.lockedBy, 'evidence.lockedBy'),
+    lockedBy: decisionOrSourceClaimActor(source.lockedBy, 'evidence.lockedBy'),
     state
   }
 }
@@ -469,7 +506,7 @@ function ruleRecord(value: unknown): StewardRuleCitation {
     source: text(source.source, 'rule.source', 500),
     contentHash: hash(source.contentHash, 'rule.contentHash'),
     citedAt: numberValue(source.citedAt, 'rule.citedAt'),
-    citedBy: decisionActor(source.citedBy, 'rule.citedBy')
+    citedBy: decisionOrSourceClaimActor(source.citedBy, 'rule.citedBy')
   }
   const expectedHash = sha256Canonical({
     rulesetId: citation.rulesetId,
@@ -499,6 +536,7 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
     'ruleCitationIds',
     'evidenceIds',
     'supersedesVerdictId',
+    'authority',
     'decidedAt',
     'decidedBy'
   ])
@@ -508,6 +546,16 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
   const supersedesVerdictId = source.supersedesVerdictId === undefined
     ? undefined
     : identifier(source.supersedesVerdictId, 'verdict.supersedesVerdictId')
+  const authority = recordAuthority(source.authority, 'verdict.authority')
+  const decidedBy = authority === 'imported-source-claim'
+    ? actor(source.decidedBy, 'verdict.decidedBy')
+    : decisionActor(source.decidedBy, 'verdict.decidedBy')
+  if (
+    (authority === 'imported-source-claim' && decidedBy.role !== 'source-claim') ||
+    (authority === 'local-trusted' && decidedBy.role === 'source-claim')
+  ) {
+    throw new Error('Verdict authority does not match its actor trust.')
+  }
   return {
     verdictId: identifier(source.verdictId, 'verdict.verdictId'),
     finding,
@@ -516,8 +564,9 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
     ruleCitationIds: stringIds(source.ruleCitationIds, 'verdict.ruleCitationIds'),
     evidenceIds: stringIds(source.evidenceIds, 'verdict.evidenceIds'),
     ...(supersedesVerdictId ? { supersedesVerdictId } : {}),
+    authority,
     decidedAt: numberValue(source.decidedAt, 'verdict.decidedAt'),
-    decidedBy: decisionActor(source.decidedBy, 'verdict.decidedBy')
+    decidedBy
   }
 }
 
@@ -549,17 +598,29 @@ function resolutionRecord(value: unknown): StewardAppealResolution {
     'resolutionId',
     'resolution',
     'reasoning',
+    'authority',
     'resolvedAt',
     'resolvedBy'
   ])
   const resolution = text(source.resolution, 'appeal.resolution.resolution', 30)
   if (!RESOLUTIONS.has(resolution)) throw new Error('appeal resolution is not supported.')
+  const authority = recordAuthority(source.authority, 'appeal.resolution.authority')
+  const resolvedBy = authority === 'imported-source-claim'
+    ? actor(source.resolvedBy, 'appeal.resolution.resolvedBy')
+    : decisionActor(source.resolvedBy, 'appeal.resolution.resolvedBy')
+  if (
+    (authority === 'imported-source-claim' && resolvedBy.role !== 'source-claim') ||
+    (authority === 'local-trusted' && resolvedBy.role === 'source-claim')
+  ) {
+    throw new Error('Appeal resolution authority does not match its actor trust.')
+  }
   return {
     resolutionId: identifier(source.resolutionId, 'appeal.resolution.resolutionId'),
     resolution: resolution as StewardAppealResolution['resolution'],
     reasoning: text(source.reasoning, 'appeal.resolution.reasoning', 8_000),
+    authority,
     resolvedAt: numberValue(source.resolvedAt, 'appeal.resolution.resolvedAt'),
-    resolvedBy: decisionActor(source.resolvedBy, 'appeal.resolution.resolvedBy')
+    resolvedBy
   }
 }
 
@@ -570,6 +631,7 @@ function appealRecord(value: unknown): StewardAppeal {
     'verdictId',
     'grounds',
     'requestedRemedy',
+    'authority',
     'filedAt',
     'filedBy',
     'status',
@@ -584,13 +646,22 @@ function appealRecord(value: unknown): StewardAppeal {
   if ((status === 'open' && resolutions.length > 0) || (status === 'resolved' && resolutions.length === 0)) {
     throw new Error('appeal.status does not match its resolution history.')
   }
+  const authority = recordAuthority(source.authority, 'appeal.authority')
+  if (resolutions.some((entry) => entry.authority !== authority)) {
+    throw new Error('Appeal resolution authority must match the appeal authority.')
+  }
   const filedBy = actor(source.filedBy, 'appeal.filedBy')
-  if (filedBy.role === 'observer') throw new Error('Observers cannot file appeals.')
+  if (authority === 'imported-source-claim') {
+    if (filedBy.role !== 'source-claim') throw new Error('Imported appeal claims require a source-claim actor.')
+  } else if (filedBy.role === 'observer' || filedBy.role === 'source-claim') {
+    throw new Error('Observers and source claims cannot file trusted local appeals.')
+  }
   return {
     appealId: identifier(source.appealId, 'appeal.appealId'),
     verdictId: identifier(source.verdictId, 'appeal.verdictId'),
     grounds: text(source.grounds, 'appeal.grounds', 8_000),
     requestedRemedy: text(source.requestedRemedy, 'appeal.requestedRemedy', 4_000),
+    authority,
     filedAt: numberValue(source.filedAt, 'appeal.filedAt'),
     filedBy,
     status,
@@ -702,6 +773,26 @@ function assertVerdictInvariants(
   ) {
     throw new Error(`Superseded verdict ${verdict.supersedesVerdictId} does not exist before this verdict.`)
   }
+}
+
+function isTrustedLocalVerdict(value: StewardHumanVerdict): boolean {
+  return value.authority !== 'imported-source-claim'
+}
+
+function isTrustedLocalAppeal(value: StewardAppeal): boolean {
+  return value.authority !== 'imported-source-claim'
+}
+
+function requireDecisionOrImportedClaimEventActor(
+  value: StewardActor,
+  importProvenance: StewardImportProvenance | undefined,
+  label: string
+): void {
+  if (value.role === 'source-claim') {
+    if (!importProvenance) throw new Error(`${label} source claim lacks verified source-package context.`)
+    return
+  }
+  decisionActor(value, label)
 }
 
 function emptyIntegrity(failures: string[], checkedEvents: number, headHash?: string): StewardCaseIntegrity {
@@ -967,14 +1058,19 @@ function aliasActors(value: StewardPortableCase): Map<string, StewardActor> {
     ...value.appeals.flatMap((entry) => [entry.filedBy, ...entry.resolutions.map((item) => item.resolvedBy)])
   ]
   for (const entry of all) {
-    if (aliases.has(entry.id)) continue
-    const group = DECISION_ROLES.has(entry.role) ? 'steward' : entry.role === 'participant' ? 'participant' : 'observer'
+    const key = canonicalStringify(entry)
+    if (aliases.has(key)) continue
+    const group = entry.role === 'source-claim'
+      ? `source-claim-${entry.claimedRole ?? 'observer'}`
+      : entry.role
     const next = (counters.get(group) ?? 0) + 1
     counters.set(group, next)
-    aliases.set(entry.id, {
+    aliases.set(key, {
       id: `anon-${group}-${next}`,
-      displayName: `${group[0].toUpperCase()}${group.slice(1)} ${next}`,
-      role: entry.role
+      displayName: `${group.split('-').map((part) =>
+        `${part[0].toUpperCase()}${part.slice(1)}`).join(' ')} ${next}`,
+      role: entry.role,
+      ...(entry.claimedRole ? { claimedRole: entry.claimedRole } : {})
     })
   }
   return aliases
@@ -986,7 +1082,8 @@ function anonymizeCase(
   aliasSeed: string
 ): { caseValue: StewardPortableCase; evidence: StewardExportEvidence[]; redactions: string[] } {
   const aliases = aliasActors(sourceCase)
-  const actorAlias = (value: StewardActor): StewardActor => cloneJson(aliases.get(value.id) ?? value)
+  const actorAlias = (value: StewardActor): StewardActor =>
+    cloneJson(aliases.get(canonicalStringify(value)) ?? value)
   const baseTime = sourceCase.createdAt
   const relativeTime = (value: number): number => Math.max(0, Math.round((value - baseTime) / 60_000) * 60_000)
   const optionalRelative = (value: number | undefined): number | undefined =>
@@ -1152,7 +1249,7 @@ function anonymizeCase(
     },
     evidence: anonymizedEvidence,
     redactions: [
-      'participant and steward identities replaced with role aliases',
+      'actor identities replaced with role-preserving aliases',
       'producer and steward provenance identities removed',
       'league, event, session, track, and source locators removed',
       'exact timestamps in case data, provenance, and evidence converted to relative minute offsets',
@@ -1163,14 +1260,13 @@ function anonymizeCase(
 }
 
 function assertAnonymizedActor(value: StewardActor): void {
-  const match = /^anon-(steward|participant|observer)-([1-9]\d*)$/.exec(value.id)
+  const match = /^anon-(steward|chief-steward|league-admin|participant|observer|source-claim-(?:steward|chief-steward|league-admin|participant|observer))-([1-9]\d*)$/.exec(value.id)
   if (!match) throw new Error('Anonymized case actor id is not schema-allowlisted.')
-  const expectedGroup = DECISION_ROLES.has(value.role)
-    ? 'steward'
-    : value.role === 'participant'
-      ? 'participant'
-      : 'observer'
-  const expectedName = `${expectedGroup[0].toUpperCase()}${expectedGroup.slice(1)} ${match[2]}`
+  const expectedGroup = value.role === 'source-claim'
+    ? `source-claim-${value.claimedRole ?? 'observer'}`
+    : value.role
+  const expectedName = `${expectedGroup.split('-').map((part) =>
+    `${part[0].toUpperCase()}${part.slice(1)}`).join(' ')} ${match[2]}`
   if (match[1] !== expectedGroup || value.displayName !== expectedName) {
     throw new Error('Anonymized case actor identity is not schema-allowlisted.')
   }
@@ -1329,6 +1425,85 @@ function rebaseAnonymizedCase(value: StewardPortableCase, baseTime: number): Ste
       resolutions: entry.resolutions.map((resolution) => ({
         ...resolution,
         resolvedAt: at(resolution.resolvedAt)
+      }))
+    }))
+  }
+}
+
+function normalizeImportedSourceClaims(
+  value: StewardPortableCase,
+  sourcePackageHash: string
+): StewardPortableCase {
+  const aliases = new Map<string, StewardActor>()
+  const counters = new Map<StewardClaimedActorRole, number>()
+  const normalizeActor = (entry: StewardActor): StewardActor => {
+    const claimedRole = entry.role === 'source-claim'
+      ? entry.claimedRole ?? 'observer'
+      : entry.role
+    const key = canonicalStringify({
+      id: entry.id,
+      displayName: entry.displayName,
+      role: entry.role,
+      claimedRole
+    })
+    const existing = aliases.get(key)
+    if (existing) return cloneJson(existing)
+    const next = (counters.get(claimedRole) ?? 0) + 1
+    counters.set(claimedRole, next)
+    const alias: StewardActor = {
+      id: `source-claim-${sha256Canonical({ sourcePackageHash, key }).slice(0, 16)}`,
+      displayName: `Imported ${claimedRole} claim ${next}`,
+      role: 'source-claim',
+      claimedRole
+    }
+    aliases.set(key, alias)
+    return cloneJson(alias)
+  }
+  return {
+    ...cloneJson(value, PACKAGE_MAX_CANONICAL_BYTES),
+    createdBy: normalizeActor(value.createdBy),
+    ...(value.assignedTo ? { assignedTo: normalizeActor(value.assignedTo) } : {}),
+    bookmarks: value.bookmarks.map((entry) => ({
+      ...entry,
+      createdBy: normalizeActor(entry.createdBy)
+    })),
+    evidence: value.evidence.map((entry) => ({
+      ...entry,
+      provenance: {
+        ...entry.provenance,
+        sourceKind: 'import',
+        sourceRef: `source-claim-${sha256Canonical({
+          sourcePackageHash,
+          evidenceId: entry.evidenceId,
+          sourceRef: entry.provenance.sourceRef
+        }).slice(0, 16)}`,
+        producer: 'Imported source claim',
+        producerVersion: 'untrusted',
+        ...(entry.provenance.sessionRef ? { sessionRef: value.identity.sessionId } : {})
+      },
+      lockedBy: normalizeActor(entry.lockedBy)
+    })),
+    rules: value.rules.map((entry) => ({
+      ...entry,
+      citedBy: normalizeActor(entry.citedBy)
+    })),
+    verdicts: value.verdicts.map((entry) => ({
+      ...entry,
+      authority: 'imported-source-claim',
+      decidedBy: normalizeActor(entry.decidedBy)
+    })),
+    dissents: value.dissents.map((entry) => ({
+      ...entry,
+      submittedBy: normalizeActor(entry.submittedBy)
+    })),
+    appeals: value.appeals.map((entry) => ({
+      ...entry,
+      authority: 'imported-source-claim',
+      filedBy: normalizeActor(entry.filedBy),
+      resolutions: entry.resolutions.map((resolution) => ({
+        ...resolution,
+        authority: 'imported-source-claim',
+        resolvedBy: normalizeActor(resolution.resolvedBy)
       }))
     }))
   }
@@ -1500,15 +1675,48 @@ export class StewardCaseStore {
   }
 
   createCase(input: StewardCaseCreateInput): StewardCase {
-    const owner = decisionActor(input.actor)
-    const normalizedIdentity = identity(input.identity)
     const normalizedIncident = bookmarkInput(input.incident)
-    if (
-      normalizedIncident.source === 'incident-recorder' &&
-      normalizedIncident.captureSessionId !== normalizedIdentity.sessionId
-    ) {
-      throw new Error('Incident-recorder cases require the immutable clip capture-session id.')
+    if (normalizedIncident.source === 'incident-recorder') {
+      throw new Error('Incident-recorder cases must be derived from a verified persisted clip.')
     }
+    return this.createCaseWithIncident(input, identity(input.identity), normalizedIncident)
+  }
+
+  createCaseFromIncidentClip(
+    input: StewardCaseCreateInput,
+    verifiedClip: VerifiedIncidentClip
+  ): StewardCase {
+    const clip = assertVerifiedIncidentClip(verifiedClip)
+    const capture = incidentClipIdentity(clip)
+    const normalizedIdentity = identity({
+      ...input.identity,
+      sessionId: capture.captureSession.captureSessionId,
+      sim: capture.captureSession.sim,
+      sessionType: capture.captureSession.sessionType ?? input.identity.sessionType,
+      trackName: capture.captureSession.trackName ?? input.identity.trackName,
+      startedAt: capture.captureSession.startedAt
+    })
+    const normalizedIncident = bookmarkInput({
+      source: 'incident-recorder',
+      sourceId: capture.id,
+      label: input.incident.label,
+      occurredAt: clip.at,
+      ...(clip.lap === undefined ? {} : { lap: clip.lap }),
+      ...(clip.lapDistPct === undefined ? {} : { lapDistPct: clip.lapDistPct }),
+      captureSessionId: capture.captureSession.captureSessionId,
+      windowBeforeSec: 4,
+      windowAfterSec: 3
+    })
+    assertIncidentCaptureSession(normalizedIdentity, capture.captureSession)
+    return this.createCaseWithIncident(input, normalizedIdentity, normalizedIncident)
+  }
+
+  private createCaseWithIncident(
+    input: StewardCaseCreateInput,
+    normalizedIdentity: StewardRaceSessionIdentity,
+    normalizedIncident: StewardIncidentBookmarkInput
+  ): StewardCase {
+    const owner = decisionActor(input.actor)
     const fingerprint = eventFingerprint(normalizedIdentity, normalizedIncident)
     const duplicate = this.listCases().find(
       (entry) => entry.integrity.state === 'unanchored' && entry.primaryIncidentFingerprint === fingerprint
@@ -1538,7 +1746,7 @@ export class StewardCaseStore {
     const owner = decisionActor(input.actor)
     const assignedTo = decisionActor(input.assignedTo, 'assignedTo')
     const current = this.mutableCase(input.caseId)
-    if (current.value.assignedTo?.id === assignedTo.id) return current.value
+    if (current.value.assignedTo && actorsMatch(current.value.assignedTo, assignedTo)) return current.value
     this.appendEvent(current.value.caseId, 'case-assigned', owner, { assignedTo })
     return this.requireCase(current.value.caseId).value
   }
@@ -1548,7 +1756,7 @@ export class StewardCaseStore {
     const current = this.mutableCase(input.caseId)
     if (!CASE_STATUSES.has(input.status)) throw new Error('Unsupported steward case status.')
     if (
-      current.value.appeals.some((entry) => entry.status === 'open') &&
+      current.value.appeals.some((entry) => isTrustedLocalAppeal(entry) && entry.status === 'open') &&
       input.status !== 'appealed'
     ) {
       throw new Error('Case status is derived as appealed while any appeal is open.')
@@ -1562,11 +1770,8 @@ export class StewardCaseStore {
     const owner = decisionActor(input.actor)
     const current = this.mutableCase(input.caseId)
     const normalized = bookmarkInput(input.bookmark)
-    if (
-      normalized.source === 'incident-recorder' &&
-      normalized.captureSessionId !== current.value.identity.sessionId
-    ) {
-      throw new Error('Incident-recorder bookmarks must match the immutable case capture session.')
+    if (normalized.source === 'incident-recorder') {
+      throw new Error('Incident-recorder bookmarks must be derived from a verified persisted clip.')
     }
     const fingerprint = eventFingerprint(current.value.identity, normalized)
     const duplicate = current.value.bookmarks.some(
@@ -1584,18 +1789,20 @@ export class StewardCaseStore {
   }
 
   lockEvidence(input: StewardEvidenceLockInput): StewardCase {
+    const provenance = evidenceProvenance(input.provenance)
+    if (provenance.sourceKind === 'incident-recorder') {
+      throw new Error('Incident-recorder evidence must be derived from a verified persisted clip.')
+    }
+    return this.lockEvidenceRecord(input, provenance)
+  }
+
+  private lockEvidenceRecord(
+    input: StewardEvidenceLockInput,
+    provenance: StewardEvidenceProvenance
+  ): StewardCase {
     const owner = decisionActor(input.actor)
     const current = this.mutableCase(input.caseId)
     const evidenceId = input.evidenceId ? identifier(input.evidenceId, 'evidenceId') : this.newId('evidence')
-    const provenance = evidenceProvenance(input.provenance)
-    if (provenance.sourceKind === 'incident-recorder') {
-      const clip = incidentClipIdentity(input.content)
-      if (provenance.sourceRef !== clip.id ||
-          provenance.sessionRef !== clip.captureSession.captureSessionId) {
-        throw new Error('Incident evidence provenance is not bound to the immutable clip identity.')
-      }
-      assertIncidentCaptureSession(current.value.identity, clip.captureSession)
-    }
     const canonical = canonicalStringify(input.content)
     const contentHash = sha256Text(canonical)
     const existing = current.value.evidence.find((entry) => entry.evidenceId === evidenceId)
@@ -1619,26 +1826,34 @@ export class StewardCaseStore {
     return this.requireCase(current.value.caseId).value
   }
 
-  lockIncidentClip(caseId: string, eventActor: StewardActor, clip: IncidentClip): StewardCase {
+  lockIncidentClip(
+    caseId: string,
+    eventActor: StewardActor,
+    verifiedClip: VerifiedIncidentClip
+  ): StewardCase {
+    const clip = assertVerifiedIncidentClip(verifiedClip)
     const capture = incidentClipIdentity(clip)
-    return this.lockEvidence({
+    const current = this.mutableCase(caseId)
+    assertIncidentCaptureSession(current.value.identity, capture.captureSession)
+    const provenance = evidenceProvenance({
+      sourceKind: 'incident-recorder',
+      sourceRef: capture.id,
+      producer: 'Ultimate Sim App incident recorder',
+      producerVersion: '1',
+      capturedAt: numberValue(clip.createdAt, 'incident clip.createdAt'),
+      sessionRef: capture.captureSession.captureSessionId,
+      captureRange: `${clip.window[0]?.t ?? clip.at}-${clip.window.at(-1)?.t ?? clip.at}`,
+      transform: 'incident-recorder.v1'
+    })
+    return this.lockEvidenceRecord({
       caseId,
       actor: eventActor,
       evidenceId: `incident-${sha256Text(capture.id).slice(0, 24)}`,
       summary: `${text(clip.type, 'incident clip.type', 40)} · ${capture.id}`,
       mediaType: 'application/vnd.ultimate-sim.incident+json',
       content: clip,
-      provenance: {
-        sourceKind: 'incident-recorder',
-        sourceRef: capture.id,
-        producer: 'Ultimate Sim App incident recorder',
-        producerVersion: '1',
-        capturedAt: numberValue(clip.createdAt, 'incident clip.createdAt'),
-        sessionRef: capture.captureSession.captureSessionId,
-        captureRange: `${clip.window[0]?.t ?? clip.at}-${clip.window.at(-1)?.t ?? clip.at}`,
-        transform: 'incident-recorder.v1'
-      }
-    })
+      provenance
+    }, provenance)
   }
 
   citeRule(input: StewardRuleCitationInput): StewardCase {
@@ -1692,6 +1907,7 @@ export class StewardCaseStore {
       ruleCitationIds,
       evidenceIds,
       ...(supersedesVerdictId ? { supersedesVerdictId } : {}),
+      authority: 'local-trusted',
       decidedAt: Math.trunc(this.now()),
       decidedBy: owner
     }
@@ -1705,8 +1921,12 @@ export class StewardCaseStore {
     if (submittedBy.role === 'observer') throw new Error('Observers cannot submit dissent.')
     const current = this.mutableCase(input.caseId)
     const verdictId = identifier(input.verdictId, 'verdictId')
-    if (!current.value.verdicts.some((entry) => entry.verdictId === verdictId)) {
+    const verdict = current.value.verdicts.find((entry) => entry.verdictId === verdictId)
+    if (!verdict) {
       throw new Error(`Verdict ${verdictId} does not exist.`)
+    }
+    if (verdict.authority === 'imported-source-claim') {
+      throw new Error('Imported verdict claims require local trusted re-adjudication before dissent.')
     }
     const dissentId = input.dissentId ? identifier(input.dissentId, 'dissentId') : this.newId('dissent')
     if (current.value.dissents.some((entry) => entry.dissentId === dissentId)) {
@@ -1729,8 +1949,12 @@ export class StewardCaseStore {
     if (filedBy.role === 'observer') throw new Error('Observers cannot file an appeal.')
     const current = this.mutableCase(input.caseId)
     const verdictId = identifier(input.verdictId, 'verdictId')
-    if (!current.value.verdicts.some((entry) => entry.verdictId === verdictId)) {
+    const verdict = current.value.verdicts.find((entry) => entry.verdictId === verdictId)
+    if (!verdict) {
       throw new Error(`Verdict ${verdictId} does not exist.`)
+    }
+    if (verdict.authority === 'imported-source-claim') {
+      throw new Error('Imported verdict claims require local trusted re-adjudication before appeal.')
     }
     const appealId = input.appealId ? identifier(input.appealId, 'appealId') : this.newId('appeal')
     if (current.value.appeals.some((entry) => entry.appealId === appealId)) {
@@ -1741,6 +1965,7 @@ export class StewardCaseStore {
       verdictId,
       grounds: text(input.grounds, 'grounds', 8_000),
       requestedRemedy: text(input.requestedRemedy, 'requestedRemedy', 4_000),
+      authority: 'local-trusted',
       filedAt: Math.trunc(this.now()),
       filedBy,
       status: 'open',
@@ -1756,6 +1981,9 @@ export class StewardCaseStore {
     const appealId = identifier(input.appealId, 'appealId')
     const appeal = current.value.appeals.find((entry) => entry.appealId === appealId)
     if (!appeal) throw new Error(`Appeal ${appealId} does not exist.`)
+    if (appeal.authority === 'imported-source-claim') {
+      throw new Error('Imported appeal claims require local trusted re-adjudication.')
+    }
     if (appeal.status !== 'open') throw new Error(`Appeal ${appealId} is already resolved.`)
     if (!RESOLUTIONS.has(input.resolution)) throw new Error('Unsupported appeal resolution.')
     const resolution: StewardAppealResolution = {
@@ -1764,6 +1992,7 @@ export class StewardCaseStore {
         : this.newId('resolution'),
       resolution: input.resolution,
       reasoning: text(input.reasoning, 'reasoning', 8_000),
+      authority: 'local-trusted',
       resolvedAt: Math.trunc(this.now()),
       resolvedBy
     }
@@ -1854,18 +2083,21 @@ export class StewardCaseStore {
     const packageCase = bundle.profile === 'anonymized'
       ? rebaseAnonymizedCase(bundle.case, Math.trunc(this.now()))
       : bundle.case
-    const primary = packageCase.bookmarks[0]
+    const sourceClaimCase = normalizeImportedSourceClaims(packageCase, bundle.packageHash)
+    const primary = sourceClaimCase.bookmarks[0]
     const duplicate = this.listCases().find(
       (entry) =>
         entry.integrity.state === 'unanchored' &&
-        entry.primaryIncidentFingerprint === eventFingerprint(packageCase.identity, primary)
+        entry.primaryIncidentFingerprint === eventFingerprint(sourceClaimCase.identity, primary)
     )
     if (duplicate) throw new Error(`Duplicate incident is already tracked by ${duplicate.caseId}.`)
 
-    const importActor: StewardActor = {
-      id: 'steward-import',
-      displayName: 'Imported steward package',
-      role: 'league-admin'
+    const importActor = trustedImportActor()
+    const { assignedTo: _sourceAssignment, ...unassignedSourceClaimCase } = sourceClaimCase
+    const importedCase: StewardPortableCase = {
+      ...unassignedSourceClaimCase,
+      createdBy: importActor,
+      status: 'under-review'
     }
     const caseId = this.newId('case')
     const provenance: StewardImportProvenance = {
@@ -1875,7 +2107,7 @@ export class StewardCaseStore {
       profile: bundle.profile,
       importedAt: Math.trunc(this.now())
     }
-    const stateEvents = portableCaseEventSpecs(packageCase)
+    const stateEvents = portableCaseEventSpecs(importedCase)
     const baseEvents: StewardEventSpec[] = [
       stateEvents[0],
       { type: 'case-imported', actor: importActor, payload: { provenance } }
@@ -1884,27 +2116,28 @@ export class StewardCaseStore {
     this.writeStagedChain(stagingPath, this.buildEventRecords(caseId, baseEvents))
 
     const contents = new Map(bundle.evidence.map((entry) => [entry.evidenceId, entry]))
-    for (const evidence of packageCase.evidence) {
+    for (const evidence of importedCase.evidence) {
       const content = contents.get(evidence.evidenceId) as StewardExportEvidence
       this.writeEvidence(evidence.contentHash, canonicalStringify(content.content))
     }
     this.importFault?.('after-evidence')
 
-    const events: StewardEventSpec[] = [...stateEvents]
-    events.push(
+    const events: StewardEventSpec[] = [
+      stateEvents[0],
       {
         type: 'case-imported',
         actor: importActor,
         occurredAt: provenance.importedAt,
         payload: { provenance }
       },
+      ...stateEvents.slice(1),
       {
         type: 'import-completed',
         actor: importActor,
         occurredAt: provenance.importedAt + 1,
         payload: { packageHash: bundle.packageHash }
       }
-    )
+    ]
 
     const records = this.buildEventRecords(caseId, events)
     this.writeStagedChain(stagingPath, records)
@@ -1915,7 +2148,7 @@ export class StewardCaseStore {
       staged.value.importCompleted !== true ||
       staged.value.importProvenance?.sourcePackageHash !== bundle.packageHash ||
       canonicalStringify(comparableImportedCase(portableCase(staged.value)), PACKAGE_MAX_CANONICAL_BYTES) !==
-        canonicalStringify(comparableImportedCase(packageCase), PACKAGE_MAX_CANONICAL_BYTES)
+        canonicalStringify(comparableImportedCase(importedCase), PACKAGE_MAX_CANONICAL_BYTES)
     ) {
       throw new Error('Staged steward import failed verification.')
     }
@@ -2119,7 +2352,7 @@ export class StewardCaseStore {
     for (const appeal of appeals) {
       if (!verdictIds.has(appeal.verdictId)) throw new Error('Appeal references an unknown verdict.')
     }
-    if (appeals.some((entry) => entry.status === 'open') && status !== 'appealed') {
+    if (appeals.some((entry) => isTrustedLocalAppeal(entry) && entry.status === 'open') && status !== 'appealed') {
       throw new Error('A packaged steward case must remain appealed while any appeal is open.')
     }
     const normalizedIdentity = identity(source.identity)
@@ -2328,7 +2561,10 @@ export class StewardCaseStore {
           decisionActor(record.actor, 'case-status-set actor')
           const status = text(payload.status, 'status', 30) as StewardCaseStatus
           if (!CASE_STATUSES.has(status)) throw new Error('unsupported case status')
-          if (value.appeals.some((entry) => entry.status === 'open') && status !== 'appealed') {
+          if (
+            value.appeals.some((entry) => isTrustedLocalAppeal(entry) && entry.status === 'open') &&
+            status !== 'appealed'
+          ) {
             throw new Error('case status must remain appealed while an appeal is open')
           }
           value.status = status
@@ -2336,7 +2572,7 @@ export class StewardCaseStore {
         }
         case 'bookmark-added': {
           onlyKeys(payload, 'bookmark-added payload', ['bookmark'])
-          decisionActor(record.actor, 'bookmark-added actor')
+          requireDecisionOrImportedClaimEventActor(record.actor, value.importProvenance, 'bookmark-added actor')
           const bookmark = bookmarkRecord(payload.bookmark)
           requireMatchingActor(record.actor, bookmark.createdBy, 'bookmark-added')
           if (bookmark.captureSessionId && bookmark.captureSessionId !== value.identity.sessionId) {
@@ -2347,7 +2583,7 @@ export class StewardCaseStore {
         }
         case 'evidence-locked': {
           onlyKeys(payload, 'evidence-locked payload', ['evidence'])
-          decisionActor(record.actor, 'evidence-locked actor')
+          requireDecisionOrImportedClaimEventActor(record.actor, value.importProvenance, 'evidence-locked actor')
           const evidence = evidenceRecord(payload.evidence)
           requireMatchingActor(record.actor, evidence.lockedBy, 'evidence-locked')
           if (
@@ -2361,7 +2597,7 @@ export class StewardCaseStore {
         }
         case 'rule-version-cited': {
           onlyKeys(payload, 'rule-version-cited payload', ['citation'])
-          decisionActor(record.actor, 'rule-version-cited actor')
+          requireDecisionOrImportedClaimEventActor(record.actor, value.importProvenance, 'rule-version-cited actor')
           const citation = ruleRecord(payload.citation)
           requireMatchingActor(record.actor, citation.citedBy, 'rule-version-cited')
           value.rules.push(citation)
@@ -2369,17 +2605,31 @@ export class StewardCaseStore {
         }
         case 'human-verdict-recorded': {
           onlyKeys(payload, 'human-verdict-recorded payload', ['verdict'])
-          decisionActor(record.actor, 'human-verdict-recorded actor')
           const verdict = verdictRecord(payload.verdict)
+          if (verdict.authority === 'imported-source-claim') {
+            requireDecisionOrImportedClaimEventActor(
+              record.actor,
+              value.importProvenance,
+              'human-verdict-recorded actor'
+            )
+          } else {
+            decisionActor(record.actor, 'human-verdict-recorded actor')
+          }
           requireMatchingActor(record.actor, verdict.decidedBy, 'human-verdict-recorded')
           assertVerdictInvariants(verdict, value.rules, value.evidence, value.verdicts)
           value.verdicts.push(verdict)
-          value.status = value.appeals.some((entry) => entry.status === 'open') ? 'appealed' : 'decided'
+          if (isTrustedLocalVerdict(verdict)) {
+            value.status = value.appeals.some((entry) =>
+              isTrustedLocalAppeal(entry) && entry.status === 'open') ? 'appealed' : 'decided'
+          }
           break
         }
         case 'dissent-recorded': {
           onlyKeys(payload, 'dissent-recorded payload', ['dissent'])
           const dissent = dissentRecord(payload.dissent)
+          if (record.actor.role === 'source-claim' && !value.importProvenance) {
+            throw new Error('dissent-recorded source claim lacks verified source-package context')
+          }
           requireMatchingActor(record.actor, dissent.submittedBy, 'dissent-recorded')
           if (!value.verdicts.some((entry) => entry.verdictId === dissent.verdictId)) {
             throw new Error(`dissent references unknown verdict ${dissent.verdictId}`)
@@ -2390,26 +2640,40 @@ export class StewardCaseStore {
         case 'appeal-filed': {
           onlyKeys(payload, 'appeal-filed payload', ['appeal'])
           const appeal = appealRecord(payload.appeal)
+          if (appeal.authority === 'imported-source-claim') {
+            requireDecisionOrImportedClaimEventActor(record.actor, value.importProvenance, 'appeal-filed actor')
+          } else if (record.actor.role === 'source-claim') {
+            throw new Error('Trusted local appeal cannot be filed by a source claim.')
+          }
           requireMatchingActor(record.actor, appeal.filedBy, 'appeal-filed')
           if (!value.verdicts.some((entry) => entry.verdictId === appeal.verdictId)) {
             throw new Error(`appeal references unknown verdict ${appeal.verdictId}`)
           }
           value.appeals.push(appeal)
-          value.status = 'appealed'
+          if (isTrustedLocalAppeal(appeal)) value.status = 'appealed'
           break
         }
         case 'appeal-resolved': {
           onlyKeys(payload, 'appeal-resolved payload', ['appealId', 'resolution'])
-          decisionActor(record.actor, 'appeal-resolved actor')
           const appealId = identifier(payload.appealId, 'appealId')
           const target = value.appeals.find((entry) => entry.appealId === appealId)
           if (!target) throw new Error(`appeal resolution references unknown appeal ${appealId}`)
           if (target.status !== 'open') throw new Error(`appeal ${appealId} is already resolved`)
           const resolution = resolutionRecord(payload.resolution)
+          if (resolution.authority === 'imported-source-claim') {
+            requireDecisionOrImportedClaimEventActor(record.actor, value.importProvenance, 'appeal-resolved actor')
+          } else {
+            decisionActor(record.actor, 'appeal-resolved actor')
+          }
           requireMatchingActor(record.actor, resolution.resolvedBy, 'appeal-resolved')
           target.resolutions.push(resolution)
           target.status = 'resolved'
-          if (value.appeals.every((entry) => entry.status === 'resolved')) value.status = 'decided'
+          if (
+            isTrustedLocalAppeal(target) &&
+            value.appeals.filter(isTrustedLocalAppeal).every((entry) => entry.status === 'resolved')
+          ) {
+            value.status = 'decided'
+          }
           break
         }
         case 'case-imported':
@@ -2436,7 +2700,9 @@ export class StewardCaseStore {
     assertUnique(value.verdicts, (entry) => entry.verdictId, 'verdicts')
     assertUnique(value.dissents, (entry) => entry.dissentId, 'dissents')
     assertUnique(value.appeals, (entry) => entry.appealId, 'appeals')
-    if (value.appeals.some((entry) => entry.status === 'open')) value.status = 'appealed'
+    if (value.appeals.some((entry) => isTrustedLocalAppeal(entry) && entry.status === 'open')) {
+      value.status = 'appealed'
+    }
 
     const evidenceFailures: string[] = []
     value.evidence = verifyEvidence ? value.evidence.map((entry) => {

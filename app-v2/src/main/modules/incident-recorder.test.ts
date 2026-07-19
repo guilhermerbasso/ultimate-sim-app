@@ -1,29 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcMain } from 'electron'
-import { readdirSync, writeFileSync } from 'node:fs'
 import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import type { IncidentClip } from '../../shared/incidents'
+import type { IncidentClipRepository, VerifiedIncidentClip } from '../incidents/clip-store'
 import { logger } from './logger'
-
-// Drive ClipStore.load() down its error branch (dir exists but readdir throws) so the
-// module emits a logger.warn from inside register() — the cheapest deterministic way to
-// observe the log AREA used by the incident recorder.
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(() => true),
-  mkdirSync: vi.fn(),
-  readFileSync: vi.fn(() => ''),
-  readdirSync: vi.fn(() => {
-    throw new Error('boom')
-  }),
-  rmSync: vi.fn(),
-  writeFileSync: vi.fn()
-}))
 
 // Keep the optional LLM machinery inert.
 vi.mock('../ai/llm-runtime', () => ({ getLlmRuntime: () => ({}) }))
 vi.mock('../ai/model-manager', () => ({ getModelManager: () => ({ getActiveModelPath: () => null }) }))
 
 import { register } from './incident-recorder'
+
+function clipRepository(overrides: Partial<IncidentClipRepository> = {}): IncidentClipRepository {
+  return {
+    load: vi.fn(),
+    list: vi.fn(() => []),
+    getVerified: vi.fn(() => null),
+    save: vi.fn((clip: IncidentClip) => ({
+      clip,
+      contentHash: 'test'
+    }) as unknown as VerifiedIncidentClip),
+    clear: vi.fn(() => 0),
+    ...overrides
+  }
+}
 
 function makeCtx(): ModuleContext {
   return {
@@ -45,8 +46,13 @@ afterEach(() => {
 describe('incident-recorder log area', () => {
   it('logs incident-recorder activity under "incidents", not "ai"', () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const store = clipRepository({
+      load: vi.fn(() => {
+        throw new Error('boom')
+      })
+    })
 
-    register(makeCtx())
+    register(makeCtx(), { clipStore: store })
 
     expect(warn).toHaveBeenCalledWith(
       'incidents',
@@ -60,9 +66,15 @@ describe('incident-recorder log area', () => {
   })
 
   it('persists the trigger session identity and does not relabel a pending clip after a session switch', () => {
-    vi.mocked(readdirSync).mockReturnValue([])
+    const saved: IncidentClip[] = []
+    const store = clipRepository({
+      save: vi.fn((clip: IncidentClip) => {
+        saved.push(clip)
+        return { clip, contentHash: 'test' } as unknown as VerifiedIncidentClip
+      })
+    })
     const ctx = makeCtx()
-    register(ctx)
+    register(ctx, { clipStore: store })
     const snapshotHandler = vi.mocked(ctx.telemetryHub.on).mock.calls.find(
       ([event]) => event === 'snapshot'
     )?.[1] as ((snapshot: TelemetrySnapshot | null) => void)
@@ -92,7 +104,7 @@ describe('incident-recorder log area', () => {
       speedKmh: 160
     }))
 
-    const persisted = JSON.parse(vi.mocked(writeFileSync).mock.calls.at(-1)?.[1] as string)
+    const persisted = saved.at(-1) as IncidentClip
     expect(persisted.captureSession).toMatchObject({
       schemaVersion: 1,
       captureSessionId: 'capture-iracing:unique:111',

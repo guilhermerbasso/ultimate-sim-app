@@ -25,7 +25,10 @@ import {
 } from '../../shared/steward-desk'
 import { StewardCaseStore, serializeStewardExportBundle } from '../steward-desk/store'
 import { trustedParticipantActor, trustedStewardActor } from '../steward-desk/actors'
-import { readIncidentClipFromUserData } from './incident-recorder'
+import {
+  readVerifiedIncidentClipFromUserData,
+  type VerifiedIncidentClip
+} from '../incidents/clip-store'
 import { logger } from './logger'
 
 const MAX_IMPORT_BYTES = STEWARD_PACKAGE_MAX_BYTES + 4 * 1024 * 1024
@@ -47,7 +50,12 @@ function exportProfile(value: unknown): StewardExportProfile {
   throw new Error('Unsupported steward export profile.')
 }
 
-export function register(ctx: ModuleContext): void {
+export interface StewardDeskModuleOptions {
+  readVerifiedClip?: (userDataPath: string, id: string) => VerifiedIncidentClip | null
+}
+
+export function register(ctx: ModuleContext, options: StewardDeskModuleOptions = {}): void {
+  const readVerifiedClip = options.readVerifiedClip ?? readVerifiedIncidentClipFromUserData
   const store = new StewardCaseStore({
     rootDir: join(ctx.app.getPath('userData'), 'steward-desk')
   })
@@ -80,85 +88,73 @@ export function register(ctx: ModuleContext): void {
   )
   ctx.ipcMain.handle(STEWARD_CHANNELS.createCase, (event, input: StewardCaseCreateInput) => {
     authorize(ctx, event)
-    const owner = trustedStewardActor(input)
+    const owner = trustedStewardActor()
     if (input?.incident?.source !== 'incident-recorder') {
       return mutate(() => store.createCase({ ...input, actor: owner, assignedTo: owner }))
     }
-    const clip = readIncidentClipFromUserData(ctx.app.getPath('userData'), input.incident.sourceId)
-    if (!clip?.captureSession) throw new Error('Incident clip lacks a trusted capture-session identity.')
-    const captureSession = clip.captureSession
-    return mutate(() => store.createCase({
+    const clip = readVerifiedClip(
+      ctx.app.getPath('userData'),
+      input.incident.sourceId
+    )
+    if (!clip) throw new Error('Verified incident clip was not found.')
+    return mutate(() => store.createCaseFromIncidentClip({
       ...input,
       actor: owner,
-      assignedTo: owner,
-      identity: {
-        ...input.identity,
-        sessionId: captureSession.captureSessionId,
-        sim: captureSession.sim,
-        sessionType: captureSession.sessionType ?? input.identity.sessionType,
-        trackName: captureSession.trackName ?? input.identity.trackName,
-        startedAt: captureSession.startedAt
-      },
-      incident: {
-        ...input.incident,
-        source: 'incident-recorder',
-        sourceId: clip.id,
-        occurredAt: clip.at,
-        ...(clip.lap === undefined ? {} : { lap: clip.lap }),
-        ...(clip.lapDistPct === undefined ? {} : { lapDistPct: clip.lapDistPct }),
-        captureSessionId: captureSession.captureSessionId
-      }
-    }))
+      assignedTo: owner
+    }, clip))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.assignCase, (event, input: StewardCaseAssignmentInput) => {
     authorize(ctx, event)
-    const owner = trustedStewardActor(input)
+    const owner = trustedStewardActor()
     return mutate(() => store.assignCase({ ...input, actor: owner, assignedTo: owner }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.setStatus, (event, input: StewardCaseStatusInput) => {
     authorize(ctx, event)
-    return mutate(() => store.setStatus({ ...input, actor: trustedStewardActor(input) }))
+    return mutate(() => store.setStatus({ ...input, actor: trustedStewardActor() }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.addBookmark, (event, input: StewardBookmarkAddInput) => {
     authorize(ctx, event)
-    return mutate(() => store.addBookmark({ ...input, actor: trustedStewardActor(input) }))
+    if (input?.bookmark?.source === 'incident-recorder') {
+      throw new Error('Incident-recorder bookmarks must be derived from a verified persisted clip.')
+    }
+    return mutate(() => store.addBookmark({ ...input, actor: trustedStewardActor() }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.lockEvidence, (event, input: StewardEvidenceLockInput) => {
     authorize(ctx, event)
     if (input?.provenance?.sourceKind === 'incident-recorder') {
       throw new Error('Incident clips must be locked through the trusted incident evidence channel.')
     }
-    return mutate(() => store.lockEvidence({ ...input, actor: trustedStewardActor(input) }))
+    return mutate(() => store.lockEvidence({ ...input, actor: trustedStewardActor() }))
   })
   ctx.ipcMain.handle(
     STEWARD_CHANNELS.lockIncidentEvidence,
     (event, request: StewardIncidentEvidenceLockRequest) => {
       authorize(ctx, event)
-      const clip = readIncidentClipFromUserData(ctx.app.getPath('userData'), request?.incidentId)
-      if (!clip?.captureSession) throw new Error('Incident clip lacks a trusted capture-session identity.')
+      const clip = readVerifiedClip(ctx.app.getPath('userData'), request?.incidentId)
+      if (!clip) throw new Error('Verified incident clip was not found.')
       return mutate(() =>
-        store.lockIncidentClip(caseId(request?.caseId), trustedStewardActor(request), clip))
+        store.lockIncidentClip(caseId(request?.caseId), trustedStewardActor(), clip))
     }
   )
   ctx.ipcMain.handle(STEWARD_CHANNELS.citeRule, (event, input: StewardRuleCitationInput) => {
     authorize(ctx, event)
-    return mutate(() => store.citeRule({ ...input, actor: trustedStewardActor(input) }))
+    return mutate(() => store.citeRule({ ...input, actor: trustedStewardActor() }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.recordVerdict, (event, input: StewardVerdictInput) => {
     authorize(ctx, event)
-    return mutate(() => store.recordVerdict({ ...input, actor: trustedStewardActor(input) }))
+    return mutate(() => store.recordVerdict({ ...input, actor: trustedStewardActor() }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.recordDissent, (event, input: StewardDissentInput) => {
     authorize(ctx, event)
-    return mutate(() => store.recordDissent({ ...input, actor: trustedParticipantActor(input) }))
+    return mutate(() => store.recordDissent({ ...input, actor: trustedParticipantActor() }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.fileAppeal, (event, input: StewardAppealInput) => {
     authorize(ctx, event)
-    return mutate(() => store.fileAppeal({ ...input, actor: trustedParticipantActor(input) }))
+    return mutate(() => store.fileAppeal({ ...input, actor: trustedParticipantActor() }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.resolveAppeal, (event, input: StewardAppealResolutionInput) => {
     authorize(ctx, event)
-    return mutate(() => store.resolveAppeal({ ...input, actor: trustedStewardActor(input) }))
+    return mutate(() => store.resolveAppeal({ ...input, actor: trustedStewardActor() }))
   })
   ctx.ipcMain.handle(
     STEWARD_CHANNELS.exportCase,

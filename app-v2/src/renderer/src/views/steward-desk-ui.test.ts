@@ -40,7 +40,7 @@ describe('Steward Desk navigation and accessibility', () => {
     expect(source).toContain("'steward.details.verified'")
     expect(source).toContain("tt(language, 'steward.drafts.confirmDiscard')")
     expect(source).toContain('STEWARD_CHANNELS.lockIncidentEvidence')
-    expect(source).toContain('actorDisplayName')
+    expect(source).toContain('actorLabel')
     expect(source).not.toMatch(/\bactor\s*:/)
     expect(source).not.toContain("role: 'league-admin'")
     expect(source).not.toContain("role: 'steward'")
