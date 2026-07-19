@@ -321,11 +321,12 @@ describe('MQTT certification target conformance', () => {
     await settle(target)
 
     const request = commandPacket(config, now, 'qos-zero')
+    const deniedBefore = target.getStatus().metrics.denied
     broker.inject({ ...request.packet, qos: 0 }, 'local-command')
     await settle(target)
 
     expect(effect).not.toHaveBeenCalled()
-    expect(target.getStatus().metrics.denied).toBeGreaterThan(0)
+    expect(target.getStatus().metrics.denied).toBe(deniedBefore + 1)
   })
 
   it('bounds overload, coalesces state, and rejects oversized payloads', async () => {
