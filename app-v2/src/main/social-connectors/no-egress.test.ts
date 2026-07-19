@@ -38,6 +38,15 @@ const LIVE_EGRESS_PATTERNS: readonly EgressPattern[] = [
   { label: 'sendBeacon', pattern: /\bnavigator\.sendBeacon\s*\(/ },
   { label: 'Electron network request', pattern: /\b(?:net|electronNet)\.(?:fetch|request)\s*\(/ }
 ]
+const NONDETERMINISTIC_PATTERNS: readonly EgressPattern[] = [
+  { label: 'wall clock', pattern: /\bDate\.now\s*\(/ },
+  { label: 'implicit wall clock', pattern: /\bnew\s+Date\s*\(\s*\)/ },
+  { label: 'pseudo-random source', pattern: /\bMath\.random\s*\(/ },
+  { label: 'random UUID', pattern: /\brandomUUID\s*\(/ },
+  { label: 'random bytes', pattern: /\brandomBytes\s*\(/ },
+  { label: 'browser entropy', pattern: /\bcrypto\.getRandomValues\s*\(/ },
+  { label: 'performance clock', pattern: /\bperformance\.now\s*\(/ }
+]
 
 function collectProductionSources(directory: URL): URL[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -48,22 +57,28 @@ function collectProductionSources(directory: URL): URL[] {
   })
 }
 
+function scanProductionSources(patterns: readonly EgressPattern[]): string[] {
+  const violations: string[] = []
+  const files = [
+    ...SOURCE_ROOTS.flatMap((directory) => collectProductionSources(directory)),
+    ...EXTRA_SOURCE_FILES
+  ]
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8')
+    const path = relative(fileURLToPath(APP_ROOT), fileURLToPath(file))
+    for (const { label, pattern } of patterns) {
+      if (pattern.test(source)) violations.push(`${path}: ${label}`)
+    }
+  }
+  return violations
+}
+
 describe('social connector no-live-egress boundary', () => {
   it('contains no live network client path in production connector sources', () => {
-    const violations: string[] = []
-    const files = [
-      ...SOURCE_ROOTS.flatMap((directory) => collectProductionSources(directory)),
-      ...EXTRA_SOURCE_FILES
-    ]
+    expect(scanProductionSources(LIVE_EGRESS_PATTERNS)).toEqual([])
+  })
 
-    for (const file of files) {
-      const source = readFileSync(file, 'utf8')
-      const path = relative(fileURLToPath(APP_ROOT), fileURLToPath(file))
-      for (const { label, pattern } of LIVE_EGRESS_PATTERNS) {
-        if (pattern.test(source)) violations.push(`${path}: ${label}`)
-      }
-    }
-
-    expect(violations).toEqual([])
+  it('contains no ambient time or entropy source in deterministic production code', () => {
+    expect(scanProductionSources(NONDETERMINISTIC_PATTERNS)).toEqual([])
   })
 })

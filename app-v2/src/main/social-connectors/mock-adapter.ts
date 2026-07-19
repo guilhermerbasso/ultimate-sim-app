@@ -811,7 +811,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     const providerPayload = sanitizeSocialJsonRecord(parsedPayload)
     if (
       !providerPayload ||
-      findCredentialMaterial(providerPayload) ||
+      findCredentialMaterial(providerPayload, { provider: this.manifest.provider }) ||
       capabilityPayloadFailure(capability, providerPayload)
     ) {
       const denied = this.#inboundDenied(baseReceipt, 'webhook.invalid_payload')
@@ -992,7 +992,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     if (!payload) {
       return this.#actionDenied(actorReceipt, 'validation.malformed_payload')
     }
-    if (findCredentialMaterial(payload)) {
+    if (findCredentialMaterial(payload, { provider: this.manifest.provider })) {
       return this.#actionDenied(actorReceipt, 'payload.credential_material')
     }
     const payloadFailure = capabilityPayloadFailure(capability, payload)
@@ -1126,6 +1126,22 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
         )
       }
       approvalRef = approval.receipt?.approvalRef
+    }
+
+    if (
+      findCredentialMaterial(normalizedIntent.payload, {
+        provider: normalizedIntent.provider
+      })
+    ) {
+      return this.#actionDenied(
+        {
+          ...fingerprintedReceipt,
+          quotaBefore,
+          quotaAfter: quotaBefore,
+          approvalRef
+        },
+        'payload.credential_material'
+      )
     }
 
     rateWindow.used += 1

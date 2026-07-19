@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  SOCIAL_APPROVAL_SCHEMA,
   SOCIAL_CONNECTOR_CONTRACT_VERSION,
   SOCIAL_CONNECTOR_MANIFESTS,
   SOCIAL_CONNECTOR_SCHEMA,
@@ -21,12 +22,25 @@ import {
   type DeterministicMockSocialConnector,
   type MockSocialConnectorOptions
 } from './mock-adapter'
+import { findCredentialMaterial, socialHash } from './security'
 
 const NOW = 1_800_000_000_000
 const KEY_ID = 'fixture-key-v1'
 const KEY_MATERIAL = 'public-test-fixture-material-not-a-live-credential'
 const SENTINEL = 'credential-sentinel-must-not-escape'
 const OPERATOR: SocialActorV1 = { actorRef: 'operator:fixture', role: 'operator' }
+const TWITCH_OAUTH = `oauth:${'a'.repeat(30)}`
+const GOOGLE_API_KEY = `AIza${'A'.repeat(35)}`
+const GOOGLE_OAUTH = `ya29.${'B'.repeat(40)}`
+const DISCORD_BOT_TOKEN = `${'C'.repeat(24)}.${'D'.repeat(6)}.${'E'.repeat(27)}`
+const DISCORD_MFA_TOKEN = `mfa.${'F'.repeat(64)}`
+const GENERIC_JWT = `eyJ${'G'.repeat(12)}.eyJ${'H'.repeat(12)}.${'I'.repeat(32)}`
+const GENERIC_SESSION = `sessionid=${'J'.repeat(32)}`
+const GENERIC_BEARER = `Bearer ${'K'.repeat(32)}`
+const GENERIC_AUTH_HEADER = `Authorization: Bearer ${'L'.repeat(32)}`
+const GENERIC_COOKIE_HEADER = `Cookie: theme=dark; sessionid=${'M'.repeat(32)}`
+const GENERIC_PRIVATE_KEY =
+  '-----BEGIN PRIVATE KEY-----\nQUJDREVGR0hJSktMTU5PUA==\n-----END PRIVATE KEY-----'
 
 type ConnectorOverrides = Partial<
   Omit<
@@ -94,6 +108,86 @@ function webhook(
     KEY_MATERIAL
   )
 }
+
+function approve(
+  target: DeterministicMockSocialConnector,
+  intent: SocialActionIntentV1,
+  suffix: string
+): SocialActionIntentV1 {
+  const requestId = `approval:${suffix}`
+  target.approvalQueue.enqueue({
+    schema: SOCIAL_APPROVAL_SCHEMA,
+    contractVersion: SOCIAL_CONNECTOR_CONTRACT_VERSION,
+    requestId,
+    provider: intent.provider,
+    capabilityId: intent.capabilityId,
+    destination: intent.destination,
+    requestedBy: intent.actor,
+    reason: 'Credential-value regression fixture',
+    payloadHash: socialHash(intent.payload),
+    createdAtMs: NOW - 500,
+    expiresAtMs: NOW + 30_000,
+    oneShot: true,
+    state: 'pending'
+  })
+  const receipt = target.approvalQueue.decide(
+    requestId,
+    'approved',
+    OPERATOR,
+    'Approved credential-value fixture',
+    NOW - 100
+  )
+  return { ...intent, approvalRef: receipt.approvalRef }
+}
+
+describe('bounded credential value scanner', () => {
+  it.each([
+    ['twitch', TWITCH_OAUTH],
+    ['youtube', GOOGLE_API_KEY],
+    ['youtube', GOOGLE_OAUTH],
+    ['discord', DISCORD_BOT_TOKEN],
+    ['discord', DISCORD_MFA_TOKEN],
+    ['twitch', GENERIC_JWT],
+    ['youtube', GENERIC_SESSION],
+    ['discord', GENERIC_AUTH_HEADER],
+    ['twitch', GENERIC_PRIVATE_KEY]
+  ] as const)('detects %s credential-shaped string values', (provider, value) => {
+    expect(findCredentialMaterial({ message: value }, { provider })).toBe('$.message')
+  })
+
+  it.each([
+    'oauth:racefanswelcome',
+    `AIza${'A'.repeat(34)}`,
+    `${'C'.repeat(22)}.${'D'.repeat(6)}.${'E'.repeat(27)}`,
+    'mfa.not-a-real-token',
+    'eyJshort.eyJshort.signature',
+    'Bearer welcome racers',
+    'Cookie: chocolate=chip'
+  ])('does not reject ordinary near-miss text %s', (value) => {
+    expect(findCredentialMaterial({ message: value }, { provider: 'twitch' })).toBeNull()
+  })
+
+  it('bounds cycles, node counts and nested string-array scanning', () => {
+    const circular: Record<string, unknown> = { message: 'safe' }
+    circular.self = circular
+    expect(findCredentialMaterial(circular)).toBe('$.self')
+    expect(
+      findCredentialMaterial(
+        { values: ['safe', { nested: ['still safe', GENERIC_BEARER] }] },
+        { provider: 'youtube' }
+      )
+    ).toBe('$.values[1].nested[1]')
+    expect(
+      findCredentialMaterial(
+        { values: Array.from({ length: 20 }, (_, index) => `safe-${index}`) },
+        { maxNodes: 5 }
+      )
+    ).not.toBeNull()
+    expect(
+      findCredentialMaterial({ message: 'x'.repeat(100) }, { maxStringLength: 32 })
+    ).toBe('$.message')
+  })
+})
 
 describe('capability-specific credential and payload policy', () => {
   it('documents a non-empty payload allowlist for every capability', () => {
@@ -330,6 +424,272 @@ describe('capability-specific credential and payload policy', () => {
       )
     ).toMatchObject({ outcome: 'denied', reasonCode: 'webhook.invalid_payload' })
   })
+})
+
+describe('credential-shaped string value policy', () => {
+  it.each([
+    {
+      provider: 'twitch',
+      capabilityId: 'twitch.eventsub.ingest',
+      body: { eventId: 'event:twitch', source: 'twitch', message: TWITCH_OAUTH },
+      secret: TWITCH_OAUTH
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.health.read',
+      body: { status: 'good', message: GOOGLE_API_KEY },
+      secret: GOOGLE_API_KEY
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.chat.read',
+      body: { messageId: 'message:youtube', message: GOOGLE_OAUTH },
+      secret: GOOGLE_OAUTH
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.command.receive',
+      body: { commandName: 'race', message: DISCORD_BOT_TOKEN },
+      secret: DISCORD_BOT_TOKEN
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.command.receive',
+      body: { commandName: 'race', arguments: ['safe', DISCORD_MFA_TOKEN] },
+      secret: DISCORD_MFA_TOKEN
+    }
+  ] as const)(
+    'rejects signed $provider ingress credential-shaped values',
+    ({ provider, capabilityId, body, secret }) => {
+      const target = connector(provider)
+      const result = target.ingestFixture(
+        webhook(provider, capabilityId, body, `${provider}-${capabilityId}-value`)
+      )
+
+      expect(result).toMatchObject({
+        outcome: 'denied',
+        reasonCode: 'webhook.invalid_payload',
+        receipt: { decision: 'denied' }
+      })
+      expect(target.serializeAuditReceipts()).not.toContain(secret)
+    }
+  )
+
+  it.each([
+    {
+      provider: 'twitch',
+      capabilityId: 'twitch.chat.write',
+      payload: { message: TWITCH_OAUTH },
+      secret: TWITCH_OAUTH
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.chat.write',
+      payload: { message: GOOGLE_API_KEY },
+      secret: GOOGLE_API_KEY
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.chat.write',
+      payload: { message: GOOGLE_OAUTH },
+      secret: GOOGLE_OAUTH
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.response.ephemeral',
+      payload: {
+        recipientActorRef: OPERATOR.actorRef,
+        message: DISCORD_BOT_TOKEN
+      },
+      secret: DISCORD_BOT_TOKEN
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.response.ephemeral',
+      payload: {
+        recipientActorRef: OPERATOR.actorRef,
+        message: DISCORD_MFA_TOKEN
+      },
+      secret: DISCORD_MFA_TOKEN
+    }
+  ] as const)(
+    'rejects approved $provider egress credential-shaped values',
+    ({ provider, capabilityId, payload, secret }) => {
+      const target = connector(provider)
+      const approved = approve(
+        target,
+        action(provider, capabilityId, payload, `${provider}-${capabilityId}-approved-value`),
+        `${provider}-${capabilityId}-approved-value`
+      )
+      const result = target.execute(approved, OPERATOR)
+
+      expect(result).toMatchObject({
+        outcome: 'denied',
+        reasonCode: 'payload.credential_material',
+        receipt: { decision: 'denied' }
+      })
+      expect(target.approvalQueue.getReceipt(approved.approvalRef!)?.state).toBe('approved')
+      expect(target.serializeAuditReceipts()).not.toContain(secret)
+    }
+  )
+
+  it.each([
+    {
+      provider: 'twitch',
+      capabilityId: 'twitch.marker.create',
+      payload: { description: GENERIC_JWT },
+      secret: GENERIC_JWT
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.chat.write',
+      payload: { message: GENERIC_BEARER },
+      secret: GENERIC_BEARER
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.response.ephemeral',
+      payload: {
+        recipientActorRef: OPERATOR.actorRef,
+        message: GENERIC_AUTH_HEADER
+      },
+      secret: GENERIC_AUTH_HEADER
+    },
+    {
+      provider: 'twitch',
+      capabilityId: 'twitch.poll.manage',
+      payload: { title: 'Fixture poll', options: ['safe', GENERIC_PRIVATE_KEY] },
+      secret: GENERIC_PRIVATE_KEY
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.chat.write',
+      payload: { message: GENERIC_SESSION },
+      secret: GENERIC_SESSION
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.response.ephemeral',
+      payload: {
+        recipientActorRef: OPERATOR.actorRef,
+        message: GENERIC_COOKIE_HEADER
+      },
+      secret: GENERIC_COOKIE_HEADER
+    }
+  ] as const)(
+    'rejects approved generic credential format for $provider',
+    ({ provider, capabilityId, payload, secret }) => {
+      const target = connector(provider)
+      const approved = approve(
+        target,
+        action(provider, capabilityId, payload, `${provider}-generic-secret`),
+        `${provider}-generic-secret`
+      )
+
+      expect(target.execute(approved, OPERATOR)).toMatchObject({
+        outcome: 'denied',
+        reasonCode: 'payload.credential_material'
+      })
+      expect(target.serializeAuditReceipts()).not.toContain(secret)
+    }
+  )
+
+  it('scans generic credential values nested inside signed objects and arrays', () => {
+    const twitch = connector('twitch')
+    expect(
+      twitch.ingestFixture(
+        webhook(
+          'twitch',
+          'twitch.eventsub.ingest',
+          {
+            eventId: 'nested-jwt',
+            source: 'twitch',
+            metadata: { notes: [{ value: GENERIC_JWT }] }
+          },
+          'nested-jwt'
+        )
+      )
+    ).toMatchObject({ outcome: 'denied', reasonCode: 'webhook.invalid_payload' })
+    expect(twitch.serializeAuditReceipts()).not.toContain(GENERIC_JWT)
+
+    const discord = connector('discord')
+    expect(
+      discord.ingestFixture(
+        webhook(
+          'discord',
+          'discord.command.receive',
+          {
+            commandName: 'race',
+            context: [{ values: ['safe', GENERIC_SESSION] }]
+          },
+          'nested-session'
+        )
+      )
+    ).toMatchObject({ outcome: 'denied', reasonCode: 'webhook.invalid_payload' })
+    expect(discord.serializeAuditReceipts()).not.toContain(GENERIC_SESSION)
+  })
+
+  it.each([
+    {
+      provider: 'twitch',
+      capabilityId: 'twitch.chat.write',
+      payload: { message: 'oauth:racefanswelcome' }
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.chat.write',
+      payload: { message: `AIza${'A'.repeat(34)}` }
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.response.ephemeral',
+      payload: {
+        recipientActorRef: OPERATOR.actorRef,
+        message: `${'C'.repeat(22)}.${'D'.repeat(6)}.${'E'.repeat(27)}`
+      }
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.response.ephemeral',
+      payload: {
+        recipientActorRef: OPERATOR.actorRef,
+        message: 'mfa.not-a-real-token'
+      }
+    },
+    {
+      provider: 'twitch',
+      capabilityId: 'twitch.chat.write',
+      payload: { message: 'eyJshort.eyJshort.signature' }
+    },
+    {
+      provider: 'youtube',
+      capabilityId: 'youtube.chat.write',
+      payload: { message: 'Bearer welcome racers' }
+    },
+    {
+      provider: 'discord',
+      capabilityId: 'discord.response.ephemeral',
+      payload: {
+        recipientActorRef: OPERATOR.actorRef,
+        message: 'Cookie: chocolate=chip'
+      }
+    }
+  ] as const)(
+    'allows ordinary near-miss $provider chat text',
+    ({ provider, capabilityId, payload }) => {
+      const target = connector(provider)
+      const approved = approve(
+        target,
+        action(provider, capabilityId, payload, `${provider}-near-miss-${payload.message}`),
+        `${provider}-near-miss-${payload.message}`
+      )
+
+      expect(target.execute(approved, OPERATOR)).toMatchObject({
+        outcome: 'simulated',
+        reasonCode: 'mock.simulated'
+      })
+    }
+  )
 })
 
 describe('malformed untrusted adapter inputs', () => {

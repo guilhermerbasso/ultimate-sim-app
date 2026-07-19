@@ -1,9 +1,39 @@
 import { createHash } from 'node:crypto'
+import type { SocialProvider } from '../../shared/social-connectors'
 
 const FORBIDDEN_NORMALIZED_KEY_FRAGMENT =
   /(?:authorization|authheader|authentication|oauth|password|passwd|passphrase|webhookurl|streamkey|privatekey|credential|apikey|sessionid|sessionidentifier|sessioncookie|sessionkey)/
-const FORBIDDEN_VALUE =
-  /(?:\bbearer\s+[a-z0-9._~+/=-]{8,}|\b(?:authorization|cookie|set-cookie)\s*:|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+const FORBIDDEN_VALUE = /-----BEGIN (?:EC |OPENSSH |RSA )?PRIVATE KEY-----/
+const GENERIC_JWT =
+  /^eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}$/
+const GENERIC_AUTH_HEADER =
+  /^(?:authorization|proxy-authorization)\s*:\s*(?:basic|bearer|bot|oauth|token)\s+[A-Za-z0-9._~+/=-]{16,}$/i
+const GENERIC_SECRET_HEADER =
+  /^(?:api-key|x-api-key|x-auth-token)\s*:\s*[A-Za-z0-9._~+/=-]{16,}$/i
+const GENERIC_BEARER = /^(?:bearer|token)\s+[A-Za-z0-9._~+/=-]{20,}$/i
+const GENERIC_SESSION =
+  /^(?:(?:connect\.sid|session(?:id|_id)?|sid)[=:][A-Za-z0-9._~+/=-]{16,}|sess_[A-Za-z0-9_-]{24,}|s%3A[A-Za-z0-9._~-]{16,}\.[A-Za-z0-9._~-]{16,})$/i
+const TWITCH_OAUTH = /^oauth:[A-Za-z0-9]{20,64}$/i
+const GOOGLE_API_KEY = /^AIza[A-Za-z0-9_-]{35}$/
+const GOOGLE_OAUTH = /^(?:ya29\.[A-Za-z0-9._-]{20,}|1\/\/[A-Za-z0-9._-]{20,})$/
+const DISCORD_BOT_TOKEN =
+  /^[A-Za-z0-9_-]{23,30}\.[A-Za-z0-9_-]{6,8}\.[A-Za-z0-9_-]{25,40}$/
+const DISCORD_MFA_TOKEN = /^mfa\.[A-Za-z0-9_-]{40,100}$/
+const DISCORD_BOT_HEADER =
+  /^bot\s+[A-Za-z0-9_-]{23,30}\.[A-Za-z0-9_-]{6,8}\.[A-Za-z0-9_-]{25,40}$/i
+
+const PROVIDER_VALUE_PATTERNS: Readonly<Record<SocialProvider, readonly RegExp[]>> = {
+  twitch: [TWITCH_OAUTH],
+  youtube: [GOOGLE_API_KEY, GOOGLE_OAUTH],
+  discord: [DISCORD_BOT_TOKEN, DISCORD_MFA_TOKEN, DISCORD_BOT_HEADER]
+}
+
+export interface CredentialScanOptions {
+  readonly provider?: SocialProvider
+  readonly maxNodes?: number
+  readonly maxDepth?: number
+  readonly maxStringLength?: number
+}
 
 export type SocialJsonValue =
   | null
@@ -35,6 +65,62 @@ function isForbiddenCredentialKey(key: string): boolean {
     normalized.includes('session') ||
     normalized.includes('token') ||
     normalized.includes('secret')
+  )
+}
+
+function isCredentialCookieHeader(value: string): boolean {
+  const separator = value.indexOf(':')
+  if (separator < 0 || !/^(?:cookie|set-cookie)$/i.test(value.slice(0, separator).trim())) {
+    return false
+  }
+  return value
+    .slice(separator + 1)
+    .split(';')
+    .some((part) => {
+      const equals = part.indexOf('=')
+      if (equals <= 0) return false
+      const name = part.slice(0, equals).trim()
+      const cookieValue = part.slice(equals + 1).trim()
+      return (
+        /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/.test(name) &&
+        cookieValue.length >= 16 &&
+        !/\s/.test(cookieValue)
+      )
+    })
+}
+
+function isCredentialShapedValue(value: string, provider?: SocialProvider): boolean {
+  const candidate = value.trim()
+  if (
+    candidate.length === 0 ||
+    candidate.length > 64 * 1024 ||
+    (!candidate.includes('.') &&
+      !candidate.includes(':') &&
+      !candidate.includes('=') &&
+      !candidate.includes('/') &&
+      !/^(?:1\/\/|AIza|mfa\.|oauth:|sess_|ya29\.|-----BEGIN |Bearer\s|Bot\s|Cookie\s*:|Set-Cookie\s*:|Token\s)/i.test(
+        candidate
+      ))
+  ) {
+    return false
+  }
+  if (
+    GENERIC_JWT.test(candidate) ||
+    GENERIC_AUTH_HEADER.test(candidate) ||
+    GENERIC_SECRET_HEADER.test(candidate) ||
+    GENERIC_BEARER.test(candidate) ||
+    isCredentialCookieHeader(candidate) ||
+    GENERIC_SESSION.test(candidate) ||
+    /-----BEGIN (?:EC |OPENSSH |RSA )?PRIVATE KEY-----/.test(candidate)
+  ) {
+    return true
+  }
+
+  const providers: readonly SocialProvider[] = provider
+    ? [provider, ...(['twitch', 'youtube', 'discord'] as const).filter((entry) => entry !== provider)]
+    : ['twitch', 'youtube', 'discord']
+  return providers.some((entry) =>
+    PROVIDER_VALUE_PATTERNS[entry].some((pattern) => pattern.test(candidate))
   )
 }
 
@@ -197,35 +283,94 @@ export function socialHash(value: unknown): string {
 
 export function findCredentialMaterial(
   value: unknown,
-  path = '$',
-  seen = new Set<object>()
+  options: CredentialScanOptions = {}
 ): string | null {
-  if (typeof value === 'string') return FORBIDDEN_VALUE.test(value) ? path : null
-  if (value === null || typeof value !== 'object') return null
-  if (seen.has(value)) return path
-  seen.add(value)
+  const maxNodes = options.maxNodes ?? 8_192
+  const maxDepth = options.maxDepth ?? 64
+  const maxStringLength = options.maxStringLength ?? 64 * 1024
+  const seen = new Set<object>()
+  const pending: Array<{ readonly value: unknown; readonly path: string; readonly depth: number }> = [
+    { value, path: '$', depth: 0 }
+  ]
+  let visited = 0
 
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      const match = findCredentialMaterial(value[index], `${path}[${index}]`, seen)
-      if (match) return match
+  while (pending.length > 0) {
+    const current = pending.pop()!
+    visited += 1
+    if (visited > maxNodes || current.depth > maxDepth) return current.path
+
+    if (typeof current.value === 'string') {
+      if (
+        current.value.length > maxStringLength ||
+        FORBIDDEN_VALUE.test(current.value) ||
+        isCredentialShapedValue(current.value, options.provider)
+      ) {
+        return current.path
+      }
+      continue
     }
-    seen.delete(value)
-    return null
-  }
+    if (current.value === null || typeof current.value !== 'object') continue
+    if (seen.has(current.value)) return current.path
+    seen.add(current.value)
 
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (isForbiddenCredentialKey(key)) return `${path}.${key}`
-    const match = findCredentialMaterial(entry, `${path}.${key}`, seen)
-    if (match) return match
+    let isArray: boolean
+    try {
+      isArray = Array.isArray(current.value)
+    } catch {
+      return current.path
+    }
+    if (isArray) {
+      let descriptors: PropertyDescriptorMap
+      let keys: readonly PropertyKey[]
+      try {
+        descriptors = Object.getOwnPropertyDescriptors(current.value)
+        keys = Reflect.ownKeys(current.value)
+      } catch {
+        return current.path
+      }
+      const lengthDescriptor = descriptors.length
+      const length =
+        lengthDescriptor && 'value' in lengthDescriptor ? lengthDescriptor.value : undefined
+      if (
+        !Number.isSafeInteger(length) ||
+        length < 0 ||
+        length > maxNodes ||
+        keys.length !== length + 1
+      ) {
+        return current.path
+      }
+      for (let index = length - 1; index >= 0; index -= 1) {
+        const descriptor = descriptors[String(index)]
+        if (!descriptor?.enumerable || !('value' in descriptor)) return current.path
+        pending.push({
+          value: descriptor.value,
+          path: `${current.path}[${index}]`,
+          depth: current.depth + 1
+        })
+      }
+      continue
+    }
+
+    const record = readSocialDataRecord(current.value)
+    if (!record) return current.path
+    const entries = Object.entries(record)
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [key, entry] = entries[index]
+      if (key.length > 256 || isForbiddenCredentialKey(key)) return `${current.path}.${key}`
+      pending.push({
+        value: entry,
+        path: `${current.path}.${key}`,
+        depth: current.depth + 1
+      })
+    }
   }
-  seen.delete(value)
   return null
 }
 
 export function assertNoCredentialMaterial(value: unknown): void {
-  const path = findCredentialMaterial(value)
-  if (path) throw new Error(`Credential material is forbidden in social connector records at ${path}`)
+  if (findCredentialMaterial(value)) {
+    throw new Error('Credential material is forbidden in social connector records')
+  }
 }
 
 export function serializePublicSocialRecord(value: unknown): string {
