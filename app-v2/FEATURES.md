@@ -22,6 +22,7 @@ do sim **direto** (sem SimHub) e a usa para OLED, overlays, estratégia, alertas
 - **Perfis Corrida** — perfis por carro/pista (mapa HID + OLED + overlays + alertas + bindings) com sugestão de auto-troca.
 - **Soundshift** — beep de troca de marcha no ponto ótimo (Web Audio, áudio do PC), **ajuste por carro** e **auto-aprendizado** do RPM de troca por marcha (com lead preditivo).
 - **Setups** — auto-instalação de setups `.sto` a partir de **pasta local** ou **URL https** para `Documents/iRacing/setups/<carro>/` (Windows; validação https-only + anti-traversal).
+- **Ensaio de Missão** — cria/importa manifestos versionados com papéis, permissões, checkpoints ramificados, eventos sintéticos determinísticos, decisões/resultados esperados, retomada, comparação entre repetições e debrief pontuado sem culpa. Funciona **100% offline** em namespace próprio, com marca-d’água de treinamento e reset que nunca toca telemetria ou histórico ao vivo.
 
 **ButtonBox** — Dispositivos, Remapeamento, OLED manual, Monitor de Inputs, Perfis (o que já existia).
 
