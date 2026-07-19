@@ -195,6 +195,21 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M14.5 18a4.5 4.5 0 0 1 5.5-4.4" />
     </Svg>
   ),
+  'social-connectors': () => (
+    <Svg>
+      <circle cx="5" cy="11" r="2.5" />
+      <circle cx="17" cy="6" r="2.5" />
+      <circle cx="17" cy="16" r="2.5" />
+      <path d="M7.5 10l7-3M7.5 12l7 3" />
+    </Svg>
+  ),
+  'steward-desk': () => (
+    <Svg>
+      <path d="M6 3h10v16H6z" />
+      <path d="M9 7h4M9 11h4M9 15h2" />
+      <path d="M4 6H2v11h4M16 6h4v11h-4" />
+    </Svg>
+  ),
   haptics: () => (
     <Svg>
       {/* shaker body + vibration waves */}

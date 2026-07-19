@@ -69,12 +69,14 @@ import { register as spotter3d } from './spotter3d'
 import { register as stt } from './stt'
 import { register as iflagDynamic } from './iflag-dynamic'
 import { register as streaming } from './streaming'
+import { register as stewardDesk } from './steward-desk'
 import { register as streamPresentation } from './stream-presentation'
 import { register as simhubImport } from './simhub-import'
 import { register as configExport } from './config-export'
 import { register as diagnosticLogger } from './logger'
 import { register as bugReport } from './bug-report'
 import { register as updater } from './updater'
+import { register as localCollaboration } from './local-collaboration'
 import { register as pitPanel } from '../pitpanel/window'
 import { register as touchPanel } from '../touchpanel/manager'
 import { register as mqttTarget } from './mqtt-target'
@@ -138,9 +140,11 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   spotter3d,
   stt,
   streaming,
+  stewardDesk,
   mqttTarget,
   simhubImport,
   configExport,
+  localCollaboration,
   updater,
   diagnosticLogger,
   bugReport,
