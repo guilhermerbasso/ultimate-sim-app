@@ -625,6 +625,31 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
+    ['Could you tell me about understeer?', 'en-US'],
+    ['Pode me explicar subviragem?', 'pt-BR'],
+    ['¿Puedes explicarme el subviraje?', 'es'],
+    ["Pouvez-vous m'expliquer le survirage ?", 'fr'],
+    ['Kannst du mir Untersteuern erklären?', 'de'],
+    ['アンダーステアについて説明してください', 'ja']
+  ] as Array<[string, CoachAdviceLanguage]>)(
+    'routes polite localized definition wrapper without LLM: %s',
+    async (question, language) => {
+      const harness = makeHarness({
+        racecraftLanguage: language,
+        racecraftContext: { safety: KNOWN_SAFE_RACE }
+      })
+
+      const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+      expect(answer.source).toBe('intent')
+      expect(answer.lang).toBe(language)
+      expect(answer.text).toBe(safeInformationalDefinition(question, language))
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
     ['Define divebomb.', 'en-US', 'controlled glossary'],
     ['Please define divebomb.', 'en-US', 'controlled glossary'],
     ['Could you explain active aero?', 'en-US', 'controlled glossary'],
@@ -1040,7 +1065,7 @@ describe('createEngineerOrchestrator.ask', () => {
     const harness = makeHarness()
     harness.modelManager.ensureModel.mockResolvedValueOnce({ ok: false, id: harness.deps.config.modelId, error: 'offline' })
     const orch = createEngineerOrchestrator(harness.deps)
-    const answer = await orch.ask('me explica a strategy ideal pra hoje')
+    const answer = await orch.ask('quero uma leitura qualitativa livre da minha pilotagem')
 
     expect(answer.kind).toBe('error')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()

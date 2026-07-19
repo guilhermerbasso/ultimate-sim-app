@@ -259,12 +259,20 @@ describe('racecraft question routing', () => {
     ['Please define oversteer.', 'oversteer'],
     ['Could you explain ABS?', 'abs'],
     ['Can you tell me what traction control means?', 'traction-control'],
+    ['Could you tell me about understeer?', 'understeer'],
+    ['Would you tell me the meaning of oversteer?', 'oversteer'],
     ['Definition: yellow flag.', 'yellow-flag'],
     ['Tell me about the concept of safety car.', 'safety-car'],
     ['Por favor, poderia você explicar subviragem?', 'understeer'],
+    ['Pode me explicar subviragem?', 'understeer'],
+    ['Me explique sobreviragem.', 'oversteer'],
     ['¿Podrías explicar el sobreviraje?', 'oversteer'],
+    ['¿Puedes explicarme el subviraje?', 'understeer'],
     ['Peux-tu expliquer le sous-virage ?', 'understeer'],
-    ['Bitte kannst du ABS erklären?', 'abs']
+    ["Pouvez-vous m'expliquer le survirage ?", 'oversteer'],
+    ['Bitte kannst du ABS erklären?', 'abs'],
+    ['Kannst du mir Untersteuern erklären?', 'understeer'],
+    ['アンダーステアについて説明してください', 'understeer']
   ] as const)('parses localized definition form %s', (question, topic) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({
       pure: true,
@@ -279,6 +287,18 @@ describe('racecraft question routing', () => {
       pure: false,
       topic: null
     })
+  })
+
+  it.each([
+    'Me explique como faço para frear melhor.',
+    'Explícame cómo mejorar mi frenada.',
+    'Explique-moi comment améliorer mon freinage.',
+    'Erkläre mir, wie ich besser bremsen kann.',
+    'Tell me about Turn 3.',
+    'Tell me about the last lap.'
+  ])('does not treat personal coaching wording as a pure glossary request: %s', (question) => {
+    expect(parseDefinitionQuestion(question)).toMatchObject({ pure: false })
+    expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
   })
 
   it.each([

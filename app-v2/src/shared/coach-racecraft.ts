@@ -645,7 +645,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:please )?(?:(?:can|could|would) you )?)define (?:the )?(?:term |concept )?(.+)$/,
         /^(?:please )?(?:(?:the |an? )?(?:definition|meaning|explanation)(?: of)?|give me (?:the )?(?:definition|meaning|explanation) of) (.+)$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)explain (?:the )?(?:(?:term|concept|meaning of) )?(.+)$/,
-        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me about (?:the )?concept(?: of)? (.+)$/
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me about (?!my\b|this\b|our\b|the race\b)(?:the )?(?:concept(?: of)? )?(.+)$/,
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of (.+)$/
       ]
     },
     {
@@ -663,7 +664,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       patterns: [
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)defina (?:o )?(?:termo |conceito )?(.+)$/,
         /^(?:por favor )?(?:(?:a |o )?(?:definicao|significado|explicacao)(?: de)?|me de (?:a |o )?(?:definicao|significado|explicacao) de) (.+)$/,
-        /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)(?:explique|explicar) (?:o )?(?:(?:termo|conceito|significado de) )?(.+)$/,
+        /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)(?:me )?(?:explique|explicar) (?:o )?(?:(?:termo|conceito|significado de) )?(.+)$/,
         /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)fale sobre (?:o )?conceito(?: de)? (.+)$/
       ]
     },
@@ -682,7 +683,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       patterns: [
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)define (?:el )?(?:termino |concepto )?(.+)$/,
         /^(?:por favor )?(?:(?:la |el )?(?:definicion|significado|explicacion)(?: de)?|dame (?:la |el )?(?:definicion|significado|explicacion) de) (.+)$/,
-        /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)(?:explica|explicar) (?:el )?(?:(?:termino|concepto|significado de) )?(.+)$/,
+        /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)(?:me )?(?:explica|explicar|explicame|explicarme) (?:el )?(?:(?:termino|concepto|significado de) )?(.+)$/,
         /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)hablame del concepto(?: de)? (.+)$/
       ]
     },
@@ -697,7 +698,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       patterns: [
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)definis (?:le )?(?:terme |concept )?(.+)$/,
         /^(?:s il vous plait )?(?:(?:la |le )?(?:definition|signification|explication)(?: de)?|donne moi (?:la |le )?(?:definition|signification|explication) de) (.+)$/,
-        /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)(?:explique|expliquer) (?:le )?(?:(?:terme|concept|sens de) )?(.+)$/,
+        /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu|pouvez vous) )?)(?:m )?(?:explique|expliquer) (?:le )?(?:(?:terme|concept|sens de) )?(.+)$/,
         /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)parle moi du concept(?: de)? (.+)$/
       ]
     },
@@ -713,7 +714,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)definiere (?:den )?(?:begriff |konzept )?(.+)$/,
         /^(?:bitte )?(?:(?:die |der |das )?(?:definition|bedeutung|erklarung)(?: von)?|gib mir (?:die |der |das )?(?:definition|bedeutung|erklarung) von) (.+)$/,
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erklare (?:den )?(?:(?:begriff|konzept|bedeutung von) )?(.+)$/,
-        /^(?:(?:bitte )?(?:(?:kannst|konntest) du ))(.+) erklaren$/,
+        /^(?:(?:bitte )?(?:(?:kannst|konntest) du ))(?:mir )?(.+) erklaren$/,
         /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)erzahl mir vom konzept(?: von)? (.+)$/
       ]
     },
@@ -740,7 +741,10 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
     {
       language: 'ja',
       command: true,
-      patterns: [/^(.+?)を(?:定義|説明)して(?:ください)?$/]
+      patterns: [
+        /^(.+?)を(?:定義|説明)して(?:ください)?$/,
+        /^(.+?)について説明して(?:ください)?$/
+      ]
     }
   ]
   for (const form of forms) {
@@ -748,7 +752,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       const match = pattern.exec(q)
       if (!match) continue
       const body = match[1]?.trim() ?? ''
-      const pure = !/\b(my|current|next|now|this lap|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the)\b/.test(body)
+      const pure = !/\b(my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the|meu|minha|como|como faco|como posso|devo|melhorar|volta \d+|curva \d+|mi|como puedo|debo|mejorar|vuelta \d+|mon|ma|comment|dois je|ameliorer|tour \d+|virage \d+|mein|meine|wie|wie kann|soll ich|runde \d+|kurve \d+)\b/.test(body)
       return {
         language: form.language,
         body,
@@ -850,8 +854,8 @@ export function controlledDefinitionResponse(
   language: CoachAdviceLanguage
 ): string | null {
   const parsed = parseDefinitionQuestion(question)
-  if (!parsed) return null
-  if (parsed.pure && parsed.topic) {
+  if (!parsed?.pure) return null
+  if (parsed.topic) {
     return safeInformationalDefinition(question, language)
   }
   return localized(language, {
