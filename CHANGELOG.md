@@ -74,7 +74,7 @@
 - Rig certification uses the earliest required evidence deadline plus a main-process watchdog,
   stable USB VID/PID/serial identity, audited replacement that invalidates active certification,
   serialized atomic persistence, and fail-closed recovery/quarantine for interrupted replacements.
-- Pre-existing generated touch-panel snapshot and visual-audit working-tree drift remains explicitly
+- Pre-existing generated touch-panel snapshot and visual-audit working-tree drift remain explicitly
   excluded from the Rig Preflight change set and release documentation update.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
