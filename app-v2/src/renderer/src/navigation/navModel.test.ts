@@ -15,6 +15,15 @@ describe('SP-07 navigation', () => {
   })
 })
 
+describe('Story Engine navigation', () => {
+  it('preserves Story Engine beside the current Race Hub products', () => {
+    const raceHub = navSections.find((section) => section.title === 'Race Hub')
+    expect(raceHub?.viewIds).toContain('context-debt')
+    expect(raceHub?.viewIds).toContain('story-engine')
+    expect(viewRegistry.filter((view) => view.id === 'story-engine')).toHaveLength(1)
+  })
+})
+
 describe('Streaming navigation', () => {
   it('exposes Streaming as its own top-level Drive view beside Dashboards', () => {
     const drive = navSections.find((section) => section.title === 'Drive')
