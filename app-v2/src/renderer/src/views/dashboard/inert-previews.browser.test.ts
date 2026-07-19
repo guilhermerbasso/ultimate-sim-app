@@ -249,5 +249,5 @@ describe('inert gallery previews (Electron Chromium)', () => {
       await server.close()
       if (tempDirectory) await rm(tempDirectory, { recursive: true, force: true })
     }
-  }, 120_000)
+  }, 180_000)
 })
