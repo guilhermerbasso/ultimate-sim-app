@@ -34,6 +34,8 @@ describe('i18n text helpers', () => {
     expect(tt('en', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
     expect(tt('pt-BR', 'fuel.untilLap', { lap: 12 })).toBe('até volta 12')
     expect(tt('es', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
+    expect(tt('en', 'contextDebt.title')).toBe('Context-Debt Meter')
+    expect(tt('pt-BR', 'contextDebt.title')).toBe('Medidor de dívida de contexto')
   })
 
   it('translates known navigation section titles', () => {
@@ -74,6 +76,7 @@ describe('migrated view i18n coverage', () => {
       'CommunityView.tsx',
       'StewardDeskView.tsx',
       'ControlsView.tsx',
+      'ContextDebtView.tsx',
       'CoachView.tsx',
       '../components/SavedConfigsPanel.tsx',
       '../components/WakeWordIndicator.tsx',

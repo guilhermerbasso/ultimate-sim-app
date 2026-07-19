@@ -47,6 +47,7 @@ import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } fro
 import { subscribeWithRevisionedHydration, subscribeWithTelemetryHydration } from './hydration'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
 import { renderGt3Widget, instrumentColorsFor, instrumentBezel, instrumentMaterial, revLedPropsFor } from './widgets/gt3-widgets'
+import { PREVIEW_SNAPSHOT } from './widgets/gt3-theme'
 import { AnalogDial, RevLedBar } from '../instruments'
 import { resolveElementSkin, FitText } from '../skins'
 // WS-DASH: the six full-frame dashboards (gridStackDash … lmuStintDash) are
@@ -57,6 +58,11 @@ import { resolveElementSkin, FitText } from '../skins'
 // are namespaced, so importing them here adds no global styles.
 import { resolveWidgetComponent } from '../overlay/widgets'
 import { HifiWidgetHost, PREVIEW_COACH_REPORT, PREVIEW_ENGINEER_FEED } from '../overlay/widgets/HifiWidgetHost'
+import { ALL_OVERLAY_WIDGETS, resolveOverlayTrigger } from '../overlay/hifi-overlays'
+import {
+  createEditorTriggerPreviewFrame,
+  isTriggerOnlyPreview
+} from '../overlay/editor-trigger-preview'
 import './dashboard-runtime.css'
 
 function getDashIdFromQuery(): string | null {
@@ -130,45 +136,69 @@ interface ScaleInfo {
   top: number
 }
 
-function useScale(baseW: number, baseH: number, mode: DashboardScaleMode): ScaleInfo {
-  const [size, setSize] = useState<ScaleInfo>(() => ({ scaleX: 1, scaleY: 1, left: 0, top: 0 }))
+export function dashboardScaleForViewport(
+  baseW: number,
+  baseH: number,
+  mode: DashboardScaleMode,
+  viewport: { width: number; height: number }
+): ScaleInfo {
+  if (baseW <= 0 || baseH <= 0) return { scaleX: 1, scaleY: 1, left: 0, top: 0 }
+  const sx = viewport.width / baseW
+  const sy = viewport.height / baseH
+  let scaleX = 1
+  let scaleY = 1
+  if (mode === 'stretch') {
+    scaleX = sx
+    scaleY = sy
+  } else if (mode === 'fill') {
+    const scale = Math.max(sx, sy)
+    scaleX = scale
+    scaleY = scale
+  } else {
+    const scale = Math.min(sx, sy)
+    scaleX = scale
+    scaleY = scale
+  }
+  return {
+    scaleX,
+    scaleY,
+    left: Math.floor((viewport.width - baseW * scaleX) / 2),
+    top: Math.floor((viewport.height - baseH * scaleY) / 2)
+  }
+}
+
+function useScale(
+  baseW: number,
+  baseH: number,
+  mode: DashboardScaleMode,
+  viewport?: { width: number; height: number }
+): ScaleInfo {
+  const [size, setSize] = useState<ScaleInfo>(() =>
+    dashboardScaleForViewport(
+      baseW,
+      baseH,
+      mode,
+      viewport ?? {
+        width: typeof window === 'undefined' ? baseW : window.innerWidth,
+        height: typeof window === 'undefined' ? baseH : window.innerHeight
+      }
+    )
+  )
 
   useEffect(() => {
     function update(): void {
-      const winW = window.innerWidth
-      const winH = window.innerHeight
-      if (baseW <= 0 || baseH <= 0) {
-        setSize({ scaleX: 1, scaleY: 1, left: 0, top: 0 })
-        return
-      }
-      const sx = winW / baseW
-      const sy = winH / baseH
-      let scaleX = 1
-      let scaleY = 1
-      if (mode === 'stretch') {
-        scaleX = sx
-        scaleY = sy
-      } else if (mode === 'fill') {
-        const s = Math.max(sx, sy)
-        scaleX = s
-        scaleY = s
-      } else {
-        // 'fit' (default) — letterbox preserving aspect ratio.
-        const s = Math.min(sx, sy)
-        scaleX = s
-        scaleY = s
-      }
-      // Centers the canvas inside the shell:
-      const renderedW = baseW * scaleX
-      const renderedH = baseH * scaleY
-      const left = Math.floor((winW - renderedW) / 2)
-      const top = Math.floor((winH - renderedH) / 2)
-      setSize({ scaleX, scaleY, left, top })
+      setSize(dashboardScaleForViewport(
+        baseW,
+        baseH,
+        mode,
+        viewport ?? { width: window.innerWidth, height: window.innerHeight }
+      ))
     }
     update()
+    if (viewport) return
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
-  }, [baseW, baseH, mode])
+  }, [baseW, baseH, mode, viewport?.height, viewport?.width])
 
   return size
 }
@@ -181,6 +211,7 @@ interface ElementProps {
   unitSystem?: import('../../../shared/units').UnitSystem
   preview?: DashboardPreviewMode
   alertsConfig?: AlertsConfig
+  forceTriggerActive?: boolean
 }
 
 const INERT_OVERLAY_WIDGET_IDS = new Set<string>([
@@ -1327,7 +1358,13 @@ function ElementTable({ element, snapshot }: ElementProps) {
 // locked stub: these widgets are snapshot-driven and ignore most of it (some read
 // `config.id`). Missing/unknown widgetId gets a subtle labelled fallback so a
 // broken persisted board remains editable instead of looking like a black canvas.
-function ElementOverlayWidget({ element, snapshot, preview, alertsConfig }: ElementProps) {
+function ElementOverlayWidget({
+  element,
+  snapshot,
+  preview,
+  alertsConfig,
+  forceTriggerActive
+}: ElementProps) {
   const widgetId =
     element.widgetId ??
     (element.hifiModuleId ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId']) : undefined)
@@ -1388,19 +1425,43 @@ function ElementOverlayWidget({ element, snapshot, preview, alertsConfig }: Elem
     display: null,
     hifiModuleId: element.hifiModuleId
   }
+  const definition = ALL_OVERLAY_WIDGETS.find((item) => item.id === widgetId)
+  const trigger = resolveOverlayTrigger(definition, config)
+  const triggerPreview = forceTriggerActive && isTriggerOnlyPreview(definition?.role, trigger)
+    ? createEditorTriggerPreviewFrame(
+        snapshot ?? PREVIEW_SNAPSHOT,
+        trigger,
+        true,
+        alertsConfig,
+        `dashboard-editor:${element.id}`
+      )
+    : null
+  const renderSnapshot = triggerPreview?.snapshot ?? snapshot
+  const visibility = triggerPreview?.visibility
+  const renderAlertsConfig = triggerPreview?.alertsConfig ?? alertsConfig
   return (
-    <div className="dash-element dash-overlaywidget" style={containerStyle}>
+    <div
+      className="dash-element dash-overlaywidget"
+      style={containerStyle}
+      data-trigger-preview-visible={triggerPreview?.visibility.visible ? 'true' : undefined}
+    >
       {preview === 'inert' && widgetId.startsWith('hifi:') ? (
         <HifiWidgetHost
-          snapshot={snapshot}
+          snapshot={renderSnapshot}
           config={config}
           preview="inert"
-          alertsConfig={alertsConfig}
+          visibility={visibility}
+          alertsConfig={renderAlertsConfig}
         />
       ) : preview === 'inert' && INERT_OVERLAY_WIDGET_IDS.has(widgetId) ? (
-        <InertWidgetFixture element={element} snapshot={snapshot} source={widgetId} contained />
+        <InertWidgetFixture element={element} snapshot={renderSnapshot} source={widgetId} contained />
       ) : (
-        <Widget snapshot={snapshot} config={config} alertsConfig={alertsConfig} />
+        <Widget
+          snapshot={renderSnapshot}
+          config={config}
+          visibility={visibility}
+          alertsConfig={renderAlertsConfig}
+        />
       )}
     </div>
   )
@@ -1463,6 +1524,7 @@ export function renderDashboardElement(props: {
   snapshot: TelemetrySnapshot | null
   preview?: DashboardPreviewMode
   alertsConfig?: AlertsConfig
+  forceTriggerActive?: boolean
 }) {
   return <ElementSwitcher {...props} />
 }
@@ -1674,23 +1736,29 @@ export function DashboardCanvas({
  dashboard,
  snapshot,
  kiosk = false,
- dashId = null
+ dashId = null,
+ viewport,
+ preview,
+ showConnectionStatus = true
 }: {
  dashboard: Dashboard
  snapshot: TelemetrySnapshot | null
  kiosk?: boolean
  dashId?: string | null
+ viewport?: { width: number; height: number }
+ preview?: DashboardPreviewMode
+ showConnectionStatus?: boolean
 }) {
  const baseW = dashboard.width ?? 1920
  const baseH = dashboard.height ?? 1080
  const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'stretch'
- const scale = useScale(baseW, baseH, scaleMode)
+ const scale = useScale(baseW, baseH, scaleMode, viewport)
  const adaptive = useMemo(
    () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,
    [dashboard]
  )
  const alertsConfig = useAlertsConfig()
- useEffect(() => retainBindingIpc(), [])
+ useEffect(() => preview ? undefined : retainBindingIpc(), [preview])
  const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive, snapshot)
  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
  const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])
@@ -1699,7 +1767,8 @@ export function DashboardCanvas({
  const activeBg = (adaptive && frameBg) || dashboard.bg
 
  const shellStyle: CSSProperties = {
-   background: activeBg
+   background: activeBg,
+   ...(viewport ? { width: viewport.width, height: viewport.height } : {})
  }
 
  const canvasStyle: CSSProperties = {
@@ -1733,6 +1802,7 @@ export function DashboardCanvas({
              key={el.id}
              element={el}
              snapshot={snapshot}
+             preview={preview}
              alertsConfig={alertsConfig}
            />
          ))
@@ -1749,7 +1819,7 @@ export function DashboardCanvas({
          }
        />
      )}
-     {!snapshot?.connected && (
+     {showConnectionStatus && !snapshot?.connected && (
        <div className="dash-status">
          Telemetry disconnected ? set a source (e.g., Mock) in Settings.
        </div>

@@ -23,6 +23,7 @@ do sim **direto** (sem SimHub) e a usa para OLED, overlays, estratégia, alertas
 - **Soundshift** — beep de troca de marcha no ponto ótimo (Web Audio, áudio do PC), **ajuste por carro** e **auto-aprendizado** do RPM de troca por marcha (com lead preditivo).
 - **Setups** — auto-instalação de setups `.sto` a partir de **pasta local** ou **URL https** para `Documents/iRacing/setups/<carro>/` (Windows; validação https-only + anti-traversal).
 - **Steward Desk** — casos locais com identidade de corrida/sessão, bookmarks de incidente, evidence locks content-addressed, detalhes verificados somente leitura, versão de regra, veredito humano, dissenso/recurso e exportação anonimizada. Imports são staged e só publicados após `import-completed`, com retry/dedupe por package hash. A chain é append-only e sempre rotulada **unanchored** sem âncora externa; o app nunca aplica penalidade automática.
+- **Ensaio de Missão** — cria/importa manifestos versionados com papéis, permissões, checkpoints ramificados, eventos sintéticos determinísticos, decisões/resultados esperados, retomada, comparação entre repetições e debrief pontuado sem culpa. Funciona **100% offline** em namespace próprio, com marca-d’água de treinamento e reset que nunca toca telemetria ou histórico ao vivo.
 
 **ButtonBox** — Dispositivos, Remapeamento, OLED manual, Monitor de Inputs, Perfis (o que já existia).
 
