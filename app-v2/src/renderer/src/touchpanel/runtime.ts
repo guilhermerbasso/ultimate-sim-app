@@ -11,6 +11,13 @@ import { streamEndpoint } from '../stream/urls'
 let streamInteraction: StreamingTouchInteractionSession | null = null
 let streamActionQueue: Promise<void> = Promise.resolve()
 
+export class StreamInteractionRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'StreamInteractionRequestError'
+  }
+}
+
 export function isBrowserStreamRuntime(): boolean {
   return typeof window.ipc?.invoke !== 'function'
 }
@@ -30,14 +37,27 @@ function isStreamPanelPayload(value: unknown): value is StreamingTouchPanelPaylo
   )
 }
 
-export async function fetchStreamPanel(panelId: string): Promise<StreamingTouchPanelPayload> {
+export function activateStreamInteraction(interaction: StreamingTouchInteractionSession): void {
+  streamInteraction = interaction
+  streamActionQueue = Promise.resolve()
+}
+
+export function clearStreamInteraction(panelId?: string): void {
+  if (panelId && streamInteraction?.targetId !== panelId) return
+  streamInteraction = null
+  streamActionQueue = Promise.resolve()
+}
+
+export async function fetchStreamPanel(
+  panelId: string,
+  options: { activate?: boolean } = {}
+): Promise<StreamingTouchPanelPayload> {
   const url = streamEndpoint(`api/touch/panel/${encodeURIComponent(panelId)}`)
   const response = await fetch(url, { cache: 'no-store', credentials: 'same-origin' })
-  if (!response.ok) throw new Error(`Panel load failed (HTTP ${response.status}).`)
+  if (!response.ok) throw new StreamInteractionRequestError(`Panel load failed (HTTP ${response.status}).`, response.status)
   const payload = await response.json() as unknown
   if (!isStreamPanelPayload(payload)) throw new Error('Panel interaction session is invalid.')
-  streamInteraction = payload.interaction
-  streamActionQueue = Promise.resolve()
+  if (options.activate !== false) activateStreamInteraction(payload.interaction)
   return payload
 }
 
@@ -51,7 +71,9 @@ export async function fetchStreamInteractionHealth(panelId: string): Promise<Str
     credentials: 'same-origin',
     headers: { 'X-Stream-CSRF': interaction.csrfToken }
   })
-  if (!response.ok) throw new Error(`Interaction health failed (HTTP ${response.status}).`)
+  if (!response.ok) {
+    throw new StreamInteractionRequestError(`Interaction health failed (HTTP ${response.status}).`, response.status)
+  }
   const health = await response.json() as StreamingTouchHealthResponse
   interaction.health = health.health
   interaction.expiresAt = health.expiresAt

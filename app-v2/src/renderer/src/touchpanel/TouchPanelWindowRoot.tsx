@@ -3,11 +3,12 @@ import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-
 import type { StreamingTouchInteractionSession } from '../../../shared/streaming'
 import { ButtonBoxRenderer, type TouchRuntimeFeedback } from './ButtonBoxRenderer'
 import {
+  clearStreamInteraction,
   executeTouchControlAction,
-  fetchStreamInteractionHealth,
   fetchStreamPanel,
   isBrowserStreamRuntime
 } from './runtime'
+import { useStreamTouchHeartbeat } from './useStreamTouchHeartbeat'
 import { useTouchExpressionValues } from './useTouchExpressionValues'
 import './buttonbox.css'
 
@@ -49,7 +50,11 @@ function detectFullscreen(): boolean {
   return true
 }
 
-export function TouchPanelWindowRoot(): ReactElement {
+export function TouchPanelWindowRoot({
+  panelId: requestedPanelId = null
+}: {
+  panelId?: string | null
+} = {}): ReactElement {
   const [panel, setPanel] = useState<ButtonBoxPanel | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState<boolean>(() => detectFullscreen())
@@ -59,11 +64,14 @@ export function TouchPanelWindowRoot(): ReactElement {
   const expressionValues = useTouchExpressionValues(panel?.buttons)
 
   useEffect(() => {
-    const id = panelIdFromQuery()
+    const id = requestedPanelId || panelIdFromQuery()
     if (!id) {
       setError('No panel specified.')
       return
     }
+    setPanel(null)
+    setInteraction(null)
+    setError(null)
     let alive = true
     const loadPanel = browserStream ? fetchStreamPanel(id) : window.ipc.invoke('app:touchpanel:get', id)
     void loadPanel
@@ -72,7 +80,10 @@ export function TouchPanelWindowRoot(): ReactElement {
         const browserPayload = browserStream ? raw as Awaited<ReturnType<typeof fetchStreamPanel>> : null
         const parsed = parseButtonBoxPanel(browserPayload ? browserPayload.panel : raw)
         if (browserPayload) setInteraction(browserPayload.interaction)
-        if (parsed) setPanel(parsed)
+        if (parsed) {
+          setError(null)
+          setPanel(parsed)
+        }
         else setError('Panel not found.')
       })
       .catch(() => alive && setError('Failed to load panel.'))
@@ -86,8 +97,9 @@ export function TouchPanelWindowRoot(): ReactElement {
     return () => {
       alive = false
       off()
+      if (browserStream) clearStreamInteraction(id)
     }
-  }, [browserStream])
+  }, [browserStream, requestedPanelId])
 
   useEffect(() => {
     const update = (): void => setFullscreen(detectFullscreen())
@@ -99,34 +111,31 @@ export function TouchPanelWindowRoot(): ReactElement {
     const timer = window.setTimeout(() => setFeedback(null), feedback.ok ? 2_500 : 6_000)
     return () => window.clearTimeout(timer)
   }, [feedback])
-  useEffect(() => {
-    if (!browserStream || !panel) return
-    let alive = true
-    const refresh = (): void => {
-      void fetchStreamInteractionHealth(panel.id)
-        .then((health) => {
-          if (!alive) return
-          setInteraction((current) => current
-            ? {
-                ...current,
-                health: health.health,
-                expiresAt: health.expiresAt,
-                leaseExpiresAt: health.leaseExpiresAt,
-                activeControls: health.activeControls,
-                lastFeedback: health.lastFeedback
-              }
-            : current)
-        })
-        .catch(() => {
-          if (alive) setInteraction((current) => current ? { ...current, health: 'degraded' } : current)
-        })
+  useStreamTouchHeartbeat({
+    enabled: browserStream && panel !== null && interaction !== null,
+    panelId: panel?.id ?? null,
+    interaction,
+    onHealth: (health) => {
+      setInteraction((current) => current
+        ? {
+            ...current,
+            health: health.health,
+            expiresAt: health.expiresAt,
+            leaseExpiresAt: health.leaseExpiresAt,
+            activeControls: health.activeControls,
+            lastFeedback: health.lastFeedback
+          }
+        : current)
+    },
+    onFailure: () => {
+      setInteraction((current) => current ? { ...current, health: 'degraded' } : current)
+    },
+    onAuthLoss: () => {
+      if (panel) clearStreamInteraction(panel.id)
+      setInteraction(null)
+      setError('Stream authentication expired.')
     }
-    const timer = window.setInterval(refresh, 10_000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
-    }
-  }, [browserStream, panel])
+  })
 
   if (error) {
     return (
@@ -222,7 +231,10 @@ export function TouchPanelWindowRoot(): ReactElement {
         expressionValues={expressionValues}
         onAction={executeTouchControlAction}
         onFeedback={onRuntimeFeedback}
-        interactive={!browserStream || interaction?.interactive === true}
+        interactive={!browserStream || (
+          interaction?.interactive === true &&
+          interaction.health === 'ready'
+        )}
         reportLifecycle={browserStream}
       />
       {feedback ? (

@@ -3,6 +3,8 @@ import { TOUCH_ACTION_IPC_CHANNEL } from '../../../shared/touch-panel'
 import type { StreamingTouchPanelPayload } from '../../../shared/streaming'
 import type { TouchControlActionEvent } from './ButtonBoxRenderer'
 import {
+  activateStreamInteraction,
+  clearStreamInteraction,
   executeTouchControlAction,
   fetchStreamInteractionHealth,
   fetchStreamPanel
@@ -64,6 +66,7 @@ function streamPayload(): StreamingTouchPanelPayload {
 }
 
 afterEach(() => {
+  clearStreamInteraction()
   vi.unstubAllGlobals()
 })
 
@@ -141,6 +144,33 @@ describe('touch panel browser streaming runtime', () => {
       message: 'This Touch control is not allowed for remote interaction.'
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not activate a stale profile fetch until its generation explicitly wins', async () => {
+    const fetchMock = stubBrowserRuntime('https://stream.example/race/obs/touch?token=secret')
+    const payload = streamPayload()
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => payload
+    })
+
+    await fetchStreamPanel('panel one', { activate: false })
+    await expect(executeTouchControlAction(touchEvent('begin'))).rejects.toThrow(/session is unavailable/i)
+    activateStreamInteraction(payload.interaction)
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        message: 'sent',
+        health: 'ready',
+        nextNonce: 'nonce-two',
+        leaseExpiresAt: Date.now() + 25_000,
+        activeControls: 1
+      })
+    })
+    await expect(executeTouchControlAction(touchEvent('begin'))).resolves.toMatchObject({ ok: true })
   })
 
   it('heartbeats the receiver lease with the issued CSRF token', async () => {
