@@ -11,6 +11,8 @@
 - Availability, session, health, and schema state are QoS 1 retained with expiry.
 - Events and allowlisted non-driving commands are QoS 1 and idempotent.
 - Change `simrig` consistently in the ACL files when using another instance ID.
+- The committed Mosquitto template uses IPv4; replace every listener host with
+  `::1` when the app is configured for IPv6 loopback.
 
 Enable the target once to generate the runtime bundle shown in Settings, then run
 Mosquitto from that generated directory:

@@ -559,6 +559,7 @@ describe('streaming authenticated server', () => {
     expect(authenticated.statusCode).toBe(200)
     cookie = sessionCookie(authenticated)
     expect(await webSocketUpgradeStatus(new URL('ws', baseUrl).toString(), cookie, 'http://sibling.example.test')).toBe(403)
+    expect(await webSocketUpgradeStatus(new URL('ws', baseUrl).toString(), cookie)).toBe(101)
 
     for (let index = 0; index < 12; index += 1) {
       const ping = await httpRequest(new URL('ping', baseUrl).toString(), { headers: { Cookie: cookie } })
