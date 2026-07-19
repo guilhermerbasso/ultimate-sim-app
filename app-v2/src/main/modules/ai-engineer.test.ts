@@ -572,7 +572,11 @@ describe('createEngineerOrchestrator.ask', () => {
     'Tell me about the concept of change tyres.',
     'Defina trocar pneus.',
     'Definissez changer les pneus.',
-    'Definiere Reifen wechseln.'
+    'Definiere Reifen wechseln.',
+    'Explique o termo trocar pneus.',
+    'Explique el término cambiar neumáticos.',
+    'Explique le terme changer les pneus.',
+    'Erkläre den Begriff Reifen wechseln.'
   ])('never sends explicit telemetry-noun definitions to the LLM: %s', async (question) => {
     const harness = makeHarness()
 

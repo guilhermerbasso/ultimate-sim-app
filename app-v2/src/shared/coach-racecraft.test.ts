@@ -322,7 +322,11 @@ describe('racecraft question routing', () => {
     'Tell me about the concept of change tyres.',
     'Defina trocar pneus.',
     'Definissez changer les pneus.',
-    'Definiere Reifen wechseln.'
+    'Definiere Reifen wechseln.',
+    'Explique o termo trocar pneus.',
+    'Explique el término cambiar neumáticos.',
+    'Explique le terme changer les pneus.',
+    'Erkläre den Begriff Reifen wechseln.'
   ])('keeps telemetry-noun definitions inside the controlled glossary: %s', (question) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
     expect(controlledDefinitionResponse(question, 'en-US')).toContain(
