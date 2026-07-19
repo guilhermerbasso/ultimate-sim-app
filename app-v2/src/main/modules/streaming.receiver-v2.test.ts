@@ -1,7 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { request, type IncomingHttpHeaders } from 'node:http'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -28,6 +27,8 @@ vi.mock('../touchpanel/manager', () => ({
 }))
 
 import { register } from './streaming'
+
+const fixtureRoot = resolve(dirname(fileURLToPath(import.meta.url)), '__fixtures__', 'stream-renderer')
 
 interface ResponseData {
   statusCode: number
@@ -140,7 +141,8 @@ function fakeContext(): ModuleContext & { handlers: Map<string, (_event: unknown
     profileStore: {},
     iracingControl: {},
     getMainWindow: () => null,
-    broadcast: () => undefined
+    broadcast: () => undefined,
+    registerGracefulTeardown: () => () => undefined
   } as unknown as ModuleContext & { handlers: Map<string, (_event: unknown, args?: StreamingStartArgs) => unknown> }
 }
 
@@ -242,6 +244,7 @@ describe('streaming receiver v2 certification target', () => {
   let ctx: ReturnType<typeof fakeContext> | null = null
 
   beforeEach(() => {
+    process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = fixtureRoot
     ctx = fakeContext()
     register(ctx)
   })
@@ -249,6 +252,7 @@ describe('streaming receiver v2 certification target', () => {
   afterEach(async () => {
     if (ctx) await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.stop)
     ctx = null
+    delete process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR
   })
 
   it('uses a private default bind, one-use fragment pairing, and fail-closed browser headers', async () => {
@@ -268,10 +272,18 @@ describe('streaming receiver v2 certification target', () => {
     expect(shell.body).toContain('receiver/v2/bootstrap.js')
     expect(shell.body).not.toContain(code)
     const bootstrapCookie = cookie(shell)
-    const unrelatedAsset = await httpRequest(new URL('../../assets/index-private.js', baseUrl), {
+    const receiverEntry = await httpRequest(new URL('../../assets/receiver-entry.js', baseUrl), {
       headers: { Cookie: bootstrapCookie }
     })
-    expect(unrelatedAsset.statusCode).toBe(404)
+    const sharedReceiverChunk = await httpRequest(new URL('../../assets/shared-runtime.js', baseUrl), {
+      headers: { Cookie: bootstrapCookie }
+    })
+    const unrelatedAsset = await httpRequest(new URL('../../assets/stream-entry.js', baseUrl), {
+      headers: { Cookie: bootstrapCookie }
+    })
+    expect(receiverEntry.statusCode).toBe(200)
+    expect(sharedReceiverChunk.statusCode).toBe(200)
+    expect(unrelatedAsset.statusCode).toBe(403)
 
     const paired = await httpRequest(new URL('pair', baseUrl), {
       method: 'POST',
@@ -414,34 +426,6 @@ describe('streaming receiver v2 certification target', () => {
       retryable: true
     })
     await expect(closed).resolves.toBe(1013)
-  })
-
-  it('serves receiver-session shared chunks with generic asset names', async () => {
-    const previousRendererDir = process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR
-    const rendererDir = mkdtempSync(join(tmpdir(), 'receiver-renderer-'))
-    mkdirSync(join(rendererDir, 'assets'), { recursive: true })
-    writeFileSync(join(rendererDir, 'assets', 'shared-chunk.js'), 'export const receiverSharedChunk = true\n')
-    process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = rendererDir
-
-    try {
-      const started = await invoke<StreamingStartResult>(ctx!, STREAMING_CHANNELS.start, { layoutId: 'default' })
-      const { baseUrl } = pairingDetails(started)
-      const shell = await httpRequest(baseUrl)
-      const bootstrapCookie = cookie(shell)
-      const sharedChunk = await httpRequest(new URL('../../assets/shared-chunk.js', baseUrl), {
-        headers: { Cookie: bootstrapCookie }
-      })
-
-      expect(sharedChunk.statusCode).toBe(200)
-      expect(sharedChunk.body).toContain('receiverSharedChunk = true')
-    } finally {
-      if (previousRendererDir === undefined) {
-        delete process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR
-      } else {
-        process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = previousRendererDir
-      }
-      rmSync(rendererDir, { recursive: true, force: true })
-    }
   })
 
   it('reconnects with a cursor, replays bounded frames, resyncs, and records local latency', async () => {

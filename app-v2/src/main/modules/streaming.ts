@@ -869,9 +869,71 @@ function safeStaticPath(pathname: string): string | null {
   return target
 }
 
+interface ReceiverAssetGraphCache {
+  rendererRoot: string
+  htmlPath: string | null
+  htmlModifiedMs: number
+  paths: Set<string>
+}
+
+let receiverAssetGraphCache: ReceiverAssetGraphCache | null = null
+
+function receiverAssetPaths(): ReadonlySet<string> {
+  const rendererRoot = rendererDir()
+  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('receiver.html')
+  let htmlModifiedMs = 0
+  try {
+    if (htmlPath) htmlModifiedMs = statSync(htmlPath).mtimeMs
+  } catch {
+    // The graph loader below fails closed if the document disappears or is unreadable.
+  }
+  if (receiverAssetGraphCache?.rendererRoot === rendererRoot &&
+      receiverAssetGraphCache.htmlPath === htmlPath &&
+      receiverAssetGraphCache.htmlModifiedMs === htmlModifiedMs) {
+    return receiverAssetGraphCache.paths
+  }
+
+  const paths = new Set<string>()
+  receiverAssetGraphCache = { rendererRoot, htmlPath, htmlModifiedMs, paths }
+  if (!htmlPath) return paths
+
+  try {
+    const documentUrl = new URL('http://receiver.invalid/receiver/v2/')
+    const graph = htmlResourceGraph(readFileSync(htmlPath, 'utf8'), documentUrl)
+    const queue = [...graph.resources]
+    for (const source of graph.inlineModules) queue.push(...moduleDependencies(source, graph.baseUrl))
+
+    while (queue.length > 0) {
+      const resource = queue.shift()!
+      if (resource.origin !== documentUrl.origin ||
+          resource.search ||
+          !resource.pathname.startsWith('/assets/') ||
+          paths.has(resource.pathname)) continue
+      paths.add(resource.pathname)
+      if (paths.size > SELF_TEST_MAX_RESOURCES) {
+        throw new Error(`Receiver asset graph exceeded ${SELF_TEST_MAX_RESOURCES} files.`)
+      }
+
+      const target = safeStaticPath(resource.pathname)
+      if (!target || !existsSync(target) || !statSync(target).isFile()) continue
+      const extension = extname(target).toLowerCase()
+      if (extension === '.js' || extension === '.mjs' || extension === '.cjs') {
+        queue.push(...moduleDependencies(readFileSync(target, 'utf8'), resource))
+      } else if (extension === '.css') {
+        queue.push(...cssDependencies(readFileSync(target, 'utf8'), resource))
+      }
+    }
+  } catch (error) {
+    paths.clear()
+    logger.warn('streaming', 'receiver asset graph could not be loaded', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  }
+  return paths
+}
+
 function isReceiverAssetPath(pathname: string): boolean {
-  const fileName = pathname.slice('/assets/'.length)
-  return /^[^/\\]+\.(?:js|css)$/.test(fileName)
+  return receiverAssetPaths().has(pathname)
 }
 
 function ensureStreamBaseHref(html: string): string {

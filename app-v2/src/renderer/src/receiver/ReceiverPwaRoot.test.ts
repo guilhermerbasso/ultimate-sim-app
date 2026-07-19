@@ -101,6 +101,52 @@ class MockWebSocket {
   }
 }
 
+async function renderOpenReceiverSocket(): Promise<MockWebSocket> {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      authenticated: true,
+      passwordRequired: false,
+      protocolVersion: RECEIVER_PROTOCOL_VERSION,
+      schemaVersion: RECEIVER_SCHEMA_VERSION,
+      capabilities: [...RECEIVER_CAPABILITIES],
+      minHz: RECEIVER_MIN_HZ,
+      maxHz: RECEIVER_MAX_HZ,
+      maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+      heartbeatMs: RECEIVER_HEARTBEAT_MS,
+      transportProfile: 'local-development',
+      readOnly: true,
+      commandsEnabled: false
+    })
+  }))
+  vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+
+  const { ReceiverPwaRoot } = await import('./ReceiverPwaRoot')
+  render(createElement(ReceiverPwaRoot))
+  await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
+  const socket = MockWebSocket.instances[0]
+  socket.open()
+  return socket
+}
+
+function welcomeMessage(): Record<string, unknown> {
+  return {
+    type: 'welcome',
+    protocolVersion: RECEIVER_PROTOCOL_VERSION,
+    schemaVersion: RECEIVER_SCHEMA_VERSION,
+    capabilities: [...RECEIVER_CAPABILITIES],
+    sessionId: 'receiver-session',
+    rateHz: 20,
+    maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+    heartbeatMs: RECEIVER_HEARTBEAT_MS,
+    highWater: 0,
+    serverTime: 1,
+    readOnly: true,
+    commands: false
+  }
+}
+
 afterEach(() => {
   cleanup()
   sessionStorage.clear()
@@ -129,46 +175,8 @@ describe('receiver PWA recovery', () => {
   })
 
   it('sends only one gap resync until the server completes it', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        authenticated: true,
-        passwordRequired: false,
-        protocolVersion: RECEIVER_PROTOCOL_VERSION,
-        schemaVersion: RECEIVER_SCHEMA_VERSION,
-        capabilities: [...RECEIVER_CAPABILITIES],
-        minHz: RECEIVER_MIN_HZ,
-        maxHz: RECEIVER_MAX_HZ,
-        maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
-        heartbeatMs: RECEIVER_HEARTBEAT_MS,
-        transportProfile: 'local-development',
-        readOnly: true,
-        commandsEnabled: false
-      })
-    }))
-    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
-
-    const { ReceiverPwaRoot } = await import('./ReceiverPwaRoot')
-    render(createElement(ReceiverPwaRoot))
-
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
-    const socket = MockWebSocket.instances[0]
-    socket.open()
-    socket.message({
-      type: 'welcome',
-      protocolVersion: RECEIVER_PROTOCOL_VERSION,
-      schemaVersion: RECEIVER_SCHEMA_VERSION,
-      capabilities: [...RECEIVER_CAPABILITIES],
-      sessionId: 'receiver-session',
-      rateHz: 20,
-      maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
-      heartbeatMs: RECEIVER_HEARTBEAT_MS,
-      highWater: 0,
-      serverTime: 1,
-      readOnly: true,
-      commands: false
-    })
+    const socket = await renderOpenReceiverSocket()
+    socket.message(welcomeMessage())
 
     const telemetry = (sequence: number, replay = false): void => socket.message({
       type: 'telemetry',
@@ -197,58 +205,20 @@ describe('receiver PWA recovery', () => {
     ])
   })
 
-  it('clears a retryable error banner after a successful welcome handshake', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        authenticated: true,
-        passwordRequired: false,
-        protocolVersion: RECEIVER_PROTOCOL_VERSION,
-        schemaVersion: RECEIVER_SCHEMA_VERSION,
-        capabilities: [...RECEIVER_CAPABILITIES],
-        minHz: RECEIVER_MIN_HZ,
-        maxHz: RECEIVER_MAX_HZ,
-        maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
-        heartbeatMs: RECEIVER_HEARTBEAT_MS,
-        transportProfile: 'local-development',
-        readOnly: true,
-        commandsEnabled: false
-      })
-    }))
-    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
-
-    const { ReceiverPwaRoot } = await import('./ReceiverPwaRoot')
-    render(createElement(ReceiverPwaRoot))
-
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
-    const socket = MockWebSocket.instances[0]
-    socket.open()
+  it('clears a retryable server error after the next successful welcome', async () => {
+    const socket = await renderOpenReceiverSocket()
     socket.message({
       type: 'error',
-      code: 'resync_rate_limit',
-      message: 'Retry later.',
+      code: 'temporarily_unavailable',
+      message: 'Receiver is temporarily unavailable.',
       retryable: true
     })
-    expect((await screen.findByRole('alert')).textContent).toContain('Retry later.')
+    expect((await screen.findByRole('alert')).textContent).toContain('temporarily unavailable')
 
-    socket.message({
-      type: 'welcome',
-      protocolVersion: RECEIVER_PROTOCOL_VERSION,
-      schemaVersion: RECEIVER_SCHEMA_VERSION,
-      capabilities: [...RECEIVER_CAPABILITIES],
-      sessionId: 'receiver-session',
-      rateHz: 20,
-      maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
-      heartbeatMs: RECEIVER_HEARTBEAT_MS,
-      highWater: 0,
-      serverTime: 1,
-      readOnly: true,
-      commands: false
-    })
+    socket.message(welcomeMessage())
 
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
-    expect(await screen.findByText('LIVE')).toBeTruthy()
+    expect(screen.getByText('LIVE')).toBeTruthy()
   })
 
   it('retries initial authorization when an offline browser comes back online', async () => {
