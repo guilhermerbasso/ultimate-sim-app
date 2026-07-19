@@ -1188,6 +1188,7 @@ export function register(ctx: ModuleContext): void {
   // to do nothing while auto-record is on (R19-M1).
   let autoStartSuppressed = false
   let recordingIntent = false
+  let recordingIntentAutomatic = false
   let recordingOptions: RecordingStartOptions = { sampleRateHz: AUTO_RECORD_SAMPLE_RATE_HZ }
   let lastLiveContext: LiveTelemetryContext | null = null
   let lastLiveSnapshot: TelemetrySnapshot | null = null
@@ -1245,6 +1246,7 @@ export function register(ctx: ModuleContext): void {
     if (!snapshot || !context || !recordingConfig.autoRecord || autoStartSuppressed) return
     if (!recordingIntent) {
       recordingIntent = true
+      recordingIntentAutomatic = true
       recordingOptions = { sampleRateHz: AUTO_RECORD_SAMPLE_RATE_HZ }
     }
     lastLiveContext = context
@@ -1268,6 +1270,7 @@ export function register(ctx: ModuleContext): void {
       if (live.state === 'disconnected') {
         autoStartSuppressed = false
         recordingIntent = false
+        recordingIntentAutomatic = false
         recordingOptions = { sampleRateHz: AUTO_RECORD_SAMPLE_RATE_HZ }
         lifecycle.requestAutomatic(stoppedTarget(), 'automatic recording finalization')
       } else {
@@ -1276,10 +1279,18 @@ export function register(ctx: ModuleContext): void {
       return
     }
     if (!snapshot || !live.context) return
-    if (live.sessionChanged) autoStartSuppressed = false
+    if (live.sessionChanged) {
+      autoStartSuppressed = false
+      if (!recordingConfig.autoRecord && recordingIntentAutomatic) {
+        recordingIntent = false
+        recordingIntentAutomatic = false
+        recordingOptions = { sampleRateHz: AUTO_RECORD_SAMPLE_RATE_HZ }
+      }
+    }
     if (live.enteredLive) lifecycle.resumeActiveEnricher()
     if (configLoaded && recordingConfig.autoRecord && !autoStartSuppressed && !recordingIntent) {
       recordingIntent = true
+      recordingIntentAutomatic = true
       recordingOptions = { sampleRateHz: AUTO_RECORD_SAMPLE_RATE_HZ }
     }
     lastLiveContext = live.context
@@ -1318,6 +1329,7 @@ export function register(ctx: ModuleContext): void {
     if (!snapshot || !context) throw new Error('Recording is available only for live telemetry.')
     autoStartSuppressed = false
     recordingIntent = true
+    recordingIntentAutomatic = false
     recordingOptions = { ...(options ?? {}) }
     lastLiveContext = context
     lastLiveSnapshot = snapshot
@@ -1329,6 +1341,7 @@ export function register(ctx: ModuleContext): void {
     // for the rest of the current session even with auto-record enabled (R19-M1).
     autoStartSuppressed = true
     recordingIntent = false
+    recordingIntentAutomatic = false
     return lifecycle.requestUser(stoppedTarget(), 'user recording stop')
   })
 

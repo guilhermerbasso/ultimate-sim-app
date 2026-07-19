@@ -572,6 +572,30 @@ describe('canonical replay boundaries for live analytics', () => {
     await harness.handlers.get('recording:stop')?.()
   })
 
+  it('does not rotate auto-recording into a new session after auto-record is disabled', async () => {
+    const dir = scratch('recording-auto-off')
+    writeFileSync(join(dir, 'recording-config.json'), JSON.stringify({ autoRecord: true }), 'utf8')
+    const harness = moduleHarness(dir)
+    registerRecordingAnalysis(harness.ctx)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const status = () => harness.handlers.get('recording:status')?.() as {
+      recording: boolean
+      activeSession?: { id: string }
+    }
+
+    harness.emit(snap('live', 0, { timestamp: 1_000 }, 'session-a', 1))
+    await vi.waitFor(() => expect(status().recording).toBe(true))
+    const firstSessionId = status().activeSession?.id
+    expect(firstSessionId).toBeTruthy()
+
+    await harness.handlers.get('recording:setConfig')?.(undefined, { autoRecord: false })
+    harness.emit(snap('live', 1, { timestamp: 2_000 }, 'session-b', 1))
+    await vi.waitFor(() => expect(status().recording).toBe(false))
+
+    const sessions = await harness.handlers.get('recording:listSessions')?.()
+    expect(sessions.map((session: { id: string }) => session.id)).toEqual([firstSessionId])
+  })
+
   it('serializes pending recording starts and rolls them back on context change or manual stop', async () => {
     const pendingRecorder = (name: string) => {
       let release!: () => void
