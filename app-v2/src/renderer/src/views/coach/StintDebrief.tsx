@@ -2,14 +2,13 @@ import { type CSSProperties, type ReactElement, useCallback, useEffect, useRef, 
 import {
   generateDebrief,
   getLastDebrief,
-  subscribeDebrief,
-  subscribeDebriefTrigger
+  subscribeDebrief
 } from '../../lib/stint-debrief'
 import { speakViaTts } from '../../lib/tts-runtime'
 import type { DebriefReason, StintDebrief } from '../../../../shared/stint-debrief'
 
 // Stint/session DEBRIEF panel (WS-I). Mounted in the AI Coach at the
-// `StintDebriefSeam` left by WS-D. Shows the deterministic pt-BR debrief (text +
+// `StintDebriefSeam` left by WS-D. Shows the localized deterministic debrief (text +
 // bullets) folded from the Coach findings + Predictions, with a "Gerar debrief"
 // button (optionally LLM-phrased) and an "Ouvir" button that speaks it through
 // the shared neural TTS (Piper → Web Speech). Warm chrome; cool/green reserved
@@ -112,14 +111,9 @@ export default function StintDebrief(): ReactElement {
     const unsubUpdated = subscribeDebrief((next) => {
       if (alive) setDebrief(next)
     })
-    // Auto-generate when the main process detects a stint/session boundary.
-    const unsubTrigger = subscribeDebriefTrigger((reason) => {
-      void run(reason)
-    })
     return () => {
       alive = false
       unsubUpdated()
-      unsubTrigger()
     }
   }, [run])
 
