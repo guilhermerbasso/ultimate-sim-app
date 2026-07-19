@@ -40,6 +40,7 @@ import {
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
   getActiveAccessibilityCueProfile,
+  isAccessibilityCueAudioAvailable,
   whenAccessibilityCueProfileReady
 } from './accessibility-cues'
 import {
@@ -349,7 +350,7 @@ function dispatchAccessibilityCue(
     profile,
     {
       caption: true,
-      audio: true,
+      audio: isAccessibilityCueAudioAvailable(),
       symbol: true,
       led: Boolean(ctx.serialHub.getPrimary()?.isOpen()),
       haptic: isAccessibilityHapticsEnabled()

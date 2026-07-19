@@ -13,6 +13,7 @@ export const ACCESSIBILITY_CUE_CHANNELS = {
   saveProfile: 'accessibilityCues:saveProfile',
   setActiveProfile: 'accessibilityCues:setActiveProfile',
   resetProfile: 'accessibilityCues:resetProfile',
+  setAudioAvailability: 'accessibilityCues:setAudioAvailability',
   stateEvent: 'accessibilityCues:state',
   routedEvent: 'accessibilityCues:routed'
 } as const
@@ -311,6 +312,11 @@ export interface SelectCueProfileRequest {
   protocolVersion: typeof ACCESSIBILITY_CUE_PROTOCOL_VERSION
   expectedRevision: number
   profileId: string
+}
+
+export interface SetCueAudioAvailabilityRequest {
+  protocolVersion: typeof ACCESSIBILITY_CUE_PROTOCOL_VERSION
+  available: boolean
 }
 
 export const STANDARD_CUE_PROFILE: CueProfile = {
@@ -842,9 +848,20 @@ export function effectiveCueModalities(
   return Object.fromEntries(
     CUE_MODALITIES.map((modality) => {
       if (typeof override?.[modality] === 'boolean') {
-        return [modality, override[modality]]
+        return [
+          modality,
+          override[modality] &&
+            (modality !== 'haptic' ||
+              isActuatingHapticIntensity(profile.hapticIntensity))
+        ]
       }
       const policy = profile.modalities[modality]
+      if (
+        modality === 'haptic' &&
+        !isActuatingHapticIntensity(profile.hapticIntensity)
+      ) {
+        return [modality, false]
+      }
       return [
         modality,
         policy === 'on'
@@ -862,16 +879,35 @@ function isExplicitlyOff(
   eventId: string,
   modality: CueModality
 ): boolean {
+  if (
+    modality === 'haptic' &&
+    !isActuatingHapticIntensity(profile.hapticIntensity)
+  ) {
+    return true
+  }
   const override = profile.overrides[eventId]?.modalities?.[modality]
   if (override === false) return true
   if (override === true) return false
   return profile.modalities[modality] === 'off'
 }
 
+export function isActuatingHapticIntensity(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
 export function independentCueChannels(
   outputs: readonly RoutedCueOutput[]
 ): Set<CueSensoryChannel> {
-  return new Set(outputs.map((output) => output.sensoryChannel))
+  return new Set(
+    outputs
+      .filter(
+        (output) =>
+          output.modality !== 'haptic' ||
+          output.intensity === undefined ||
+          isActuatingHapticIntensity(output.intensity)
+      )
+      .map((output) => output.sensoryChannel)
+  )
 }
 
 export function analyzeCueProfile(profileValue: unknown): CueProfileConflict[] {
@@ -1090,11 +1126,25 @@ export function routeSemanticCue(
       pushIssue({ code: 'replay-hardware-blocked', modality })
       return false
     }
-    if (event.source !== 'preview' && !capabilities[modality]) {
+    const previewPhysical =
+      event.source === 'preview' &&
+      (modality === 'led' || modality === 'haptic')
+    if (!previewPhysical && !capabilities[modality]) {
       pushIssue({ code: 'modality-unavailable', modality })
       return false
     }
     const output = buildOutput(manifestEntry, event, profile, modality, delivery)
+    if (
+      modality === 'haptic' &&
+      !isActuatingHapticIntensity(output.intensity)
+    ) {
+      pushIssue({
+        code: 'modality-unavailable',
+        modality,
+        detail: 'zero-intensity'
+      })
+      return false
+    }
     outputs.push(output)
     if (delivery === 'simulated') {
       pushIssue({ code: 'preview-hardware-simulated', modality })
@@ -1163,7 +1213,10 @@ export function hardwareOutputsForCueRoute(route: CueRoute): RoutedCueOutput[] {
   return route.outputs.filter(
     (output) =>
       output.delivery === 'hardware' &&
-      (output.modality === 'led' || output.modality === 'haptic')
+      (output.modality === 'led' ||
+        (output.modality === 'haptic' &&
+          (output.intensity === undefined ||
+            isActuatingHapticIntensity(output.intensity))))
   )
 }
 

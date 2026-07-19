@@ -39,7 +39,10 @@ import {
   localizeCuePattern
 } from '../lib/accessibility-cue-localization'
 import { CueProfileMutationQueue } from '../lib/accessibility-cue-profile-client'
-import { speakViaIsolatedTts } from '../lib/tts-runtime'
+import {
+  speakViaIsolatedTts,
+  useTtsAudioAvailability
+} from '../lib/tts-runtime'
 import { useUnitSystem } from '../lib/units'
 
 function errorMessage(error: unknown): string {
@@ -76,6 +79,7 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
   language
 }): ReactElement => {
   const unitSystem = useUnitSystem()
+  const audioAvailable = useTtsAudioAvailability(language)
   const [envelope, setEnvelope] = useState<AccessibilityCueStateEnvelope>(() =>
     createAccessibilityCueStateEnvelope(
       cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE),
@@ -135,10 +139,11 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
   const capabilities = useMemo(
     () => ({
       ...DEFAULT_CUE_CAPABILITIES,
+      audio: audioAvailable,
       led: Boolean(connectedDevice),
       haptic: haptics.enabled && !haptics.muted
     }),
-    [connectedDevice, haptics.enabled, haptics.muted]
+    [audioAvailable, connectedDevice, haptics.enabled, haptics.muted]
   )
 
   async function persistProfile(nextProfile: CueProfile): Promise<void> {
@@ -461,6 +466,13 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
               />
             </label>
           </fieldset>
+
+          <div className="accessibility-cues-status" role="status" aria-live="polite">
+            <strong>{modalityLabel('audio', language)}</strong>{' '}
+            {audioAvailable
+              ? tt(language, 'accessibilityCues.available')
+              : tt(language, 'accessibilityCues.unavailable')}
+          </div>
 
           <div className="accessibility-cues-status" role="status" aria-live="polite">
             <strong>{tt(language, 'accessibilityCues.hardwareStatus')}</strong>

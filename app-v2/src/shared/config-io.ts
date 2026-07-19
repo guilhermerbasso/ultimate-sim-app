@@ -79,7 +79,13 @@ export const CONFIG_SECTION_RELOAD_SIGNAL = 'config:section-reload.internal' as 
 // renderer uses this to show "Importado e aplicado ✓" for these and to keep an
 // optional "Reiniciar" affordance for every other section (whose live module
 // still caches its store until the next launch).
-export const CONFIG_HOT_RELOAD_SECTIONS: readonly string[] = ['rgb-matrix', 'spotter', 'revlights', 'expressions'] as const
+export const CONFIG_HOT_RELOAD_SECTIONS: readonly string[] = [
+  'rgb-matrix',
+  'spotter',
+  'revlights',
+  'expressions',
+  'accessibility-cues'
+] as const
 
 export function isHotReloadSection(id: string): boolean {
   return CONFIG_HOT_RELOAD_SECTIONS.includes(id)

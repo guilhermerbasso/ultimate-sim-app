@@ -21,7 +21,10 @@
 // UI (HapticsView) reads the same singleton engine for its live meters + tests.
 
 import { useEffect, useRef } from 'react'
-import type { CueHapticPattern } from '../../../shared/accessibility-cues'
+import {
+  isActuatingHapticIntensity,
+  type CueHapticPattern
+} from '../../../shared/accessibility-cues'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   DEFAULT_HAPTICS_CONFIG,
@@ -371,6 +374,7 @@ class HapticsEngine {
   // ─── Test / preview (driven by a user gesture from the View) ─────────────────
 
   playAccessibilityCue(pattern: CueHapticPattern, intensity: number): boolean {
+    if (!isActuatingHapticIntensity(intensity)) return false
     if (!this.config.enabled || this.config.muted || !this.isAvailable()) return false
     const ctx = this.ensureContext()
     const voice = this.voices.get('impact')

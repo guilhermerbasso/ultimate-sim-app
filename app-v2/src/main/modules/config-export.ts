@@ -663,8 +663,65 @@ export function register(ctx: ModuleContext): void {
       }
     })
 
+  const confirmAccessibilityCueLifecycle = (
+    signal: string,
+    timeoutMessage: string,
+    missingListenerMessage: string
+  ): Promise<void> =>
+    new Promise((resolveLifecycle, rejectLifecycle) => {
+      let settled = false
+      const finish: ConfigSectionReloadCallback = (error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error) rejectLifecycle(new Error(error))
+        else resolveLifecycle()
+      }
+      const timer = setTimeout(() => {
+        finish(timeoutMessage)
+      }, 5000)
+      timer.unref?.()
+      let handled = false
+      try {
+        handled = ctx.ipcMain.emit(
+          signal,
+          { source: 'config-export' },
+          'accessibility-cues',
+          finish
+        )
+      } catch (error) {
+        settled = true
+        clearTimeout(timer)
+        rejectLifecycle(error)
+        return
+      }
+      if (!handled) {
+        settled = true
+        clearTimeout(timer)
+        rejectLifecycle(new Error(missingListenerMessage))
+      }
+    })
+
+  const reloadAccessibilityCues = (): Promise<void> =>
+    confirmAccessibilityCueLifecycle(
+      CONFIG_SECTION_RELOAD_SIGNAL,
+      'Accessibility cue profiles were written, but the live module did not confirm that they were applied.',
+      'Accessibility cue profiles were written, but the live module is not running to apply them.'
+    )
+
+  const resetAccessibilityCues = (): Promise<void> =>
+    confirmAccessibilityCueLifecycle(
+      CONFIG_SECTION_RESET_SIGNAL,
+      'Accessibility cue profiles were removed, but the live module did not confirm that defaults were restored.',
+      'Accessibility cue profiles were removed, but the live module is not running to restore defaults.'
+    )
+
   const emitReload = async (summary: ConfigImportSummary): Promise<void> => {
     for (const sectionId of summary.applied) {
+      if (sectionId === 'accessibility-cues') {
+        await reloadAccessibilityCues()
+        continue
+      }
       if (sectionId !== 'rgb-matrix') {
         ctx.ipcMain.emit(CONFIG_SECTION_RELOAD_SIGNAL, { source: 'config-export' }, sectionId)
         continue
@@ -750,7 +807,11 @@ export function register(ctx: ModuleContext): void {
       // in-memory copy, so a before-quit flush can't resurrect the deleted store
       // (the overlays manager debounce-saves on quit). Fired before the renderer
       // broadcast so the live module is neutralized first.
-      ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      if (sectionId === 'accessibility-cues') {
+        await resetAccessibilityCues()
+      } else {
+        ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      }
       // Tell every window to re-read the on-disk metadata so the panel refreshes.
       ctx.broadcast(CONFIG_IO_CHANNELS.changed, { id: sectionId, action: 'delete', removed: result.removed })
       return result
@@ -761,7 +822,11 @@ export function register(ctx: ModuleContext): void {
     CONFIG_IO_CHANNELS.resetSection,
     async (_event, sectionId: string): Promise<ConfigDeleteResult> => {
       const result = await engine.resetSection(sectionId)
-      ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      if (sectionId === 'accessibility-cues') {
+        await resetAccessibilityCues()
+      } else {
+        ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      }
       ctx.broadcast(CONFIG_IO_CHANNELS.changed, { id: sectionId, action: 'reset', removed: result.removed })
       return result
     }

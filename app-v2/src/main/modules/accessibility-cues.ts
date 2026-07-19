@@ -1,6 +1,12 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { ModuleContext } from '../module-context'
+import {
+  CONFIG_SECTION_RELOAD_SIGNAL,
+  CONFIG_SECTION_RESET_SIGNAL,
+  type ConfigSectionReloadCallback,
+  type ConfigSectionReloadResult
+} from '../../shared/config-io'
 import {
   ACCESSIBILITY_CUE_CHANNELS,
   ACCESSIBILITY_CUE_PROTOCOL_VERSION,
@@ -17,6 +23,7 @@ import {
   type AccessibilityCueStore,
   type CueProfile,
   type SaveCueProfileRequest,
+  type SetCueAudioAvailabilityRequest,
   type SelectCueProfileRequest
 } from '../../shared/accessibility-cues'
 
@@ -26,6 +33,7 @@ let state: AccessibilityCueStore = cloneAccessibilityCueStore(
   DEFAULT_ACCESSIBILITY_CUE_STORE
 )
 let ready = false
+let audioAvailable = false
 let resolveReady: (() => void) | null = null
 let readyPromise: Promise<void> = new Promise<void>((resolve) => {
   resolveReady = resolve
@@ -65,6 +73,10 @@ export function getActiveAccessibilityCueProfile(): CueProfile | null {
   return ready ? getActiveCueProfile(state) : null
 }
 
+export function isAccessibilityCueAudioAvailable(): boolean {
+  return audioAvailable
+}
+
 function revisionConflict(expected: number): Error {
   return Object.assign(
     new Error(
@@ -101,10 +113,11 @@ function assertExpectedRevision(value: unknown): number {
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), ACCESSIBILITY_CUES_CONFIG_FILE)
   state = cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE)
+  audioAvailable = false
   resetReadiness()
   ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.stateEvent, getAccessibilityCueStateEnvelope())
 
-  const loadPromise = loadState(configPath).then((loaded) => {
+  let stateQueue: Promise<void> = loadState(configPath).then((loaded) => {
     state = {
       ...loaded,
       revision: Math.max(1, loaded.revision)
@@ -112,13 +125,21 @@ export function register(ctx: ModuleContext): void {
     markReady()
     ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.stateEvent, getAccessibilityCueStateEnvelope())
   })
-  let commitQueue: Promise<void> = loadPromise.then(() => undefined)
+
+  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = stateQueue.then(operation)
+    stateQueue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
 
   const commit = (
     expectedRevision: number,
     update: () => AccessibilityCueStore
   ): Promise<AccessibilityCueStateEnvelope> => {
-    const operation = commitQueue.then(async () => {
+    return enqueue(async () => {
       if (expectedRevision !== state.revision) throw revisionConflict(expectedRevision)
       const next = update()
       await saveState(configPath, next)
@@ -127,22 +148,17 @@ export function register(ctx: ModuleContext): void {
       ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.stateEvent, envelope)
       return envelope
     })
-    commitQueue = operation.then(
-      () => undefined,
-      () => undefined
-    )
-    return operation
   }
 
   ctx.ipcMain.handle(ACCESSIBILITY_CUE_CHANNELS.getState, async () => {
-    await loadPromise
+    await stateQueue
     return getAccessibilityCueStateEnvelope()
   })
 
   ctx.ipcMain.handle(
     ACCESSIBILITY_CUE_CHANNELS.saveProfile,
     async (_event, request: SaveCueProfileRequest) => {
-      await loadPromise
+      await stateQueue
       const expectedRevision = assertExpectedRevision(request)
       if (!request.profile || typeof request.profile !== 'object') {
         throw Object.assign(new Error('Accessibility cue profile is required.'), {
@@ -156,7 +172,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     ACCESSIBILITY_CUE_CHANNELS.setActiveProfile,
     async (_event, request: SelectCueProfileRequest) => {
-      await loadPromise
+      await stateQueue
       const expectedRevision = assertExpectedRevision(request)
       return commit(expectedRevision, () =>
         activateCueProfile(state, request.profileId)
@@ -167,11 +183,99 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     ACCESSIBILITY_CUE_CHANNELS.resetProfile,
     async (_event, request: SelectCueProfileRequest) => {
-      await loadPromise
+      await stateQueue
       const expectedRevision = assertExpectedRevision(request)
       return commit(expectedRevision, () => resetCueProfile(state, request.profileId))
     }
   )
+
+  ctx.ipcMain.handle(
+    ACCESSIBILITY_CUE_CHANNELS.setAudioAvailability,
+    async (_event, request: SetCueAudioAvailabilityRequest) => {
+      if (
+        !request ||
+        request.protocolVersion !== ACCESSIBILITY_CUE_PROTOCOL_VERSION ||
+        typeof request.available !== 'boolean'
+      ) {
+        throw Object.assign(
+          new Error('Invalid accessibility cue audio availability envelope.'),
+          { code: 'ACCESSIBILITY_CUE_INVALID_AUDIO_AVAILABILITY' }
+        )
+      }
+      audioAvailable = request.available
+      return audioAvailable
+    }
+  )
+
+  const onSectionReload = (
+    _event: unknown,
+    sectionId: string,
+    done?: ConfigSectionReloadCallback
+  ): void => {
+    if (sectionId !== 'accessibility-cues') return
+    const operation = enqueue(async (): Promise<ConfigSectionReloadResult> => {
+      const previousRevision = state.revision
+      const loaded = await loadState(configPath)
+      state = {
+        ...loaded,
+        revision: Math.max(1, previousRevision + 1, loaded.revision)
+      }
+      markReady()
+      const envelope = getAccessibilityCueStateEnvelope()
+      ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.stateEvent, envelope)
+      return {
+        sectionId,
+        itemCount: state.profiles.length,
+        hotAppliedCount: state.profiles.length,
+        unmatchedItemCount: 0
+      }
+    })
+    void operation.then(
+      (result) => done?.(null, result),
+      (error) =>
+        done?.(error instanceof Error ? error.message : String(error))
+    )
+  }
+
+  const onSectionReset = (
+    _event: unknown,
+    sectionId: string,
+    done?: ConfigSectionReloadCallback
+  ): void => {
+    if (sectionId !== 'accessibility-cues') return
+    const operation = enqueue(async (): Promise<ConfigSectionReloadResult> => {
+      await rm(configPath, { force: true }).catch(() => undefined)
+      const nextRevision = Math.max(1, state.revision + 1)
+      state = {
+        ...cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE),
+        revision: nextRevision,
+        updatedAt: Date.now()
+      }
+      markReady()
+      ctx.broadcast(
+        ACCESSIBILITY_CUE_CHANNELS.stateEvent,
+        getAccessibilityCueStateEnvelope()
+      )
+      return {
+        sectionId,
+        itemCount: state.profiles.length,
+        hotAppliedCount: state.profiles.length,
+        unmatchedItemCount: 0
+      }
+    })
+    void operation.then(
+      (result) => done?.(null, result),
+      (error) =>
+        done?.(error instanceof Error ? error.message : String(error))
+    )
+  }
+
+  ctx.ipcMain.on(CONFIG_SECTION_RELOAD_SIGNAL, onSectionReload)
+  ctx.ipcMain.on(CONFIG_SECTION_RESET_SIGNAL, onSectionReset)
+  ctx.app.once('before-quit', () => {
+    ctx.ipcMain.off(CONFIG_SECTION_RELOAD_SIGNAL, onSectionReload)
+    ctx.ipcMain.off(CONFIG_SECTION_RESET_SIGNAL, onSectionReset)
+  })
 }
 
 async function loadState(configPath: string): Promise<AccessibilityCueStore> {

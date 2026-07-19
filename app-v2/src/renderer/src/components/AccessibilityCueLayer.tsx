@@ -7,6 +7,7 @@ import {
 } from 'react'
 import {
   ACCESSIBILITY_CUE_CHANNELS,
+  isActuatingHapticIntensity,
   type CueHapticPattern,
   type CueRoute
 } from '../../../shared/accessibility-cues'
@@ -22,11 +23,28 @@ import { useUnitSystem } from '../lib/units'
 
 export interface VisualCueEntry {
   id: string
+  renderKey: string
+  semanticKey: string
   route: CueRoute
   message: string
   hasCaption: boolean
+  persistentCaption: boolean
   symbol?: string
   symbolLabel?: string
+}
+
+export const MAX_VISUAL_CUE_ENTRIES = 8
+
+export function visualCueSemanticKey(route: CueRoute): string {
+  const context = route.context
+  return [
+    route.source,
+    route.eventId,
+    route.messageKey,
+    context?.corner ?? '',
+    context?.flag ?? '',
+    context?.direction ?? ''
+  ].join('|')
 }
 
 export function visualCueEntry(
@@ -37,28 +55,66 @@ export function visualCueEntry(
   const caption = route.outputs.find((output) => output.modality === 'caption')
   const symbol = route.outputs.find((output) => output.modality === 'symbol')
   if (!caption && !symbol) return null
+  const semanticKey = visualCueSemanticKey(route)
+  const persistentCaption = Boolean(
+    caption && route.presentation.persistentCaptions
+  )
   return {
     id: route.instanceId,
+    renderKey: persistentCaption
+      ? `persistent-caption:${semanticKey}`
+      : route.instanceId,
+    semanticKey,
     route,
     message,
     hasCaption: Boolean(caption),
+    persistentCaption,
     symbol: symbol?.symbol,
     symbolLabel
   }
+}
+
+function severityRank(entry: VisualCueEntry): number {
+  return { info: 0, warning: 1, critical: 2 }[entry.route.severity]
+}
+
+function sortVisualCues(entries: VisualCueEntry[]): VisualCueEntry[] {
+  return entries.sort((left, right) => {
+    const severity = severityRank(right) - severityRank(left)
+    return severity || left.route.timestamp - right.route.timestamp
+  })
 }
 
 export function appendVisualCue(
   current: readonly VisualCueEntry[],
   incoming: VisualCueEntry
 ): VisualCueEntry[] {
-  return [
-    ...current.filter((entry) => entry.id !== incoming.id),
+  const next = [
+    ...current.filter(
+      (entry) =>
+        entry.id !== incoming.id &&
+        !(
+          entry.hasCaption &&
+          incoming.hasCaption &&
+          entry.semanticKey === incoming.semanticKey &&
+          (entry.persistentCaption || incoming.persistentCaption)
+        )
+    ),
     incoming
-  ].sort((left, right) => {
-    const rank = { info: 0, warning: 1, critical: 2 } as const
-    const severity = rank[right.route.severity] - rank[left.route.severity]
-    return severity || left.route.timestamp - right.route.timestamp
-  })
+  ]
+  if (next.length <= MAX_VISUAL_CUE_ENTRIES) return sortVisualCues(next)
+
+  const retainedIds = new Set(
+    [...next]
+      .sort(
+        (left, right) =>
+          severityRank(right) - severityRank(left) ||
+          right.route.timestamp - left.route.timestamp
+      )
+      .slice(0, MAX_VISUAL_CUE_ENTRIES)
+      .map((entry) => entry.id)
+  )
+  return sortVisualCues(next.filter((entry) => retainedIds.has(entry.id)))
 }
 
 export function visualCueAccessibility(entry: VisualCueEntry): {
@@ -154,10 +210,15 @@ export function AccessibilityCueLayer({
             output.delivery === 'hardware' &&
             isHapticPattern(output.pattern)
         )
-        if (haptic && isHapticPattern(haptic.pattern)) {
+        const hapticIntensity = haptic?.intensity ?? 0.7
+        if (
+          haptic &&
+          isHapticPattern(haptic.pattern) &&
+          isActuatingHapticIntensity(hapticIntensity)
+        ) {
           hapticQueueRef.current?.enqueue({
             pattern: haptic.pattern,
-            intensity: haptic.intensity ?? 0.7
+            intensity: hapticIntensity
           })
         }
 
@@ -170,7 +231,17 @@ export function AccessibilityCueLayer({
             : undefined
         )
         if (!visual) return
-        setEntries((current) => appendVisualCue(current, visual))
+        setEntries((current) => {
+          const next = appendVisualCue(current, visual)
+          const retainedIds = new Set(next.map((entry) => entry.id))
+          for (const entry of current) {
+            if (retainedIds.has(entry.id)) continue
+            const timer = timersRef.current.get(entry.id)
+            if (timer) clearTimeout(timer)
+            timersRef.current.delete(entry.id)
+          }
+          return next
+        })
 
         if (!route.presentation.persistentCaptions || !visual.hasCaption) {
           const existing = timersRef.current.get(visual.id)
@@ -204,7 +275,7 @@ export function AccessibilityCueLayer({
         const accessibility = visualCueAccessibility(entry)
         return (
           <aside
-            key={entry.id}
+            key={entry.renderKey}
             className={`accessibility-cue-layer accessibility-cue-layer--${route.severity}`}
             data-high-contrast={route.presentation.highContrast ? 'true' : undefined}
             data-reduced-motion={route.presentation.reducedMotion ? 'true' : undefined}

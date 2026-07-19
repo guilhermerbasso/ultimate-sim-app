@@ -13,6 +13,7 @@ import {
   getActiveCueProfile,
   hardwareOutputsForCueRoute,
   independentCueChannels,
+  isActuatingHapticIntensity,
   parseAccessibilityCueStore,
   routeSemanticCue,
   semanticCueEventFromAlert,
@@ -151,6 +152,35 @@ describe('manifest defaults and independent redundancy', () => {
     expect(route.outputs.some((output) => output.modality === 'caption')).toBe(false)
     expect(independentCueChannels(route.outputs).size).toBeGreaterThanOrEqual(2)
   })
+
+  it('treats zero haptic intensity as disabled delivery, not tactile redundancy', () => {
+    const profile: CueProfile = {
+      ...cloneCueProfile(STANDARD_CUE_PROFILE),
+      modalities: {
+        caption: 'on',
+        audio: 'off',
+        symbol: 'off',
+        led: 'off',
+        haptic: 'on'
+      },
+      hapticIntensity: 0
+    }
+    const route = routeSemanticCue(event(), profile, allAvailable)
+
+    expect(isActuatingHapticIntensity(0)).toBe(false)
+    expect(effectiveCueModalities(profile, 'alert.lowFuel').haptic).toBe(false)
+    expect(route.outputs.map((output) => output.modality)).toEqual(['caption'])
+    expect(independentCueChannels(route.outputs)).toEqual(new Set(['visual']))
+    expect(route.issues).toContainEqual(
+      expect.objectContaining({ code: 'critical-redundancy-unavailable' })
+    )
+    expect(analyzeCueProfile(profile)).toContainEqual(
+      expect.objectContaining({
+        code: 'critical-insufficient-independent-redundancy',
+        eventId: 'alert.lowFuel'
+      })
+    )
+  })
 })
 
 describe('boundaries, hardware availability, and semantic payloads', () => {
@@ -173,6 +203,24 @@ describe('boundaries, hardware availability, and semantic payloads', () => {
     expect(previewLed?.pattern).toBe(liveLed?.pattern)
     expect(previewLed?.color).toBe(liveLed?.color)
     expect(previewLed?.hardwareTextToken).toBe(liveLed?.hardwareTextToken)
+  })
+
+  it('keeps preview audio availability truthful while hardware remains simulated', () => {
+    const preview = routeSemanticCue(
+      event('alert.lowFuel', 'preview'),
+      STANDARD_CUE_PROFILE,
+      { ...allAvailable, audio: false }
+    )
+
+    expect(
+      preview.outputs.some((output) => output.modality === 'audio')
+    ).toBe(false)
+    expect(preview.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'modality-unavailable',
+        modality: 'audio'
+      })
+    )
   })
 
   it('blocks hardware at replay boundaries and when devices are disabled', () => {

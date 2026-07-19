@@ -10,12 +10,14 @@ const readiness = vi.hoisted(() => {
   return {
     ready: false,
     profileKind: 'standard' as 'standard' | 'deaf-hoh',
+    audioAvailable: true,
     get promise() {
       return promise
     },
     reset() {
       this.ready = false
       this.profileKind = 'standard'
+      this.audioAvailable = true
       promise = new Promise<void>((resolve) => {
         release = resolve
       })
@@ -38,6 +40,7 @@ vi.mock('./accessibility-cues', async () => {
           ? shared.DEAF_HOH_CUE_PROFILE
           : shared.STANDARD_CUE_PROFILE
         : null,
+    isAccessibilityCueAudioAvailable: () => readiness.audioAvailable,
     whenAccessibilityCueProfileReady: () => readiness.promise
   }
 })
@@ -189,5 +192,38 @@ describe('accessibility cue startup readiness', () => {
     const commands = testHarness.device.sendRaw.mock.calls.map(([command]) => command)
     expect(commands).toContain('S1')
     expect(commands.some((command) => /^B|^R/.test(command))).toBe(false)
+  })
+
+  it('does not claim auditory redundancy before the renderer reports audio available', async () => {
+    readiness.audioAvailable = false
+    readiness.release()
+    const testHarness = harness()
+    const { register } = await import('./alerts')
+    register(testHarness.ctx)
+    await new Promise<void>((resolve) => setTimeout(resolve, 30))
+
+    testHarness.emit(liveSnapshot(1000, 10))
+    testHarness.emit(liveSnapshot(2000, 2))
+    await vi.waitFor(() => {
+      expect(
+        testHarness.broadcast.mock.calls.some(
+          ([channel]) => channel === 'accessibilityCues:routed'
+        )
+      ).toBe(true)
+    })
+    const route = testHarness.broadcast.mock.calls.find(
+      ([channel]) => channel === 'accessibilityCues:routed'
+    )?.[1]
+
+    expect(route.outputs.some((output: { modality: string }) => output.modality === 'audio')).toBe(false)
+    expect(route.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'modality-unavailable',
+          modality: 'audio'
+        }),
+        expect.objectContaining({ code: 'critical-redundancy-unavailable' })
+      ])
+    )
   })
 })

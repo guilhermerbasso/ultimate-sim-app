@@ -24,6 +24,7 @@ describe('AccessibilityCuesView accessibility and preview isolation', () => {
     expect(markup).toContain('do not replace preregistered blind/low-vision')
     expect(markup).toContain('no device command is sent')
     expect(markup).toContain('Loading the persisted profile')
+    expect(markup).toContain('<strong>Audio</strong> unavailable')
     expect(markup).toContain('disabled=""')
   })
 

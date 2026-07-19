@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_VISUAL_CUE_ENTRIES,
   appendVisualCue,
   visualCueAccessibility,
   visualCueEntry
@@ -37,16 +38,18 @@ function route(
   severity: CueRoute['severity'],
   modalities: CueModality[],
   persistentCaptions = false,
-  timestamp = 1
+  timestamp = 1,
+  eventId = 'alert.flag',
+  messageKey = 'accessibilityCues.live.alert.flag.yellow'
 ): CueRoute {
   return {
     status: 'routed',
     instanceId: id,
-    eventId: 'alert.flag',
+    eventId,
     source: 'live',
     severity,
     timestamp,
-    messageKey: 'accessibilityCues.live.alert.flag.yellow',
+    messageKey,
     outputs: modalities.map(output),
     issues: [],
     conflicts: [],
@@ -65,7 +68,15 @@ function route(
 describe('AccessibilityCueLayer per-modality visual arbitration', () => {
   it('keeps a later flag visible beside a persistent critical caption', () => {
     const critical = visualCueEntry(
-      route('critical', 'critical', ['caption', 'symbol'], true, 1),
+      route(
+        'critical',
+        'critical',
+        ['caption', 'symbol'],
+        true,
+        1,
+        'alert.lowFuel',
+        'accessibilityCues.live.alert.lowFuel'
+      ),
       'Critical fuel',
       'Low fuel symbol'
     )
@@ -115,5 +126,48 @@ describe('AccessibilityCueLayer per-modality visual arbitration', () => {
     expect(
       appendVisualCue(appendVisualCue([], first), second).map((entry) => entry.id)
     ).toEqual(['first', 'second'])
+  })
+
+  it('replaces persistent captions by a stable semantic key', () => {
+    const first = visualCueEntry(
+      route('instance-1', 'warning', ['caption'], true, 1),
+      'Yellow flag at 1',
+      undefined
+    )!
+    const second = visualCueEntry(
+      route('instance-2', 'warning', ['caption'], true, 2),
+      'Yellow flag at 2',
+      undefined
+    )!
+
+    const entries = appendVisualCue(appendVisualCue([], first), second)
+
+    expect(first.renderKey).toBe(second.renderKey)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      id: 'instance-2',
+      message: 'Yellow flag at 2',
+      persistentCaption: true
+    })
+  })
+
+  it('bounds visual cue history while retaining the newest equal-severity entries', () => {
+    let entries = [] as ReturnType<typeof appendVisualCue>
+    for (let index = 0; index < MAX_VISUAL_CUE_ENTRIES + 3; index += 1) {
+      const entry = visualCueEntry(
+        route(`cue-${index}`, 'warning', ['caption'], false, index),
+        `Cue ${index}`,
+        undefined
+      )!
+      entries = appendVisualCue(entries, entry)
+    }
+
+    expect(entries).toHaveLength(MAX_VISUAL_CUE_ENTRIES)
+    expect(entries.map((entry) => entry.id)).toEqual(
+      Array.from(
+        { length: MAX_VISUAL_CUE_ENTRIES },
+        (_, index) => `cue-${index + 3}`
+      )
+    )
   })
 })

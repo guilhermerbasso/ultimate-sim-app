@@ -22,7 +22,10 @@ import type { ModuleContext } from '../module-context'
 import type { SerialDevice } from '../serial/device'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { formatBuzzer } from '../../shared/companion'
-import type { CueHapticPattern } from '../../shared/accessibility-cues'
+import {
+  isActuatingHapticIntensity,
+  type CueHapticPattern
+} from '../../shared/accessibility-cues'
 import {
   DEFAULT_HAPTICS_CONFIG,
   HAPTICS_CHANNELS,
@@ -69,6 +72,7 @@ export function dispatchAccessibilityCueHaptic(
   pattern: CueHapticPattern,
   intensity: number
 ): boolean {
+  if (!isActuatingHapticIntensity(intensity)) return false
   if (!isAccessibilityHapticsEnabled()) return false
   if (!config.arduino.enabled) return true
   const device = resolveArduinoDevice(ctx)
