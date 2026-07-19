@@ -7,6 +7,7 @@
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
+import type { AlertsConfig } from '../../../../shared/alerts'
 import { displayUnitLabel } from '../../dashboard/binding'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
@@ -181,9 +182,23 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
   return <UnknownWidgetMini variant={variant} />
 }
 
-export function WidgetMini({ variant }: { variant: WidgetVariant }): ReactElement {
+export function WidgetMini({
+  variant,
+  showTriggerOnlyActive = false,
+  alertsConfig
+}: {
+  variant: WidgetVariant
+  showTriggerOnlyActive?: boolean
+  alertsConfig?: AlertsConfig
+}): ReactElement {
   const element = { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }
-  const inertThumbnail = renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })
+  const inertThumbnail = renderDashboardElement({
+    element,
+    snapshot: PREVIEW_SNAPSHOT,
+    preview: 'inert',
+    alertsConfig,
+    forceTriggerActive: showTriggerOnlyActive
+  })
   // Preserve legacy automation hooks while the renderer uses its explicit inert path.
   const legacyOverlayHook = variant.type === 'overlaywidget' ? 'overlaywidget' : undefined
   return (
@@ -213,10 +228,14 @@ const ALL_CLUSTERS = availableClusters(ALL_VARIANTS)
 
 export function WidgetGallery({
   onAdd,
-  busy
+  busy,
+  showTriggerOnlyActive = false,
+  alertsConfig
 }: {
   onAdd(variant: WidgetVariant): void
   busy?: boolean
+  showTriggerOnlyActive?: boolean
+  alertsConfig?: AlertsConfig
 }): ReactElement {
   const unitSystem = useUnitSystem()
   const [search, setSearch] = useState('')
@@ -362,10 +381,10 @@ export function WidgetGallery({
                 </span>
               </div>
               {curatedClusterSections.map((sec) => (
-                <SectionGrid key={`cluster-${sec.cluster}`} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} />
+                <SectionGrid key={`cluster-${sec.cluster}`} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} showTriggerOnlyActive={showTriggerOnlyActive} alertsConfig={alertsConfig} />
               ))}
               {curatedFallbackSections.map((sec) => (
-                <SectionGrid key={`cat-${sec.category}`} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} />
+                <SectionGrid key={`cat-${sec.category}`} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} showTriggerOnlyActive={showTriggerOnlyActive} alertsConfig={alertsConfig} />
               ))}
             </>
           )}
@@ -389,7 +408,7 @@ export function WidgetGallery({
               </button>
               {showAdvanced &&
                 advancedSections.map((sec) => (
-                  <SectionGrid key={sec.category} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} />
+                  <SectionGrid key={sec.category} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} showTriggerOnlyActive={showTriggerOnlyActive} alertsConfig={alertsConfig} />
                 ))}
             </div>
           )}
@@ -423,7 +442,9 @@ function SectionGrid({
   selectedIds,
   onToggleSelected,
   onHide,
-  onAdd
+  onAdd,
+  showTriggerOnlyActive,
+  alertsConfig
 }: {
   label: string
   variants: NormalizedVariant[]
@@ -432,6 +453,8 @@ function SectionGrid({
   onToggleSelected(id: string): void
   onHide(id: string): void
   onAdd(variant: WidgetVariant): void
+  showTriggerOnlyActive: boolean
+  alertsConfig?: AlertsConfig
 }): ReactElement {
   const unitSystem = useUnitSystem()
   return (
@@ -448,7 +471,11 @@ function SectionGrid({
               <input type="checkbox" checked={selectedIds.has(v.id)} disabled={busy} onChange={() => onToggleSelected(v.id)} />
               Select
             </label>
-            <WidgetMini variant={v} />
+            <WidgetMini
+              variant={v}
+              showTriggerOnlyActive={showTriggerOnlyActive}
+              alertsConfig={alertsConfig}
+            />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <span style={{ color: TEXT_FG, fontSize: 12, fontWeight: 700, textAlign: 'left', lineHeight: 1.15 }}>
                 {displayUnitLabel(v.label, v.binding, v.style.suffix, unitSystem)}
