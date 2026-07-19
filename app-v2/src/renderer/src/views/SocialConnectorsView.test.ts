@@ -1,10 +1,16 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { buildMockCapabilityMatrix } from '../../../shared/social-connectors'
+import {
+  MOCK_SOCIAL_CONNECTOR_STATUSES,
+  buildMockCapabilityMatrix
+} from '../../../shared/social-connectors'
 import type { AppViewProps } from '../App'
 import { navSections } from '../navigation/navModel'
-import SocialConnectorsView, { rowsForProvider } from './SocialConnectorsView'
+import SocialConnectorsView, {
+  rowsForProvider,
+  stateTone
+} from './SocialConnectorsView'
 
 describe('SocialConnectorsView', () => {
   it('renders the mock-only capability and policy status matrix', () => {
@@ -39,5 +45,12 @@ describe('SocialConnectorsView', () => {
     expect(
       navSections.find((section) => section.title === 'Broadcast')?.viewIds
     ).toContain('social-connectors')
+  })
+
+  it('styles lifecycle and consent states without falling back to warning', () => {
+    expect(stateTone('ready').color).toBe('var(--accent-success)')
+    expect(stateTone('blocked').color).toBe('var(--accent-danger)')
+    expect(stateTone('expired').color).toBe('var(--accent-danger)')
+    expect(Object.isFrozen(MOCK_SOCIAL_CONNECTOR_STATUSES)).toBe(true)
   })
 })

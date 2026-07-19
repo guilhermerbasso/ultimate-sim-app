@@ -489,9 +489,11 @@ export function createMockConnectorStatus(
   }
 }
 
-export const MOCK_SOCIAL_CONNECTOR_STATUSES: readonly SocialConnectorStatusV1[] = (
-  ['twitch', 'youtube', 'discord'] as const
-).map((provider) => createMockConnectorStatus(provider))
+export const MOCK_SOCIAL_CONNECTOR_STATUSES: readonly SocialConnectorStatusV1[] = Object.freeze(
+  (['twitch', 'youtube', 'discord'] as const).map((provider) =>
+    createMockConnectorStatus(provider)
+  )
+)
 
 export function buildMockCapabilityMatrix(
   statuses: readonly SocialConnectorStatusV1[] = MOCK_SOCIAL_CONNECTOR_STATUSES

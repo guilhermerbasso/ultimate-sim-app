@@ -61,9 +61,26 @@ const cellStyle: CSSProperties = {
   verticalAlign: 'top'
 }
 
-function stateTone(value: string): CSSProperties {
-  const positive = ['granted', 'eligible', 'available', 'approved', 'not-required', 'current']
-  const negative = ['revoked', 'missing', 'ineligible', 'exhausted', 'rejected', 'stale']
+export function stateTone(value: string): CSSProperties {
+  const positive = [
+    'granted',
+    'eligible',
+    'available',
+    'approved',
+    'not-required',
+    'current',
+    'ready'
+  ]
+  const negative = [
+    'revoked',
+    'missing',
+    'ineligible',
+    'exhausted',
+    'rejected',
+    'stale',
+    'blocked',
+    'expired'
+  ]
   if (positive.includes(value)) {
     return {
       color: 'var(--accent-success)',
