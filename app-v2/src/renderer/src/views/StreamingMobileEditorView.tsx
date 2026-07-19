@@ -109,7 +109,10 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
       const first = nextTargets.find((target) => !target.hidden) ?? nextTargets[0]
       return first ? targetKey(first) : ''
     })
-    setSelectedProfileId((current) => current ?? nextProfiles[0]?.profile.id ?? null)
+    setSelectedProfileId((current) => {
+      if (current !== null && nextProfiles.some((item) => item.profile.id === current)) return current
+      return nextProfiles[0]?.profile.id ?? null
+    })
   }, [])
 
   useEffect(() => {

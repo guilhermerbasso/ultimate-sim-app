@@ -35,10 +35,11 @@ export function panelFileName(id: string): string {
 
 export function nextTouchPanelRevision(previous: number | undefined, now = Date.now()): number {
   if (previous === undefined) return now
-  if (!Number.isSafeInteger(previous) || previous >= Number.MAX_SAFE_INTEGER) {
+  const safe = Math.trunc(previous)
+  if (safe >= Number.MAX_SAFE_INTEGER) {
     throw new Error(`Touch panel revision cannot advance beyond ${String(previous)}.`)
   }
-  return Math.max(now, previous + 1)
+  return Math.max(now, safe + 1)
 }
 
 export function bindTouchActionWindowLifecycle(
