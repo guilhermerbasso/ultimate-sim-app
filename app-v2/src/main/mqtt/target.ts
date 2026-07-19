@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
   MQTT_COMMAND_CACHE_SIZE,
+  MQTT_COMMAND_CAPABILITIES,
   MQTT_CONTRACT_VERSION,
   MQTT_MAX_QUEUE_DEPTH,
   MQTT_ROLE_POLICY_ID,
@@ -440,7 +441,10 @@ export class MqttCertificationTarget {
       if (epoch !== this.lifecycleEpoch || this.stopped || !this.transport) return
       if (this.config.commandsEnabled) {
         try {
-          await this.transport.subscribe(mqttTopics(this.config.instanceId).commandFilter, 1)
+          const topics = mqttTopics(this.config.instanceId)
+          for (const capability of MQTT_COMMAND_CAPABILITIES) {
+            await this.transport.subscribe(topics.command(capability), 1)
+          }
           if (epoch !== this.lifecycleEpoch || this.stopped) return
           this.status.commandsSubscribed = true
         } catch (error) {

@@ -1,3 +1,4 @@
 user ultimate-sim-command
-topic write ultimate-sim/v1/simrig/command/+
+topic write ultimate-sim/v1/simrig/command/app.overlay.show
+topic write ultimate-sim/v1/simrig/command/app.overlay.hide
 topic read ultimate-sim/v1/simrig/result/+

@@ -800,9 +800,12 @@ function requiredCapability(
   config: MqttLocalConfig
 ): MqttCapability | null {
   const topics = mqttTopics(config.instanceId)
+  const allowlistedCommandTopic = MQTT_COMMAND_CAPABILITIES.some(
+    (capability) => topic === topics.command(capability)
+  )
   if (principal === 'target-publisher') {
     if (operation === 'subscribe') {
-      return topic === topics.commandFilter && config.commandsEnabled ? 'mqtt.subscribe.command' : null
+      return allowlistedCommandTopic && config.commandsEnabled ? 'mqtt.subscribe.command' : null
     }
     if (topic === topics.availability) return 'mqtt.publish.availability'
     if (topic === topics.telemetry) return 'mqtt.publish.telemetry'
@@ -821,7 +824,7 @@ function requiredCapability(
   }
   if (principal === 'local-command') {
     if (!config.commandsEnabled) return null
-    if (operation === 'publish' && topic.startsWith(`${topics.root}/command/`)) return 'mqtt.command.local'
+    if (operation === 'publish' && allowlistedCommandTopic) return 'mqtt.command.local'
     if (operation === 'subscribe' && (topic === topics.resultFilter || topic.startsWith(`${topics.root}/result/`))) {
       return 'mqtt.command.local'
     }
@@ -1637,7 +1640,9 @@ export function buildMosquittoAclFiles(configInput: MqttLocalConfig): Record<str
       `topic write ${root}/health`,
       `topic write ${root}/schema/announcement`,
       `topic write ${root}/result/+`,
-      `topic read ${root}/command/+`
+      ...MQTT_COMMAND_CAPABILITIES.map(
+        (capability) => `topic read ${root}/command/${capability}`
+      )
     ].join('\n'),
     'mqtt-reader.acl': [
       `user ${MQTT_BROKER_USERNAMES['local-reader']}`,
@@ -1650,7 +1655,9 @@ export function buildMosquittoAclFiles(configInput: MqttLocalConfig): Record<str
     ].join('\n'),
     'mqtt-command.acl': [
       `user ${MQTT_BROKER_USERNAMES['local-command']}`,
-      `topic write ${root}/command/+`,
+      ...MQTT_COMMAND_CAPABILITIES.map(
+        (capability) => `topic write ${root}/command/${capability}`
+      ),
       `topic read ${root}/result/+`
     ].join('\n')
   }

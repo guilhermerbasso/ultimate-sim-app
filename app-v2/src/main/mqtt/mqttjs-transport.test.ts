@@ -5,7 +5,7 @@ import {
   normalizeMqttLocalConfig
 } from '../../shared/mqtt'
 import { createMqttBrokerAccessSet } from './broker-auth'
-import { mqttJsConnectOptions } from './mqttjs-transport'
+import { mqttJsConnectOptions, mqttJsIncomingPacket } from './mqttjs-transport'
 
 describe('MQTT.js production transport', () => {
   it('authenticates as the capability principal and carries the current last will', () => {
@@ -28,5 +28,16 @@ describe('MQTT.js production transport', () => {
     expect(() => mqttJsConnectOptions(config, grant, access['local-reader'], will)).toThrow(
       /authenticated MQTT role access/i
     )
+  })
+
+  it('does not fabricate a publishing principal that MQTT.js cannot observe', () => {
+    const incoming = mqttJsIncomingPacket(
+      'ultimate-sim/v1/simrig/command/app.overlay.show',
+      new Uint8Array([1, 2, 3]),
+      { qos: 1, retain: false, dup: false }
+    )
+
+    expect(incoming.principal).toBeUndefined()
+    expect(incoming.qos).toBe(1)
   })
 })

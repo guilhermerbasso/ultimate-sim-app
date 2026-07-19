@@ -5,11 +5,36 @@ import {
   type MqttTransportAccess
 } from './broker-auth'
 import type {
+  MqttIncomingPacket,
   MqttTransport,
   MqttTransportFactory,
   MqttTransportHandlers,
   MqttTransportPacket
 } from './target'
+
+interface MqttJsPublishPacket {
+  qos: number
+  retain: boolean
+  dup: boolean
+  properties?: {
+    messageExpiryInterval?: number
+  }
+}
+
+export function mqttJsIncomingPacket(
+  topic: string,
+  payload: Uint8Array,
+  packet: MqttJsPublishPacket
+): MqttIncomingPacket {
+  return {
+    topic,
+    payload: new Uint8Array(payload),
+    qos: packet.qos === 1 ? 1 : 0,
+    retain: packet.retain,
+    dup: packet.dup,
+    messageExpirySec: packet.properties?.messageExpiryInterval
+  }
+}
 
 function mqttWill(packet: MqttTransportPacket): NonNullable<IClientOptions['will']> {
   return {
@@ -86,15 +111,7 @@ class MqttJsTransport implements MqttTransport {
       this.handlers.onConnect(packet.sessionPresent)
     })
     client.on('message', (topic, payload, packet) => {
-      this.handlers.onMessage({
-        topic,
-        payload: new Uint8Array(payload),
-        qos: packet.qos === 1 ? 1 : 0,
-        retain: packet.retain,
-        dup: packet.dup,
-        messageExpirySec: packet.properties?.messageExpiryInterval,
-        principal: 'local-command'
-      })
+      this.handlers.onMessage(mqttJsIncomingPacket(topic, payload, packet))
     })
     client.on('error', (error) => {
       this.pendingError = error

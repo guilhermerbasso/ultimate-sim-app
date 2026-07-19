@@ -135,15 +135,44 @@ describe('local MQTT v1 contracts', () => {
 
     const commandsEnabled = normalizeMqttLocalConfig({ ...config, commandsEnabled: true })
     const enabledGrant = createMqttCapabilityGrant('local-command', commandsEnabled, now)
+    const enabledPublisher = createMqttCapabilityGrant('target-publisher', commandsEnabled, now)
+    const enabledTopics = mqttTopics(commandsEnabled.instanceId)
     expect(
       authorizeMqttOperation(
         enabledGrant,
         'publish',
-        mqttTopics(commandsEnabled.instanceId).command('app.overlay.show'),
+        enabledTopics.command('app.overlay.show'),
         commandsEnabled,
         now
       ).allowed
     ).toBe(true)
+    expect(
+      authorizeMqttOperation(
+        enabledGrant,
+        'publish',
+        `${enabledTopics.root}/command/app.overlay.toggle`,
+        commandsEnabled,
+        now
+      ).allowed
+    ).toBe(false)
+    expect(
+      authorizeMqttOperation(
+        enabledPublisher,
+        'subscribe',
+        enabledTopics.command('app.overlay.hide'),
+        commandsEnabled,
+        now
+      ).allowed
+    ).toBe(true)
+    expect(
+      authorizeMqttOperation(
+        enabledPublisher,
+        'subscribe',
+        enabledTopics.commandFilter,
+        commandsEnabled,
+        now
+      ).allowed
+    ).toBe(false)
     expect(MQTT_COMMAND_CAPABILITIES).toEqual(['app.overlay.show', 'app.overlay.hide'])
   })
 
@@ -408,6 +437,19 @@ describe('local MQTT v1 contracts', () => {
     expect(acl['mqtt-publisher.acl']).toContain('user ultimate-sim-target')
     expect(acl['mqtt-reader.acl']).toContain('user ultimate-sim-reader')
     expect(acl['mqtt-command.acl']).toContain('user ultimate-sim-command')
+    expect(acl['mqtt-publisher.acl']).toContain('command/app.overlay.show')
+    expect(acl['mqtt-publisher.acl']).toContain('command/app.overlay.hide')
+    expect(acl['mqtt-command.acl']).toContain('command/app.overlay.show')
+    expect(acl['mqtt-command.acl']).toContain('command/app.overlay.hide')
+    expect(acl['mqtt-publisher.acl']).not.toContain('command/+')
+    expect(acl['mqtt-command.acl']).not.toContain('command/+')
+    for (const file of ['mqtt-publisher.acl', 'mqtt-reader.acl', 'mqtt-command.acl']) {
+      expect(
+        readFileSync(new URL(`../../../contracts/mqtt/v1/${file}`, import.meta.url), 'utf8')
+          .replace(/\r\n/g, '\n')
+          .trim()
+      ).toBe(acl[file])
+    }
   })
 
   it('ships a parseable AsyncAPI contract with loopback-only servers', () => {
