@@ -96,7 +96,8 @@ describe('non-profile touch receiver heartbeat', () => {
     fetchHealth.mockResolvedValue(health())
     const view = render(createElement(TouchPanelWindowRoot))
 
-    await waitFor(() => expect(fetchHealth).toHaveBeenCalledWith('pit'))
+    await waitFor(() => expect(fetchHealth).toHaveBeenCalled())
+    expect(fetchHealth.mock.calls[0][0]).toBe('pit')
     expect(fetchHealth).toHaveBeenCalledTimes(1)
     view.unmount()
     expect(clearInteraction).toHaveBeenCalledWith('pit')

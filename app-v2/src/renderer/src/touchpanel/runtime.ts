@@ -61,7 +61,10 @@ export async function fetchStreamPanel(
   return payload
 }
 
-export async function fetchStreamInteractionHealth(panelId: string): Promise<StreamingTouchHealthResponse> {
+export async function fetchStreamInteractionHealth(
+  panelId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<StreamingTouchHealthResponse> {
   const interaction = streamInteraction
   if (!interaction || interaction.targetId !== panelId) {
     throw new Error('Interactive Touch session is unavailable.')
@@ -69,7 +72,8 @@ export async function fetchStreamInteractionHealth(panelId: string): Promise<Str
   const response = await fetch(streamEndpoint(`api/touch/health/${encodeURIComponent(panelId)}`), {
     cache: 'no-store',
     credentials: 'same-origin',
-    headers: { 'X-Stream-CSRF': interaction.csrfToken }
+    headers: { 'X-Stream-CSRF': interaction.csrfToken },
+    ...(options.signal ? { signal: options.signal } : {})
   })
   if (!response.ok) {
     throw new StreamInteractionRequestError(`Interaction health failed (HTTP ${response.status}).`, response.status)

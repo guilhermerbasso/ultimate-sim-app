@@ -188,7 +188,8 @@ describe('profile touch receiver authentication', () => {
     expect(fetchPanel).toHaveBeenCalledTimes(1)
     expect(fetchPanel).toHaveBeenCalledWith('pit', { activate: false })
     expect(activateInteraction).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(fetchHealth).toHaveBeenCalledWith('pit'))
+    await waitFor(() => expect(fetchHealth).toHaveBeenCalled())
+    expect(fetchHealth.mock.calls[0][0]).toBe('pit')
   })
 
   it('does not fetch profile resources after failed authentication', async () => {
