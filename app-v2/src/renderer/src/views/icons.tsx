@@ -125,6 +125,16 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M16 13l1 1 2-3" />
     </Svg>
   ),
+  'context-debt': () => (
+    <Svg>
+      {/* signal loom: shared source rail feeding three cue modalities */}
+      <path d="M3 11h7M10 5v12M10 6h5M10 11h7M10 16h4" />
+      <circle cx="16.5" cy="6" r="1.5" />
+      <circle cx="18.5" cy="11" r="1.5" />
+      <circle cx="15.5" cy="16" r="1.5" />
+      <circle cx="3" cy="11" r="1.5" />
+    </Svg>
+  ),
   expr: () => (
     <Svg>
       {/* curly braces { } */}

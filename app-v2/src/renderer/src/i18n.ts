@@ -6856,6 +6856,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     search: { label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search for setups, ghosts, notes, and findings.' },
     alerts: { label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, and shift warnings.' },
     'story-engine': { label: 'Story Engine', eyebrow: 'Post-race', description: 'Evidence-linked local story cards with destination previews and mandatory human approval.' },
+    'context-debt': { label: 'Context-Debt Meter', eyebrow: 'SP-07 · N=0', description: 'Local pre-race audit of competing cues, routes, devices, and controls.' },
     expr: { label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.' },
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
@@ -6908,7 +6909,12 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
 
 patchViewText('pt-BR', {
   streaming: { label: 'Streaming', eyebrow: 'Transmissão', description: 'Destinos nomeados e somente leitura de dashboards e painéis touch para OBS, celulares e tablets.' },
-  'story-engine': { label: 'Story Engine', eyebrow: 'Pós-corrida', description: 'Cards locais ligados a evidências, com preview de destino e aprovação humana obrigatória.' }
+  'story-engine': { label: 'Story Engine', eyebrow: 'Pós-corrida', description: 'Cards locais ligados a evidências, com preview de destino e aprovação humana obrigatória.' },
+  'context-debt': {
+    label: 'Medidor de dívida de contexto',
+    eyebrow: 'SP-07 · N=0',
+    description: 'Auditoria local pré-corrida de cues, rotas, dispositivos e controles concorrentes.'
+  }
 })
 
 patchViewText('es', {
@@ -6920,6 +6926,7 @@ patchViewText('es', {
   tire: { label: 'Neumáticos' },
   alerts: { label: 'Alerts' },
   'story-engine': { label: 'Motor de historias', eyebrow: 'Poscarrera', description: 'Tarjetas locales vinculadas a evidencia con vista previa y aprobación humana obligatoria.' },
+  'context-debt': { label: 'Medidor de deuda de contexto', eyebrow: 'SP-07 · N=0', description: 'Auditoría local previa a la carrera de señales, rutas, dispositivos y controles en competencia.' },
   engineer: { label: 'Ingeniero IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Háptica' },
@@ -6938,6 +6945,7 @@ patchViewText('fr', {
   tire: { label: 'Tires' },
   alerts: { label: 'Alertes' },
   'story-engine': { label: 'Moteur de récits', eyebrow: 'Après-course', description: 'Cartes locales liées aux preuves avec aperçu de destination et validation humaine obligatoire.' },
+  'context-debt': { label: 'Mesure de dette de contexte', eyebrow: 'SP-07 · N=0', description: 'Audit local avant course des signaux, routes, appareils et commandes concurrents.' },
   engineer: { label: 'Ingénieur IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Haptique' },
@@ -6957,6 +6965,7 @@ patchViewText('de', {
   tire: { label: 'Reifen' },
   alerts: { label: 'Warnungen' },
   'story-engine': { label: 'Story Engine', eyebrow: 'Nach dem Rennen', description: 'Lokale evidenzgebundene Story-Karten mit Zielvorschau und verpflichtender menschlicher Freigabe.' },
+  'context-debt': { label: 'Kontextschuld-Messer', eyebrow: 'SP-07 · N=0', description: 'Lokale Vorabprüfung konkurrierender Hinweise, Routen, Geräte und Steuerungen.' },
   engineer: { label: 'KI-Ingenieur' },
   coach: { label: 'KI-Coach' },
   haptics: { label: 'Haptik' },
@@ -6978,6 +6987,7 @@ patchViewText('zh', {
   tire: { label: '轮胎', eyebrow: '策略' },
   alerts: { label: '警报' },
   'story-engine': { label: '故事引擎', eyebrow: '赛后', description: '基于证据的本地故事卡，包含目标预览并强制人工批准。' },
+  'context-debt': { label: '上下文负债计', eyebrow: 'SP-07 · N=0', description: '本地赛前审计相互竞争的提示、路由、设备和控制。' },
   engineer: { label: 'AI 工程师' },
   coach: { label: 'AI 教练' },
   strategy: { label: '策略' },
@@ -6999,6 +7009,7 @@ patchViewText('ja', {
   tire: { label: 'タイヤ', eyebrow: '戦略' },
   alerts: { label: 'アラート' },
   'story-engine': { label: 'ストーリーエンジン', eyebrow: 'レース後', description: '証拠に紐づくローカルカード、公開先プレビュー、必須の人間承認。' },
+  'context-debt': { label: 'コンテキスト負債メーター', eyebrow: 'SP-07 · N=0', description: '競合するキュー、ルート、デバイス、操作をローカルでレース前監査します。' },
   engineer: { label: 'AI エンジニア' },
   coach: { label: 'AI コーチ' },
   strategy: { label: '戦略' },
