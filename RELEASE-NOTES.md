@@ -46,9 +46,9 @@ offline race-operation rehearsal.
   accidental overwrites. Interactive preview remains local and adds no remote command capability.
 
 ### Secure interactive Touch Controls
-- 🎛️ **Authenticated phones and tablets can operate saved Touch Controls** for allowlisted pit,
-  radio-hold, toggle, selector, rotary, and simulator actions, while ordinary dashboard telemetry
-  remains read-only.
+- 🎛️ **Authenticated phones and tablets can operate saved Touch Controls** for allowlisted pit
+  actions, radio holds, toggles, selectors, rotaries, and simulator actions, while ordinary
+  dashboard telemetry remains read-only.
 - 🔐 Server-issued target-bound capabilities require CSRF protection, one-time nonces, origin
   binding, rate limits, and a live receiver lease before an interactive action is admitted.
 - 💓 Profile and standard Touch rendering share abortable, timeout-bounded heartbeat requests with
@@ -73,6 +73,16 @@ offline race-operation rehearsal.
   sensitivity, and direction agreement keep exploratory evidence separate from confirmation.
 - 🛑 The Twin abstains when evidence is incomplete or conflicting, retains unsaved laps through
   persistence failures, and exposes paused/recovered state instead of overstating causality.
+
+### Signed offline collaboration
+- 🤝 **Players can share deterministic local setup workspaces without enabling network transport.**
+  The runtime remains local-only and uses the in-memory collaboration transport.
+- ✍️ Ed25519 actor signatures cover canonical payloads, while deterministic CRDT ordering,
+  serialization, checksums, and bounded Lamport/causal validation keep replicas reproducible.
+- ↩️ Mutation, synchronization, export, and persistence failures roll back atomically instead of
+  leaving partial state.
+- 🧱 Canonical imports enforce an exact 8 MiB limit with bounded single-handle reads and reject
+  prototype-sensitive paths or JSON keys before parsing can affect the workspace.
 
 ### Evidence-safe Steward Desk
 - ⚖️ **League incident review remains explicitly human-owned** through versioned rules, verdicts,
@@ -138,6 +148,8 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   Setup Experiment Twin for controlled one-variable comparisons.
 - [#90](https://github.com/guilhermerbasso/ultimate-sim-app/pull/90) — debounce PWA receiver
   reconnects without changing the first pending deadline or legitimate backoff.
+- [#91](https://github.com/guilhermerbasso/ultimate-sim-app/pull/91) — add signed, deterministic
+  offline workspace collaboration with transactional and import-boundary safeguards.
 - [#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94) — add authenticated,
   lease-bound interactive Touch Controls with fail-closed ownership and teardown.
 - [#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95) — add the local, evidence-safe

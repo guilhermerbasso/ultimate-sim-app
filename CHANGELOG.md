@@ -17,8 +17,8 @@
 - **Mobile presentation editor** for saved dashboards and Touch Controls, with phone/tablet presets,
   orientation, safe areas, fit/fill rules, minimum touch sizing, and revision-bound profiles that do
   not modify the source layout.
-- **Secure interactive Touch Controls receivers** for allowlisted pit, radio, toggle, selector,
-  rotary, and simulator actions, using authenticated target-bound capabilities, CSRF protection,
+- **Secure interactive Touch Controls receivers** for allowlisted pit actions, radio holds, toggles,
+  selectors, rotaries, and simulator actions, using authenticated target-bound capabilities, CSRF protection,
   one-time nonces, origin binding, rate limits, and a live receiver lease.
 - **Editor-only trigger previews** that reveal inactive trigger-only overlays and dashboard widgets
   for positioning without changing their live visibility rules.
@@ -28,6 +28,9 @@
 - **Local Setup Experiment Twin** for controlled one-variable A-B-A/B-A-B setup comparisons, with
   manual setup confirmation, matched-block evidence, uncertainty reporting, persistence recovery,
   and honest abstention instead of automatic setup application or causal claims.
+- **Signed offline workspace collaboration** for deterministic local setup sharing without network
+  transport, using Ed25519 actor signatures, canonical CRDT ordering/checksums, and bounded import
+  and causal-validation rules.
 - **Local-first Steward Desk** for evidence-backed league incident review, versioned rules, human
   verdicts, dissent, appeals, and rights-gated case exchange. Penalties and final decisions remain
   explicitly human-owned.
@@ -51,6 +54,9 @@
   fail-closed corruption/decryption/hash quarantine, allowlisted anonymization, provenance and
   redistribution-rights gates, and trusted local re-review before imported verdicts become
   authoritative.
+- Collaboration mutations, synchronization, export, and persistence roll back atomically on
+  failure; imports enforce the exact 8 MiB boundary and reject prototype-sensitive paths or JSON
+  keys before state can change.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 
