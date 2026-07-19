@@ -45,6 +45,7 @@ describe('formatLapTime', () => {
   it('formats seconds as m:ss,mmm', () => {
     expect(formatLapTime(83.456)).toBe('1:23,456')
     expect(formatLapTime(5.2)).toBe('0:05,200')
+    expect(formatLapTime(83.456, 'en-US')).toBe('1:23.456')
   })
   it('returns dash for invalid', () => {
     expect(formatLapTime(undefined)).toBe('—')
@@ -192,6 +193,10 @@ describe('composeDebrief', () => {
     expect(out.text).toContain('Where you lost time')
     expect(out.text).toContain('Turn 4')
     expect(out.text).toContain('Strategy')
+    expect(out.text).toContain('2.4 laps')
+    expect(out.text).toContain('0.08 s/lap')
+    expect(out.text).toContain('1:23.456')
+    expect(out.bullets.join(' ')).toContain('−0.30 s')
     expect(out.text).not.toContain('Onde perdeu tempo')
   })
 })

@@ -1,7 +1,7 @@
-import { mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ModuleContext } from '../module-context'
+import type { GracefulTeardownPhase, ModuleContext } from '../module-context'
 import type { GenerateRequest, GenerateResult, LlmRuntimeStatus, ModelId } from '../../shared/ai'
 import type { EngineerContext } from '../../shared/ai-engineer'
 import { COACH_CHANNELS, deterministicPhrasing, type CoachFinding, type CoachReport } from '../../shared/coach'
@@ -14,6 +14,7 @@ import {
   type ReplayContext,
   type ReplayContextState
 } from '../../shared/replay'
+import { DEBRIEF_CHANNELS, type DebriefTriggerPayload } from '../../shared/stint-debrief'
 import { TIRE_CHANNELS } from '../../shared/tire-strategy'
 import { BIO_CHANNELS } from '../../shared/biometrics'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
@@ -25,11 +26,15 @@ import { LapCoachAnalyzer, LiveCoachEngine } from './coach'
 import { LiveCapture } from './community-local'
 import { register as registerFuelStrategy } from './fuel-strategy'
 import { register as registerLapTiming } from './lap-timing'
-import { PredictionsEngine } from './predictions'
+import { PaceModelStore, register as registerPaceModel } from './pace-model'
+import { PredictionsEngine, register as registerPredictions } from './predictions'
 import { createProactiveEngine } from './proactive-engineer'
 import { register as registerProfiles } from './profiles-v2'
+import { register as registerRecordingAnalysis } from './recording-analysis'
+import { register as registerStintDebrief } from './stint-debrief'
 import { TeamFuelController } from './team-fuel'
 import { register as registerTireStrategy } from './tire-strategy'
+import { TelemetryRecorder, type TelemetryRecorderLifecycle } from '../recording/recorder'
 vi.mock('electron', () => ({
   app: {},
   dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn() },
@@ -136,7 +141,17 @@ function seedAnalyzerReport(
   state.explanationInFlight?.clear()
   Object.assign(analyzer as unknown as Record<string, unknown>, {
     latestReport: report,
-    latestReportContext: context,
+    latestReportLiveContext: context,
+    latestReportContext: {
+      trackName: snapshot.trackName,
+      trackConfigName: snapshot.trackConfigName,
+      carName: snapshot.carName,
+      carPath: snapshot.carPath,
+      sessionType: snapshot.sessionType,
+      sessionUniqueId: snapshot.sessionUniqueId,
+      sessionIdentity: snapshot.replayContext?.sessionIdentity,
+      connectionEpoch: snapshot.replayContext?.connectionEpoch
+    },
     reportRevision: (state.reportRevision ?? 0) + 1
   })
 }
@@ -145,6 +160,11 @@ function moduleHarness(userData: string) {
   const broadcast = vi.fn()
   let latest: TelemetrySnapshot | null = null
   const listeners: Array<(snapshot: TelemetrySnapshot | null) => void> = []
+  const teardowns: Array<() => Promise<void> | void> = []
+  const teardownEntries: Array<{
+    task: () => Promise<void> | void
+    phase: GracefulTeardownPhase
+  }> = []
   const ctx = {
     app: { getPath: () => userData, getVersion: () => 'test', getLocale: () => 'en-US', once: vi.fn() },
     ipcMain: { handle: (channel: string, handler: (...args: any[]) => any) => handlers.set(channel, handler) },
@@ -155,10 +175,21 @@ function moduleHarness(userData: string) {
       getLatest: () => latest
     },
     broadcast,
-    getMainWindow: () => null
+    getMainWindow: () => null,
+    registerGracefulTeardown: (
+      task: () => Promise<void> | void,
+      phase: GracefulTeardownPhase = 'persistence'
+    ) => {
+      teardowns.push(task)
+      teardownEntries.push({ task, phase })
+      return () => undefined
+    }
   } as unknown as ModuleContext
   return {
-    ctx, handlers, broadcast,
+    ctx, handlers, broadcast, teardowns, teardownEntries,
+    async runTeardown(phase: GracefulTeardownPhase) {
+      await Promise.all(teardownEntries.filter((entry) => entry.phase === phase).map((entry) => entry.task()))
+    },
     emit(snapshot: TelemetrySnapshot | null) {
       latest = snapshot
       for (const listener of listeners) listener(snapshot)
@@ -167,6 +198,58 @@ function moduleHarness(userData: string) {
   }
 }
 describe('canonical replay boundaries for live analytics', () => {
+  it('rejects stale LapCoach findings when track metadata changes under a reused session id', () => {
+    const analyzer = new LapCoachAnalyzer({ broadcast: vi.fn() })
+    const internals = analyzer as unknown as {
+      latestReport: { findings: CoachFinding[] }
+      latestReportContext: {
+        trackName: string
+        trackConfigName: string
+        carName: string
+        sessionType: string
+        sessionUniqueId: number
+      }
+      latestSetup: null
+    }
+    internals.latestReport = { findings: [finding()] }
+    internals.latestReportContext = {
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    }
+    internals.latestSetup = null
+
+    expect(analyzer.lastFindings({
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    }).findings).toHaveLength(1)
+    expect(analyzer.lastFindings({
+      trackName: 'Track B',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    })).toEqual({ findings: [], setup: null })
+    expect(analyzer.lastFindings({
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race',
+      sessionUniqueId: 7
+    })).toEqual({ findings: [], setup: null })
+    expect(analyzer.lastFindings({
+      trackName: 'Track A',
+      carName: 'GT3 R',
+      sessionType: 'Practice',
+      sessionUniqueId: 7
+    })).toEqual({ findings: [], setup: null })
+  })
+
   it('clears Coach advice and disabled proactive caches before accepting live telemetry again', () => {
     const coachBroadcast = vi.fn()
     const coach = new LiveCoachEngine({ broadcast: coachBroadcast, now: () => 10_000 })
@@ -683,6 +766,67 @@ describe('canonical replay boundaries for live analytics', () => {
     expect(broadcast).not.toHaveBeenCalled()
   })
 
+  it('cancels the pace timer in replay but atomically flushes the immutable live payload on dispose', async () => {
+    const dir = scratch('pace')
+    const file = join(dir, 'pace-models.json')
+    const store = new PaceModelStore({} as ModuleContext, file)
+    await store.load()
+
+    store.onSnapshot(snap('live', 0, { currentLap: 1, incidentCountMy: 0 }))
+    store.onSnapshot(snap('live', 0, {
+      timestamp: 2_000,
+      currentLap: 2,
+      lastLapTimeSec: 90,
+      incidentCountMy: 0
+    }))
+    expect(store.status().activeSamples).toBe(1)
+
+    store.onSnapshot(snap('replay', 1, { currentLap: 20, lastLapTimeSec: 20 }))
+    expect(existsSync(file)).toBe(false)
+    expect(store.status().activeKey).toBeNull()
+    store.onSnapshot(snap('unknown', 2))
+    await store.dispose()
+    expect(JSON.parse(readFileSync(file, 'utf8')).models).toBeTypeOf('object')
+    expect(readdirSync(dir).filter((name) => name.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('retains a failed atomic pace payload and retries it without exposing a partial final file', async () => {
+    const dir = scratch('pace-failure')
+    const blocked = join(dir, 'blocked')
+    writeFileSync(blocked, 'not-a-directory', 'utf8')
+    const file = join(blocked, 'pace-models.json')
+    const store = new PaceModelStore({} as ModuleContext, file)
+    await store.load()
+    store.onSnapshot(snap('live', 0, { currentLap: 1, incidentCountMy: 0 }))
+    store.onSnapshot(snap('live', 0, { currentLap: 2, lastLapTimeSec: 91, incidentCountMy: 0 }))
+    await expect(store.flush()).rejects.toThrow()
+    expect(existsSync(file)).toBe(false)
+
+    rmSync(blocked, { force: true })
+    mkdirSync(blocked)
+    await store.flush()
+    expect(JSON.parse(readFileSync(file, 'utf8')).models).toBeTypeOf('object')
+    expect(readdirSync(blocked).filter((name) => name.endsWith('.tmp'))).toEqual([])
+    await store.dispose()
+  })
+
+  it('joins pace persistence to the main graceful teardown seam while replay is active', async () => {
+    const dir = scratch('pace-teardown')
+    const harness = moduleHarness(dir)
+    registerPaceModel(harness.ctx)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    harness.emit(snap('live', 0, { currentLap: 1, incidentCountMy: 0 }))
+    harness.emit(snap('live', 0, { currentLap: 2, lastLapTimeSec: 92, incidentCountMy: 0 }))
+    harness.emit(snap('replay', 1))
+    const file = join(dir, 'pace-models.json')
+    expect(existsSync(file)).toBe(false)
+    expect(harness.teardowns).toHaveLength(2)
+    await harness.runTeardown('quiesce')
+    await harness.runTeardown('persistence')
+    expect(JSON.parse(readFileSync(file, 'utf8')).models).toBeTypeOf('object')
+    expect(harness.ctx.app.once).not.toHaveBeenCalledWith('before-quit', expect.any(Function))
+  })
+
   it('preserves the last finalized ghost while dropping replay partials and rolling telemetry', () => {
     const capture = new LiveCapture()
     for (let i = 0; i < 31; i += 1) {
@@ -709,6 +853,281 @@ describe('canonical replay boundaries for live analytics', () => {
 
     capture.onSnapshot(snap('live', 3, { currentLap: 2, lapDistPct: 0.3 }))
     expect(capture.getLastGhost()).toEqual(ghost)
+  })
+
+  it('keeps manual recording suppression through replay and still analyzes an explicit saved lap', async () => {
+    const dir = scratch('recording')
+    writeFileSync(join(dir, 'recording-config.json'), JSON.stringify({ autoRecord: true }), 'utf8')
+    const harness = moduleHarness(dir)
+    registerRecordingAnalysis(harness.ctx)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    const status = (): { recording: boolean; activeSession?: { id: string } } =>
+      harness.handlers.get('recording:status')?.()
+    const live = snap('live', 0, { timestamp: 1_000, currentLap: 1, lapDistPct: 0.1 })
+    harness.emit(live)
+    await harness.handlers.get('recording:start')?.(undefined)
+    expect(status().recording).toBe(true)
+    harness.emit(snap('live', 0, { timestamp: 1_100, currentLap: 1, lapDistPct: 0.2 }))
+    const sessionId = status().activeSession?.id
+    expect(sessionId).toBeTruthy()
+
+    const sidecar = join(dir, 'recordings', sessionId as string, 'track.json')
+    harness.emit(snap('replay', 1, { timestamp: 1_150 }))
+    await new Promise((resolve) => setTimeout(resolve, 550))
+    expect(existsSync(sidecar)).toBe(false)
+    harness.emit(snap('live', 2, { timestamp: 1_175, currentLap: 1, lapDistPct: 0.25 }))
+    await vi.waitFor(() => expect(existsSync(sidecar)).toBe(true))
+
+    await harness.handlers.get('recording:stop')?.()
+    expect(status().recording).toBe(false)
+
+    harness.emit(snap('replay', 3, { timestamp: 1_200, currentLap: 50, lapDistPct: 0.8 }))
+    const saved = await harness.handlers.get('recording:getLap')?.(undefined, sessionId, 0)
+    expect(saved).toHaveLength(2)
+    expect(saved.map((sample: { timestamp: number }) => sample.timestamp)).toEqual([1_000, 1_100])
+
+    harness.emit(snap('unknown', 4))
+    harness.emit(snap('live', 5, { timestamp: 1_300, currentLap: 2, lapDistPct: 0.3 }))
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(status().recording).toBe(false)
+
+    harness.emit(null)
+    harness.emit(snap('live', 0, { timestamp: 2_000 }, 'session-b', 2))
+    await vi.waitFor(() => expect(status().recording).toBe(true))
+    await harness.handlers.get('recording:stop')?.()
+  })
+
+  it('does not rotate auto-recording into a new session after auto-record is disabled', async () => {
+    const dir = scratch('recording-auto-off')
+    writeFileSync(join(dir, 'recording-config.json'), JSON.stringify({ autoRecord: true }), 'utf8')
+    const harness = moduleHarness(dir)
+    registerRecordingAnalysis(harness.ctx)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const status = () => harness.handlers.get('recording:status')?.() as {
+      recording: boolean
+      activeSession?: { id: string }
+    }
+
+    harness.emit(snap('live', 0, { timestamp: 1_000 }, 'session-a', 1))
+    await vi.waitFor(() => expect(status().recording).toBe(true))
+    const firstSessionId = status().activeSession?.id
+    expect(firstSessionId).toBeTruthy()
+
+    await harness.handlers.get('recording:setConfig')?.(undefined, { autoRecord: false })
+    harness.emit(snap('live', 1, { timestamp: 2_000 }, 'session-b', 1))
+    await vi.waitFor(() => expect(status().recording).toBe(false))
+
+    const sessions = await harness.handlers.get('recording:listSessions')?.()
+    expect(sessions.map((session: { id: string }) => session.id)).toEqual([firstSessionId])
+  })
+
+  it('serializes pending recording starts and rolls them back on context change or manual stop', async () => {
+    const pendingRecorder = (name: string) => {
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      const removeSession = vi.fn(async () => undefined)
+      const lifecycle: TelemetryRecorderLifecycle = {
+        prepareSession: vi.fn(async () => gate),
+        removeSession
+      }
+      return { recorder: new TelemetryRecorder(scratch(name), lifecycle), release, lifecycle, removeSession }
+    }
+
+    const stale = pendingRecorder('recording-stale-start')
+    let current = true
+    const staleStart = stale.recorder.start({}, () => current)
+    await vi.waitFor(() => expect(stale.lifecycle.prepareSession).toHaveBeenCalledOnce())
+    current = false
+    stale.recorder.cancelPendingStart()
+    stale.release()
+    await expect(staleStart).resolves.toMatchObject({ recording: false })
+    expect(stale.removeSession).toHaveBeenCalledOnce()
+
+    const stopped = pendingRecorder('recording-stopped-start')
+    const stoppedStart = stopped.recorder.start()
+    await vi.waitFor(() => expect(stopped.lifecycle.prepareSession).toHaveBeenCalledOnce())
+    const stop = stopped.recorder.stop()
+    stopped.release()
+    await expect(stoppedStart).resolves.toMatchObject({ recording: false })
+    await expect(stop).resolves.toMatchObject({ recording: false })
+    expect(stopped.removeSession).toHaveBeenCalledOnce()
+  })
+
+  it('rotates active recordings and sidecars on canonical session/connection identity changes only', async () => {
+    const dir = scratch('recording-rotation')
+    writeFileSync(join(dir, 'recording-config.json'), JSON.stringify({ autoRecord: false }), 'utf8')
+    const harness = moduleHarness(dir)
+    registerRecordingAnalysis(harness.ctx)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const status = () => harness.handlers.get('recording:status')?.() as {
+      recording: boolean
+      activeSession?: { id: string }
+    }
+
+    harness.emit(snap('live', 0, { trackName: 'Track A', timestamp: 1_000 }, 'session-a', 1))
+    await harness.handlers.get('recording:start')?.(undefined)
+    harness.emit(snap('live', 0, { trackName: 'Track A', timestamp: 1_100, lapDistPct: 0.3 }, 'session-a', 1))
+    const firstId = status().activeSession?.id as string
+
+    harness.emit(snap('live', 1, { trackName: 'Track B', timestamp: 2_000 }, 'session-b', 1))
+    await vi.waitFor(() => {
+      expect(status().activeSession?.id).toEqual(expect.any(String))
+      expect(status().activeSession?.id).not.toBe(firstId)
+    })
+    const secondId = status().activeSession?.id as string
+    await vi.waitFor(() => expect(existsSync(join(dir, 'recordings', firstId, 'track.json'))).toBe(true))
+    expect(JSON.parse(readFileSync(join(dir, 'recordings', firstId, 'track.json'), 'utf8')).trackName).toBe('Track A')
+
+    harness.emit(snap('replay', 2, { trackName: 'Replay Track' }, 'session-b', 1))
+    harness.emit(snap('live', 3, { trackName: 'Track B', timestamp: 2_100 }, 'session-b', 1))
+    expect(status().activeSession?.id).toBe(secondId)
+
+    harness.emit(snap('replay', 4, {}, 'session-b', 1))
+    harness.emit(snap('live', 5, { trackName: 'Track C', timestamp: 3_000 }, 'session-c', 2))
+    await vi.waitFor(() => {
+      expect(status().activeSession?.id).toEqual(expect.any(String))
+      expect(status().activeSession?.id).not.toBe(secondId)
+    })
+    const thirdId = status().activeSession?.id as string
+    expect(new Set([firstId, secondId, thirdId]).size).toBe(3)
+    await vi.waitFor(() => expect(existsSync(join(dir, 'recordings', secondId, 'track.json'))).toBe(true))
+    expect(JSON.parse(readFileSync(join(dir, 'recordings', secondId, 'track.json'), 'utf8')).trackName).toBe('Track B')
+    await harness.handlers.get('recording:stop')?.()
+  })
+
+  it('processes live session changes but seeds replay resume silently without erasing the last debrief', async () => {
+    vi.useFakeTimers()
+    const harness = moduleHarness(scratch('debrief'))
+    registerStintDebrief(harness.ctx)
+    registerPredictions(harness.ctx)
+    const findingsPublisher = createProactiveEngine({
+      emit: vi.fn(),
+      getConfig: () => ({
+        enabled: true,
+        proactiveCoaching: true,
+        language: 'en-US',
+        assertiveness: 'assertive',
+        intentSensitivity: 0.6
+      })
+    })
+    const generated = await harness.handlers.get(DEBRIEF_CHANNELS.generate)?.(undefined, { useLlm: false })
+    harness.broadcast.mockClear()
+    harness.emit(snap('live', 0, { trackName: 'Track A', fuelLiters: 40, fuelPerLap: 3 }))
+    vi.advanceTimersByTime(1_000)
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
+    harness.emit(snap('live', 1, { trackName: 'Track B' }, 'session-b'))
+    const firstTrigger = harness.broadcast.mock.calls.find(
+      ([channel]) => channel === DEBRIEF_CHANNELS.trigger
+    )?.[1] as DebriefTriggerPayload
+    expect(firstTrigger).toMatchObject({
+      reason: 'session-end',
+      predictions: expect.any(Object),
+      sessionInfo: { trackName: 'Track A', carName: 'GT3 R', reason: 'session-end' }
+    })
+    expect(firstTrigger.findings.map((entry) => entry.id)).toEqual(['brake-late-s1'])
+    findingsPublisher.setFindings([])
+    expect(firstTrigger.findings).toHaveLength(1)
+
+    harness.broadcast.mockClear()
+    vi.advanceTimersByTime(1_000)
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track B',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
+    harness.emit(snap('replay', 2, { trackName: 'Replay' }, 'session-b'))
+    harness.emit(snap('unknown', 3, {}, 'session-b'))
+    harness.emit(snap('live', 4, { trackName: 'Track B' }, 'session-b'))
+    expect(harness.broadcast).not.toHaveBeenCalledWith(DEBRIEF_CHANNELS.trigger, expect.anything())
+
+    vi.advanceTimersByTime(1_000)
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track B',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
+    harness.emit(snap('replay', 5, {}, 'session-b'))
+    harness.emit(snap('live', 6, { trackName: 'Track C' }, 'session-c', 2))
+    const suspendedTrigger = harness.broadcast.mock.calls.find(
+      ([channel]) => channel === DEBRIEF_CHANNELS.trigger
+    )?.[1] as DebriefTriggerPayload
+    expect(suspendedTrigger.sessionInfo.trackName).toBe('Track B')
+    harness.broadcast.mockClear()
+    vi.advanceTimersByTime(1_000)
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track C',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Race'
+    })
+    harness.emit(null)
+    expect(harness.broadcast).toHaveBeenCalledWith(
+      DEBRIEF_CHANNELS.trigger,
+      expect.objectContaining({ sessionInfo: expect.objectContaining({ trackName: 'Track C' }) })
+    )
+    const latestDebrief = await harness.handlers.get(DEBRIEF_CHANNELS.last)?.()
+    expect(latestDebrief).toMatchObject({
+      reason: 'session-end',
+      sessionInfo: { trackName: 'Track C', carName: 'GT3 R', reason: 'session-end' }
+    })
+    expect(latestDebrief).not.toEqual(generated)
+    await harness.runTeardown('quiesce')
+    await harness.runTeardown('persistence')
+  })
+
+  it('does not reuse findings when the session type changes on the same car and track', async () => {
+    const harness = moduleHarness(scratch('debrief-session-type'))
+    registerStintDebrief(harness.ctx)
+    const findingsPublisher = createProactiveEngine({
+      emit: vi.fn(),
+      getConfig: () => ({
+        enabled: true,
+        proactiveCoaching: true,
+        language: 'en-US',
+        assertiveness: 'assertive',
+        intentSensitivity: 0.6
+      })
+    })
+
+    harness.emit(snap('live', 0, {
+      trackName: 'Track A',
+      sessionType: 'Practice'
+    }, 'legacy-session'))
+    findingsPublisher.setFindings([finding()], {
+      trackName: 'Track A',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      sessionType: 'Practice'
+    })
+    harness.emit(snap('live', 1, {
+      trackName: 'Track A',
+      sessionType: 'Qualifying'
+    }, 'legacy-session'))
+    const practiceTrigger = harness.broadcast.mock.calls.find(
+      ([channel]) => channel === DEBRIEF_CHANNELS.trigger
+    )?.[1] as DebriefTriggerPayload
+    expect(practiceTrigger.findings.map((entry) => entry.id)).toEqual(['brake-late-s1'])
+
+    harness.broadcast.mockClear()
+    harness.emit(snap('live', 2, {
+      trackName: 'Track A',
+      sessionType: 'Race'
+    }, 'legacy-session'))
+    const qualifyingTrigger = harness.broadcast.mock.calls.find(
+      ([channel]) => channel === DEBRIEF_CHANNELS.trigger
+    )?.[1] as DebriefTriggerPayload
+    expect(qualifyingTrigger.findings).toEqual([])
+
+    await harness.runTeardown('quiesce')
+    await harness.runTeardown('persistence')
   })
 
   it('resets race moments and adaptive dashboard state outside live context', () => {

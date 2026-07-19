@@ -63,6 +63,15 @@ import {
 } from '../devices/flasher'
 import { SerialDevicesStore, getSerialDevicesStore } from '../serial-devices/store'
 import {
+  findSavedSerialBinding,
+  replacementRemovalSelector,
+  resolveConnectedSerialIdentityMigration,
+  type SavedSerialIdentity,
+  type SerialIdentityMigrationRecord
+} from '../serial-devices/identity-migration'
+import { getRigPreflightService } from './rig-preflight'
+import { logger } from './logger'
+import {
   matchesSimXPrimaryIdentity,
   readSimXPrimaryIdentity,
   saveSimXPrimaryIdentity
@@ -243,6 +252,36 @@ class ArduinoSetup {
       // Hard guard (not just UI): never flash the SIM-X box, even if it's not
       // currently opened by the app.
       const portInfo = (await this.listFlashablePorts()).find((entry) => entry.path === port)
+      await this.serialDevicesStore.ensureLoaded()
+      const savedBinding = findSavedSerialBinding(
+        this.serialDevicesStore.list(),
+        portInfo ?? { path: port }
+      )
+      const replacementReason = String(request.replacementReason ?? '').trim().slice(0, 500)
+      if (request.replaceSerialIdentity && replacementReason.length < 10) {
+        throw new SetupError(
+          'Explicit hardware replacement requires an audit reason of at least 10 characters.'
+        )
+      }
+      if (savedBinding) {
+        const preflightBinding = resolveConnectedSerialIdentityMigration({
+          deviceId: savedBinding.id || `setup:${port}`,
+          saved: savedBinding,
+          live: [{
+            id: savedBinding.id || `setup:${port}`,
+            path: port,
+            connected: true
+          }],
+          ports: [portInfo ?? { path: port }],
+          allowUnboundMigration: true,
+          allowReplacement: Boolean(request.replaceSerialIdentity)
+        })
+        if (!preflightBinding.record) {
+          throw new SetupError(
+            `Saved hardware binding rejected before flash: ${preflightBinding.message}`
+          )
+        }
+      }
       if (portInfo && (portInfo as { isSimX?: boolean }).isSimX) {
         await saveSimXPrimaryIdentity(this.ctx.app, portInfo).catch((error) =>
           console.warn('[arduino-setup] failed to save SIM-X primary identity:', errMessage(error))
@@ -307,12 +346,57 @@ class ArduinoSetup {
       })
 
       emit({ phase: 'profile', message: 'Creating the device in Hardware Hub…', percent: 94 })
-      const profile = await this.createProfile(module, board.profileBoard, port, verify.deviceId, verify.caps)
-      await this.persistSerialDevice(module, port, verify.deviceId)
+      const migration = await this.resolveConnectedIdentity(
+        verify.deviceId,
+        savedBinding,
+        Boolean(request.replaceSerialIdentity)
+      )
+      if (!migration.record) {
+        await this.disconnectQuietly(verify.deviceId)
+        throw new SetupError(migration.message)
+      }
+      if (migration.state === 'replaced') {
+        const preflight = getRigPreflightService()
+        if (!preflight) {
+          await this.disconnectQuietly(verify.deviceId)
+          throw new SetupError(
+            'Rig Preflight is unavailable; the hardware binding was not replaced.'
+          )
+        }
+        await preflight.invalidateActiveCertificate(
+          `Arduino identity explicitly replaced: ${replacementReason}`,
+          [{
+            kind: 'config',
+            source: 'Arduino Setup explicit replacement',
+            detail: replacementReason
+          }]
+        )
+        logger.warn('rig-preflight', 'Arduino serial identity explicitly replaced', {
+          reason: replacementReason,
+          previous: savedBinding,
+          replacement: migration.record
+        })
+      }
+      const profile = await this.createProfile(
+        module,
+        board.profileBoard,
+        migration.record.path,
+        verify.deviceId,
+        verify.caps
+      )
+      await this.persistSerialDevice(
+        module,
+        migration.record,
+        migration.state === 'replaced' ? savedBinding : undefined
+      )
       result.profileId = profile.id
       result.deviceId = verify.deviceId
       result.verified = true
-      result.message = `${module.name} is ready! Component created and verified (${formatCaps(verify.caps)}).`
+      result.message = `${module.name} is ready! Component created and verified (${formatCaps(verify.caps)}). ${
+        migration.state === 'verified'
+          ? 'Stable VID/PID/serial identity was recorded.'
+          : migration.message
+      }`
       emit({ phase: 'done', message: result.message, percent: 100, tone: 'success' })
       return result
     } catch (error) {
@@ -447,14 +531,36 @@ class ArduinoSetup {
     return saved
   }
 
-  private async persistSerialDevice(module: SetupModule, port: string, deviceId: string): Promise<void> {
-    if (!deviceId) return
+  private async persistSerialDevice(
+    module: SetupModule,
+    identity: SerialIdentityMigrationRecord,
+    replaced: SavedSerialIdentity | undefined
+  ): Promise<void> {
     await this.serialDevicesStore.upsert({
-      id: deviceId,
-      path: port,
+      ...identity,
       label: module.name,
       baud: COMPANION_BAUD,
       autoConnect: true
+    })
+    if (replaced) {
+      const selector = replacementRemovalSelector(replaced, identity)
+      if (selector) await this.serialDevicesStore.remove(selector)
+    }
+  }
+
+  private async resolveConnectedIdentity(
+    deviceId: string,
+    saved: SavedSerialIdentity | undefined,
+    allowReplacement: boolean
+  ): Promise<ReturnType<typeof resolveConnectedSerialIdentityMigration>> {
+    const ports = await this.ctx.serialHub.listPorts().catch(() => [])
+    return resolveConnectedSerialIdentityMigration({
+      deviceId,
+      saved,
+      live: this.ctx.serialHub.listDevices(),
+      ports,
+      allowUnboundMigration: true,
+      allowReplacement
     })
   }
 

@@ -110,8 +110,12 @@ export interface FindingsContext {
   carPath?: string
   trackName?: string
   trackConfigName?: string
+  sessionType?: string
   condition?: CoachTrackCondition
   liveContext?: LiveTelemetryContext
+  trackWetnessPct?: number
+  isRaining?: boolean
+  weatherDeclaredWet?: boolean
 }
 
 interface PublishedCoachFindings extends FindingsContext {
@@ -150,7 +154,12 @@ function publishedConditionMatches(
 ): boolean {
   if (condition === undefined) return true
   const direct = coachComparableIdentityFromSnapshot(snapshot).condition
-  if (condition === direct) return true
+  if (publishedContextConditionMatches(condition, {
+    condition: direct,
+    trackWetnessPct: snapshot.trackWetnessPct,
+    isRaining: snapshot.isRaining,
+    weatherDeclaredWet: snapshot.weatherDeclaredWet
+  })) return true
   return (
     condition === 'drying' &&
     snapshot.isRaining !== true &&
@@ -173,6 +182,23 @@ function publishedLiveContextMatches(
     return sameLiveTelemetryContext(liveContext, current)
   }
   return liveContext.sessionIdentity === current.sessionIdentity
+}
+
+function publishedContextConditionMatches(
+  published: CoachTrackCondition | undefined,
+  current: FindingsContext
+): boolean {
+  if (published === undefined) return true
+  if (published === current.condition) return true
+  if (published !== 'drying' || current.isRaining === true) return false
+  return (
+    current.condition === 'intermediate' ||
+    (
+      current.condition === 'dry' &&
+      Number.isFinite(current.trackWetnessPct) &&
+      (current.trackWetnessPct as number) > 0.03
+    )
+  )
 }
 
 /**
@@ -200,6 +226,55 @@ export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | nul
   return findings
 }
 
+export function getLatestCoachFindingsForContext(
+  currentContext?: FindingsContext | null
+): CoachFinding[] {
+  const {
+    findings,
+    carName,
+    carPath,
+    trackName,
+    trackConfigName,
+    sessionType,
+    condition,
+    sim,
+    trackId,
+    liveContext
+  } = latestCoachFindings
+  if (findings.length === 0) return []
+  if (currentContext) {
+    if (sim !== undefined && currentContext.sim !== undefined && sim !== currentContext.sim) {
+      return []
+    }
+    if (
+      trackId !== undefined &&
+      currentContext.trackId !== undefined &&
+      !samePublishedIdentity(trackId, currentContext.trackId)
+    ) return []
+    if (
+      liveContext &&
+      currentContext.liveContext &&
+      !sameLiveTelemetryContext(liveContext, currentContext.liveContext)
+    ) return []
+    if (carPath !== undefined || currentContext.carPath !== undefined) {
+      if (!samePublishedIdentity(carPath, currentContext.carPath)) return []
+    } else if (!samePublishedIdentity(carName, currentContext.carName)) {
+      return []
+    }
+    if (!samePublishedIdentity(trackName, currentContext.trackName)) return []
+    if (
+      (trackConfigName !== undefined || currentContext.trackConfigName !== undefined) &&
+      !samePublishedIdentity(trackConfigName, currentContext.trackConfigName)
+    ) return []
+    if (
+      sessionType !== undefined &&
+      !samePublishedIdentity(sessionType, currentContext.sessionType)
+    ) return []
+    if (!publishedContextConditionMatches(condition, currentContext)) return []
+  }
+  return findings
+}
+
 function publishCoachFindings(findings: CoachFinding[], context?: FindingsContext): void {
   latestCoachFindings = {
     findings: Array.isArray(findings) ? findings : [],
@@ -209,8 +284,12 @@ function publishCoachFindings(findings: CoachFinding[], context?: FindingsContex
     carPath: context?.carPath,
     trackName: context?.trackName,
     trackConfigName: context?.trackConfigName,
+    sessionType: context?.sessionType,
     condition: context?.condition,
-    liveContext: context?.liveContext ? { ...context.liveContext } : undefined
+    liveContext: context?.liveContext ? { ...context.liveContext } : undefined,
+    trackWetnessPct: context?.trackWetnessPct,
+    isRaining: context?.isRaining,
+    weatherDeclaredWet: context?.weatherDeclaredWet
   }
 }
 
@@ -1311,8 +1390,12 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       carPath: snapshot.carPath,
       trackName: snapshot.trackName,
       trackConfigName: snapshot.trackConfigName,
+      sessionType: snapshot.sessionType,
       condition: conditionForSnapshot(snapshot),
-      liveContext: activeLiveContext ? { ...activeLiveContext } : undefined
+      liveContext: activeLiveContext ? { ...activeLiveContext } : undefined,
+      trackWetnessPct: snapshot.trackWetnessPct,
+      isRaining: snapshot.isRaining,
+      weatherDeclaredWet: snapshot.weatherDeclaredWet
     }
   }
 

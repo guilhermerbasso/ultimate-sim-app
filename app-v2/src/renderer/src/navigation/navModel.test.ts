@@ -15,6 +15,14 @@ describe('SP-07 navigation', () => {
   })
 })
 
+describe('rig preflight navigation', () => {
+  it('places the evidence-backed preflight at the front of Hardware', () => {
+    const hardware = navSections.find((section) => section.title === 'Hardware')
+    expect(hardware?.viewIds[0]).toBe('rig-preflight')
+    expect(hardware?.viewIds).toContain('devices')
+  })
+})
+
 describe('Story Engine navigation', () => {
   it('preserves Story Engine beside the current Race Hub products', () => {
     const raceHub = navSections.find((section) => section.title === 'Race Hub')

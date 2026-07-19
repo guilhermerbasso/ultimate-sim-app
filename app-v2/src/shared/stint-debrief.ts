@@ -28,7 +28,7 @@ export const DEBRIEF_CHANNELS = {
   last: 'debrief:last',
   /** Broadcast: a freshly composed debrief (after a generate). */
   updated: 'debrief:updated',
-  /** Broadcast: stint/session ended — the renderer should auto-generate. */
+  /** Broadcast: immutable ended-session facts; main already auto-generated the debrief. */
   trigger: 'debrief:trigger'
 } as const
 
@@ -68,6 +68,14 @@ export interface DebriefGenerateRequest {
   useLlm?: boolean
 }
 
+/** Immutable ended-session snapshot carried by `debrief:trigger`. */
+export interface DebriefTriggerPayload {
+  reason: Exclude<DebriefReason, 'manual'>
+  findings: CoachFinding[]
+  predictions: PredictionsSnapshot | null
+  sessionInfo: DebriefSessionInfo
+}
+
 /** The composed debrief, broadcast on `debrief:updated` and returned by IPC. */
 export interface StintDebrief extends DebriefComposition {
   generatedAt: number
@@ -97,17 +105,25 @@ function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-/** "0,12" with a comma decimal (pt-BR), N decimals. */
-function num(value: number, decimals = 2): string {
-  return value.toFixed(decimals).replace('.', ',')
+/** Localized fixed-decimal number with no grouping. */
+function num(
+  value: number,
+  decimals = 2,
+  language: SpeechLanguage = 'pt-BR'
+): string {
+  const fixed = value.toFixed(decimals)
+  return language === 'pt-BR' ? fixed.replace('.', ',') : fixed
 }
 
-/** Seconds → "1:23,456" (lap time) or "—". */
-export function formatLapTime(seconds: number | undefined): string {
+/** Seconds → localized "1:23,456"/"1:23.456" lap time, or "—". */
+export function formatLapTime(
+  seconds: number | undefined,
+  language: SpeechLanguage = 'pt-BR'
+): string {
   if (!finite(seconds) || seconds <= 0) return '—'
   const m = Math.floor(seconds / 60)
   const s = seconds - m * 60
-  const sStr = num(s, 3).padStart(6, '0')
+  const sStr = num(s, 3, language).padStart(6, '0')
   return `${m}:${sStr}`
 }
 
@@ -155,14 +171,14 @@ function headlineFor(finding: CoachFinding, language: SpeechLanguage): string {
 function bulletForLoss(finding: CoachFinding, language: SpeechLanguage): string {
   const loc = findingLocation(finding, language)
   const mag = lossMagnitudeSec(finding)
-  const suffix = mag > 0 ? ` (−${num(mag)} s)` : ''
+  const suffix = mag > 0 ? ` (−${num(mag, 2, language)} s)` : ''
   return `${loc}: ${headlineFor(finding, language)}${suffix}`
 }
 
 function bulletForGain(finding: CoachFinding, language: SpeechLanguage): string {
   const loc = findingLocation(finding, language)
   const mag = gainMagnitudeSec(finding)
-  const suffix = mag > 0 ? ` (+${num(mag)} s)` : ''
+  const suffix = mag > 0 ? ` (+${num(mag, 2, language)} s)` : ''
   return `${loc}: ${headlineFor(finding, language)}${suffix}`
 }
 
@@ -188,15 +204,15 @@ export function strategyNote(
       const volume = finite(fuel.finishMarginL)
         ? `, ~${formatMeasurement(fuel.finishMarginL, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display} ${pt ? 'restantes' : 'left'}`
         : ''
-      parts.push(pt ? `combustível: margem de ${num(m, 1)} voltas até o fim${volume}` : `fuel: margin of ${num(m, 1)} laps to the end${volume}`)
+      parts.push(pt ? `combustível: margem de ${num(m, 1, language)} voltas até o fim${volume}` : `fuel: margin of ${num(m, 1, language)} laps to the end${volume}`)
     } else {
       const volume = finite(fuel.finishMarginL)
         ? `, ${pt ? 'faltam' : 'short'} ~${formatMeasurement(Math.abs(fuel.finishMarginL), 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}`
         : ''
       parts.push(
         pt
-          ? `combustível: déficit de ${num(Math.abs(m), 1)} voltas${volume} — precisa economizar ou parar`
-          : `fuel: deficit of ${num(Math.abs(m), 1)} laps${volume} - needs saving/stopping`
+          ? `combustível: déficit de ${num(Math.abs(m), 1, language)} voltas${volume} — precisa economizar ou parar`
+          : `fuel: deficit of ${num(Math.abs(m), 1, language)} laps${volume} - needs saving/stopping`
       )
     }
   }
@@ -204,7 +220,7 @@ export function strategyNote(
   const tire = predictions.tire
   if (tire) {
     const tParts: string[] = []
-    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(pt ? `perda ~${num(tire.degSecPerLap)} s por volta` : `loss ~${num(tire.degSecPerLap)} s/lap`)
+    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(pt ? `perda ~${num(tire.degSecPerLap, 2, language)} s por volta` : `loss ~${num(tire.degSecPerLap, 2, language)} s/lap`)
     if (finite(tire.lapsToCliff) && tire.lapsToCliff > 0) tParts.push(pt ? `~${Math.round(tire.lapsToCliff)} voltas até a queda` : `~${Math.round(tire.lapsToCliff)} laps until drop-off`)
     if (tire.pressureState && tire.pressureState !== 'ok') {
       const label = (pt ? PRESSURE_LABEL_PT : PRESSURE_LABEL_EN)[tire.pressureState] ?? tire.pressureState
@@ -219,7 +235,7 @@ export function strategyNote(
 
   const pace = predictions.pace
   if (pace && finite(pace.projectedLapSec) && pace.projectedLapSec > 0) {
-    parts.push(`${pt ? 'ritmo projetado' : 'projected pace'} ${formatLapTime(pace.projectedLapSec)}`)
+    parts.push(`${pt ? 'ritmo projetado' : 'projected pace'} ${formatLapTime(pace.projectedLapSec, language)}`)
   }
 
   if (parts.length === 0) return null
@@ -241,7 +257,7 @@ function sessionHeader(info: DebriefSessionInfo | undefined, language: SpeechLan
   if (info.sessionType) bits.push(info.sessionType)
   const meta: string[] = []
   if (finite(info.lapsCompleted) && info.lapsCompleted > 0) meta.push(`${Math.round(info.lapsCompleted)} ${pt ? 'voltas' : 'laps'}`)
-  if (finite(info.bestLapTimeSec) && info.bestLapTimeSec > 0) meta.push(`${pt ? 'melhor' : 'best'} ${formatLapTime(info.bestLapTimeSec)}`)
+  if (finite(info.bestLapTimeSec) && info.bestLapTimeSec > 0) meta.push(`${pt ? 'melhor' : 'best'} ${formatLapTime(info.bestLapTimeSec, language)}`)
   const left = bits.join(' · ')
   const right = meta.length > 0 ? ` (${meta.join(', ')})` : ''
   const body = `${left}${right}`.trim()

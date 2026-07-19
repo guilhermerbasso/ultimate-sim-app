@@ -123,6 +123,7 @@ const ALLOWED_PREFIXES = [
   'spotter3d:',
   'stt:',
   'streaming:',
+  'rigPreflight:',
   'mqtt:',
   'simhub:',
   // ─── Config EXPORT/IMPORT + saved-state VIEW/DELETE (perfil completo, por
