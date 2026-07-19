@@ -1101,6 +1101,24 @@ describe('saved-config deletion on real files (file storage)', () => {
     expect(existsSync(join(root, 'accessibility-cues.json.previous'))).toBe(false)
     expect(existsSync(join(root, 'accessibility-cues.json.staging'))).toBe(false)
   })
+
+  it('deletes live, staging, and previous files under the atomic file lock', async () => {
+    const storage = createFileStorage(root)
+    const live = join(root, 'accessibility-cues.json')
+    writeFileSync(live, JSON.stringify(DEFAULT_ACCESSIBILITY_CUE_STORE))
+    writeFileSync(`${live}.staging`, '{"partial":true}')
+    writeFileSync(`${live}.previous`, JSON.stringify(DEFAULT_ACCESSIBILITY_CUE_STORE))
+
+    await expect(
+      storage.removeFile('accessibility-cues.json')
+    ).resolves.toBe(true)
+    expect(existsSync(live)).toBe(false)
+    expect(existsSync(`${live}.staging`)).toBe(false)
+    expect(existsSync(`${live}.previous`)).toBe(false)
+    await expect(
+      storage.readFileJson('accessibility-cues.json')
+    ).resolves.toBeUndefined()
+  })
 })
 
 describe('file-storage hardening (symlink + boundary — S2/S3)', () => {

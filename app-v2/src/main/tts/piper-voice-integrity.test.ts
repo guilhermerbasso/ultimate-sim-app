@@ -380,4 +380,27 @@ describe('atomic complete Piper voice publication', () => {
     })
     expect(await fs.exists(previous)).toBe(true)
   })
+
+  it('keeps a verified live voice available when stale staging cleanup fails', async () => {
+    const root = 'voices'
+    const live = join(root, voiceId)
+    const staging = `${live}.staging`
+    const fs = new MemoryVoiceFs(
+      (operation, first) => operation === 'remove' && first === staging
+    )
+    fs.seedVerified(live)
+    fs.directories.add(staging)
+    fs.files.set(join(staging, 'partial'), new Uint8Array([1]))
+
+    await expect(
+      recoverAtomicVoiceDirectory(root, voiceId, trusted, fs)
+    ).resolves.toMatchObject({
+      verified: true,
+      reason: expect.stringMatching(/stale staging cleanup failed/)
+    })
+    await expect(
+      verifyTrustedVoiceDirectory(live, voiceId, trusted, fs)
+    ).resolves.toMatchObject({ verified: true })
+    expect(await fs.exists(staging)).toBe(true)
+  })
 })

@@ -262,6 +262,30 @@ async function recoverAtomicVoiceDirectoryUnlocked(
 ): Promise<VoiceDirectoryVerification> {
   const staging = `${live}.staging`
   const previous = `${live}.previous`
+  if (await dependencies.exists(live)) {
+    const verified = await verifyTrustedVoiceDirectory(
+      live,
+      voiceId,
+      trusted,
+      dependencies
+    )
+    if (verified.verified) {
+      await dependencies.remove(previous).catch(() => undefined)
+      try {
+        if (await dependencies.exists(staging)) {
+          await dependencies.remove(staging)
+        }
+        return verified
+      } catch (error) {
+        return {
+          verified: true,
+          reason: `Voice ${voiceId} is verified, but stale staging cleanup failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        }
+      }
+    }
+  }
   try {
     if (await dependencies.exists(staging)) {
       await dependencies.remove(staging)
@@ -272,18 +296,6 @@ async function recoverAtomicVoiceDirectoryUnlocked(
       reason: `Voice ${voiceId} staging recovery failed: ${
         error instanceof Error ? error.message : String(error)
       }`
-    }
-  }
-  if (await dependencies.exists(live)) {
-    const verified = await verifyTrustedVoiceDirectory(
-      live,
-      voiceId,
-      trusted,
-      dependencies
-    )
-    if (verified.verified) {
-      await dependencies.remove(previous).catch(() => undefined)
-      return verified
     }
   }
   if (await dependencies.exists(previous)) {

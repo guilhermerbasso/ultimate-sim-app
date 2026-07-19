@@ -8,7 +8,6 @@ import {
   rename,
   rm,
   stat,
-  unlink,
   writeFile
 } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
@@ -332,13 +331,14 @@ export function createFileStorage(baseDir: string): ConfigStorage {
     },
     async removeFile(relPath) {
       const full = resolveSafe(relPath)
-      try {
-        await unlink(full)
-        return true
-      } catch (error) {
-        if (isMissing(error)) return false
-        throw error
-      }
+      return withConfigFileLock(full, async () => {
+        const paths = [full, `${full}.staging`, `${full}.previous`]
+        const existed = await Promise.all(paths.map(pathExists))
+        for (const path of paths) {
+          await rm(path, { force: true })
+        }
+        return existed.some(Boolean)
+      })
     },
     async removeDirJson(relDir) {
       const dir = resolveSafe(relDir)
