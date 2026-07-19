@@ -37,7 +37,10 @@ export function isLoopbackObsHost(value: string): boolean {
   const host = value.toLowerCase()
   if (host === 'localhost') return true
   const ipVersion = isIP(host)
-  if (ipVersion === 6) return new URL(`http://[${host}]`).hostname === '[::1]'
+  if (ipVersion === 6) {
+    const canonicalHost = new URL(`http://[${host}]`).hostname
+    return canonicalHost === '::1' || canonicalHost === '[::1]'
+  }
   if (ipVersion !== 4) return false
   return host.startsWith('127.')
 }
