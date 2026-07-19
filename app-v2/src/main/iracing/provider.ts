@@ -896,6 +896,11 @@ export class IRacingProvider implements TelemetryProvider {
     const powerAdjustPct = optionalNum(values.PlayerCarPowerAdjust)
     const currentLap = optionalInt(values.Lap)
     const fuelLiters = optionalNum(values.FuelLevel)
+    const repairTimeSec = optionalNum(values.PitRepairLeft)
+    const optionalRepairTimeSec = optionalNum(values.PitOptRepairLeft)
+    const damagePct = repairTimeSec === undefined && optionalRepairTimeSec === undefined
+      ? undefined
+      : Math.min(1, Math.max(0, ((repairTimeSec ?? 0) + (optionalRepairTimeSec ?? 0)) / 600))
     const sessionTimeOfDay = optionalNum(values.SessionTimeOfDay)
     const pit = pitStatus(values)
     const tireColdPressuresKpa = coldPressures(values)
@@ -1044,6 +1049,7 @@ export class IRacingProvider implements TelemetryProvider {
       weightPenaltyKg,
       powerAdjustPct,
       fuelLiters,
+      fuelMassKg: fuelLiters === undefined ? undefined : fuelLiters * 0.75,
       fuelPerLap: fuelEstimate.fuelPerLapLiters,
       fuelPerLapLiters: fuelEstimate.fuelPerLapLiters,
       fuelLapsRemaining: fuelEstimate.fuelLapsRemaining,
@@ -1062,8 +1068,9 @@ export class IRacingProvider implements TelemetryProvider {
       onPitRoad: bool(values.OnPitRoad),
       pitServiceFlags: pitServiceFlags(values.PitSvFlags),
       pitFuelToAddL: optionalNum(values.PitSvFuel),
-      repairTimeSec: optionalNum(values.PitRepairLeft),
-      optionalRepairTimeSec: optionalNum(values.PitOptRepairLeft),
+      repairTimeSec,
+      optionalRepairTimeSec,
+      damagePct,
       pitStopActive: optionalBool(values.PitstopActive),
       pit,
       incidentCount: Math.trunc(num(incidentCountMy ?? incidentCountTeam, 0)),
