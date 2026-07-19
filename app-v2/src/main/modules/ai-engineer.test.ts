@@ -555,7 +555,9 @@ describe('createEngineerOrchestrator.ask', () => {
   it.each([
     'Define tyre compound.',
     'What does tyre compound mean?',
-    'Explain tyre pressure.'
+    'Explain tyre pressure.',
+    'Define tyre change.',
+    'What does tyre change mean?'
   ])('never sends explicit telemetry-noun definitions to the LLM: %s', async (question) => {
     const harness = makeHarness()
 
@@ -571,7 +573,9 @@ describe('createEngineerOrchestrator.ask', () => {
     'Give me explicit fuel data.',
     'How do I save fuel? Explain.',
     'Please save fuel and explain why.',
-    'What tyre pressure should I use? Explain.'
+    'What tyre pressure should I use? Explain.',
+    'Could you explain how to conserve fuel?',
+    'Please explain how to reduce tyre pressure.'
   ])('does not bypass caution safety through ordinary words: %s', async (question) => {
     const harness = makeHarness({
       racecraftContext: {

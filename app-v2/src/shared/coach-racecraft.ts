@@ -637,11 +637,17 @@ function definitionTopic(body: string): SafeInformationalTopic | null {
   return null
 }
 
-const DEFINITION_LIVE_CONTEXT =
-  /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|need to|then|and then|so i|into (?:turn|t\d+)|racing line|save|finish|pit|attack|pass|overtake the|change|use|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|como faco|como posso|devo|preciso|melhorar|economizar|terminar|trocar|usar|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|como puedo|debo|necesito|mejorar|cambiar|usar|vuelta \d+|mon|ma|dois je|ameliorer|changer|utiliser|tour \d+|virage \d+|mein|meine|wie ich|wie kann|soll ich|muss ich|wechseln|verwenden|runde \d+|kurve \d+)\b/
+const DEFINITION_PERSONAL_CONTEXT =
+  /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|then|and then|so i|into (?:turn|t\d+)|racing line|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|vuelta \d+|mon|ma|tour \d+|virage \d+|mein|meine|runde \d+|kurve \d+)\b/
+
+const DEFINITION_ACTION_CLAUSE =
+  /\b(?:how to|how i|how do|how should|should i|can i|could i|need to|want to|save fuel|conserve fuel|finish the race|pit now|attack (?:the )?|pass (?:the )?|overtake the|reduce (?:the )?(?:tyre |tire )?pressure|increase (?:the )?(?:tyre |tire )?pressure|set (?:the )?(?:tyre |tire )?pressure|change (?:the )?(?:tyre|tyres|tire|tires)|replace (?:the )?(?:tyre|tyres|tire|tires)|choose (?:a |the )?(?:tyre|tire|compound)|use (?:a |the )?(?:tyre|tire|compound)|como faco|como posso|devo|preciso|economizar combustivel|terminar a corrida|trocar (?:o |os )?pneus|reduzir (?:a )?pressao|aumentar (?:a )?pressao|usar (?:o |os )?pneus|como puedo|debo|necesito|ahorrar combustible|cambiar (?:el |los )?neumaticos|reducir (?:la )?presion|usar (?:el |los )?neumaticos|dois je|ameliorer|economiser (?:du )?carburant|changer (?:le |les )?pneus|reduire (?:la )?pression|utiliser (?:le |les )?pneus|wie ich|wie kann|soll ich|muss ich|kraftstoff sparen|reifen wechseln|reifendruck reduzieren|reifen verwenden)\b/
 
 function isPureDefinitionBody(body: string): boolean {
-  return !DEFINITION_LIVE_CONTEXT.test(body)
+  return (
+    !DEFINITION_PERSONAL_CONTEXT.test(body) &&
+    !DEFINITION_ACTION_CLAUSE.test(body)
+  )
 }
 
 export function parseDefinitionQuestion(question: string): ParsedDefinitionQuestion | null {

@@ -305,7 +305,9 @@ describe('racecraft question routing', () => {
   it.each([
     'Define tyre compound.',
     'What does tyre compound mean?',
-    'Explain tyre pressure.'
+    'Explain tyre pressure.',
+    'Define tyre change.',
+    'What does tyre change mean?'
   ])('keeps telemetry-noun definitions inside the controlled glossary: %s', (question) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
     expect(controlledDefinitionResponse(question, 'en-US')).toContain(
@@ -318,7 +320,9 @@ describe('racecraft question routing', () => {
     'Give me explicit fuel data.',
     'How do I save fuel? Explain.',
     'Please save fuel and explain why.',
-    'What tyre pressure should I use? Explain.'
+    'What tyre pressure should I use? Explain.',
+    'Could you explain how to conserve fuel?',
+    'Please explain how to reduce tyre pressure.'
   ])('does not mistake ordinary words for definition markers: %s', (question) => {
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
