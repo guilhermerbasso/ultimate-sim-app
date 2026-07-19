@@ -1,7 +1,20 @@
 import { createHash } from 'node:crypto'
 
-const FORBIDDEN_KEY = /(?:authorization|access.?token|refresh.?token|oauth|client.?secret|password|webhook.?url|stream.?key|private.?key|credential)/i
+const FORBIDDEN_NORMALIZED_KEY_FRAGMENT =
+  /(?:authorization|accesstoken|refreshtoken|authtoken|bearertoken|sessiontoken|idtoken|oauth|clientsecret|sharedsecret|signingsecret|webhooksecret|apisecret|password|passphrase|webhookurl|streamkey|privatekey|credential|apikey|apitoken)/
+const FORBIDDEN_COMMON_NORMALIZED_KEYS = new Set(['token', 'tokens', 'secret', 'secrets'])
 const FORBIDDEN_VALUE = /(?:\bbearer\s+[a-z0-9._~+/=-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+
+function isForbiddenCredentialKey(key: string): boolean {
+  const normalized = key
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+  return (
+    FORBIDDEN_COMMON_NORMALIZED_KEYS.has(normalized) ||
+    FORBIDDEN_NORMALIZED_KEY_FRAGMENT.test(normalized)
+  )
+}
 
 function normalizeForStableJson(value: unknown, seen: Set<object>): unknown {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return value
@@ -51,7 +64,7 @@ export function findCredentialMaterial(
   }
 
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (FORBIDDEN_KEY.test(key)) return `${path}.${key}`
+    if (isForbiddenCredentialKey(key)) return `${path}.${key}`
     const match = findCredentialMaterial(entry, `${path}.${key}`, seen)
     if (match) return match
   }

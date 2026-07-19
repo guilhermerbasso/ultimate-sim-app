@@ -127,6 +127,156 @@ function webhook(
   )
 }
 
+describe('credential material adversarial gates', () => {
+  it.each([
+    ['apiKey', 'ＡＰＩ＿ＫＥＹ'],
+    ['token', 'to\u200b_ken'],
+    ['secret', 'se--cret']
+  ] as const)('rejects a normalized nested %s key from outbound payloads', (label, key) => {
+    const target = connector('twitch')
+    const result = target.execute(
+      action(
+        'twitch',
+        'twitch.chat.write',
+        { envelope: [{ metadata: { [key]: 'fixture-value' } }] },
+        `nested-${label}`
+      ),
+      OPERATOR
+    )
+
+    expect(result).toMatchObject({
+      outcome: 'denied',
+      reasonCode: 'payload.credential_material'
+    })
+    expect(target.serializeAuditReceipts()).not.toContain('fixture-value')
+  })
+
+  it('rejects normalized credential keys nested in inbound arrays', () => {
+    const target = connector('twitch')
+    const fixture = createSignedMockWebhookFixture(
+      {
+        provider: 'twitch',
+        capabilityId: 'twitch.eventsub.ingest',
+        deliveryId: 'nested-credential-delivery',
+        eventId: 'nested-credential-event',
+        occurredAtMs: NOW,
+        body: JSON.stringify({
+          envelope: [{ metadata: { 'api--key': 'fixture-value' } }]
+        })
+      },
+      KEY_ID,
+      KEY_MATERIAL
+    )
+
+    expect(target.ingestFixture(fixture)).toMatchObject({
+      outcome: 'denied',
+      reasonCode: 'webhook.invalid_payload'
+    })
+    expect(target.serializeAuditReceipts()).not.toContain('fixture-value')
+  })
+})
+
+describe('webhook replay and event identity adversarial gates', () => {
+  it('keys replay protection by provider and delivery id before signature validation', () => {
+    const target = connector('discord')
+    const first = webhook(
+      'discord',
+      'discord.command.receive',
+      'original-event',
+      'shared-delivery'
+    )
+    const conflicting = createSignedMockWebhookFixture(
+      {
+        provider: 'discord',
+        capabilityId: 'discord.command.receive',
+        deliveryId: first.deliveryId,
+        eventId: 'conflicting-event',
+        occurredAtMs: NOW,
+        body: JSON.stringify({ eventId: 'conflicting-event', source: 'discord' })
+      },
+      KEY_ID,
+      KEY_MATERIAL
+    )
+
+    const accepted = target.ingestFixture(first)
+    expect(accepted.outcome).toBe('accepted')
+
+    for (const candidate of [
+      conflicting,
+      { ...conflicting, signature: 'sha256=invalid' }
+    ]) {
+      expect(target.ingestFixture(candidate)).toMatchObject({
+        outcome: 'denied',
+        reasonCode: 'webhook.delivery_conflict',
+        receipt: {
+          decision: 'denied',
+          replayedReceiptId: accepted.receipt.receiptId
+        }
+      })
+    }
+  })
+
+  it('scopes event deduplication by provider capability', () => {
+    const target = connector('twitch')
+
+    expect(
+      target.ingestFixture(
+        webhook(
+          'twitch',
+          'twitch.eventsub.ingest',
+          'shared-provider-event',
+          'eventsub-delivery'
+        )
+      ).outcome
+    ).toBe('accepted')
+    const differentCapability = target.ingestFixture(
+      webhook('twitch', 'twitch.chat.read', 'shared-provider-event', 'chat-delivery')
+    )
+
+    expect(differentCapability).toMatchObject({
+      outcome: 'accepted',
+      event: { capabilityId: 'twitch.chat.read' }
+    })
+  })
+
+  it('rejects conflicting content for the same provider capability event', () => {
+    const target = connector('twitch')
+    const first = webhook(
+      'twitch',
+      'twitch.eventsub.ingest',
+      'conflicting-event',
+      'conflicting-event-delivery-a'
+    )
+    const conflicting = createSignedMockWebhookFixture(
+      {
+        provider: 'twitch',
+        capabilityId: 'twitch.eventsub.ingest',
+        deliveryId: 'conflicting-event-delivery-b',
+        eventId: first.eventId,
+        occurredAtMs: first.occurredAtMs,
+        body: JSON.stringify({
+          eventId: first.eventId,
+          source: 'twitch',
+          variant: 'changed'
+        })
+      },
+      KEY_ID,
+      KEY_MATERIAL
+    )
+
+    const accepted = target.ingestFixture(first)
+    expect(accepted.outcome).toBe('accepted')
+    expect(target.ingestFixture(conflicting)).toMatchObject({
+      outcome: 'denied',
+      reasonCode: 'event.conflict',
+      receipt: {
+        decision: 'denied',
+        replayedReceiptId: accepted.receipt.receiptId
+      }
+    })
+  })
+})
+
 describe('approval and authenticated actor adversarial gates', () => {
   it('rejects cross-payload approval reuse without consuming the approval', () => {
     const target = connector('twitch')
@@ -240,11 +390,17 @@ describe('idempotency request fingerprinting', () => {
     )
 
     expect(first.outcome).toBe('simulated')
-    expect(duplicate.outcome).toBe(first.outcome)
-    expect(duplicate.reasonCode).toBe(first.reasonCode)
-    expect(duplicate.receipt).toEqual(first.receipt)
+    expect(duplicate.outcome).toBe('duplicate')
+    expect(duplicate.reasonCode).toBe('idempotency.duplicate')
     expect(duplicate.duplicate).toBe(true)
     expect(duplicate.mockProviderRef).toBe(first.mockProviderRef)
+    expect(duplicate.receipt).toMatchObject({
+      decision: 'duplicate',
+      reasonCode: 'idempotency.duplicate',
+      replayedReceiptId: first.receipt.receiptId,
+      mockProviderRef: first.mockProviderRef
+    })
+    expect(duplicate.receipt.receiptId).not.toBe(first.receipt.receiptId)
   })
 
   it('rejects mismatched idempotency-key reuse before consuming a new approval', () => {

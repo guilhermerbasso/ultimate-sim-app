@@ -299,7 +299,7 @@ describe('social connector authorization and delivery gates', () => {
     expect(target.execute(action, OPERATOR).reasonCode).toBe('policy.role_leak')
   })
 
-  it('returns the prior simulated result for a duplicate idempotency key without double quota use', () => {
+  it('returns a new duplicate receipt for an idempotency replay without double quota use', () => {
     const target = connector('twitch')
     const action = approve(
       target,
@@ -310,11 +310,17 @@ describe('social connector authorization and delivery gates', () => {
     const second = target.execute(action, OPERATOR)
 
     expect(first.outcome).toBe('simulated')
-    expect(second.outcome).toBe(first.outcome)
-    expect(second.reasonCode).toBe(first.reasonCode)
-    expect(second.receipt).toEqual(first.receipt)
+    expect(second.outcome).toBe('duplicate')
+    expect(second.reasonCode).toBe('idempotency.duplicate')
     expect(second.duplicate).toBe(true)
     expect(second.mockProviderRef).toBe(first.mockProviderRef)
+    expect(second.receipt).toMatchObject({
+      decision: 'duplicate',
+      reasonCode: 'idempotency.duplicate',
+      replayedReceiptId: first.receipt.receiptId,
+      mockProviderRef: first.mockProviderRef
+    })
+    expect(second.receipt.receiptId).not.toBe(first.receipt.receiptId)
     expect(target.getStatus().quota.remaining).toBe(99)
   })
 

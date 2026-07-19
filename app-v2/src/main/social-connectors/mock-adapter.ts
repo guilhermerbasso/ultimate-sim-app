@@ -93,11 +93,13 @@ interface StoredAction {
 }
 
 interface StoredWebhookDelivery {
+  readonly contentFingerprint: string
   readonly receiptId: string
   readonly expiresAtMs: number
 }
 
 interface StoredEvent {
+  readonly eventFingerprint: string
   readonly event: SocialInboundEventV1
   readonly receiptId: string
   readonly expiresAtMs: number
@@ -420,6 +422,38 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       payloadHash: socialHash(fixture.body),
       scopeStates: capabilityScopeStates(capability, this.#status)
     }
+    const deliveryKey = socialHash({
+      provider: fixture.provider,
+      deliveryId: fixture.deliveryId
+    })
+    const deliveryContentFingerprint = socialHash({
+      schema: fixture.schema,
+      contractVersion: fixture.contractVersion,
+      provider: fixture.provider,
+      capabilityId: fixture.capabilityId,
+      deliveryId: fixture.deliveryId,
+      eventId: fixture.eventId,
+      occurredAtMs: fixture.occurredAtMs,
+      keyId: fixture.keyId,
+      algorithm: fixture.algorithm,
+      body: fixture.body
+    })
+    const replayedDelivery = this.#webhookDeliveries.get(deliveryKey)
+    if (replayedDelivery) {
+      if (replayedDelivery.contentFingerprint !== deliveryContentFingerprint) {
+        return this.#inboundDenied(
+          { ...baseReceipt, replayedReceiptId: replayedDelivery.receiptId },
+          'webhook.delivery_conflict'
+        )
+      }
+      const receipt = this.#recordReceipt({
+        ...baseReceipt,
+        decision: 'replay',
+        reasonCode: 'webhook.replay',
+        replayedReceiptId: replayedDelivery.receiptId
+      })
+      return { outcome: 'replay', reasonCode: 'webhook.replay', receipt }
+    }
 
     if (!Number.isFinite(fixture.occurredAtMs)) {
       return this.#inboundDenied(baseReceipt, 'validation.non_finite_time')
@@ -444,21 +478,6 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       return this.#inboundDenied(baseReceipt, 'webhook.invalid_signature')
     }
 
-    const deliveryKey = socialHash({
-      provider: fixture.provider,
-      deliveryId: fixture.deliveryId,
-      signature: fixture.signature
-    })
-    const replayedDelivery = this.#webhookDeliveries.get(deliveryKey)
-    if (replayedDelivery) {
-      const receipt = this.#recordReceipt({
-        ...baseReceipt,
-        decision: 'replay',
-        reasonCode: 'webhook.replay',
-        replayedReceiptId: replayedDelivery.receiptId
-      })
-      return { outcome: 'replay', reasonCode: 'webhook.replay', receipt }
-    }
     if (this.#webhookDeliveries.size >= this.#storageLimits.maxWebhookDeliveries) {
       return this.#inboundDenied(baseReceipt, 'storage.replay_capacity')
     }
@@ -466,7 +485,12 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     const accessFailure = this.#capabilityAccessFailure(capability)
     if (accessFailure) {
       const denied = this.#inboundDenied(baseReceipt, accessFailure)
-      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
+      this.#storeWebhookDelivery(
+        deliveryKey,
+        deliveryContentFingerprint,
+        denied.receipt.receiptId,
+        nowMs
+      )
       return denied
     }
 
@@ -481,7 +505,12 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
         { ...baseReceipt, retryAfterMs },
         'rate_limit.exceeded'
       )
-      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
+      this.#storeWebhookDelivery(
+        deliveryKey,
+        deliveryContentFingerprint,
+        denied.receipt.receiptId,
+        nowMs
+      )
       return denied
     }
     rateWindow.used += 1
@@ -494,20 +523,55 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       providerPayload = cloneSocialValue(parsed)
     } catch {
       const denied = this.#inboundDenied(baseReceipt, 'webhook.invalid_payload')
-      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
+      this.#storeWebhookDelivery(
+        deliveryKey,
+        deliveryContentFingerprint,
+        denied.receipt.receiptId,
+        nowMs
+      )
       return denied
     }
 
-    const eventKey = `${fixture.provider}:${fixture.eventId}`
+    const providerPayloadHash = socialHash(providerPayload)
+    const eventKey = socialHash({
+      provider: fixture.provider,
+      capabilityId: fixture.capabilityId,
+      eventId: fixture.eventId
+    })
+    const eventFingerprint = socialHash({
+      provider: fixture.provider,
+      capabilityId: fixture.capabilityId,
+      eventId: fixture.eventId,
+      occurredAtMs: fixture.occurredAtMs,
+      providerPayloadHash
+    })
     const existing = this.#events.get(eventKey)
     if (existing) {
+      if (existing.eventFingerprint !== eventFingerprint) {
+        const denied = this.#inboundDenied(
+          { ...baseReceipt, replayedReceiptId: existing.receiptId },
+          'event.conflict'
+        )
+        this.#storeWebhookDelivery(
+          deliveryKey,
+          deliveryContentFingerprint,
+          denied.receipt.receiptId,
+          nowMs
+        )
+        return denied
+      }
       const receipt = this.#recordReceipt({
         ...baseReceipt,
         decision: 'duplicate',
         reasonCode: 'event.duplicate',
         replayedReceiptId: existing.receiptId
       })
-      this.#storeWebhookDelivery(deliveryKey, receipt.receiptId, nowMs)
+      this.#storeWebhookDelivery(
+        deliveryKey,
+        deliveryContentFingerprint,
+        receipt.receiptId,
+        nowMs
+      )
       return {
         outcome: 'duplicate',
         reasonCode: 'event.duplicate',
@@ -517,7 +581,12 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     }
     if (this.#events.size >= this.#storageLimits.maxEvents) {
       const denied = this.#inboundDenied(baseReceipt, 'storage.event_capacity')
-      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
+      this.#storeWebhookDelivery(
+        deliveryKey,
+        deliveryContentFingerprint,
+        denied.receipt.receiptId,
+        nowMs
+      )
       return denied
     }
 
@@ -529,15 +598,20 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       occurredAtMs: fixture.occurredAtMs,
       receivedAtMs: nowMs,
       providerPayload,
-      providerPayloadHash: socialHash(providerPayload)
+      providerPayloadHash
     }
     const receipt = this.#recordReceipt({
       ...baseReceipt,
       decision: 'accepted',
       reasonCode: 'fixture.accepted'
     })
-    this.#storeEvent(eventKey, event, receipt.receiptId, nowMs)
-    this.#storeWebhookDelivery(deliveryKey, receipt.receiptId, nowMs)
+    this.#storeEvent(eventKey, eventFingerprint, event, receipt.receiptId, nowMs)
+    this.#storeWebhookDelivery(
+      deliveryKey,
+      deliveryContentFingerprint,
+      receipt.receiptId,
+      nowMs
+    )
     return {
       outcome: 'accepted',
       reasonCode: 'fixture.accepted',
@@ -630,7 +704,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       if (existing.requestFingerprint !== requestFingerprint) {
         return this.#actionDenied(fingerprintedReceipt, 'idempotency.mismatch')
       }
-      this.#recordReceipt({
+      const receipt = this.#recordReceipt({
         ...fingerprintedReceipt,
         decision: 'duplicate',
         reasonCode: 'idempotency.duplicate',
@@ -638,8 +712,11 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
         mockProviderRef: existing.result.mockProviderRef
       })
       return {
-        ...cloneSocialValue(existing.result),
-        duplicate: true
+        outcome: 'duplicate',
+        reasonCode: 'idempotency.duplicate',
+        duplicate: true,
+        mockProviderRef: existing.result.mockProviderRef,
+        receipt
       }
     }
 
@@ -1012,7 +1089,12 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     return nowMs
   }
 
-  #storeWebhookDelivery(key: string, receiptId: string, nowMs: number): void {
+  #storeWebhookDelivery(
+    key: string,
+    contentFingerprint: string,
+    receiptId: string,
+    nowMs: number
+  ): void {
     if (
       !this.#webhookDeliveries.has(key) &&
       this.#webhookDeliveries.size >= this.#storageLimits.maxWebhookDeliveries
@@ -1020,6 +1102,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       throw new Error('Webhook replay storage capacity exceeded')
     }
     this.#webhookDeliveries.set(key, {
+      contentFingerprint,
       receiptId,
       expiresAtMs: finiteExpiry(
         nowMs,
@@ -1031,6 +1114,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
 
   #storeEvent(
     key: string,
+    eventFingerprint: string,
     event: SocialInboundEventV1,
     receiptId: string,
     nowMs: number
@@ -1039,6 +1123,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       throw new Error('Event dedupe storage capacity exceeded')
     }
     this.#events.set(key, {
+      eventFingerprint,
       event: cloneSocialValue(event),
       receiptId,
       expiresAtMs: finiteExpiry(nowMs, this.#storageLimits.eventRetentionMs, 'event.expiresAtMs')
