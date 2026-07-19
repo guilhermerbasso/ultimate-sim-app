@@ -13,7 +13,8 @@ import {
   MAX_RACECRAFT_SPEECH_LENGTH,
   safeInformationalDefinition,
   type CoachAdviceLanguage,
-  type RacecraftAdviceContext
+  type RacecraftAdviceContext,
+  type RacecraftSafetyReason
 } from '../../shared/coach-racecraft'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { captureLiveTelemetryContext } from '../../shared/replay'
@@ -34,6 +35,7 @@ import {
 import {
   adaptEngineerTools,
   createEngineerOrchestrator,
+  engineerSafetyAllowsIntent,
   type EngineerOrchestratorDeps,
   generationParams
 } from './ai-engineer'
@@ -205,6 +207,51 @@ function racecraftFinding(overrides: Partial<CoachFinding> = {}): CoachFinding {
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe('engineerSafetyAllowsIntent', () => {
+  const reasons: RacecraftSafetyReason[] = [
+    'yellow-flag',
+    'blue-flag',
+    'red-flag',
+    'black-flag',
+    'meatball',
+    'repair',
+    'disqualify',
+    'checkered',
+    'race-control-unknown',
+    'overlap',
+    'proximity',
+    'caution',
+    'pacing',
+    'pit',
+    'replay',
+    'non-racing',
+    'not-on-track'
+  ]
+  const intents = [
+    'definition',
+    'fuel-quantity',
+    'position',
+    'tyres',
+    'weather',
+    'laps',
+    'other'
+  ] as const
+
+  it('implements the complete default-deny safety-reason by intent matrix', () => {
+    for (const reason of reasons) {
+      for (const intent of intents) {
+        const expected =
+          (reason === 'yellow-flag' || reason === 'caution' || reason === 'pacing') &&
+          intent !== 'other'
+        expect(engineerSafetyAllowsIntent(reason, intent), `${reason}/${intent}`).toBe(expected)
+      }
+    }
+    for (const intent of intents) {
+      expect(engineerSafetyAllowsIntent(undefined, intent), `safe/${intent}`).toBe(true)
+    }
+  })
+})
 
 describe('createEngineerOrchestrator.ask', () => {
   let h: Harness
@@ -378,6 +425,31 @@ describe('createEngineerOrchestrator.ask', () => {
       expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     }
   )
+
+  it.each([
+    ['blue flag', { ...KNOWN_SAFE_RACE, flagBlue: true }],
+    ['overlap', { ...KNOWN_SAFE_RACE, carLeftRight: 'left' as const }],
+    ['proximity', { ...KNOWN_SAFE_RACE, gapAheadSec: 0.2 }]
+  ])('preempts normal telemetry speech during urgent %s', async (_label, safety) => {
+    const harness = makeHarness({
+      snapshot: {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        fuelLiters: 34.2,
+        fuelPerLap: 2.1
+      } as TelemetrySnapshot,
+      racecraftContext: { safety }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask('How much fuel?')
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('TACTICS PAUSED')
+    expect(answer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
 
   it.each([
     ['yellow', { flagYellow: true }, 'Can I pass on the next corner?', 'TACTICS PAUSED'],
@@ -612,7 +684,12 @@ describe('createEngineerOrchestrator.ask', () => {
     'Should I save fuel?',
     'Should I pit for fuel?',
     'What fuel target should I use?',
-    'How much fuel should I add?'
+    'How much fuel should I add?',
+    'How much fuel for the end?',
+    'What is my fuel level for ten laps?',
+    'Fuel consumption until checkered.',
+    'Fuel per lap target.',
+    'Current fuel and save strategy.'
   ])('pauses fuel strategy/action intent under yellow: %s', async (question) => {
     const harness = makeHarness({
       snapshot: {

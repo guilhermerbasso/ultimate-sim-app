@@ -360,6 +360,15 @@ function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: Un
     const corner = tyres[id]
     if (!corner) continue
     const bits: string[] = []
+    if (isFiniteNum(corner.pressureKpa)) {
+      bits.push(
+        formatMeasurement(corner.pressureKpa, 'pressure-kpa', unitSystem, {
+          decimals: 1,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      )
+    }
     if (isFiniteNum(corner.tempC)) bits.push(formatMeasurement(corner.tempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display)
     if (isFiniteNum(corner.wearPct)) bits.push(`${corner.wearPct}%`)
     if (bits.length) parts.push(`${id.toUpperCase()} ${bits.join(' ')}`)
@@ -374,9 +383,12 @@ function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: Un
 function buildWeatherAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: UnitSystem): string {
   const w = deriveWeather(ctx.getSnapshot())
   const pt = lang === 'pt'
-  const wet = w.declaredWet === true || w.raining === true || (isFiniteNum(w.wetnessPct) && w.wetnessPct >= 15)
   const parts: string[] = []
-  parts.push(wet ? (pt ? 'Pista molhada' : 'Track is wet') : (pt ? 'Pista seca' : 'Track is dry'))
+  if (w.condition === 'dry') parts.push(pt ? 'Pista seca' : 'Track is dry')
+  else if (w.condition === 'wet') parts.push(pt ? 'Pista molhada' : 'Track is wet')
+  else if (w.condition === 'intermediate') parts.push(pt ? 'Pista úmida' : 'Track is damp')
+  else if (w.condition === 'drying') parts.push(pt ? 'Pista secando' : 'Track is drying')
+  else parts.push(pt ? 'Condição da pista desconhecida' : 'Track surface is unknown')
   if (isFiniteNum(w.wetnessPct)) parts.push(pt ? `umidade ${w.wetnessPct}%` : `${w.wetnessPct}% wet`)
   if (isFiniteNum(w.airTempC)) parts.push(`${pt ? 'ar' : 'air'} ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
   if (isFiniteNum(w.trackTempC)) parts.push(`${pt ? 'pista' : 'track'} ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)

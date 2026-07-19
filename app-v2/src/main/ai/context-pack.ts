@@ -29,6 +29,7 @@ import type {
   SessionPhase
 } from '../../shared/ai-engineer'
 import { formatMeasurement, type UnitSystem } from '../../shared/units'
+import { classifyTrackWetness } from '../../shared/track-wetness'
 import type { CoachFinding, CoachTip } from '../../shared/coach'
 import { groundedFindingText } from '../../shared/coach'
 import type { FuelStrategyState } from '../../shared/fuel'
@@ -248,7 +249,12 @@ export function deriveWeather(snapshot: TelemetrySnapshot | null): PackWeather {
     wetnessPct: wetness,
     raining: typeof snapshot?.isRaining === 'boolean' ? snapshot?.isRaining : undefined,
     declaredWet: typeof snapshot?.weatherDeclaredWet === 'boolean' ? snapshot?.weatherDeclaredWet : undefined,
-    surface: trackSurfaceMaterialLabel(snapshot?.trackSurfaceMaterial)
+    surface: trackSurfaceMaterialLabel(snapshot?.trackSurfaceMaterial),
+    condition: classifyTrackWetness({
+      trackWetnessPct: snapshot?.trackWetnessPct,
+      isRaining: snapshot?.isRaining,
+      weatherDeclaredWet: snapshot?.weatherDeclaredWet
+    })
   }
 }
 
@@ -549,8 +555,17 @@ function renderLines(pack: ContextPack, unitSystem: UnitSystem): string[] {
     const parts: string[] = []
     if (isFiniteNum(w.airTempC)) parts.push(`air ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
     if (isFiniteNum(w.trackTempC)) parts.push(`track ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
-    const wet = w.declaredWet || w.raining === true || (isFiniteNum(w.wetnessPct) && w.wetnessPct >= 15)
-    parts.push(wet ? `wet${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}` : 'dry')
+    if (w.condition === 'dry') {
+      parts.push('dry')
+    } else if (w.condition === 'wet') {
+      parts.push(`wet${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}`)
+    } else if (w.condition === 'intermediate') {
+      parts.push(`damp${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}`)
+    } else if (w.condition === 'drying') {
+      parts.push(`drying${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}`)
+    } else {
+      parts.push('surface unknown')
+    }
     if (w.surface) parts.push(w.surface)
     lines.push(`WEATHER: ${parts.join(' · ')}`)
   }

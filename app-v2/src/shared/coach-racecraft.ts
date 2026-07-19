@@ -19,11 +19,16 @@ import type {
 import { sessionKindForSnapshot, sessionKindFromText } from './telemetry'
 import { formatMeasurement, type UnitSystem } from './units'
 import type { LiveTelemetryContext } from './replay'
+import {
+  classifyTrackWetness,
+  type TrackWetnessInput,
+  type TrackWetnessState
+} from './track-wetness'
 
 export type RacecraftQuestionIntent = 'overtake' | 'pull-away'
 export type RacecraftAdviceMode = 'overtake' | 'defend' | 'lap-improvement' | 'suppressed'
 export type RacecraftGapTrend = 'closing' | 'opening' | 'stable' | 'unknown'
-export type CoachTrackCondition = 'dry' | 'intermediate' | 'wet' | 'drying' | 'unknown'
+export type CoachTrackCondition = TrackWetnessState
 export type CoachAdviceLanguage = 'en-US' | 'pt-BR' | 'es' | 'fr' | 'de' | 'zh' | 'ja'
 export type RacecraftEvidenceSource = 'current-lap' | 'history'
 export type CoachLapVerification = 'verified-clean' | 'unverified'
@@ -326,28 +331,8 @@ function playerDriver(snapshot: TelemetrySnapshot | null | undefined) {
   )
 }
 
-export function classifyCoachTrackCondition(input: {
-  trackWetnessPct?: number
-  isRaining?: boolean
-  weatherDeclaredWet?: boolean
-  previousTrackWetnessPct?: number
-}): CoachTrackCondition {
-  const hasWetness = finite(input.trackWetnessPct)
-  const hasPositiveWeatherSignal = input.isRaining === true || input.weatherDeclaredWet === true
-  if (!hasWetness && !hasPositiveWeatherSignal) return 'unknown'
-  const wetness = hasWetness ? Math.max(0, Math.min(1, input.trackWetnessPct as number)) : 0
-  const wasWetter =
-    finite(input.previousTrackWetnessPct) && input.previousTrackWetnessPct - wetness >= 0.03
-  if (
-    input.isRaining !== true &&
-    wetness > 0.03 &&
-    (wasWetter || input.weatherDeclaredWet === true)
-  ) {
-    return 'drying'
-  }
-  if (wetness >= 0.6 || (input.isRaining === true && wetness >= 0.35)) return 'wet'
-  if (wetness >= 0.08 || input.isRaining === true || input.weatherDeclaredWet === true) return 'intermediate'
-  return 'dry'
+export function classifyCoachTrackCondition(input: TrackWetnessInput): CoachTrackCondition {
+  return classifyTrackWetness(input)
 }
 
 export function coachComparableIdentityFromSnapshot(
@@ -608,36 +593,6 @@ export interface DetectedRacecraftQuestion {
   language: CoachAdviceLanguage
 }
 
-function isPurelyInformationalRacecraftQuestion(question: string): boolean {
-  const informational =
-    /\b(what is|what are|define|meaning of|explain the term|tell me about the concept|o que e|que significa|qu est ce que|was ist)\b/.test(question)
-  if (!informational) return false
-  return !/\b(can i|should i|could i|may i|do i|would it|when should|where should|how to|best way|next|now|this lap|restart|corner|turn|hairpin|chicane|t\d+|car ahead|opponent)\b/.test(question)
-}
-
-export function isExplicitSafeInformationalQuestion(question: string): boolean {
-  const q = normalize(question)
-    .replace(/[’']/g, ' ')
-    .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (!q) return false
-  const englishTopic =
-    '(?:understeer|oversteer|abs|anti lock braking|traction control|yellow flag|safety car|overtake)'
-  const english = new RegExp(
-    `^(?:(?:what is|define) (?:an? |the )?${englishTopic}|` +
-    `explain (?:the )?(?:(?:term|concept|meaning of) )?(?:an? |the )?${englishTopic}|` +
-    `what does (?:the )?${englishTopic} (?:mean|do)|` +
-    `tell me what (?:the )?${englishTopic} means)$`
-  )
-  if (english.test(q)) return true
-  return /^(?:o que e|defina|explique(?: o (?:termo|conceito))?) (?:a |o )?(?:subviragem|sobreviragem|abs|controle de tracao|bandeira amarela|safety car|ultrapassagem)$/.test(q) ||
-    /^(?:que es|define|explica(?: el (?:termino|concepto))?) (?:el |la )?(?:subviraje|sobreviraje|abs|control de traccion|bandera amarilla|coche de seguridad|adelantamiento)$/.test(q) ||
-    /^(?:qu est ce que|definis|explique(?: le (?:terme|concept))?) (?:le |la |un |une )?(?:sous virage|survirage|abs|controle de traction|drapeau jaune|voiture de securite|depassement)$/.test(q) ||
-    /^(?:was ist|definiere|erklare(?: den (?:begriff|konzept))?) (?:der |die |das |ein )?(?:untersteuern|ubersteuern|abs|traktionskontrolle|gelbe flagge|sicherheitsauto|safety car|uberholvorgang)$/.test(q) ||
-    /^(?:(?:转向不足|转向过度|防抱死|牵引力控制|黄旗|安全车)(?:是什么|是什么意思)|(?:アンダーステア|オーバーステア|イエローフラッグ|セーフティカー)とは(?:何)?)$/.test(q)
-}
-
 type SafeInformationalTopic =
   | 'understeer'
   | 'oversteer'
@@ -647,17 +602,162 @@ type SafeInformationalTopic =
   | 'safety-car'
   | 'overtake'
 
-function safeInformationalTopic(question: string): SafeInformationalTopic | null {
-  if (!isExplicitSafeInformationalQuestion(question)) return null
-  const q = normalize(question)
-  if (/(understeer|subviragem|subviraje|sous virage|untersteuern|转向不足|アンダーステア)/.test(q)) return 'understeer'
-  if (/(oversteer|sobreviragem|sobreviraje|survirage|ubersteuern|转向过度|オーバーステア)/.test(q)) return 'oversteer'
-  if (/\b(abs|anti lock braking)\b|防抱死/.test(q)) return 'abs'
-  if (/(traction control|controle de tracao|control de traccion|controle de traction|traktionskontrolle|牵引力控制)/.test(q)) return 'traction-control'
-  if (/(yellow flag|bandeira amarela|bandera amarilla|drapeau jaune|gelbe flagge|黄旗|イエローフラッグ)/.test(q)) return 'yellow-flag'
-  if (/(safety car|coche de seguridad|voiture de securite|sicherheitsauto|安全车|セーフティカー)/.test(q)) return 'safety-car'
-  if (/(overtake|ultrapassagem|adelantamiento|depassement|uberholvorgang)/.test(q)) return 'overtake'
+export interface ParsedDefinitionQuestion {
+  language: CoachAdviceLanguage
+  body: string
+  topic: SafeInformationalTopic | null
+  pure: boolean
+  command: boolean
+}
+
+function definitionTopic(body: string): SafeInformationalTopic | null {
+  const q = body
+    .replace(/^(?:an?|the|o|a|el|la|le|un|une|der|die|das|ein)\s+/u, '')
+    .trim()
+  if (/^(?:understeer|subviragem|subviraje|sous virage|untersteuern|转向不足|アンダーステア)$/.test(q)) return 'understeer'
+  if (/^(?:oversteer|sobreviragem|sobreviraje|survirage|ubersteuern|转向过度|オーバーステア)$/.test(q)) return 'oversteer'
+  if (/^(?:abs|anti lock braking|防抱死)$/.test(q)) return 'abs'
+  if (/^(?:traction control|controle de tracao|control de traccion|controle de traction|traktionskontrolle|牵引力控制)$/.test(q)) return 'traction-control'
+  if (/^(?:yellow flag|bandeira amarela|bandera amarilla|drapeau jaune|gelbe flagge|黄旗|イエローフラッグ)$/.test(q)) return 'yellow-flag'
+  if (/^(?:safety car|coche de seguridad|voiture de securite|sicherheitsauto|安全车|セーフティカー)$/.test(q)) return 'safety-car'
+  if (/^(?:overtake|ultrapassagem|adelantamiento|depassement|uberholvorgang)$/.test(q)) return 'overtake'
   return null
+}
+
+export function parseDefinitionQuestion(question: string): ParsedDefinitionQuestion | null {
+  const q = normalize(question)
+    .replace(/[’']/g, ' ')
+    .replace(/[.?？。！!]+$/u, '')
+    .replace(/[:：-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!q) return null
+  const forms: ReadonlyArray<{
+    language: CoachAdviceLanguage
+    command: boolean
+    patterns: readonly RegExp[]
+  }> = [
+    {
+      language: 'en-US',
+      command: true,
+      patterns: [
+        /^(?:define|definition(?: of)?|give me (?:the )?definition of|meaning of) (.+)$/,
+        /^explain (?:the )?(?:(?:term|concept|meaning of) )?(.+)$/,
+        /^tell me about (?:the )?concept(?: of)? (.+)$/
+      ]
+    },
+    {
+      language: 'en-US',
+      command: false,
+      patterns: [
+        /^what (?:is|are) (.+)$/,
+        /^what does (.+) (?:mean|do)$/,
+        /^tell me what (.+) means$/
+      ]
+    },
+    {
+      language: 'pt-BR',
+      command: true,
+      patterns: [
+        /^(?:defina|definicao de|significado de) (.+)$/,
+        /^explique (?:o )?(?:(?:termo|conceito|significado de) )?(.+)$/,
+        /^fale sobre (?:o )?conceito(?: de)? (.+)$/
+      ]
+    },
+    {
+      language: 'pt-BR',
+      command: false,
+      patterns: [/^o que e (.+)$/, /^que significa (.+)$/]
+    },
+    {
+      language: 'es',
+      command: true,
+      patterns: [
+        /^(?:define|definicion de|significado de) (.+)$/,
+        /^explica (?:el )?(?:(?:termino|concepto|significado de) )?(.+)$/,
+        /^hablame del concepto(?: de)? (.+)$/
+      ]
+    },
+    {
+      language: 'es',
+      command: false,
+      patterns: [/^que es (.+)$/, /^que significa (.+)$/]
+    },
+    {
+      language: 'fr',
+      command: true,
+      patterns: [
+        /^(?:definis|definition de|signification de) (.+)$/,
+        /^explique (?:le )?(?:(?:terme|concept|sens de) )?(.+)$/,
+        /^parle moi du concept(?: de)? (.+)$/
+      ]
+    },
+    {
+      language: 'fr',
+      command: false,
+      patterns: [/^qu est ce que (.+)$/, /^que signifie (.+)$/]
+    },
+    {
+      language: 'de',
+      command: true,
+      patterns: [
+        /^(?:definiere|definition von|bedeutung von) (.+)$/,
+        /^erklare (?:den )?(?:(?:begriff|konzept|bedeutung von) )?(.+)$/,
+        /^erzahl mir vom konzept(?: von)? (.+)$/
+      ]
+    },
+    {
+      language: 'de',
+      command: false,
+      patterns: [/^was ist (.+)$/, /^was bedeutet (.+)$/]
+    },
+    {
+      language: 'zh',
+      command: false,
+      patterns: [/^(.+?)(?:是什么|是什么意思|的定义是什么|含义是什么)$/]
+    },
+    {
+      language: 'zh',
+      command: true,
+      patterns: [/^定义(.+)$/]
+    },
+    {
+      language: 'ja',
+      command: false,
+      patterns: [/^(.+?)(?:とは|とは何|の定義は|の意味は)$/]
+    },
+    {
+      language: 'ja',
+      command: true,
+      patterns: [/^(.+?)を定義して$/]
+    }
+  ]
+  for (const form of forms) {
+    for (const pattern of form.patterns) {
+      const match = pattern.exec(q)
+      if (!match) continue
+      const body = match[1]?.trim() ?? ''
+      const pure = !/\b(my|current|next|now|this lap|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the)\b/.test(body)
+      return {
+        language: form.language,
+        body,
+        topic: pure ? definitionTopic(body) : null,
+        pure,
+        command: form.command
+      }
+    }
+  }
+  return null
+}
+
+export function isExplicitSafeInformationalQuestion(question: string): boolean {
+  const parsed = parseDefinitionQuestion(question)
+  return parsed?.pure === true && parsed.topic !== null
+}
+
+function safeInformationalTopic(question: string): SafeInformationalTopic | null {
+  const parsed = parseDefinitionQuestion(question)
+  return parsed?.pure === true ? parsed.topic : null
 }
 
 export function safeInformationalDefinition(
@@ -738,16 +838,11 @@ export function controlledDefinitionResponse(
   question: string,
   language: CoachAdviceLanguage
 ): string | null {
-  const supported = safeInformationalDefinition(question, language)
-  if (supported) return supported
-  const q = normalize(question)
-    .replace(/[’']/g, ' ')
-    .replace(/[?？。！!]+$/u, '')
-    .trim()
-  const definitionForm =
-    isExplicitDefinitionCommand(question) ||
-    /^(?:what (?:is|are)|what does .+ mean|tell me what .+ means|o que e|que es|qu est ce que|was ist)\b/.test(q)
-  if (!definitionForm) return null
+  const parsed = parseDefinitionQuestion(question)
+  if (!parsed) return null
+  if (parsed.pure && parsed.topic) {
+    return safeInformationalDefinition(question, language)
+  }
   return localized(language, {
     'en-US': 'That topic is not available in the controlled glossary yet.',
     'pt-BR': 'Esse tema ainda não está disponível no glossário controlado.',
@@ -760,31 +855,17 @@ export function controlledDefinitionResponse(
 }
 
 export function isExplicitDefinitionCommand(question: string): boolean {
-  const q = normalize(question)
-    .replace(/[’']/g, ' ')
-    .replace(/[?？。！!]+$/u, '')
-    .trim()
-  return /^(?:define|explain|defina|explique|explica|definis|definiere|erklare)\b/.test(q) ||
-    /(?:是什么|是什么意思|とは何|とは)$/.test(q)
+  return parseDefinitionQuestion(question)?.command === true
 }
 
 export function isPureDefinitionRequest(question: string): boolean {
-  const q = normalize(question)
-    .replace(/[’']/g, ' ')
-    .replace(/[?？。！!]+$/u, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  const definitionForm =
-    isExplicitDefinitionCommand(question) ||
-    /^(?:what (?:is|are)|what does .+ mean|tell me what .+ means|o que e|que es|qu est ce que|was ist)\b/.test(q)
-  if (!definitionForm) return false
-  return !/\b(my|current|next|now|this lap|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the)\b/.test(q)
+  return parseDefinitionQuestion(question)?.pure === true
 }
 
 export function detectRacecraftQuestionWithLanguage(question: string): DetectedRacecraftQuestion | null {
   const q = normalize(question).replace(/[’']/g, ' ')
   if (!q) return null
-  if (isPurelyInformationalRacecraftQuestion(q)) return null
+  if (parseDefinitionQuestion(question)?.pure === true) return null
   const patterns: ReadonlyArray<{
     language: CoachAdviceLanguage
     overtake: RegExp
@@ -868,7 +949,7 @@ export function detectRacecraftLikeQuestionLanguage(
     const tacticalContext =
       /\b(can i|should i|could i|may i|do i|would it|is there|when|where|how|next|now|this lap|restart|corner|turn|hairpin|chicane|t\d+|car|opponent|driver|him|her|them|inside|outside|porta|curva|carro|coche|virage|voiture|auto|kurve)\b/.test(q) ||
       /(前车|后车|弯|コーナー|前車|後続車)/.test(q)
-    const purelyInformational = isPurelyInformationalRacecraftQuestion(q)
+    const purelyInformational = parseDefinitionQuestion(question)?.pure === true
     if (!purelyInformational || tacticalContext) return localized[0]
   }
   const compactAction =

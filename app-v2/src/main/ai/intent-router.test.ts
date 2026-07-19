@@ -196,12 +196,66 @@ describe('routeIntent -- PT-BR questions', () => {
     expect(r.text).toContain('RF')
   })
 
+  it('includes available tyre pressures with temperatures and wear', () => {
+    const r = routeIntent(
+      'How are the tires?',
+      ctx(snapshot({
+        tyres: {
+          lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 },
+          rf: { pressureKpa: 181.2, tempC: 95, wearPct: 0.85 },
+          lr: { pressureKpa: 178.4, tempC: 86, wearPct: 0.9 },
+          rr: { pressureKpa: 179.6, tempC: 90, wearPct: 0.89 }
+        }
+      }))
+    )
+    expect(r.type).toBe('answer')
+    if (r.type !== 'answer') return
+    for (const id of ['LF', 'RF', 'LR', 'RR']) expect(r.text).toContain(id)
+    expect(r.text).toContain('180 kPa')
+    expect(r.text).toContain('88 °C')
+    expect(r.text).toContain('92%')
+  })
+
+  it('formats partial tyre pressure data in imperial units without inventing missing corners', () => {
+    const r = routeIntent(
+      'How are the tires?',
+      ctx(snapshot({
+        tyres: {
+          lf: { pressureKpa: 180 },
+          rf: { tempC: 91 },
+          lr: { pressureKpa: Number.NaN },
+          rr: {}
+        }
+      })),
+      'en',
+      'imperial'
+    )
+    expect(r.type).toBe('answer')
+    if (r.type !== 'answer') return
+    expect(r.text).toContain('LF')
+    expect(r.text).toContain('psi')
+    expect(r.text).toContain('RF')
+    expect(r.text).toContain('°F')
+    expect(r.text).not.toContain('NaN')
+  })
+
   it('answers weather (is it raining?)', () => {
     const r = routeIntent('Is it raining?', ctx())
     expect(r.type).toBe('answer')
     if (r.type !== 'answer') return
     expect(r.category).toBe('weather')
     expect(r.text).toContain('Track')
+  })
+
+  it('reports unknown surface instead of dry when rain is false but wetness is absent', () => {
+    const r = routeIntent(
+      'Is it raining?',
+      ctx(snapshot({ isRaining: false, trackWetnessPct: undefined }))
+    )
+    expect(r.type).toBe('answer')
+    if (r.type !== 'answer') return
+    expect(r.text).toContain('Track surface is unknown')
+    expect(r.text).not.toContain('Track is dry')
   })
 
   it('phrases engineer telemetry in imperial units', () => {

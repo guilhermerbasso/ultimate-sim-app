@@ -16,6 +16,7 @@ import {
   MAX_QUALI_BRIEFING_LENGTH,
   MAX_RACECRAFT_ADVICE_LENGTH,
   MAX_RACECRAFT_SPEECH_LENGTH,
+  parseDefinitionQuestion,
   isCoachHistorySessionKind,
   racecraftSafetyFromSnapshot,
   racecraftSafetyReason,
@@ -245,6 +246,29 @@ describe('racecraft question routing', () => {
 
   it('does not classify ordinary free-form prose as a definition request', () => {
     expect(controlledDefinitionResponse('Tell me about my race.', 'en-US')).toBeNull()
+  })
+
+  it.each([
+    ['Definition of understeer', 'understeer'],
+    ['Meaning of oversteer', 'oversteer'],
+    ['Tell me about the concept of ABS', 'abs'],
+    ['What is traction control?', 'traction-control'],
+    ['Que significa bandera amarilla?', 'yellow-flag'],
+    ['O que é safety car?', 'safety-car']
+  ] as const)('parses localized definition form %s', (question, topic) => {
+    expect(parseDefinitionQuestion(question)).toMatchObject({
+      pure: true,
+      topic
+    })
+  })
+
+  it('parses tactical compound definitions once and marks them impure', () => {
+    expect(
+      parseDefinitionQuestion('Explain understeer then how I overtake the leader.')
+    ).toMatchObject({
+      pure: false,
+      topic: null
+    })
   })
 
   it.each([

@@ -108,6 +108,7 @@ export interface PackWeather {
   raining?: boolean
   declaredWet?: boolean
   surface?: string
+  condition?: import('./track-wetness').TrackWetnessState
 }
 
 export interface PackPit {

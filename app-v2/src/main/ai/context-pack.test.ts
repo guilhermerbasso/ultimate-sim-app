@@ -283,6 +283,25 @@ describe('buildContextPack', () => {
     expect(renderContextText(pack)).not.toContain('TYRES:')
   })
 
+  it('keeps surface wetness unknown when rain is false but no explicit surface evidence exists', () => {
+    const pack = buildContextPack(
+      snapshot({ isRaining: false, trackWetnessPct: undefined })
+    )
+    expect(pack.weather.condition).toBe('unknown')
+    const text = renderContextText(pack)
+    expect(text).toContain('WEATHER:')
+    expect(text).toContain('surface unknown')
+    expect(text).not.toContain('WEATHER: dry')
+  })
+
+  it('reports dry only from an explicit zero wetness measurement', () => {
+    const pack = buildContextPack(
+      snapshot({ isRaining: false, trackWetnessPct: 0 })
+    )
+    expect(pack.weather.condition).toBe('dry')
+    expect(renderContextText(pack)).toContain('dry')
+  })
+
   it('honours the render token budget by dropping events first', () => {
     const events = Array.from({ length: 10 }, (_, i) => ({ at: i, kind: 'note', text: `event number ${i} with some words` }))
     const pack = buildContextPack(snapshot(), { events, maxEvents: 10 })

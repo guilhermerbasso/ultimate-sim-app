@@ -105,17 +105,32 @@ const SAFE_DETERMINISTIC_INTENT_CATEGORIES = new Set<IntentCategory>([
   'weather',
   'laps'
 ])
-const CRITICAL_SAFETY_REASONS = new Set<RacecraftSafetyReason>([
-  'race-control-unknown',
-  'red-flag',
-  'black-flag',
-  'meatball',
-  'repair',
-  'disqualify',
-  'checkered',
-  'replay',
-  'not-on-track'
-])
+export type EngineerSafetyIntent =
+  | 'definition'
+  | 'fuel-quantity'
+  | 'position'
+  | 'tyres'
+  | 'weather'
+  | 'laps'
+  | 'other'
+
+export function engineerSafetyAllowsIntent(
+  reason: RacecraftSafetyReason | undefined,
+  intent: EngineerSafetyIntent
+): boolean {
+  if (reason === undefined) return true
+  if (reason !== 'yellow-flag' && reason !== 'caution' && reason !== 'pacing') {
+    return false
+  }
+  return (
+    intent === 'definition' ||
+    intent === 'fuel-quantity' ||
+    intent === 'position' ||
+    intent === 'tyres' ||
+    intent === 'weather' ||
+    intent === 'laps'
+  )
+}
 
 function isReadOnlyFuelQuantityQuestion(question: string): boolean {
   const q = question
@@ -125,10 +140,21 @@ function isReadOnlyFuelQuantityQuestion(question: string): boolean {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  if (
-    /\b(save|saving|finish|make it|pit|stop|target|add|need|strategy|margin|stretch|lift and coast|can we|should i)\b/.test(q)
-  ) return false
-  return /\b(how much fuel|current fuel|fuel level|fuel in the tank|fuel remaining|fuel consumption|fuel burn|fuel per lap|liters left|litres left|quanto combustivel|nivel de combustivel|consumo de combustivel|combustivel por volta)\b/.test(q)
+  const english = [
+    /^(?:fuel|current fuel|fuel level|fuel remaining|fuel in the tank)$/,
+    /^how much fuel(?: is left)?$/,
+    /^what (?:is|s) (?:my |the )?(?:current )?(?:fuel|fuel level|fuel remaining)$/,
+    /^(?:fuel consumption|fuel burn|fuel per lap)$/,
+    /^what (?:is|s) my (?:fuel consumption|fuel burn|fuel per lap)$/
+  ]
+  const portuguese = [
+    /^(?:combustivel|combustivel atual|nivel de combustivel|combustivel restante)$/,
+    /^quanto combustivel(?: resta)?$/,
+    /^qual (?:e )?o (?:meu )?(?:combustivel atual|nivel de combustivel|combustivel restante)$/,
+    /^(?:consumo de combustivel|combustivel por volta)$/,
+    /^qual (?:e )?o meu (?:consumo de combustivel|combustivel por volta)$/
+  ]
+  return [...english, ...portuguese].some((pattern) => pattern.test(q))
 }
 
 function isSafeDeterministicAnswer(
@@ -138,6 +164,22 @@ function isSafeDeterministicAnswer(
   return category === 'fuel'
     ? isReadOnlyFuelQuantityQuestion(question)
     : SAFE_DETERMINISTIC_INTENT_CATEGORIES.has(category)
+}
+
+function safetyIntentForAnswer(
+  category: IntentCategory,
+  question: string
+): EngineerSafetyIntent {
+  if (category === 'fuel') {
+    return isReadOnlyFuelQuantityQuestion(question) ? 'fuel-quantity' : 'other'
+  }
+  if (
+    category === 'position' ||
+    category === 'tyres' ||
+    category === 'weather' ||
+    category === 'laps'
+  ) return category
+  return 'other'
 }
 
 function fuelQuantityAnswer(
@@ -781,10 +823,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         deps.racecraftContext?.()?.safety ??
         makeFallbackContext().safety
       const definitionSafetyReason = racecraftSafetyReason(definitionSafety)
-      if (
-        !definitionSafetyReason ||
-        !CRITICAL_SAFETY_REASONS.has(definitionSafetyReason)
-      ) {
+      if (engineerSafetyAllowsIntent(definitionSafetyReason, 'definition')) {
         return finalize(
           question,
           controlledDefinition,
@@ -883,25 +922,12 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       makeFallbackContext().safety
     const freeFormSafetyReason = racecraftSafetyReason(freeFormSafety)
     if (
-      freeFormSafetyReason &&
-      CRITICAL_SAFETY_REASONS.has(freeFormSafetyReason)
-    ) {
-      const text = racecraftSafetyMessage(freeFormSafetyReason, adviceLanguage)
-      return finalize(
-        question,
-        text,
-        'answer',
-        'intent',
-        undefined,
-        context,
-        adviceLanguage,
-        text,
-        false
-      )
-    }
-    if (
       intent.type === 'answer' &&
-      isSafeDeterministicAnswer(intent.category, question)
+      isSafeDeterministicAnswer(intent.category, question) &&
+      engineerSafetyAllowsIntent(
+        freeFormSafetyReason,
+        safetyIntentForAnswer(intent.category, question)
+      )
     ) {
       const text =
         intent.category === 'fuel'
