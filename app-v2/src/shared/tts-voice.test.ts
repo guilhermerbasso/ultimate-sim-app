@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SPOTTER_CONFIG } from './spotter'
 import {
+  accessibilitySpeechLocale,
+  piperLanguageForAccessibilityLocale,
   resolvePiperVoice,
   resolveSpeechVoiceURI,
-  speechLanguageFromAppLanguage
+  speechLanguageFromAppLanguage,
+  voiceMatchesAccessibilityLocale
 } from './tts-voice'
 
 describe('language-matched speech voice resolution', () => {
@@ -57,4 +60,24 @@ describe('language-matched speech voice resolution', () => {
     expect(resolveSpeechVoiceURI('pt-BR', 'sapi:Maria', voices)).toBe('sapi:Maria')
     expect(resolveSpeechVoiceURI('pt-BR', 'sapi:Zira', voices)).toBe('piper:pt_BR-faber-medium')
   })
+
+  it.each([
+    ['en', 'en-US', 'en-US'],
+    ['pt-BR', 'pt-BR', 'pt-BR'],
+    ['es', 'es-ES', null],
+    ['fr', 'fr-FR', null],
+    ['de', 'de-DE', null],
+    ['zh', 'zh-CN', null],
+    ['ja', 'ja-JP', null]
+  ] as const)(
+    'maps %s accessibility copy to matching speech locale %s',
+    (language, locale, piperLanguage) => {
+      expect(accessibilitySpeechLocale(language)).toBe(locale)
+      expect(piperLanguageForAccessibilityLocale(locale)).toBe(piperLanguage)
+      expect(voiceMatchesAccessibilityLocale(locale, locale)).toBe(true)
+      expect(voiceMatchesAccessibilityLocale('en-US', locale)).toBe(
+        locale === 'en-US'
+      )
+    }
+  )
 })

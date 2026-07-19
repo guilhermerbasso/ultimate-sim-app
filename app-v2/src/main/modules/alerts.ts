@@ -17,6 +17,17 @@ import {
   type AlertType
 } from '../../shared/alerts'
 import {
+  ACCESSIBILITY_CUE_CHANNELS,
+  CueRouteAdmissionController,
+  cueSeverityPriority,
+  hardwareOutputsForCueRoute,
+  routeSemanticCue,
+  semanticCueEventFromAlert,
+  type CueHapticPattern,
+  type CueProfile,
+  type CueRoute
+} from '../../shared/accessibility-cues'
+import {
   OUTPUTS_CHANNELS,
   type OutputSecondScreenUpdate,
   interpolateTemplate
@@ -29,8 +40,20 @@ import {
   type LiveTelemetryContext
 } from '../../shared/replay'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import {
+  getActiveAccessibilityCueProfile,
+  getAccessibilityCueProfileRevision,
+  isAccessibilityCueAudioAvailable,
+  whenAccessibilityCueProfileReady
+} from './accessibility-cues'
+import {
+  dispatchAccessibilityCueHaptic,
+  isAccessibilityHapticsAvailable
+} from './haptics'
+import { PendingAccessibilityCueQueue } from './accessibility-cue-startup-queue'
 
 const CONFIG_FILE = 'alerts-config.json'
+const ACCESSIBILITY_STARTUP_QUEUE_MAX = 32
 
 // Minimum spacing between two serial sends caused by the SAME output (per
 // rule × output index). Acts as a debounce guard so a flapping condition
@@ -114,11 +137,16 @@ const lastSerialSendAt = new Map<string, number>()
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
   const detector = new AlertsDetector(config)
+  const cueAdmission = new CueRouteAdmissionController()
   const liveGate = new LiveTelemetryGate()
   let lastLiveContext: LiveTelemetryContext | null = null
   let observedLive = false
   let configReady = false
   let pendingLive: { snapshot: TelemetrySnapshot; context: LiveTelemetryContext } | null = null
+  const pendingAccessibilityEvents = new PendingAccessibilityCueQueue(
+    ACCESSIBILITY_STARTUP_QUEUE_MAX
+  )
+  let accessibilityProfileReady = false
   let stopped = false
   hardwareEffectsEnabled = true
   hardwareTeardownStarted = false
@@ -138,6 +166,16 @@ export function register(ctx: ModuleContext): void {
   })
   let configCommitQueue: Promise<void> = configLoadPromise.then(() => undefined)
 
+  void whenAccessibilityCueProfileReady().then(() => {
+    if (stopped) return
+    accessibilityProfileReady = true
+    const profile = getActiveAccessibilityCueProfile()
+    if (!profile) return
+    for (const event of pendingAccessibilityEvents.drain()) {
+      dispatchAccessibilityCue(ctx, event, profile, cueAdmission)
+    }
+  })
+
   ctx.telemetryHub.on('snapshot', (snapshot) => {
     if (stopped || hardwareTeardownStarted) return
     const live = liveGate.observe(snapshot)
@@ -155,7 +193,9 @@ export function register(ctx: ModuleContext): void {
     if (boundary) {
       releaseAllHardwareLeases(ctx)
       detector.reset()
+      cueAdmission.reset()
       lastSerialSendAt.clear()
+      pendingAccessibilityEvents.clear()
     }
     if (!live.live || !snapshot || !live.context) {
       pendingLive = null
@@ -174,6 +214,14 @@ export function register(ctx: ModuleContext): void {
       const eventWithSound = attachSoundPayload(event)
       ctx.broadcast('alerts:event', eventWithSound)
       dispatchOutputs(ctx, eventWithSound)
+      if (!accessibilityProfileReady) {
+        pendingAccessibilityEvents.enqueue(eventWithSound)
+      } else {
+        const profile = getActiveAccessibilityCueProfile()
+        if (profile) {
+          dispatchAccessibilityCue(ctx, eventWithSound, profile, cueAdmission)
+        }
+      }
     }
   })
 
@@ -208,6 +256,7 @@ export function register(ctx: ModuleContext): void {
     hardwareEffectsEnabled = false
     stopped = true
     pendingLive = null
+    pendingAccessibilityEvents.clear()
     ctx.serialHub?.off?.('device-added', retryOnReconnect)
     ctx.serialHub?.off?.('device-updated', retryOnReconnect)
     await drainHardwareNeutralization(ctx)
@@ -296,6 +345,76 @@ function dispatchOutputs(ctx: ModuleContext, event: AlertEvent): void {
       console.warn(`[alerts] output #${index} (${output.kind}) for ${event.type} failed:`, error)
     }
   })
+}
+
+function dispatchAccessibilityCue(
+  ctx: ModuleContext,
+  event: AlertEvent,
+  profile: CueProfile,
+  admission: CueRouteAdmissionController
+): void {
+  const route = routeSemanticCue(
+    semanticCueEventFromAlert(event, 'live'),
+    profile,
+    {
+      caption: true,
+      audio: isAccessibilityCueAudioAvailable(),
+      symbol: true,
+      led: Boolean(ctx.serialHub.getPrimary()?.isOpen()),
+      haptic: isAccessibilityHapticsAvailable(ctx, profile.hapticIntensity)
+    },
+    getAccessibilityCueProfileRevision()
+  )
+  if (!admission.admit(route)) return
+  ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.routedEvent, route)
+  dispatchAccessibilityCueHardware(ctx, event, route)
+}
+
+function dispatchAccessibilityCueHardware(
+  ctx: ModuleContext,
+  event: AlertEvent,
+  route: CueRoute
+): void {
+  for (const output of hardwareOutputsForCueRoute(route)) {
+    if (output.modality === 'led') {
+      dispatchButtonbox(
+        ctx,
+        {
+          kind: 'buttonbox',
+          preset: 'startLedFlash',
+          durationMs: output.durationMs
+        },
+        event,
+        100
+      )
+      dispatchButtonbox(
+        ctx,
+        {
+          kind: 'buttonbox',
+          preset: 'oledMessage',
+          durationMs: output.durationMs,
+          oledLine1: output.hardwareTextToken ?? 'CUE',
+          oledLine2: route.severity.toUpperCase(),
+          oledLine3: 'ACCESS CUE'
+        },
+        event,
+        101
+      )
+      continue
+    }
+    if (output.modality === 'haptic' && isCueHapticPattern(output.pattern)) {
+      dispatchAccessibilityCueHaptic(
+        ctx,
+        output.pattern,
+        output.intensity ?? 0.7,
+        cueSeverityPriority(route.severity)
+      )
+    }
+  }
+}
+
+function isCueHapticPattern(value: unknown): value is CueHapticPattern {
+  return value === 'single' || value === 'double' || value === 'triple' || value === 'long'
 }
 
 function attachSoundPayload(event: AlertEvent): AlertEvent {
