@@ -70,6 +70,7 @@ import { register as spotter3d } from './spotter3d'
 import { register as stt } from './stt'
 import { register as iflagDynamic } from './iflag-dynamic'
 import { register as streaming } from './streaming'
+import { register as obsLocal } from './obs-local'
 import { register as rigPreflight } from './rig-preflight'
 import { register as stewardDesk } from './steward-desk'
 import { register as streamPresentation } from './stream-presentation'
@@ -144,6 +145,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   spotter3d,
   stt,
   streaming,
+  obsLocal,
   rigPreflight,
   stewardDesk,
   mqttTarget,
