@@ -631,7 +631,15 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
 
   private activeDispatches(now: number): number {
     const threshold = now - this.windowMs
-    return this.dispatchTimes.filter((timestamp) => timestamp >= threshold).length
+    let expiredCount = 0
+    while (
+      expiredCount < this.dispatchTimes.length &&
+      this.dispatchTimes[expiredCount] < threshold
+    ) {
+      expiredCount += 1
+    }
+    if (expiredCount > 0) this.dispatchTimes.splice(0, expiredCount)
+    return this.dispatchTimes.length
   }
 
   private commitToken(commit: Omit<SchedulerAuthorityCommit, 'attestation'>): OpaqueAttestation {
@@ -685,7 +693,7 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
           throw new Error('authoritative retry backoff has not elapsed')
         }
         if (this.activeDispatches(committedMs) + this.outstanding >= this.requestLimit) {
-          throw new Error('global six-request capacity exhausted')
+          throw new Error(`global ${this.requestLimit}-request capacity exhausted`)
         }
         this.calls.set(operation.callId, {
           status: 'reserved',

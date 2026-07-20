@@ -170,7 +170,9 @@ export function createArtifactPlan(input: unknown): ArtifactPlan {
   const triggerFamilies = normalizeIdentities(input.triggerFamilies, 'Artifact plan triggerFamilies')
   const counts = computeCounts(styles.length, concepts.length, triggerFamilies.length)
 
-  if (counts.base !== BASE_ARTIFACT_COUNT) fail('INTEGRITY', 'Artifact plan base count is not 14,350.')
+  if (counts.base !== BASE_ARTIFACT_COUNT) {
+    fail('INTEGRITY', `Artifact plan base count is not ${BASE_ARTIFACT_COUNT}.`)
+  }
   if (counts.triggers < MIN_TRIGGER_ARTIFACT_COUNT) {
     fail('INTEGRITY', `Artifact plan requires at least ${MIN_TRIGGER_ARTIFACT_COUNT} trigger artifacts.`)
   }

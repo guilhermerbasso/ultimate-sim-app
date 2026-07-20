@@ -627,7 +627,7 @@ describe('externally authoritative image scheduler', () => {
       dispatch(scheduler, governance, `primary-${index}`)
     }
     expect(() => reserve(scheduler, governance, contexts[6], 'seventh', hashes)).toThrow(
-      /six-request capacity exhausted/i
+      /global 6-request capacity exhausted/i
     )
     expect(governance.schedulerAuthority.currentVersion).toBe(scheduler.authorityCasVersion)
   })
@@ -640,7 +640,7 @@ describe('externally authoritative image scheduler', () => {
     }
     expect(() =>
       reserve(scheduler, governance, contexts[6], 'blocked-seventh', hashes)
-    ).toThrow(/six-request capacity exhausted/i)
+    ).toThrow(/global 6-request capacity exhausted/i)
 
     const beforeExpiryVersion = scheduler.authorityCasVersion
     expect(() =>
@@ -659,7 +659,7 @@ describe('externally authoritative image scheduler', () => {
     ).toThrow(/unknown field "occurredAt"/i)
     expect(() =>
       reserve(scheduler, governance, contexts[6], 'still-blocked', hashes)
-    ).toThrow(/six-request capacity exhausted/i)
+    ).toThrow(/global 6-request capacity exhausted/i)
 
     governance.schedulerAuthority.advance(policy.reservationLeaseMs + 1)
     for (let index = 0; index < 6; index += 1) {
