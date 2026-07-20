@@ -1650,7 +1650,7 @@ export class DurableLedgerFinalizationAuthority
       fail('TRUST', 'Ledger append authority commit does not match its operation.')
     }
     invokeSynchronousVerifier(
-      this.verifyCommitAttestation as (...args: never[]) => unknown,
+      this.verifyCommitAttestation,
       undefined,
       [commit.attestation, commitBinding(commit)],
       'Ledger append authority commit attestation verifier'
@@ -1866,7 +1866,7 @@ export class DurableLedgerFinalizationAuthority
       )
     }
     invokeSynchronousVerifier(
-      this.verifyCommitAttestation as (...args: never[]) => unknown,
+      this.verifyCommitAttestation,
       undefined,
       [commit.attestation, commitBinding(commit)],
       'Ledger finalization authority commit attestation verifier'

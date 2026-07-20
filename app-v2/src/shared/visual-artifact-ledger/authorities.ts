@@ -177,10 +177,10 @@ function assertSynchronousVerifierTrue(value: unknown, label: string): void {
   }
 }
 
-export function invokeSynchronousVerifier(
-  verifier: (...args: never[]) => unknown,
+export function invokeSynchronousVerifier<TArgs extends unknown[]>(
+  verifier: (...args: TArgs) => unknown,
   thisArg: unknown,
-  args: readonly unknown[],
+  args: TArgs,
   label: string
 ): void {
   const verifierSource =

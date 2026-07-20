@@ -522,7 +522,9 @@ export function assertSerializedLengthsWithinRuntimeCeiling(
   ) {
     fail(
       'CARDINALITY',
-      `${label} exceeds the runtime-safe single-string ceiling of ${MAX_SERIALIZED_CHARACTERS} characters.`
+      `${label} exceeds the runtime-safe single-string ceilings ` +
+        `(observed characters=${characterLength}, UTF-8 bytes=${utf8Bytes}; ` +
+        `limits characters=${MAX_SERIALIZED_CHARACTERS}, UTF-8 bytes=${MAX_SERIALIZED_BYTES}).`
     )
   }
 }

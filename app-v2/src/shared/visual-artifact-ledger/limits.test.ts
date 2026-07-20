@@ -98,8 +98,6 @@ describe('derived maximum-state resource limits', () => {
 
     expect(maximumLedgerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_BYTES)
     expect(maximumSchedulerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_BYTES)
-    expect(maximumLedgerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_CHARACTERS)
-    expect(maximumSchedulerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_CHARACTERS)
     expect(MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION).toBeGreaterThanOrEqual(13_000)
     expect(MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT).toBeGreaterThanOrEqual(4_300)
   })
@@ -111,14 +109,24 @@ describe('derived maximum-state resource limits', () => {
         MAX_SERIALIZED_BYTES,
         'Serialized ledger'
       )
-    ).toThrow(/runtime-safe single-string ceiling/i)
+    ).toThrow(
+      new RegExp(
+        `observed characters=${MAX_SERIALIZED_CHARACTERS + 1}, UTF-8 bytes=${MAX_SERIALIZED_BYTES}; ` +
+          `limits characters=${MAX_SERIALIZED_CHARACTERS}, UTF-8 bytes=${MAX_SERIALIZED_BYTES}`
+      )
+    )
     expect(() =>
       assertSerializedLengthsWithinRuntimeCeiling(
         MAX_SERIALIZED_CHARACTERS,
         MAX_SERIALIZED_BYTES + 1,
         'Serialized scheduler'
       )
-    ).toThrow(/runtime-safe single-string ceiling/i)
+    ).toThrow(
+      new RegExp(
+        `observed characters=${MAX_SERIALIZED_CHARACTERS}, UTF-8 bytes=${MAX_SERIALIZED_BYTES + 1}; ` +
+          `limits characters=${MAX_SERIALIZED_CHARACTERS}, UTF-8 bytes=${MAX_SERIALIZED_BYTES}`
+      )
+    )
   })
 
   it('accepts a full revision with maximum-length authenticated principal identifiers', () => {
