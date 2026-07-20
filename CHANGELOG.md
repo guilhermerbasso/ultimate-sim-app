@@ -58,7 +58,7 @@
   suggestions respect per-cue route and modality limits.
 - PWA receiver reconnects preserve the first pending 250 ms deadline, deduplicate overlapping
   close/online triggers and metrics, and cancel pending reconnects while offline or unmounted.
-- OBS control requires a password-authentication challenge and rejects servers that omit it.
+- OBS control requires a password authentication challenge and rejects servers that omit it.
   Capability negotiation/allowlists, health freshness, rate limits, replay protection, manual
   override, and a serialized shared streaming/OBS lifecycle fail closed on invalid state.
 - OBS endpoint validation accepts canonical IPv4 and IPv6 loopback spellings, including bracketed or
