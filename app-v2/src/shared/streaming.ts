@@ -14,8 +14,10 @@ export const STREAMING_CHANNELS = {
 } as const
 
 export type StreamingLayoutKind = 'dashboard' | 'touch'
+export type StreamingProfile = 'general' | 'obs-local'
 
 export interface StreamingStartArgs {
+  profile?: StreamingProfile
   streamSafe?: boolean
   layoutId?: string
   layoutKind?: StreamingLayoutKind
@@ -103,6 +105,7 @@ export interface StreamingDashboardPayload {
 }
 
 export interface StreamingStartResult {
+  profile: StreamingProfile
   url: string
   lanUrl: string | null
   touchUrl: string | null
@@ -122,6 +125,10 @@ export interface StreamingStartResult {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  bindAddress: '127.0.0.1' | '0.0.0.0'
+  portMode: 'ephemeral' | 'explicit'
+  allowedLayoutIds: string[]
+  readOnly: true
   receiverV2: ReceiverV2Status
   presentationProfileId: string | null
 }
@@ -155,6 +162,7 @@ export interface StreamingClientInfo {
 }
 
 export interface StreamingStatus {
+  profile: StreamingProfile
   running: boolean
   url: string | null
   lanUrl: string | null
@@ -182,6 +190,10 @@ export interface StreamingStatus {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  bindAddress: '127.0.0.1' | '0.0.0.0' | null
+  portMode: 'ephemeral' | 'explicit' | null
+  allowedLayoutIds: string[]
+  readOnly: true
   receiverV2: ReceiverV2Status
   presentationProfileId: string | null
   interactive: boolean

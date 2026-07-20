@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "manifestKind": "backup",
+  "format": "usa.relay.backup/v1",
+  "backupId": "backup-example-offline",
+  "tenantId": "tenant-example",
+  "createdAt": 1800000000000,
+  "sourceProviderId": "provider-example",
+  "sourceGeneration": 7,
+  "objectCount": 0,
+  "ciphertextBytes": 0,
+  "firstCursor": 0,
+  "lastCursor": 0,
+  "documentIds": [],
+  "recordsDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "includesPlaintext": false,
+  "includesPrivateKeys": false,
+  "networkRequired": false
+}

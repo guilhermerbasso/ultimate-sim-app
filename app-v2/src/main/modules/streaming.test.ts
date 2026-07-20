@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { request, type IncomingHttpHeaders } from 'node:http'
+import { createServer, request, type IncomingHttpHeaders, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { connect } from 'node:net'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -191,6 +192,9 @@ import {
   publicBaseUrlAfterTunnelStops,
   register,
   resolveStreamingBaseOrigin,
+  start as startStreaming,
+  status as streamingStatus,
+  stop as stopStreaming,
   streamingListenHost,
   streamingReceiverTransport
 } from './streaming'
@@ -254,6 +258,41 @@ async function invoke<T>(ctx: ReturnType<typeof fakeContext>, channel: string, a
   const handler = ctx.handlers.get(channel)
   if (!handler) throw new Error(`missing handler ${channel}`)
   return await handler({}, args) as T
+}
+
+async function settleWithin<T>(promise: Promise<T>, label: string, timeoutMs = 2_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} did not settle within ${timeoutMs}ms.`)), timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function occupyLoopbackPort(): Promise<{ port: number; server: Server }> {
+  const server = createServer()
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once('error', rejectListen)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', rejectListen)
+      resolveListen()
+    })
+  })
+  return {
+    port: (server.address() as AddressInfo).port,
+    server
+  }
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolveClose, rejectClose) => {
+    server.close((error) => error ? rejectClose(error) : resolveClose())
+  })
 }
 
 function httpRequest(url: string, options: RequestOptions = {}): Promise<ResponseData> {
@@ -579,6 +618,147 @@ describe('streaming authenticated server', () => {
 
     await ctx.teardownTasks[0].task()
     expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).running).toBe(false)
+  })
+
+  it('rejects a concurrent start instead of letting two server startups race', async () => {
+    ctx = fakeContext()
+    register(ctx)
+
+    const firstStart = startStreaming(ctx, { layoutId: 'race' })
+    await expect(startStreaming(ctx, { layoutId: 'default' })).rejects.toThrow(/startup is already in progress/i)
+    const started = await settleWithin(firstStart, 'first streaming start')
+
+    expect(started).toEqual(expect.objectContaining({
+      profile: 'general',
+      allowedLayoutIds: ['race']
+    }))
+    expect((await streamingStatus(false)).running).toBe(true)
+  })
+
+  it('cancels an in-flight start when stop wins the lifecycle race and settles both promises', async () => {
+    ctx = fakeContext()
+    register(ctx)
+
+    const starting = startStreaming(ctx, { layoutId: 'race' })
+    const stopping = stopStreaming()
+    const [startResult, stopResult] = await settleWithin(
+      Promise.allSettled([starting, stopping]),
+      'start/stop cancellation'
+    )
+
+    expect(startResult.status).toBe('rejected')
+    if (startResult.status === 'rejected') {
+      expect(startResult.reason).toEqual(expect.objectContaining({
+        message: expect.stringMatching(/startup was cancelled/i)
+      }))
+    }
+    expect(stopResult.status).toBe('fulfilled')
+    if (stopResult.status === 'fulfilled') expect(stopResult.value.running).toBe(false)
+    expect(await streamingStatus(false)).toEqual(expect.objectContaining({
+      running: false,
+      port: null
+    }))
+
+    const restarted = await settleWithin(
+      startStreaming(ctx, { layoutId: 'race' }),
+      'streaming restart after cancellation'
+    )
+    expect(restarted.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/obs\/race/)
+  })
+
+  it('joins concurrent stops and lets a new start wait behind the shared stop', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    await startStreaming(ctx, { layoutId: 'race' })
+
+    const firstStop = stopStreaming()
+    const joinedStop = stopStreaming()
+    expect(joinedStop).toBe(firstStop)
+    const restart = startStreaming(ctx, { layoutId: 'default' })
+    const [stopped, restarted] = await settleWithin(
+      Promise.all([firstStop, restart]),
+      'joined stop and queued restart'
+    )
+
+    expect(stopped.running).toBe(false)
+    expect(restarted).toEqual(expect.objectContaining({
+      profile: 'general',
+      allowedLayoutIds: ['default']
+    }))
+    expect(await streamingStatus(false)).toEqual(expect.objectContaining({
+      running: true,
+      layoutId: 'default'
+    }))
+  })
+
+  it('fails a listen error closed, settles cleanup, and remains restartable on the same port', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const occupied = await occupyLoopbackPort()
+    let occupiedClosed = false
+    try {
+      await expect(settleWithin(
+        startStreaming(ctx, { layoutId: 'race', port: occupied.port }),
+        'listen-error start'
+      )).rejects.toThrow(/EADDRINUSE|address already in use/i)
+      expect(await streamingStatus(false)).toEqual(expect.objectContaining({
+        running: false,
+        port: null
+      }))
+
+      await closeServer(occupied.server)
+      occupiedClosed = true
+      const restarted = await settleWithin(
+        startStreaming(ctx, { layoutId: 'race', port: occupied.port }),
+        'restart after listen error'
+      )
+      expect(restarted.port).toBe(occupied.port)
+    } finally {
+      if (!occupiedClosed) await closeServer(occupied.server)
+    }
+  })
+
+  it('keeps general streaming and OBS feed ownership isolated across starts and scoped stops', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const general = await startStreaming(ctx, { layoutId: 'race' })
+
+    await expect(startStreaming(ctx, {
+      profile: 'obs-local',
+      layoutKind: 'dashboard',
+      layoutId: 'race'
+    })).rejects.toThrow(/cannot start the OBS Browser Source feed.*stop it first/i)
+    expect(await stopStreaming('obs-local')).toEqual(expect.objectContaining({
+      running: true,
+      profile: 'general',
+      url: general.url
+    }))
+
+    await stopStreaming('general')
+    const obs = await startStreaming(ctx, {
+      profile: 'obs-local',
+      layoutKind: 'dashboard',
+      layoutId: 'race'
+    })
+    expect(obs.profile).toBe('obs-local')
+    expect(await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.stop)).toEqual(expect.objectContaining({
+      running: true,
+      profile: 'obs-local',
+      url: obs.url
+    }))
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      profile: 'obs-local',
+      layoutId: 'default'
+    })).rejects.toThrow(/cannot start the general streaming server.*stop it first/i)
+    await expect(startStreaming(ctx, { layoutId: 'default' })).rejects.toThrow(
+      /cannot start the general streaming server.*stop it first/i
+    )
+    expect(await stopStreaming('general')).toEqual(expect.objectContaining({
+      running: true,
+      profile: 'obs-local',
+      url: obs.url
+    }))
+    expect((await stopStreaming('obs-local')).running).toBe(false)
   })
 
   it('requires passwords for LAN/internet and a public HTTPS URL for manual internet mode', async () => {
@@ -1968,6 +2148,36 @@ describe('streaming authenticated server', () => {
     expect(result.url).toBe('https://stream.invalid/public/overlay/obs/race')
     expect(result.message).toMatch(/public HTTPS endpoint/i)
     expect(result.url).not.toContain('token=')
+  })
+
+  it('keeps the obs-local certification profile loopback-only and dashboard-only', async () => {
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(startStreaming(ctx, {
+      profile: 'obs-local',
+      layoutKind: 'touch',
+      layoutId: 'pit',
+      touchPanelId: 'pit'
+    })).rejects.toThrow(/read-only dashboards only/i)
+
+    await expect(startStreaming(ctx, {
+      profile: 'obs-local',
+      layoutId: 'race',
+      accessMode: 'lan'
+    })).rejects.toThrow(/loopback-only/i)
+
+    await expect(startStreaming(ctx, {
+      profile: 'obs-local',
+      layoutId: 'race',
+      publicBaseUrl: 'https://stream.example.test'
+    })).rejects.toThrow(/loopback-only/i)
+
+    await expect(startStreaming(ctx, {
+      profile: 'obs-local',
+      layoutId: 'race',
+      password: 'must-not-be-shared'
+    })).rejects.toThrow(/shared passwords/i)
   })
 })
 

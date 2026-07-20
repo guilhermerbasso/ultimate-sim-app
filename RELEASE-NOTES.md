@@ -37,6 +37,20 @@ offline race-operation rehearsal.
 - 📴 Pending reconnects are still cancelled while offline and on unmount, while legitimate later
   exponential backoff remains intact.
 
+### Authenticated local OBS certification
+- 🎥 **Expose selected dashboards through a read-only loopback Browser Source** while keeping bounded
+  OBS operator controls on a separate local WebSocket connection.
+- 🔐 The operator channel requires the OBS password authentication challenge and rejects servers that
+  omit it. Scene/source visibility and Replay Buffer saves remain behind negotiated capability
+  allowlists, health freshness, rate limits, replay protection, and manual override.
+- 🔄 General streaming and OBS share a serialized lifecycle: readiness publishes only after listen
+  succeeds, startup cancellation is deterministic, concurrent stops join safely, and profile-scoped
+  start/stop operations remain isolated.
+- 🌐 Local endpoint validation accepts canonical IPv4 and IPv6 loopback spellings—including
+  bracketed or unbracketed IPv6—and rejects embedded ASCII whitespace before URL construction.
+- 🛑 Authentication, capability, stale-health, wrong-scene, listen, cancellation, and transport
+  errors all fail closed.
+
 ### Mobile presentations without changing the source
 - 📱 **Save presentation profiles for exact iPhone, iPad, and Android viewports**, including
   orientation, safe areas, fit/fill behavior, and minimum touch sizing.
@@ -111,6 +125,18 @@ offline race-operation rehearsal.
 - 🧹 **Generated drift exclusion:** pre-existing generated touch-panel snapshots and visual-audit
   working-tree drift are explicitly outside the Rig Preflight change set and this release-doc
   update.
+
+### Fail-closed multimodal accessibility cues
+- ♿ **Cue profiles coordinate visual, caption, auditory, LED, and haptic redundancy without
+  counting unavailable channels as delivered.**
+- 🚨 Critical cues preserve severity, priority, and preemption while lifecycle cancellation clears
+  superseded lower-priority output safely.
+- 🔐 Sender-scoped TTS and haptic capability leases expire; zero-output or zero-effective-gain
+  haptics fail closed instead of reporting false delivery.
+- 🌐 Localized Web Speech fallback uses language-matched cue text when trusted local speech is
+  unavailable. Piper downloads stay disabled when trusted voice metadata or digests are absent.
+- 💾 Voice repair/recovery and accessibility config import/delete are serialized and published
+  atomically, preserving the last verified voice/config state through rollback or failure.
 
 ### Durable replay, recording, and debrief persistence
 - 💾 **Completed recordings and final `session.json` metadata are written atomically**, with bounded
@@ -199,6 +225,12 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   certification with evidence freshness, stable hardware identity, and atomic persistence.
 - [#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97) — make recording, sidecar,
   pace-model, and language-aware debrief persistence retryable and shutdown-safe.
+- [#98](https://github.com/guilhermerbasso/ultimate-sim-app/pull/98) — add fail-closed multimodal
+  accessibility cues with truthful capability leases, localized fallback, and atomic recovery.
+- [#103](https://github.com/guilhermerbasso/ultimate-sim-app/pull/103) — add the authenticated local
+  OBS certification target with read-only Browser Source and allowlisted operator controls.
+- [#104](https://github.com/guilhermerbasso/ultimate-sim-app/pull/104) — harden OBS loopback endpoint
+  validation for canonical IPv6 forms and embedded whitespace.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 
