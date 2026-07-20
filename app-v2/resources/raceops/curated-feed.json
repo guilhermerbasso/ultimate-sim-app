@@ -1,0 +1,489 @@
+{
+  "payload": {
+    "schemaVersion": 1,
+    "feedId": "ultimate-sim-raceops",
+    "title": "Ultimate Sim RaceOps Blueprints",
+    "sequence": 1,
+    "issuedAt": "2026-07-17T14:30:00.000Z",
+    "expiresAt": "2030-07-17T14:30:00.000Z",
+    "source": {
+      "kind": "git",
+      "repository": "https://github.com/guilhermerbasso/ultimate-sim-app.git",
+      "revision": "main",
+      "path": "app-v2/resources/raceops/curated-feed.json",
+      "url": "https://raw.githubusercontent.com/guilhermerbasso/ultimate-sim-app/main/app-v2/resources/raceops/curated-feed.json"
+    },
+    "entries": [
+      {
+        "id": "yellow-flag-coordination",
+        "version": "1.0.0",
+        "manifestSha256": "5722db574707dc97b8563b292e346f88450b56472b1470cc839dbfb0d5ef2c22",
+        "manifest": {
+          "schemaVersion": 2,
+          "id": "yellow-flag-coordination",
+          "version": "1.0.0",
+          "title": "Yellow Flag Coordination",
+          "summary": "Preview a coordinated caution cue, dashboard state, and producer card from a synthetic flag fixture.",
+          "author": "Ultimate Sim App",
+          "compatibility": {
+            "app": {
+              "min": "2.53.0",
+              "max": "2.99.99"
+            },
+            "runtime": 1
+          },
+          "capabilities": [
+            "telemetry.session.read",
+            "cue.visual.preview",
+            "dashboard.state.preview",
+            "stream.card.preview"
+          ],
+          "parameters": [
+            {
+              "id": "procedure",
+              "label": "Caution procedure",
+              "description": "Closed vocabulary inserted into the preview cue and stream card.",
+              "type": "enum",
+              "default": "hold-position",
+              "options": [
+                {
+                  "value": "hold-position",
+                  "label": "Hold position"
+                },
+                {
+                  "value": "prepare-slow-zone",
+                  "label": "Prepare slow zone"
+                }
+              ]
+            }
+          ],
+          "workflow": {
+            "mode": "rising-edge",
+            "trigger": {
+              "id": "detect-yellow",
+              "field": "session.flag",
+              "operator": "eq",
+              "value": "yellow"
+            },
+            "conditions": [],
+            "actions": [
+              {
+                "id": "preview-caution-cue",
+                "kind": "cue",
+                "channel": "visual",
+                "severity": "warning",
+                "message": "Yellow flag · {{param.procedure}}"
+              },
+              {
+                "id": "preview-caution-dashboard",
+                "kind": "dashboard-state",
+                "state": "caution"
+              },
+              {
+                "id": "preview-caution-card",
+                "kind": "stream-card",
+                "title": "Race control · yellow flag",
+                "body": "Procedure: {{param.procedure}}"
+              }
+            ]
+          },
+          "fixture": {
+            "schemaVersion": 1,
+            "id": "yellow-flag-double-transition",
+            "version": 1,
+            "source": "synthetic",
+            "schemaFingerprint": "raceops.fixture/v1",
+            "seed": 70903,
+            "privacy": "no-personal-data",
+            "events": [
+              {
+                "atMs": 0,
+                "values": {
+                  "session.flag": "green"
+                }
+              },
+              {
+                "atMs": 500,
+                "values": {
+                  "session.flag": "yellow"
+                }
+              },
+              {
+                "atMs": 1000,
+                "values": {
+                  "session.flag": "yellow"
+                }
+              },
+              {
+                "atMs": 1500,
+                "values": {
+                  "session.flag": "green"
+                }
+              },
+              {
+                "atMs": 2000,
+                "values": {
+                  "session.flag": "yellow"
+                }
+              }
+            ]
+          },
+          "expectedTrace": [
+            {
+              "sequence": 1,
+              "atMs": 500,
+              "stepId": "detect-yellow",
+              "kind": "detector",
+              "payload": {
+                "field": "session.flag",
+                "operator": "eq",
+                "actual": "yellow",
+                "expected": "yellow"
+              }
+            },
+            {
+              "sequence": 2,
+              "atMs": 500,
+              "stepId": "preview-caution-cue",
+              "kind": "cue",
+              "payload": {
+                "channel": "visual",
+                "severity": "warning",
+                "message": "Yellow flag · {{param.procedure}}"
+              }
+            },
+            {
+              "sequence": 3,
+              "atMs": 500,
+              "stepId": "preview-caution-dashboard",
+              "kind": "dashboard-state",
+              "payload": {
+                "state": "caution"
+              }
+            },
+            {
+              "sequence": 4,
+              "atMs": 500,
+              "stepId": "preview-caution-card",
+              "kind": "stream-card",
+              "payload": {
+                "title": "Race control · yellow flag",
+                "body": "Procedure: {{param.procedure}}"
+              }
+            },
+            {
+              "sequence": 5,
+              "atMs": 2000,
+              "stepId": "detect-yellow",
+              "kind": "detector",
+              "payload": {
+                "field": "session.flag",
+                "operator": "eq",
+                "actual": "yellow",
+                "expected": "yellow"
+              }
+            },
+            {
+              "sequence": 6,
+              "atMs": 2000,
+              "stepId": "preview-caution-cue",
+              "kind": "cue",
+              "payload": {
+                "channel": "visual",
+                "severity": "warning",
+                "message": "Yellow flag · {{param.procedure}}"
+              }
+            },
+            {
+              "sequence": 7,
+              "atMs": 2000,
+              "stepId": "preview-caution-dashboard",
+              "kind": "dashboard-state",
+              "payload": {
+                "state": "caution"
+              }
+            },
+            {
+              "sequence": 8,
+              "atMs": 2000,
+              "stepId": "preview-caution-card",
+              "kind": "stream-card",
+              "payload": {
+                "title": "Race control · yellow flag",
+                "body": "Procedure: {{param.procedure}}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "pit-window-readiness",
+        "version": "1.0.0",
+        "manifestSha256": "9d924138eb87ca031fd2c03339f1f1151027e01774ec461b825f40adb98d4ed6",
+        "manifest": {
+          "schemaVersion": 2,
+          "id": "pit-window-readiness",
+          "version": "1.0.0",
+          "title": "Pit Window Readiness",
+          "summary": "Preview a bounded pit-window reminder without sending controls, network traffic, or gameplay input.",
+          "author": "Ultimate Sim App",
+          "compatibility": {
+            "app": {
+              "min": "2.53.0",
+              "max": "2.99.99"
+            },
+            "runtime": 1
+          },
+          "capabilities": [
+            "telemetry.fuel.read",
+            "telemetry.car-state.read",
+            "cue.audio.preview",
+            "dashboard.state.preview",
+            "stream.card.preview"
+          ],
+          "parameters": [
+            {
+              "id": "pit-window-laps",
+              "label": "Pit-window threshold",
+              "description": "Preview when estimated fuel laps remaining reaches this value.",
+              "type": "number",
+              "default": 4,
+              "min": 2,
+              "max": 10,
+              "step": 1,
+              "unit": "laps"
+            },
+            {
+              "id": "require-window-open",
+              "label": "Required strategy-window state",
+              "description": "Choose the declared pit-window state that the synthetic fixture must match.",
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "id": "strategy-mode",
+              "label": "Strategy mode",
+              "type": "enum",
+              "default": "team-call",
+              "options": [
+                {
+                  "value": "team-call",
+                  "label": "Team call"
+                },
+                {
+                  "value": "driver-reminder",
+                  "label": "Driver reminder"
+                }
+              ]
+            }
+          ],
+          "workflow": {
+            "mode": "rising-edge",
+            "trigger": {
+              "id": "detect-pit-threshold",
+              "field": "fuel.lapsRemaining",
+              "operator": "lte",
+              "value": {
+                "parameter": "pit-window-laps"
+              }
+            },
+            "conditions": [
+              {
+                "id": "require-open-window",
+                "field": "fuel.pitWindowOpen",
+                "operator": "eq",
+                "value": {
+                  "parameter": "require-window-open"
+                }
+              },
+              {
+                "id": "exclude-pit-road",
+                "field": "car.onPitRoad",
+                "operator": "eq",
+                "value": false
+              }
+            ],
+            "actions": [
+              {
+                "id": "preview-pit-cue",
+                "kind": "cue",
+                "channel": "audio",
+                "severity": "warning",
+                "message": "Pit window in {{param.pit-window-laps}} laps · {{param.strategy-mode}}"
+              },
+              {
+                "id": "preview-pit-dashboard",
+                "kind": "dashboard-state",
+                "state": "pit-window"
+              },
+              {
+                "id": "preview-pit-card",
+                "kind": "stream-card",
+                "title": "Pit window preview",
+                "body": "{{param.strategy-mode}} · threshold {{param.pit-window-laps}} laps"
+              }
+            ]
+          },
+          "fixture": {
+            "schemaVersion": 1,
+            "id": "pit-window-reentry",
+            "version": 1,
+            "source": "synthetic",
+            "schemaFingerprint": "raceops.fixture/v1",
+            "seed": 70907,
+            "privacy": "no-personal-data",
+            "events": [
+              {
+                "atMs": 0,
+                "values": {
+                  "fuel.lapsRemaining": 99,
+                  "fuel.pitWindowOpen": false,
+                  "car.onPitRoad": false
+                }
+              },
+              {
+                "atMs": 1000,
+                "values": {
+                  "fuel.lapsRemaining": {
+                    "parameter": "pit-window-laps"
+                  },
+                  "fuel.pitWindowOpen": {
+                    "parameter": "require-window-open"
+                  },
+                  "car.onPitRoad": false
+                }
+              },
+              {
+                "atMs": 2000,
+                "values": {
+                  "fuel.lapsRemaining": {
+                    "parameter": "pit-window-laps"
+                  },
+                  "fuel.pitWindowOpen": {
+                    "parameter": "require-window-open"
+                  },
+                  "car.onPitRoad": false
+                }
+              },
+              {
+                "atMs": 3000,
+                "values": {
+                  "fuel.lapsRemaining": {
+                    "parameter": "pit-window-laps"
+                  },
+                  "fuel.pitWindowOpen": {
+                    "parameter": "require-window-open"
+                  },
+                  "car.onPitRoad": true
+                }
+              },
+              {
+                "atMs": 4000,
+                "values": {
+                  "fuel.lapsRemaining": {
+                    "parameter": "pit-window-laps"
+                  },
+                  "fuel.pitWindowOpen": {
+                    "parameter": "require-window-open"
+                  },
+                  "car.onPitRoad": false
+                }
+              }
+            ]
+          },
+          "expectedTrace": [
+            {
+              "sequence": 1,
+              "atMs": 1000,
+              "stepId": "detect-pit-threshold",
+              "kind": "detector",
+              "payload": {
+                "field": "fuel.lapsRemaining",
+                "operator": "lte",
+                "actual": "{{param.pit-window-laps}}",
+                "expected": "{{param.pit-window-laps}}"
+              }
+            },
+            {
+              "sequence": 2,
+              "atMs": 1000,
+              "stepId": "preview-pit-cue",
+              "kind": "cue",
+              "payload": {
+                "channel": "audio",
+                "severity": "warning",
+                "message": "Pit window in {{param.pit-window-laps}} laps · {{param.strategy-mode}}"
+              }
+            },
+            {
+              "sequence": 3,
+              "atMs": 1000,
+              "stepId": "preview-pit-dashboard",
+              "kind": "dashboard-state",
+              "payload": {
+                "state": "pit-window"
+              }
+            },
+            {
+              "sequence": 4,
+              "atMs": 1000,
+              "stepId": "preview-pit-card",
+              "kind": "stream-card",
+              "payload": {
+                "title": "Pit window preview",
+                "body": "{{param.strategy-mode}} · threshold {{param.pit-window-laps}} laps"
+              }
+            },
+            {
+              "sequence": 5,
+              "atMs": 4000,
+              "stepId": "detect-pit-threshold",
+              "kind": "detector",
+              "payload": {
+                "field": "fuel.lapsRemaining",
+                "operator": "lte",
+                "actual": "{{param.pit-window-laps}}",
+                "expected": "{{param.pit-window-laps}}"
+              }
+            },
+            {
+              "sequence": 6,
+              "atMs": 4000,
+              "stepId": "preview-pit-cue",
+              "kind": "cue",
+              "payload": {
+                "channel": "audio",
+                "severity": "warning",
+                "message": "Pit window in {{param.pit-window-laps}} laps · {{param.strategy-mode}}"
+              }
+            },
+            {
+              "sequence": 7,
+              "atMs": 4000,
+              "stepId": "preview-pit-dashboard",
+              "kind": "dashboard-state",
+              "payload": {
+                "state": "pit-window"
+              }
+            },
+            {
+              "sequence": 8,
+              "atMs": 4000,
+              "stepId": "preview-pit-card",
+              "kind": "stream-card",
+              "payload": {
+                "title": "Pit window preview",
+                "body": "{{param.strategy-mode}} · threshold {{param.pit-window-laps}} laps"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "keyId": "ultimate-sim-raceops-root-2026",
+    "value": "6Y7VzNnnN3jLOqnZTeyfIkbwTm0vJ/nPpG8F8Iayb1S36pesmi/0CMQERjzkgfalqXlWC3GVPS1iAythsOtjCg=="
+  }
+}
