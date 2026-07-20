@@ -20,7 +20,14 @@ import {
 } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { PassportPersistenceEngine } from './persistence-engine'
+import {
+  DEFAULT_PASSPORT_CONFIG,
+  DEFAULT_PASSPORT_PRIVACY
+} from '../../shared/stint-passport'
+import {
+  PASSPORT_PERSISTENCE_SCHEMA_VERSION,
+  PassportPersistenceEngine
+} from './persistence-engine'
 import {
   PASSPORT_DOMAIN_ERROR_CODE,
   classifyPersistenceWorkerError,
@@ -45,7 +52,13 @@ interface CrashBoundary {
     | 'after-repair-database-unlink'
     | 'after-repair-database-erase'
     | 'after-repair-key-erase'
+    | 'after-repair-database-identity-assignment'
+    | 'after-repair-database-file-open'
+    | 'after-repair-database-identity-create'
+    | 'after-repair-database-schema-create'
     | 'after-repair-database-create'
+    | 'after-repair-database-erased-high-water-a-temp-create'
+    | 'after-repair-database-erased-high-water-a-partial-write'
     | 'after-repair-receipt-temp-write'
     | 'after-repair-receipt-promotion'
 }
@@ -64,6 +77,7 @@ type RepairPhase =
   | 'erasing-database'
   | 'database-erased'
   | 'keys-erased'
+  | 'creating-database'
   | 'database-created'
   | 'receipt-staged'
 
@@ -136,6 +150,11 @@ interface RepairHighWaterState {
   current: RepairHighWater
 }
 
+interface RepairHighWaterCopy {
+  records: readonly RepairHighWater[]
+  tornTrailingPath?: string
+}
+
 interface RepairSecurityState {
   authority: RepairAuthority
   key: Buffer
@@ -145,7 +164,12 @@ interface RepairSecurityState {
 interface DatabaseProbe {
   state: 'absent' | 'unreadable' | 'readable'
   databaseId?: string
-  populated?: boolean
+  repairEpoch?: number
+  repairBinding?: string
+  schemaComplete?: boolean
+  pristine?: boolean
+  nonDefaultState?: boolean
+  userTables?: readonly string[]
 }
 
 let engine: PassportPersistenceEngine | null = null
@@ -164,7 +188,13 @@ const CRASH_CHECKPOINTS: readonly CrashBoundary['checkpoint'][] = [
   'after-repair-database-unlink',
   'after-repair-database-erase',
   'after-repair-key-erase',
+  'after-repair-database-identity-assignment',
+  'after-repair-database-file-open',
+  'after-repair-database-identity-create',
+  'after-repair-database-schema-create',
   'after-repair-database-create',
+  'after-repair-database-erased-high-water-a-temp-create',
+  'after-repair-database-erased-high-water-a-partial-write',
   'after-repair-receipt-temp-write',
   'after-repair-receipt-promotion'
 ]
@@ -472,7 +502,10 @@ function parseRepairHighWater(
   key: Buffer
 ): RepairHighWater {
   const bytes = readFileSync(path)
-  if (bytes.length === 0 || bytes.length > 16 * 1024) {
+  if (bytes.length === 0 || bytes[bytes.length - 1] !== 0x0a) {
+    throw new TornRepairHighWaterMarkerError()
+  }
+  if (bytes.length > 16 * 1024) {
     throw new Error('Passport repair high-water marker exceeds its parser boundary.')
   }
   const value = JSON.parse(bytes.toString('utf8')) as Partial<RepairHighWater>
@@ -482,6 +515,7 @@ function parseRepairHighWater(
     'erasing-database',
     'database-erased',
     'keys-erased',
+    'creating-database',
     'database-created',
     'receipt-staged',
     'completed'
@@ -540,23 +574,49 @@ function repairHighWaterMarkerName(revision: number): string {
   return `${String(revision).padStart(16, '0')}.json`
 }
 
+class TornRepairHighWaterMarkerError extends Error {
+  constructor() {
+    super('Passport repair high-water marker is torn.')
+  }
+}
+
 function readRepairHighWaterCopy(
   databasePath: string,
   copy: 'a' | 'b',
   key: Buffer
-): RepairHighWater[] | undefined {
+): RepairHighWaterCopy | undefined {
   const directory = repairHighWaterDirectory(databasePath, copy)
   if (!existsSync(directory)) return undefined
-  const names = readdirSync(directory).sort()
-  if (names.length === 0 || names.length > 4_096) {
+  const entries = readdirSync(directory).sort()
+  const pendingPattern = /^\d{16}\.json\.pending$/
+  for (const name of entries) {
+    if (pendingPattern.test(name)) rmSync(resolve(directory, name), { force: true })
+  }
+  const names = entries.filter((name) => !pendingPattern.test(name))
+  if (names.some((name) => !/^\d{16}\.json$/.test(name))) {
+    throw new Error('Passport repair high-water history contains an unexpected marker.')
+  }
+  if (names.length > 4_096) {
     throw new Error('Passport repair high-water history is missing or exceeds its bound.')
   }
-  const records = names.map((name, index) => {
+  const records: RepairHighWater[] = []
+  let tornTrailingPath: string | undefined
+  for (let index = 0; index < names.length; index += 1) {
+    const name = names[index]
     if (name !== repairHighWaterMarkerName(index)) {
       throw new Error('Passport repair high-water history is not contiguous.')
     }
-    return parseRepairHighWater(databasePath, resolve(directory, name), key)
-  })
+    const path = resolve(directory, name)
+    try {
+      records.push(parseRepairHighWater(databasePath, path, key))
+    } catch (error) {
+      if (index === names.length - 1) {
+        tornTrailingPath = path
+        break
+      }
+      throw error
+    }
+  }
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]
     if (
@@ -568,7 +628,7 @@ function readRepairHighWaterCopy(
       throw new Error('Passport repair high-water chain is invalid.')
     }
   }
-  return records
+  return { records, tornTrailingPath }
 }
 
 function writeRepairHighWaterCopy(
@@ -587,14 +647,37 @@ function writeRepairHighWaterCopy(
     }
     return
   }
-  const descriptor = openSync(path, 'wx', 0o600)
+  const pending = `${path}.pending`
+  rmSync(pending, { force: true })
+  const descriptor = openSync(pending, 'wx', 0o600)
   try {
-    writeSync(descriptor, `${JSON.stringify(record)}\n`, undefined, 'utf8')
+    if (
+      copy === 'a' &&
+      record.phase === 'database-erased' &&
+      crashBoundary?.operation === 'repairPersistence' &&
+      crashBoundary.checkpoint === 'after-repair-database-erased-high-water-a-temp-create'
+    ) {
+      process.exit(105)
+    }
+    const content = `${JSON.stringify({
+      ...repairHighWaterPayload(record),
+      signature: record.signature
+    })}\n`
+    if (
+      copy === 'a' &&
+      record.phase === 'database-erased' &&
+      crashBoundary?.operation === 'repairPersistence' &&
+      crashBoundary.checkpoint === 'after-repair-database-erased-high-water-a-partial-write'
+    ) {
+      writeSync(descriptor, content.slice(0, Math.max(1, Math.floor(content.length / 2))), undefined, 'utf8')
+      process.exit(106)
+    }
+    writeSync(descriptor, content, undefined, 'utf8')
     fsyncSync(descriptor)
   } finally {
     closeSync(descriptor)
   }
-  fsyncParent(path)
+  promoteDurable(pending, path)
 }
 
 function synchronizeRepairHighWaterCopy(
@@ -613,23 +696,56 @@ function readRepairHighWater(
   databasePath: string,
   key: Buffer
 ): RepairHighWaterState | undefined {
-  const left = readRepairHighWaterCopy(databasePath, 'a', key)
-  const right = readRepairHighWaterCopy(databasePath, 'b', key)
+  let left: RepairHighWaterCopy | undefined
+  let right: RepairHighWaterCopy | undefined
+  let leftError: unknown
+  let rightError: unknown
+  try {
+    left = readRepairHighWaterCopy(databasePath, 'a', key)
+  } catch (error) {
+    leftError = error
+  }
+  try {
+    right = readRepairHighWaterCopy(databasePath, 'b', key)
+  } catch (error) {
+    rightError = error
+  }
+  if (leftError || rightError) {
+    throw leftError ?? rightError
+  }
   if (!left && !right) return undefined
-  const longest = (left?.length ?? 0) >= (right?.length ?? 0) ? left! : right!
-  const shortest = longest === left ? right : left
-  if (shortest) {
-    for (let index = 0; index < shortest.length; index += 1) {
-      if (shortest[index].signature !== longest[index]?.signature) {
-        throw new Error('Passport repair high-water copies diverged.')
-      }
+  if (
+    (!left || left.records.length === 0 || left.tornTrailingPath) &&
+    (!right || right.records.length === 0 || right.tornTrailingPath)
+  ) {
+    throw new Error('Passport repair high-water copies are both incomplete.')
+  }
+  const leftRecords = left?.records ?? []
+  const rightRecords = right?.records ?? []
+  const sharedLength = Math.min(leftRecords.length, rightRecords.length)
+  for (let index = 0; index < sharedLength; index += 1) {
+    if (leftRecords[index].signature !== rightRecords[index].signature) {
+      throw new Error('Passport repair high-water copies diverged.')
     }
   }
-  if (!left || left.length < longest.length) {
-    synchronizeRepairHighWaterCopy(databasePath, 'a', longest, left?.length ?? 0, key)
+  const longest = leftRecords.length >= rightRecords.length ? leftRecords : rightRecords
+  const synchronize = (
+    copy: 'a' | 'b',
+    state: RepairHighWaterCopy | undefined
+  ): void => {
+    if (state?.tornTrailingPath) {
+      rmSync(repairHighWaterDirectory(databasePath, copy), { recursive: true, force: true })
+      synchronizeRepairHighWaterCopy(databasePath, copy, longest, 0, key)
+      return
+    }
+    if (!state || state.records.length < longest.length) {
+      synchronizeRepairHighWaterCopy(databasePath, copy, longest, state?.records.length ?? 0, key)
+    }
   }
-  if (!right || right.length < longest.length) {
-    synchronizeRepairHighWaterCopy(databasePath, 'b', longest, right?.length ?? 0, key)
+  synchronize('a', left)
+  synchronize('b', right)
+  if (longest.length === 0) {
+    throw new Error('Passport repair high-water history is missing.')
   }
   return { records: longest, current: longest[longest.length - 1] }
 }
@@ -929,6 +1045,7 @@ function parseRepairJournal(
     'erasing-database',
     'database-erased',
     'keys-erased',
+    'creating-database',
     'database-created',
     'receipt-staged'
   ]
@@ -954,7 +1071,11 @@ function parseRepairJournal(
     throw new Error('Passport repair journal is invalid.')
   }
   if (
-    (value.phase === 'database-created' || value.phase === 'receipt-staged') !==
+    (
+      value.phase === 'creating-database' ||
+      value.phase === 'database-created' ||
+      value.phase === 'receipt-staged'
+    ) !==
     (value.databaseId !== undefined)
   ) {
     throw new Error('Passport repair journal fresh database identity is inconsistent.')
@@ -993,6 +1114,7 @@ function journalCandidateSupersedes(
     'erasing-database',
     'database-erased',
     'keys-erased',
+    'creating-database',
     'database-created',
     'receipt-staged'
   ]
@@ -1099,6 +1221,8 @@ function expectedRepairPhaseAfter(phase: RepairHighWaterPhase): RepairPhase | un
     case 'database-erased':
       return 'keys-erased'
     case 'keys-erased':
+      return 'creating-database'
+    case 'creating-database':
       return 'database-created'
     case 'database-created':
       return 'receipt-staged'
@@ -1194,6 +1318,47 @@ function repairCheckpoint(
   }
 }
 
+const PASSPORT_PERSISTED_TABLES = [
+  'passport_clock',
+  'passport_meta',
+  'passport_settings',
+  'passport_roster',
+  'stint_passport',
+  'passport_item',
+  'passport_event',
+  'passport_runtime_log',
+  'passport_deletion_tombstone',
+  'passport_mutation_receipt'
+] as const
+
+const PASSPORT_DATA_TABLES = [
+  'passport_roster',
+  'stint_passport',
+  'passport_item',
+  'passport_event',
+  'passport_runtime_log',
+  'passport_deletion_tombstone',
+  'passport_mutation_receipt'
+] as const
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (!value || typeof value !== 'object') return JSON.stringify(value)
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+    .join(',')}}`
+}
+
+function jsonMatchesDefault(value: unknown, expected: unknown): boolean {
+  if (typeof value !== 'string') return false
+  try {
+    return canonicalJson(JSON.parse(value)) === canonicalJson(expected)
+  } catch {
+    return false
+  }
+}
+
 function probeDatabase(databasePath: string): DatabaseProbe {
   if (!existsSync(databasePath)) return { state: 'absent' }
   const descriptor = openSync(databasePath, 'r')
@@ -1211,36 +1376,135 @@ function probeDatabase(databasePath: string): DatabaseProbe {
   let database: DatabaseSync | undefined
   try {
     database = new DatabaseSync(databasePath, { readOnly: true })
-    const row = database.prepare(
-      "SELECT value FROM passport_meta WHERE key = 'database_id'"
-    ).get() as { value?: unknown } | undefined
-    if (!validHex(row?.value, 48)) {
+    const quickCheck = database.prepare('PRAGMA quick_check(1)').get() as
+      | Record<string, unknown>
+      | undefined
+    if (!quickCheck || Object.values(quickCheck)[0] !== 'ok') {
       return { state: 'unreadable' }
     }
-    const privacyRow = database.prepare(
-      'SELECT privacy_json FROM passport_settings WHERE singleton = 1'
-    ).get() as { privacy_json?: unknown } | undefined
-    const privacy = typeof privacyRow?.privacy_json === 'string'
-      ? JSON.parse(privacyRow.privacy_json) as { identityPersistenceOptIn?: unknown }
-      : undefined
+    const userTables = (database.prepare(`
+      SELECT name
+      FROM sqlite_schema
+      WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+      ORDER BY name
+    `).all() as Array<{ name?: unknown }>)
+      .map((row) => String(row.name ?? ''))
+    const tableSet = new Set(userTables)
+    const unexpectedTable = userTables.some((table) =>
+      !(PASSPORT_PERSISTED_TABLES as readonly string[]).includes(table)
+    )
     const count = (table: string): number => {
-      const result = database!.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
-        count?: unknown
-      } | undefined
-      return Number(result?.count ?? 0)
+      if (!tableSet.has(table)) return 0
+      const row = database!.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as
+        | { count?: unknown }
+        | undefined
+      return Number(row?.count ?? 0)
     }
-    const migration = database.prepare(
-      "SELECT value FROM passport_meta WHERE key = 'persistence_migration'"
-    ).get()
+    const metaRows = tableSet.has('passport_meta')
+      ? database.prepare('SELECT key, value FROM passport_meta ORDER BY key').all() as Array<{
+          key?: unknown
+          value?: unknown
+        }>
+      : []
+    const meta = new Map(metaRows.map((row) => [String(row.key ?? ''), String(row.value ?? '')]))
+    const databaseIdValue = meta.get('database_id')
+    const databaseId = validHex(databaseIdValue, 48) ? databaseIdValue : undefined
+    const repairEpochValue = Number(meta.get('repair_creation_epoch'))
+    const repairEpoch = Number.isSafeInteger(repairEpochValue) && repairEpochValue > 0
+      ? repairEpochValue
+      : undefined
+    const repairBindingValue = meta.get('repair_creation_binding')
+    const repairBinding = validHex(repairBindingValue, 64) ? repairBindingValue : undefined
+    const allowedMeta = new Set([
+      'database_id',
+      'pseudonym_salt',
+      'repair_token',
+      'integrity_state',
+      'privacy_mutation_generation',
+      'roster_mutation_generation',
+      'repair_creation_epoch',
+      'repair_creation_binding'
+    ])
+    let nonDefaultState =
+      unexpectedTable ||
+      metaRows.some((row) => !allowedMeta.has(String(row.key ?? ''))) ||
+      (databaseIdValue !== undefined && databaseId === undefined) ||
+      (meta.has('pseudonym_salt') && !validHex(meta.get('pseudonym_salt'), 64)) ||
+      (meta.has('repair_token') && !validHex(meta.get('repair_token'), 48)) ||
+      (meta.has('integrity_state') && meta.get('integrity_state') !== 'clean') ||
+      (
+        meta.has('privacy_mutation_generation') &&
+        meta.get('privacy_mutation_generation') !== '0'
+      ) ||
+      (
+        meta.has('roster_mutation_generation') &&
+        meta.get('roster_mutation_generation') !== '0'
+      ) ||
+      (meta.has('repair_creation_epoch') !== meta.has('repair_creation_binding')) ||
+      (meta.has('repair_creation_epoch') && repairEpoch === undefined) ||
+      (meta.has('repair_creation_binding') && repairBinding === undefined)
+    for (const table of PASSPORT_DATA_TABLES) {
+      if (count(table) > 0) nonDefaultState = true
+    }
+    const clockRows = tableSet.has('passport_clock')
+      ? database.prepare(`
+          SELECT singleton, next_sequence, last_logical_time_ms
+          FROM passport_clock
+          ORDER BY singleton
+        `).all() as Array<Record<string, unknown>>
+      : []
+    const clockDefault = clockRows.length === 1 &&
+      Number(clockRows[0].singleton) === 1 &&
+      Number(clockRows[0].next_sequence) === 0 &&
+      Number(clockRows[0].last_logical_time_ms) === 0
+    if (clockRows.length > 0 && !clockDefault) nonDefaultState = true
+    const settingsRows = tableSet.has('passport_settings')
+      ? database.prepare(`
+          SELECT singleton, config_json, privacy_json, kill_switch, updated_at
+          FROM passport_settings
+          ORDER BY singleton
+        `).all() as Array<Record<string, unknown>>
+      : []
+    const settingsDefault = settingsRows.length === 1 &&
+      Number(settingsRows[0].singleton) === 1 &&
+      jsonMatchesDefault(settingsRows[0].config_json, DEFAULT_PASSPORT_CONFIG) &&
+      jsonMatchesDefault(settingsRows[0].privacy_json, DEFAULT_PASSPORT_PRIVACY) &&
+      Number(settingsRows[0].kill_switch) === 0 &&
+      Number.isSafeInteger(Number(settingsRows[0].updated_at)) &&
+      Number(settingsRows[0].updated_at) >= 0
+    if (settingsRows.length > 0 && !settingsDefault) nonDefaultState = true
+    const schemaVersionRow = database.prepare('PRAGMA user_version').get() as
+      | Record<string, unknown>
+      | undefined
+    const schemaVersion = Number(Object.values(schemaVersionRow ?? {})[0] ?? 0)
+    if (
+      schemaVersion !== 0 &&
+      schemaVersion !== PASSPORT_PERSISTENCE_SCHEMA_VERSION
+    ) {
+      nonDefaultState = true
+    }
+    const schemaComplete =
+      schemaVersion === PASSPORT_PERSISTENCE_SCHEMA_VERSION &&
+      PASSPORT_PERSISTED_TABLES.every((table) => tableSet.has(table))
+    const metaComplete =
+      databaseId !== undefined &&
+      validHex(meta.get('pseudonym_salt'), 64) &&
+      validHex(meta.get('repair_token'), 48) &&
+      meta.get('integrity_state') === 'clean'
     return {
       state: 'readable',
-      databaseId: row.value,
-      populated:
-        privacy?.identityPersistenceOptIn === true ||
-        count('passport_roster') > 0 ||
-        count('stint_passport') > 0 ||
-        count('passport_event') > 0 ||
-        migration !== undefined
+      databaseId,
+      repairEpoch,
+      repairBinding,
+      schemaComplete,
+      nonDefaultState,
+      pristine:
+        schemaComplete &&
+        metaComplete &&
+        clockDefault &&
+        settingsDefault &&
+        !nonDefaultState,
+      userTables
     }
   } catch {
     return { state: 'unreadable' }
@@ -1249,9 +1513,98 @@ function probeDatabase(databasePath: string): DatabaseProbe {
   }
 }
 
+function repairDatabaseBindingCanonical(
+  journal: Pick<
+    RepairJournal,
+    | 'authorityId'
+    | 'profileBinding'
+    | 'repairEpoch'
+    | 'operationId'
+    | 'tokenHash'
+    | 'originalDatabaseId'
+  >,
+  databaseId: string
+): string {
+  return JSON.stringify({
+    kind: 'stint-passport-repair-database',
+    authorityId: journal.authorityId,
+    profileBinding: journal.profileBinding,
+    repairEpoch: journal.repairEpoch,
+    operationId: journal.operationId,
+    tokenHash: journal.tokenHash,
+    originalDatabaseId: journal.originalDatabaseId,
+    databaseId
+  })
+}
+
+function repairDatabaseBinding(
+  journal: Pick<
+    RepairJournal,
+    | 'authorityId'
+    | 'profileBinding'
+    | 'repairEpoch'
+    | 'operationId'
+    | 'tokenHash'
+    | 'originalDatabaseId'
+  >,
+  databaseId: string,
+  key: Buffer
+): string {
+  return signRepairValue(key, repairDatabaseBindingCanonical(journal, databaseId))
+}
+
+function probeMatchesRepairDatabase(
+  probe: DatabaseProbe,
+  journal: RepairJournal,
+  key: Buffer
+): boolean {
+  if (
+    probe.state !== 'readable' ||
+    journal.databaseId === undefined ||
+    probe.databaseId !== journal.databaseId ||
+    probe.repairEpoch !== journal.repairEpoch ||
+    !validHex(probe.repairBinding, 64)
+  ) {
+    return false
+  }
+  return constantTimeHexEqual(
+    probe.repairBinding,
+    repairDatabaseBinding(journal, journal.databaseId, key)
+  )
+}
+
+function probeMatchesCompletedRepairDatabase(
+  probe: DatabaseProbe,
+  authority: RepairAuthority,
+  key: Buffer
+): boolean {
+  const completed = authority.lastCompleted
+  if (
+    !completed ||
+    probe.state !== 'readable' ||
+    probe.databaseId !== completed.databaseId ||
+    probe.repairEpoch !== completed.repairEpoch ||
+    !validHex(probe.repairBinding, 64)
+  ) {
+    return false
+  }
+  return constantTimeHexEqual(
+    probe.repairBinding,
+    repairDatabaseBinding({
+      authorityId: authority.authorityId,
+      profileBinding: authority.profileBinding,
+      repairEpoch: completed.repairEpoch,
+      operationId: completed.operationId,
+      tokenHash: completed.tokenHash,
+      originalDatabaseId: completed.originalDatabaseId
+    }, completed.databaseId, key)
+  )
+}
+
 function assertRepairPhaseDatabaseState(
   databasePath: string,
-  journal: RepairJournal
+  journal: RepairJournal,
+  key: Buffer
 ): DatabaseProbe {
   const probe = probeDatabase(databasePath)
   switch (journal.phase) {
@@ -1274,18 +1627,25 @@ function assertRepairPhaseDatabaseState(
       }
       break
     case 'keys-erased':
-      if (probe.state === 'unreadable' || (probe.state === 'readable' && probe.populated)) {
-        throw new Error('Passport keys-erased repair cannot replace an unreadable or populated database.')
+      if (probe.state !== 'absent') {
+        throw new Error('Passport keys-erased repair found an unassigned replacement database.')
+      }
+      break
+    case 'creating-database':
+      if (
+        probe.state !== 'absent' &&
+        (!probeMatchesRepairDatabase(probe, journal, key) || !probe.pristine)
+      ) {
+        throw new Error('Passport creating repair found a mismatched or non-default replacement database.')
       }
       break
     case 'database-created':
     case 'receipt-staged':
       if (
-        probe.state !== 'readable' ||
-        probe.databaseId !== journal.databaseId ||
-        probe.populated
+        !probeMatchesRepairDatabase(probe, journal, key) ||
+        !probe.pristine
       ) {
-        throw new Error('Passport repair fresh database is missing, mismatched, or already populated.')
+        throw new Error('Passport repair fresh database is missing, mismatched, or has non-default state.')
       }
       break
   }
@@ -1324,9 +1684,9 @@ function validateRepairJournalAuthority(
       journal.databaseId === completedMarker.databaseId &&
       journal.signature === completedMarker.journalSignature
     ) {
-      const probe = assertRepairPhaseDatabaseState(databasePath, journal)
-      if (probe.state !== 'readable' || probe.populated) {
-        throw new Error('Passport completed repair journal replay found a populated database.')
+      const probe = assertRepairPhaseDatabaseState(databasePath, journal, key)
+      if (probe.state !== 'readable' || !probe.pristine) {
+        throw new Error('Passport completed repair journal replay found non-default database state.')
       }
       if (
         authority.completedEpoch === completedMarker.repairEpoch &&
@@ -1354,26 +1714,34 @@ function validateRepairJournalAuthority(
     highWater,
     key
   )
-  assertRepairPhaseDatabaseState(databasePath, journal)
+  assertRepairPhaseDatabaseState(databasePath, journal, key)
   return { disposition: 'active', highWater: bound }
 }
 
 function isFreshRepairDatabase(
   current: PassportPersistenceEngine,
-  receipt: RepairReceipt
+  receipt: RepairReceipt,
+  authority: RepairAuthority,
+  key: Buffer
 ): boolean {
-  if (current.databaseIdentity !== receipt.databaseId) return false
-  const state = current.getAuthoritativeState()
-  return !state.privacy.identityPersistenceOptIn &&
-    state.roster.length === 0 &&
-    state.passports.length === 0 &&
-    state.persistenceMigration === undefined
+  const completed = authority.lastCompleted
+  if (
+    current.databaseIdentity !== receipt.databaseId ||
+    !completed ||
+    completed.databaseId !== receipt.databaseId
+  ) {
+    return false
+  }
+  const probe = probeDatabase(current.databasePath)
+  return probe.pristine === true &&
+    probeMatchesCompletedRepairDatabase(probe, authority, key)
 }
 
 function isCompletedRepairReceipt(
   current: PassportPersistenceEngine,
   receipt: RepairReceipt,
-  authority: RepairAuthority
+  authority: RepairAuthority,
+  key: Buffer
 ): boolean {
   const completed = authority.lastCompleted
   return completed !== undefined &&
@@ -1382,7 +1750,7 @@ function isCompletedRepairReceipt(
     completed.tokenHash === receipt.tokenHash &&
     completed.databaseId === receipt.databaseId &&
     authority.currentDatabaseId === receipt.databaseId &&
-    isFreshRepairDatabase(current, receipt)
+    isFreshRepairDatabase(current, receipt, authority, key)
 }
 
 function finalizeRepairJournalCleanup(
@@ -1403,23 +1771,157 @@ function finalizeRepairJournalCleanup(
   }, key)
 }
 
-function ensureFreshRepairEngine(databasePath: string, databaseId?: string): PassportPersistenceEngine {
-  if (!engine) engine = new PassportPersistenceEngine({ path: databasePath })
-  if (engine.databasePath !== databasePath) {
-    engine.close()
-    engine = new PassportPersistenceEngine({ path: databasePath })
+function repairDatabaseStagingPath(databasePath: string, databaseId: string): string {
+  return `${databasePath}.repair-create-${databaseId}.sqlite`
+}
+
+function cleanupRepairDatabaseStaging(path: string, includeDatabase: boolean): void {
+  for (const suffix of [
+    ...(includeDatabase ? [''] : []),
+    '-wal',
+    '-shm',
+    '.anchor.json',
+    '.anchor.pending.json',
+    '.anchor.key',
+    '.quarantine.json'
+  ]) {
+    secureErase(`${path}${suffix}`)
   }
-  if (databaseId !== undefined && engine.databaseIdentity !== databaseId) {
-    throw new Error('Passport repair fresh database identity does not match its journal.')
+}
+
+function seedRepairDatabaseIdentity(
+  path: string,
+  journal: RepairJournal,
+  key: Buffer
+): void {
+  if (!journal.databaseId) {
+    throw new Error('Passport creating repair has no assigned database identity.')
   }
-  const state = engine.getAuthoritativeState()
+  const existing = probeDatabase(path)
+  if (existing.state === 'readable') {
+    if (probeMatchesRepairDatabase(existing, journal, key)) {
+      if (existing.nonDefaultState) {
+        throw new Error('Passport repair staging database contains non-default state.')
+      }
+      return
+    }
+    const onlyEmptyMeta =
+      existing.databaseId === undefined &&
+      !existing.nonDefaultState &&
+      (existing.userTables?.length ?? 0) <= 1 &&
+      (existing.userTables?.[0] === undefined || existing.userTables[0] === 'passport_meta')
+    if (!onlyEmptyMeta) {
+      throw new Error('Passport repair staging database does not match its assigned identity.')
+    }
+    cleanupRepairDatabaseStaging(path, true)
+  } else if (existing.state === 'unreadable') {
+    cleanupRepairDatabaseStaging(path, true)
+  }
+  let database: DatabaseSync | undefined
+  try {
+    database = new DatabaseSync(path)
+    database.exec('PRAGMA journal_mode = DELETE')
+    database.exec('PRAGMA synchronous = FULL')
+    repairCheckpoint('after-repair-database-file-open', 107)
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS passport_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `)
+      const insert = database.prepare('INSERT INTO passport_meta(key, value) VALUES (?, ?)')
+      insert.run('database_id', journal.databaseId)
+      insert.run('repair_creation_epoch', String(journal.repairEpoch))
+      insert.run(
+        'repair_creation_binding',
+        repairDatabaseBinding(journal, journal.databaseId, key)
+      )
+      database.exec('COMMIT')
+    } catch (error) {
+      try {
+        database.exec('ROLLBACK')
+      } catch {
+        // The process may not have opened a transaction before the failure.
+      }
+      throw error
+    }
+    database.exec('PRAGMA wal_checkpoint(FULL)')
+  } finally {
+    database?.close()
+  }
+  const descriptor = openSync(path, 'r+')
+  try {
+    fsyncSync(descriptor)
+  } finally {
+    closeSync(descriptor)
+  }
+  fsyncParent(path)
+  repairCheckpoint('after-repair-database-identity-create', 108)
+  const seeded = probeDatabase(path)
   if (
-    state.privacy.identityPersistenceOptIn ||
-    state.roster.length > 0 ||
-    state.passports.length > 0 ||
-    state.persistenceMigration !== undefined
+    !probeMatchesRepairDatabase(seeded, journal, key) ||
+    seeded.nonDefaultState
   ) {
-    throw new Error('Passport repair fresh database is not empty.')
+    throw new Error('Passport repair staging identity could not be authenticated.')
+  }
+}
+
+function ensureFreshRepairEngine(
+  databasePath: string,
+  journal: RepairJournal,
+  key: Buffer
+): PassportPersistenceEngine {
+  if (!journal.databaseId) {
+    throw new Error('Passport repair fresh database identity is unavailable.')
+  }
+  let currentProbe = probeDatabase(databasePath)
+  if (currentProbe.state === 'absent') {
+    const stagingPath = repairDatabaseStagingPath(databasePath, journal.databaseId)
+    seedRepairDatabaseIdentity(stagingPath, journal, key)
+    const staged = new PassportPersistenceEngine({
+      path: stagingPath,
+      databaseIdentity: journal.databaseId
+    })
+    staged.close()
+    cleanupRepairDatabaseStaging(stagingPath, false)
+    const stagedProbe = probeDatabase(stagingPath)
+    if (
+      !probeMatchesRepairDatabase(stagedProbe, journal, key) ||
+      !stagedProbe.pristine
+    ) {
+      throw new Error('Passport repair staged database is incomplete or contains non-default state.')
+    }
+    repairCheckpoint('after-repair-database-schema-create', 109)
+    currentProbe = probeDatabase(databasePath)
+    if (currentProbe.state === 'absent') {
+      promoteDurable(stagingPath, databasePath)
+    } else if (
+      !probeMatchesRepairDatabase(currentProbe, journal, key) ||
+      !currentProbe.pristine
+    ) {
+      throw new Error('Passport repair cannot replace an unexpected database during creation.')
+    }
+    cleanupRepairDatabaseStaging(stagingPath, true)
+  }
+  assertRepairPhaseDatabaseState(databasePath, journal, key)
+  if (engine && engine.databasePath !== databasePath) {
+    engine.close()
+    engine = null
+  }
+  if (!engine) {
+    engine = new PassportPersistenceEngine({
+      path: databasePath,
+      databaseIdentity: journal.databaseId
+    })
+  }
+  const finalProbe = probeDatabase(databasePath)
+  if (
+    !probeMatchesRepairDatabase(finalProbe, journal, key) ||
+    !finalProbe.pristine
+  ) {
+    throw new Error('Passport repair fresh database failed authoritative validation.')
   }
   return engine
 }
@@ -1447,7 +1949,7 @@ function resumeRepair(
       highWater = advanced.highWater
     }
     if (journal.phase === 'erasing-database') {
-      assertRepairPhaseDatabaseState(databasePath, journal)
+      assertRepairPhaseDatabaseState(databasePath, journal, authorityKey)
       engine?.close()
       engine = null
       secureEraseDatabase(databasePath)
@@ -1465,7 +1967,7 @@ function resumeRepair(
       repairCheckpoint('after-repair-database-erase', 95)
     }
     if (journal.phase === 'database-erased') {
-      assertRepairPhaseDatabaseState(databasePath, journal)
+      assertRepairPhaseDatabaseState(databasePath, journal, authorityKey)
       for (const suffix of [
         '.anchor.json',
         '.anchor.pending.json',
@@ -1494,10 +1996,28 @@ function resumeRepair(
       repairCheckpoint('after-repair-key-erase', 96)
     }
     if (journal.phase === 'keys-erased') {
-      assertRepairPhaseDatabaseState(databasePath, journal)
+      assertRepairPhaseDatabaseState(databasePath, journal, authorityKey)
       engine?.close()
       engine = null
-      const current = ensureFreshRepairEngine(databasePath)
+      const databaseId = randomBytes(24).toString('hex')
+      const advanced = advanceRepairJournal(
+        databasePath,
+        journal,
+        'creating-database',
+        authority,
+        highWater,
+        authorityKey,
+        databaseId
+      )
+      journal = advanced.journal
+      highWater = advanced.highWater
+      repairCheckpoint('after-repair-database-identity-assignment', 110)
+    }
+    if (journal.phase === 'creating-database') {
+      assertRepairPhaseDatabaseState(databasePath, journal, authorityKey)
+      engine?.close()
+      engine = null
+      const current = ensureFreshRepairEngine(databasePath, journal, authorityKey)
       const advanced = advanceRepairJournal(
         databasePath,
         journal,
@@ -1511,8 +2031,8 @@ function resumeRepair(
       highWater = advanced.highWater
       repairCheckpoint('after-repair-database-create', 104)
     }
-    assertRepairPhaseDatabaseState(databasePath, journal)
-    const current = ensureFreshRepairEngine(databasePath, journal.databaseId)
+    assertRepairPhaseDatabaseState(databasePath, journal, authorityKey)
+    const current = ensureFreshRepairEngine(databasePath, journal, authorityKey)
     const receipt: RepairReceipt = {
       version: 1,
       operationId: journal.operationId,
@@ -1660,6 +2180,15 @@ async function execute(request: Request): Promise<unknown> {
           if (engine.databaseIdentity !== repairAuthority.currentDatabaseId) {
             throw new Error('Passport repaired database identity is no longer authoritative.')
           }
+          if (
+            !probeMatchesCompletedRepairDatabase(
+              probeDatabase(path),
+              repairAuthority,
+              loaded.key
+            )
+          ) {
+            throw new Error('Passport repaired database binding is no longer authoritative.')
+          }
         } else {
           repairAuthority = loaded.authority
           resumeRepair(
@@ -1683,6 +2212,16 @@ async function execute(request: Request): Promise<unknown> {
           engine = new PassportPersistenceEngine({ path })
           if (engine.databaseIdentity !== existing.highWater.current.databaseId) {
             throw new Error('Passport database identity is below its monotonic repair high-water mark.')
+          }
+          if (
+            existing.highWater.current.phase === 'completed' &&
+            !probeMatchesCompletedRepairDatabase(
+              probeDatabase(path),
+              existing.authority,
+              existing.key
+            )
+          ) {
+            throw new Error('Passport database does not match its completed repair binding.')
           }
         } else {
           engine = new PassportPersistenceEngine({ path })
@@ -1763,7 +2302,7 @@ async function execute(request: Request): Promise<unknown> {
       priorReceipt &&
       priorReceipt.operationId === operationId &&
       priorReceipt.tokenHash === tokenHash &&
-      isCompletedRepairReceipt(current, priorReceipt, authority)
+      isCompletedRepairReceipt(current, priorReceipt, authority, authorityKey)
     ) {
       return { quarantinedPath: priorReceipt.quarantinedPath }
     }

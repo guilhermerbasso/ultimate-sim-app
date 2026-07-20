@@ -47,7 +47,7 @@ import {
 import { PASSPORT_SQLITE_BUSY_TIMEOUT_MS } from './persistence-deadlines'
 import { persistenceDomainError } from './persistence-errors'
 
-const SCHEMA_VERSION = 5
+export const PASSPORT_PERSISTENCE_SCHEMA_VERSION = 5
 const BOUNDED_VERIFY_LIMIT = 500
 const ANCHOR_VERSION = 1
 const MAX_EXPORT_EVENTS = 500
@@ -95,6 +95,7 @@ export interface PassportStoreOptions {
   now?: () => number
   idFactory?: () => string
   promoteAnchor?: (source: string, destination: string) => void
+  databaseIdentity?: string
 }
 
 export interface PassportStoreMetrics {
@@ -667,7 +668,15 @@ export class PassportPersistenceEngine {
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA synchronous = FULL')
     this.migrate()
-    this.databaseId = this.readOrCreateMeta('database_id', () => randomBytes(24).toString('hex'))
+    this.databaseId = this.readOrCreateMeta(
+      'database_id',
+      () => options.databaseIdentity ?? randomBytes(24).toString('hex')
+    )
+    if (options.databaseIdentity !== undefined && this.databaseId !== options.databaseIdentity) {
+      this.closed = true
+      this.db.close()
+      throw new Error('Passport database identity does not match the assigned repair identity.')
+    }
     this.pseudonymSalt = this.readOrCreateMeta('pseudonym_salt', () => randomBytes(32).toString('hex'))
     this.repairToken = this.readOrCreateMeta('repair_token', () => randomBytes(24).toString('hex'))
     this.hydrateHeads()
@@ -1536,7 +1545,11 @@ export class PassportPersistenceEngine {
 
   private migrate(): void {
     let version = this.schemaVersion()
-    if (version > SCHEMA_VERSION) throw new Error(`Passport schema ${version} is newer than supported schema ${SCHEMA_VERSION}.`)
+    if (version > PASSPORT_PERSISTENCE_SCHEMA_VERSION) {
+      throw new Error(
+        `Passport schema ${version} is newer than supported schema ${PASSPORT_PERSISTENCE_SCHEMA_VERSION}.`
+      )
+    }
     if (version === 0) {
       begin(this.db)
       try {
@@ -1551,7 +1564,7 @@ export class PassportPersistenceEngine {
           DEFAULT_PASSPORT_PRIVACY,
           false
         )
-        this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+        this.db.exec(`PRAGMA user_version = ${PASSPORT_PERSISTENCE_SCHEMA_VERSION}`)
         this.db.exec('COMMIT')
       } catch (error) {
         rollback(this.db)
