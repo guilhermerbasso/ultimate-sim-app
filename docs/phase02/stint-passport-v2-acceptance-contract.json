@@ -2,7 +2,7 @@
   "contractVersion": 1,
   "id": "AC-PASSPORT-V2",
   "branch": "feat/phase2-stint-passport-v2",
-  "baseCommit": "1061de32a02537d1c47165f081b8c53e4b499fa9",
+  "baseCommit": "8e60f95e839acc81b0ba4a7d8e50a39633bf9093",
   "autonomousOverride": true,
   "humanTokenRequired": false,
   "scope": "Endurance Stint Passport only; Decision Flight Recorder excluded",
@@ -31,7 +31,11 @@
     "A durable privacy mutation generation fences D1, D2 and D3 deletion against queued or in-flight writes before durable publication and live-state swap",
     "Durable roster generation compare-and-swap makes explicit roster intent authoritative over stale automatic driver seeding across restart",
     "Readiness refreshes fence stint identity, lifecycle, revision, event and generation after every await so close boundaries cannot be resurrected",
-    "Circuit-bypass privacy deletion and repair requests have bounded queue and execution deadlines and settle when recovery exhausts or crashes"
+    "Circuit-bypass privacy deletion and repair requests have bounded queue and execution deadlines and settle when recovery exhausts or crashes",
+    "A class-scoped privacy mutation barrier marks deletion before epoch change, rejects stale queued resolutions, delays exports until authoritative sanitization, and preserves D1/D2 deletion across both race orderings and restart",
+    "Stable roster mutation IDs and durable receipts reconcile post-COMMIT worker exits against authoritative roster and generation before publishing automatic driver authorization",
+    "Stable privacy mutation IDs and durable receipts reconcile post-COMMIT opt-out immediately in live state and export, with idempotent retry that cannot advance generation twice",
+    "Circuit-bypass authoritative privacy reads start bounded recovery after a pre-COMMIT worker crash so same-operation deletion retries either converge or return an explicit bounded recoverable error"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

@@ -117,6 +117,7 @@ function clientFor(engine: PassportPersistenceEngine): PassportPersistenceClient
   }
   for (const method of [
     'getConfig', 'setConfig', 'getPrivacy', 'getPrivacyMutationGeneration',
+    'getAuthoritativeState',
     'getRosterMutationGeneration', 'setPrivacy', 'getKillSwitch',
     'listRoster', 'saveRoster', 'persistPassport', 'listPassports', 'getPassport',
     'getIntegrity', 'verifyActiveStint', 'purgeRetention', 'deleteByClass',

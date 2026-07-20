@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import { mkdirSync, renameSync, rmSync } from 'node:fs'
+import { createHash, createHmac } from 'node:crypto'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import {
   PASSPORT_ITEM_DEFINITIONS,
   STINT_PASSPORT_CONTRACT_VERSION,
   type PassportItem,
+  type PassportRosterMember,
   type StintPassport
 } from '../../shared/stint-passport'
 import { emptyConfidence, emptyObservedInterval } from '../../shared/phase02-contracts'
@@ -40,6 +41,16 @@ function scratch(name: string): string {
   mkdirSync(dir, { recursive: true })
   dirs.push(dir)
   return dir
+}
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`
+  if (!value || typeof value !== 'object') return JSON.stringify(value)
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, item]) => item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${stable(item)}`)
+    .join(',')}}`
 }
 
 function open(path: string, start: number) {
@@ -633,7 +644,7 @@ describe('PassportStore privacy and incremental integrity', () => {
       legacy.close()
 
       const migrated = open(path, 20_000).store
-      expect(migrated.schemaVersion()).toBe(4)
+      expect(migrated.schemaVersion()).toBe(5)
       const db = new DatabaseSync(path)
       const row = db.prepare(`
         SELECT data_class, evidence_data_class, detail_data_class,
@@ -1519,6 +1530,62 @@ describe('PassportStore privacy and incremental integrity', () => {
       state: 'corrupt',
       verified: false
     })
+  })
+
+  it('[blocker-B11-a] authenticates mutation receipts and fails closed on authoritative recovery after tampering', () => {
+    const path = join(scratch('receipt-corrupt'), 'passport.db')
+    const initial = open(path, 500).store
+    closeTracked(initial)
+    const anchorPath = `${path}.anchor.json`
+    const anchorKey = Buffer.from(readFileSync(`${path}.anchor.key`, 'utf8').trim(), 'hex')
+    const currentAnchor = JSON.parse(readFileSync(anchorPath, 'utf8')) as Record<string, unknown>
+    delete currentAnchor.mutationRoot
+    delete currentAnchor.signature
+    const legacyAnchor = {
+      ...currentAnchor,
+      signature: createHmac('sha256', anchorKey).update(stable(currentAnchor), 'utf8').digest('hex')
+    }
+    writeFileSync(anchorPath, `${stable(legacyAnchor)}\n`, 'utf8')
+
+    const first = open(path, 1_000).store
+    expect(first.getIntegrity()).toMatchObject({ state: 'anchored', verified: true })
+    expect(JSON.parse(readFileSync(anchorPath, 'utf8'))).toHaveProperty('mutationRoot')
+    first.setPrivacy(
+      { ...DEFAULT_PASSPORT_PRIVACY, identityPersistenceOptIn: true, updatedAt: 0 },
+      undefined,
+      'privacy:receipt-integrity-enable'
+    )
+    const roster: PassportRosterMember[] = [
+      {
+        memberId: 'driver-receipt',
+        displayName: 'Zulu Driver',
+        roles: ['driver'],
+        active: true
+      },
+      {
+        memberId: 'engineer-receipt',
+        displayName: 'Alpha Engineer',
+        roles: ['engineer'],
+        active: true
+      }
+    ]
+    first.saveRoster(roster, 0, 'roster-explicit:receipt-integrity')
+    expect(first.saveRoster(roster, 0, 'roster-explicit:receipt-integrity'))
+      .toEqual(first.listRoster())
+    closeTracked(first)
+
+    const db = new DatabaseSync(path)
+    db.prepare(`
+      UPDATE passport_mutation_receipt
+      SET result_hash = ?
+      WHERE operation_id = ?
+    `).run('f'.repeat(64), 'roster-explicit:receipt-integrity')
+    db.close()
+
+    const reopened = open(path, 2_000).store
+    expect(reopened.getIntegrity()).toMatchObject({ state: 'corrupt', verified: false })
+    expect(() => reopened.getAuthoritativeState('roster-explicit:receipt-integrity'))
+      .toThrow(/quarantined/i)
   })
 
   function passportItemDataClass(itemId: PassportItem['id']): 'D1' | 'D2' | 'D3' {

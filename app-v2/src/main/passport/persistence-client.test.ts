@@ -369,6 +369,24 @@ function phase3Worker(): RealPersistenceProcess {
   return worker
 }
 
+function configurePhase3Crash(
+  client: PassportPersistenceClient,
+  operation: string,
+  checkpoint: 'before-dispatch' | 'after-commit-before-response'
+): Promise<unknown> {
+  return (client as unknown as {
+    request(
+      method: string,
+      args: unknown[],
+      options: Record<string, unknown>
+    ): Promise<unknown>
+  }).request('configureCrashBoundary', [{ operation, checkpoint }], {
+    bypassKill: true,
+    bypassCircuit: true,
+    deadlineMs: 5_000
+  })
+}
+
 async function waitForPhase3(predicate: () => boolean, timeoutMs = 4_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!predicate()) {
@@ -555,6 +573,104 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     ])
   }, 15_000)
 
+  it('[blocker-B10-a] real post-COMMIT roster worker exit is reconciled by operation receipt and authoritative generation', async () => {
+    const path = phase3Database('roster-postcommit')
+    const realWorkers: RealPersistenceProcess[] = []
+    const client = new PassportPersistenceClient({
+      path,
+      restartDelayMs: 1,
+      workerFactory: () => {
+        const worker = phase3Worker()
+        realWorkers.push(worker)
+        return worker as any
+      }
+    })
+    clients.push(client)
+    await waitForPhase3(() => !client.status().inFlight)
+    await client.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 2_000
+    })
+    const roster = [{
+      memberId: 'driver-postcommit',
+      displayName: 'Driver Postcommit',
+      roles: ['driver' as const],
+      active: true
+    }]
+    const operationId = 'roster-seed:real-postcommit-worker-exit'
+    await configurePhase3Crash(client, 'saveRoster', 'after-commit-before-response')
+
+    await expect(client.saveRoster(roster, 0, operationId)).rejects.toThrow(/exited/i)
+    await waitForPhase3(() => realWorkers.length >= 2 && !client.status().inFlight)
+    const authoritative = await client.getAuthoritativeState(operationId)
+    expect(authoritative).toMatchObject({
+      roster,
+      rosterMutationGeneration: 1,
+      mutation: {
+        operationId,
+        kind: 'roster-save',
+        generation: 1
+      }
+    })
+    await expect(client.saveRoster(roster, 0, operationId)).resolves.toEqual(roster)
+    await expect(client.getRosterMutationGeneration()).resolves.toBe(1)
+  }, 15_000)
+
+  it('[blocker-B10-b] real post-COMMIT opt-out worker exit reconciles privacy, deletion, and idempotent retry', async () => {
+    const path = phase3Database('privacy-postcommit')
+    const realWorkers: RealPersistenceProcess[] = []
+    const client = new PassportPersistenceClient({
+      path,
+      restartDelayMs: 1,
+      workerFactory: () => {
+        const worker = phase3Worker()
+        realWorkers.push(worker)
+        return worker as any
+      }
+    })
+    clients.push(client)
+    await waitForPhase3(() => !client.status().inFlight)
+    await client.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 2_000
+    })
+    await client.saveRoster([{
+      memberId: 'privacy-driver',
+      displayName: 'Privacy Driver',
+      roles: ['driver'],
+      active: true
+    }])
+    await client.persistPassport(phase3Passport(1), phase3Event(1))
+    const operationId = 'privacy:real-postcommit-worker-exit'
+    const optOut = {
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: false,
+      updatedAt: 3_000
+    }
+    await configurePhase3Crash(client, 'setPrivacy', 'after-commit-before-response')
+
+    await expect(client.setPrivacy(optOut, 1, operationId)).rejects.toThrow(/exited/i)
+    await waitForPhase3(() => realWorkers.length >= 2 && !client.status().inFlight)
+    const authoritative = await client.getAuthoritativeState(operationId)
+    expect(authoritative).toMatchObject({
+      privacy: { identityPersistenceOptIn: false },
+      privacyMutationGeneration: 1,
+      roster: [],
+      passports: [],
+      mutation: {
+        operationId,
+        kind: 'privacy-settings',
+        generation: 1
+      }
+    })
+    await expect(client.setPrivacy(optOut, 1, operationId)).resolves.toMatchObject({
+      identityPersistenceOptIn: false
+    })
+    await expect(client.getPrivacyMutationGeneration()).resolves.toBe(1)
+  }, 15_000)
+
   it('[supported] ignores stale, duplicate, and future responses without resolving the wrong request', async () => {
     const { client, workers } = createClient([
       (worker, request) => {
@@ -694,6 +810,71 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     ])
 
     expect(outcomes.every((outcome) => outcome.status === 'rejected')).toBe(true)
+    expect(client.status()).toMatchObject({
+      state: 'open-circuit',
+      queued: 0,
+      inFlight: false
+    })
+  })
+
+  it('[blocker-B9-b] open-circuit pre-commit deletion crash permits bounded authoritative recovery and same-operation retry', async () => {
+    const operationId = 'delete:D2:bounded-recovery-operation'
+    const authoritative = {
+      privacy: DEFAULT_PASSPORT_PRIVACY,
+      privacyMutationGeneration: 0,
+      roster: [],
+      rosterMutationGeneration: 0,
+      passports: []
+    }
+    const { client, workers } = createClient([
+      (worker, request) => {
+        if (request.method === 'initialize') worker.respond(request)
+        else if (request.method === 'getConfig') worker.fail(request, 'disk transport unavailable')
+        else if (request.method === 'deleteByClass') worker.crash(92)
+      },
+      (worker, request) => {
+        if (request.method === 'initialize') worker.respond(request)
+        else if (request.method === 'getAuthoritativeState') {
+          worker.respond(request, authoritative)
+        } else if (request.method === 'deleteByClass') {
+          worker.respond(request, {
+            deletedStints: 0,
+            redactedEvidence: 1,
+            dataClass: 'D2'
+          })
+        }
+      }
+    ])
+    await settle()
+    for (let index = 0; index < 3; index += 1) {
+      await client.getConfig().catch(() => undefined)
+    }
+    expect(client.status().state).toBe('open-circuit')
+
+    await expect(client.deleteByClass('D2', 1, operationId))
+      .rejects.toThrow(/exited/i)
+    expect(client.status()).toMatchObject({
+      state: 'open-circuit',
+      queued: 0,
+      inFlight: false
+    })
+
+    const recovered = await Promise.race([
+      client.getAuthoritativeState(operationId),
+      new Promise<never>((_, reject) => setTimeout(
+        () => reject(new Error('authoritative recovery deadline exceeded')),
+        500
+      ))
+    ])
+    expect(recovered).toEqual(authoritative)
+    await expect(Promise.race([
+      client.deleteByClass('D2', 1, operationId),
+      new Promise<never>((_, reject) => setTimeout(
+        () => reject(new Error('same-operation retry deadline exceeded')),
+        500
+      ))
+    ])).resolves.toMatchObject({ dataClass: 'D2', redactedEvidence: 1 })
+    expect(workers).toHaveLength(2)
     expect(client.status()).toMatchObject({
       state: 'open-circuit',
       queued: 0,

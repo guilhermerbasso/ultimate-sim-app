@@ -13,6 +13,7 @@ import type {
   StintPassport
 } from '../../shared/stint-passport'
 import type {
+  PassportAuthoritativeState,
   PassportEventHeader,
   PassportExportPackage,
   PassportStoreEvent,
@@ -283,16 +284,26 @@ export class PassportPersistenceClient {
   getPrivacyMutationGeneration(): Promise<number> {
     return this.request('getPrivacyMutationGeneration')
   }
+  getAuthoritativeState(operationId?: string): Promise<PassportAuthoritativeState> {
+    return this.request('getAuthoritativeState', [operationId, 50], {
+      bypassKill: true,
+      bypassCircuit: true,
+      bypassBackpressure: true,
+      front: true,
+      deadlineMs: 5_000
+    })
+  }
   getRosterMutationGeneration(): Promise<number> {
     return this.request('getRosterMutationGeneration')
   }
   setPrivacy(
     value: PassportPrivacySettings,
-    privacyMutationGeneration?: number
+    privacyMutationGeneration?: number,
+    operationId?: string
   ): Promise<PassportPrivacySettings> {
     return this.request(
       'setPrivacy',
-      [value, privacyMutationGeneration],
+      [value, privacyMutationGeneration, operationId],
       { bypassKill: true, bypassCircuit: true }
     )
   }
@@ -301,9 +312,10 @@ export class PassportPersistenceClient {
   listRoster(): Promise<PassportRosterMember[]> { return this.request('listRoster') }
   saveRoster(
     value: PassportRosterMember[],
-    expectedGeneration?: number
+    expectedGeneration?: number,
+    operationId?: string
   ): Promise<PassportRosterMember[]> {
-    return this.request('saveRoster', [value, expectedGeneration])
+    return this.request('saveRoster', [value, expectedGeneration, operationId])
   }
   persistPassport(
     passport: StintPassport,
@@ -331,11 +343,12 @@ export class PassportPersistenceClient {
   }
   deleteByClass(
     value: PassportDataClass,
-    privacyMutationGeneration?: number
+    privacyMutationGeneration?: number,
+    operationId?: string
   ): Promise<PassportDeleteResult> {
     return this.request(
       'deleteByClass',
-      [value, privacyMutationGeneration],
+      [value, privacyMutationGeneration, operationId],
       { bypassKill: true, bypassCircuit: true }
     )
   }

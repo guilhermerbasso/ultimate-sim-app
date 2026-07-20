@@ -28,7 +28,7 @@ if (!selectors.every((selector) => /^[A-Za-z0-9_./-]+\.test\.tsx?$/.test(selecto
   throw new Error('The Passport V2 acceptance plan contains an unsafe test selector.')
 }
 
-const expectedTargetCommand = `npm test -- --run ${selectors.join(' ')}`
+const expectedTargetCommand = `npm run test:unit -- ${selectors.join(' ')}`
 if (plan.evidence.targetedTests.command !== expectedTargetCommand) {
   throw new Error('The targeted command does not exactly match its enumerated selectors.')
 }
@@ -141,7 +141,7 @@ runNpmStep('build', plan.evidence.build.command, ['run', 'build'])
 runNpmStep(
   'targetedTests',
   plan.evidence.targetedTests.command,
-  ['test', '--', '--run', ...selectors]
+  ['run', 'test:unit', '--', ...selectors]
 )
 
 writeFileSync(logPath, combinedLog, 'utf8')

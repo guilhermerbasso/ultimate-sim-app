@@ -3,9 +3,9 @@
   "kind": "acceptance-plan",
   "status": "pending-ci-attestation",
   "acceptanceContract": "docs/phase02/stint-passport-v2-acceptance-contract.json",
-  "acceptanceContractSha256": "8ae780407cad5f58ce27b67121875a1d43b8a6958998262deca796b37c902852",
+  "acceptanceContractSha256": "f13c4b07dbd533af84957f701f8c2ae5cc6f0c23d91c46ee4730d730ba3da90f",
   "branch": "feat/phase2-stint-passport-v2",
-  "baseCommit": "1061de32a02537d1c47165f081b8c53e4b499fa9",
+  "baseCommit": "8e60f95e839acc81b0ba4a7d8e50a39633bf9093",
   "sourceBinding": {
     "mode": "ci-runtime",
     "commit": "resolved-from-GITHUB_SHA",
@@ -16,7 +16,7 @@
   "evidence": {
     "targetedTests": {
       "status": "required",
-      "command": "npm test -- --run src/shared/stint-passport.test.ts src/main/phase02/raceops-codec.test.ts src/main/phase02/tap-kernel.test.ts src/main/passport/evaluator.test.ts src/main/passport/readiness.test.ts src/main/passport/store.test.ts src/main/passport/service.test.ts src/main/passport/persistence-client.test.ts src/main/passport/passport-persistence-worker.test.ts src/main/passport/offline.test.ts src/main/modules/stint-passport.test.ts src/preload/ipc-allowlists.test.ts src/renderer/src/views/StintPassportView.test.ts src/main/passport/passport-v2-blockers.test.ts src/main/passport/acceptance-evidence.test.ts",
+      "command": "npm run test:unit -- src/shared/stint-passport.test.ts src/main/phase02/raceops-codec.test.ts src/main/phase02/tap-kernel.test.ts src/main/passport/evaluator.test.ts src/main/passport/readiness.test.ts src/main/passport/store.test.ts src/main/passport/service.test.ts src/main/passport/persistence-client.test.ts src/main/passport/passport-persistence-worker.test.ts src/main/passport/offline.test.ts src/main/modules/stint-passport.test.ts src/preload/ipc-allowlists.test.ts src/renderer/src/views/StintPassportView.test.ts src/main/passport/passport-v2-blockers.test.ts src/main/passport/acceptance-evidence.test.ts",
       "selectors": [
         "src/shared/stint-passport.test.ts",
         "src/main/phase02/raceops-codec.test.ts",
@@ -34,7 +34,7 @@
         "src/main/passport/passport-v2-blockers.test.ts",
         "src/main/passport/acceptance-evidence.test.ts"
       ],
-      "tests": 267,
+      "tests": 276,
       "files": 15
     },
     "typecheck": {

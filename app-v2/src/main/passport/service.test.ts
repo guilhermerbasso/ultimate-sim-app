@@ -115,6 +115,7 @@ function clientFor(engine: PassportPersistenceEngine): PassportPersistenceClient
   }
   for (const method of [
     'getConfig', 'setConfig', 'getPrivacy', 'getPrivacyMutationGeneration',
+    'getAuthoritativeState',
     'getRosterMutationGeneration', 'setPrivacy', 'getKillSwitch',
     'listRoster', 'saveRoster', 'persistPassport', 'listPassports', 'getPassport',
     'getIntegrity', 'verifyActiveStint', 'purgeRetention', 'deleteByClass',
@@ -1116,40 +1117,46 @@ describe('StintPassportService lifecycle and privacy', () => {
     it('[spec-gap] drains accepted retention, audit, and deletion work before closing persistence', async () => {
       const test = harness('dispose-drain')
       await test.service.snapshot()
-      let entered = 0
-      let allEntered!: () => void
-      let release!: () => void
-      const atBarrier = new Promise<void>((resolve) => { allEntered = resolve })
-      const barrier = new Promise<void>((resolve) => { release = resolve })
-      const arrive = async () => {
-        entered += 1
-        if (entered === 3) allEntered()
-        await barrier
-      }
+      let retentionEntered!: () => void
+      let deleteEntered!: () => void
+      let auditEntered!: () => void
+      let releaseRetention!: () => void
+      let releaseDelete!: () => void
+      let releaseAudit!: () => void
+      const atRetention = new Promise<void>((resolve) => { retentionEntered = resolve })
+      const atDelete = new Promise<void>((resolve) => { deleteEntered = resolve })
+      const atAudit = new Promise<void>((resolve) => { auditEntered = resolve })
+      const retentionBarrier = new Promise<void>((resolve) => { releaseRetention = resolve })
+      const deleteBarrier = new Promise<void>((resolve) => { releaseDelete = resolve })
+      const auditBarrier = new Promise<void>((resolve) => { releaseAudit = resolve })
       test.client.purgeRetention = vi.fn(async () => {
-        await arrive()
+        retentionEntered()
+        await retentionBarrier
         return []
       })
       test.client.runFullAudit = vi.fn(async () => {
-        await arrive()
+        auditEntered()
+        await auditBarrier
         return {
           integrity: test.store.getIntegrity(),
           durationMs: 0
         }
       })
       test.client.deleteByClass = vi.fn(async () => {
-        await arrive()
+        deleteEntered()
+        await deleteBarrier
         return { dataClass: 'D1' as const, deletedStints: 0, redactedEvidence: 0 }
       })
       const close = vi.fn(async () => undefined)
       test.client.close = close
 
+      const retention = test.service.runRetention('explicit')
+      await atRetention
       const operations = [
-        test.service.runRetention('explicit'),
+        retention,
         test.service.runFullAudit(),
         test.service.deleteByClass('D1')
       ]
-      await atBarrier
       let disposed = false
       const disposal = test.service.dispose().then(() => { disposed = true })
       await Promise.resolve()
@@ -1158,7 +1165,13 @@ describe('StintPassportService lifecycle and privacy', () => {
         closeCalls: close.mock.calls.length,
         disposed
       }
-      release()
+      releaseRetention()
+      await atDelete
+      expect(close).not.toHaveBeenCalled()
+      releaseDelete()
+      await atAudit
+      expect(close).not.toHaveBeenCalled()
+      releaseAudit()
       await Promise.all([...operations, disposal])
 
       expect(observedBeforeRelease).toEqual({
