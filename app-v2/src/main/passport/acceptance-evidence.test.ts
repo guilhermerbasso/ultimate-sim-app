@@ -317,6 +317,9 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' })
     expect(step(contracts, 'Setup Node.js')?.with?.['node-version']).toBe(24)
     expect(step(contracts, 'Setup Buf')?.with?.version).toBe('1.71.0')
+    expect(step(contracts, 'Setup Buf')?.with?.checksum).toBe(
+      'd3de2838c68a5759ca276884254bc70df4e4ad185d6ed5f65f327b6ce6363eab'
+    )
     expect(step(contracts, 'Verify Phase 02 contracts')?.run).toBe(
       'node scripts/verify-phase02-contracts.mjs'
     )
@@ -330,6 +333,10 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
     expect(step(app, 'Build')?.run).toBe('npm run build')
     expect(acceptance?.['runs-on']).toBe('windows-latest')
     expect(acceptance?.needs).toEqual(['contracts', 'app'])
+    expect(step(acceptance, 'Setup Buf')?.with).toMatchObject({
+      version: '1.71.0',
+      checksum: 'b003ead3eebe7920a4e6f748fdf5b666e4763637a7fb1837c975ac9c5d21d558'
+    })
     expect(acceptance?.permissions).toEqual({
       contents: 'read',
       'id-token': 'write',

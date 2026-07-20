@@ -2,7 +2,7 @@
   "contractVersion": 1,
   "id": "AC-PASSPORT-V2",
   "branch": "feat/phase2-stint-passport-v2",
-  "baseCommit": "ef7778181b73759a090079d666de986d3774561f",
+  "baseCommit": "1061de32a02537d1c47165f081b8c53e4b499fa9",
   "autonomousOverride": true,
   "humanTokenRequired": false,
   "scope": "Endurance Stint Passport only; Decision Flight Recorder excluded",
@@ -17,7 +17,12 @@
     "Strict v1 codec plus explicit checked-in N-1 descriptor migration only",
     "Canonical RaceOpsEvent and StintPassport ProtoJSON/binary persistence/export",
     "Accessible navigation, history, replay inspection, privacy and runtime error UI",
-    "Experiment instrumentation for defects, false blocks, bypasses, manual baseline and overhead"
+    "Experiment instrumentation for defects, false blocks, bypasses, manual baseline and overhead",
+    "Independent evidence/detail/owner/reason/provenance privacy classes so owner-bearing D1/D2 evidence erasure survives reopen and export while D3 retention removes identity, owner and reason metadata",
+    "Generation, challenge, stint and revision CAS fences after every awaited challenge validation and durable write",
+    "Immutable roster candidate persistence before live swap or attestation invalidation, including failed-save restart preservation",
+    "Nested service, client, SQLite and worker termination deadlines strictly inside the application quit deadline with surfaced unsettled workers",
+    "Explicit expected-domain error classification with fail-closed health accounting for storage, transport, process and unknown worker failures"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

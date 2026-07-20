@@ -44,14 +44,26 @@ import {
   raceOpsEventToProtoJson,
   stintPassportProtoJson
 } from '../phase02/raceops-codec'
+import { PASSPORT_SQLITE_BUSY_TIMEOUT_MS } from './persistence-deadlines'
+import { persistenceDomainError } from './persistence-errors'
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 const BOUNDED_VERIFY_LIMIT = 500
 const ANCHOR_VERSION = 1
 const MAX_EXPORT_EVENTS = 500
 const MAX_EXPORT_BYTES = 5_000_000
 const MAX_IMPORT_DEPTH = 32
 const MAX_IMPORT_NODES = 20_000
+
+const ITEM_DATA_CLASS_SQL = `CASE item_id
+${PASSPORT_ITEM_DEFINITIONS.map((definition) =>
+  `WHEN '${definition.id}' THEN '${definition.dataClass}'`
+).join('\n')}
+ELSE 'D2' END`
+
+function itemDataClass(itemId: PassportItemId): PassportDataClass {
+  return PASSPORT_ITEM_DEFINITIONS.find((definition) => definition.id === itemId)?.dataClass ?? 'D2'
+}
 
 type Row = Record<string, unknown>
 
@@ -197,6 +209,11 @@ CREATE TABLE IF NOT EXISTS passport_item (
   revision INTEGER NOT NULL,
   item_hash TEXT NOT NULL,
   data_class TEXT NOT NULL,
+  evidence_data_class TEXT NOT NULL,
+  detail_data_class TEXT NOT NULL,
+  owner_data_class TEXT NOT NULL,
+  reason_data_class TEXT NOT NULL,
+  provenance_data_class TEXT NOT NULL,
   PRIMARY KEY(stint_id, item_id)
 );
 
@@ -288,10 +305,10 @@ function assertBoundedImportValue(value: unknown): void {
     const entry = stack.pop()!
     nodes += 1
     if (nodes > MAX_IMPORT_NODES) {
-      throw new Error('Passport import exceeds the bounded node limit.')
+      throw persistenceDomainError('Passport import exceeds the bounded node limit.')
     }
     if (entry.depth > MAX_IMPORT_DEPTH) {
-      throw new Error('Passport import exceeds the bounded depth limit.')
+      throw persistenceDomainError('Passport import exceeds the bounded depth limit.')
     }
     if (
       entry.value === undefined ||
@@ -302,20 +319,24 @@ function assertBoundedImportValue(value: unknown): void {
       continue
     }
     if (typeof entry.value === 'number') {
-      if (!Number.isFinite(entry.value)) throw new Error('Passport import contains a non-finite number.')
+      if (!Number.isFinite(entry.value)) {
+        throw persistenceDomainError('Passport import contains a non-finite number.')
+      }
       continue
     }
     if (typeof entry.value !== 'object') {
-      throw new Error('Passport import contains a non-JSON value.')
+      throw persistenceDomainError('Passport import contains a non-JSON value.')
     }
-    if (seen.has(entry.value)) throw new Error('Passport import contains a cyclic value.')
+    if (seen.has(entry.value)) {
+      throw persistenceDomainError('Passport import contains a cyclic value.')
+    }
     seen.add(entry.value)
     if (
       !Array.isArray(entry.value) &&
       Object.getPrototypeOf(entry.value) !== Object.prototype &&
       Object.getPrototypeOf(entry.value) !== null
     ) {
-      throw new Error('Passport import contains a non-JSON object.')
+      throw persistenceDomainError('Passport import contains a non-JSON object.')
     }
     for (const child of Object.values(entry.value)) {
       stack.push({ value: child, depth: entry.depth + 1 })
@@ -469,7 +490,7 @@ export class PassportPersistenceEngine {
     if (options.path !== ':memory:') mkdirSync(dirname(options.path), { recursive: true })
     this.db = new DatabaseSync(options.path)
     this.db.exec('PRAGMA foreign_keys = ON')
-    this.db.exec('PRAGMA busy_timeout = 2500')
+    this.db.exec(`PRAGMA busy_timeout = ${PASSPORT_SQLITE_BUSY_TIMEOUT_MS}`)
     this.db.exec('PRAGMA secure_delete = ON')
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA synchronous = FULL')
@@ -583,7 +604,7 @@ export class PassportPersistenceEngine {
   saveRoster(roster: readonly PassportRosterMember[]): PassportRosterMember[] {
     this.assertWritable()
     if (!this.getPrivacy().identityPersistenceOptIn) {
-      throw new Error('Identity persistence opt-in is required before storing roster data.')
+      throw persistenceDomainError('Identity persistence opt-in is required before storing roster data.')
     }
     const normalized = roster.map(sanitizeRosterMember)
     return this.transaction(() => {
@@ -608,7 +629,7 @@ export class PassportPersistenceEngine {
   persistPassport(passport: StintPassport, event: PassportStoreEvent): StintPassport {
     this.assertWritable()
     if (!this.getPrivacy().identityPersistenceOptIn) {
-      throw new Error('Identity persistence opt-in is required before storing a stint passport.')
+      throw persistenceDomainError('Identity persistence opt-in is required before storing a stint passport.')
     }
     const persisted: StintPassport = { ...passport, persisted: true, durability: 'durable' }
     const dedupeKey = event.canonicalEvent.dedupeKey
@@ -623,7 +644,7 @@ export class PassportPersistenceEngine {
         SELECT passport_sha256 FROM stint_passport WHERE stint_id = ?
       `).get(persisted.identity.stintId) as Row | undefined
       if (text(current?.passport_sha256) !== hashBytes(encodeStintPassport(persisted))) {
-        throw new Error(`Passport dedupe conflict for ${dedupeKey}.`)
+        throw persistenceDomainError(`Passport dedupe conflict for ${dedupeKey}.`)
       }
       return persisted
     }
@@ -799,20 +820,10 @@ export class PassportPersistenceEngine {
     const privacy = this.getPrivacy()
     const results: PassportDeleteResult[] = []
     const d3Cutoff = now - privacy.retentionDays.D3 * 86_400_000
-    const deleteRows = this.db.prepare(`
-      SELECT stint_id FROM stint_passport
-      WHERE closed_at IS NOT NULL AND closed_at < ?
-    `).all(d3Cutoff) as Row[]
-    if (deleteRows.length > 0) {
-      const ids = deleteRows.map((row) => text(row.stint_id))
-      this.transaction(() => {
-        this.appendDeletionTombstone('D3', ids)
-        const remove = this.db.prepare('DELETE FROM stint_passport WHERE stint_id = ?')
-        for (const id of ids) {
-          remove.run(id)
-        }
-      })
-      results.push({ deletedStints: ids.length, redactedEvidence: 0, dataClass: 'D3' })
+    const d3Redactions = this.redactEvidenceByClass('D3', d3Cutoff, true) +
+      this.redactClosedIdentity(d3Cutoff)
+    if (d3Redactions > 0) {
+      results.push({ deletedStints: 0, redactedEvidence: d3Redactions, dataClass: 'D3' })
     }
     for (const dataClass of ['D1', 'D2'] as const) {
       const cutoff = now - privacy.retentionDays[dataClass] * 86_400_000
@@ -973,7 +984,7 @@ export class PassportPersistenceEngine {
       }
     }
     if (Buffer.byteLength(JSON.stringify(base), 'utf8') > MAX_EXPORT_BYTES) {
-      throw new Error('Passport export exceeds the 5 MB safety limit after bounded redaction.')
+      throw persistenceDomainError('Passport export exceeds the 5 MB safety limit after bounded redaction.')
     }
     const packageHash = hash(base)
     const signerId = hash(this.databaseId).slice(0, 32)
@@ -985,11 +996,11 @@ export class PassportPersistenceEngine {
 
   verifyImportPackage(value: unknown): PassportExportPackage {
     if (!this.anchorReady || !value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error('Passport import requires a locally trusted signed package.')
+      throw persistenceDomainError('Passport import requires a locally trusted signed package.')
     }
     assertBoundedImportValue(value)
     if (Buffer.byteLength(JSON.stringify(value), 'utf8') > MAX_EXPORT_BYTES) {
-      throw new Error('Passport import exceeds the 5 MB safety limit.')
+      throw persistenceDomainError('Passport import exceeds the 5 MB safety limit.')
     }
     const candidate = value as PassportExportPackage
     if (
@@ -1011,7 +1022,7 @@ export class PassportPersistenceEngine {
       !Number.isSafeInteger(candidate.generatedAt) ||
       candidate.generatedAt < 0
     ) {
-      throw new Error('Passport import collections violate their bounded contract.')
+      throw persistenceDomainError('Passport import collections violate their bounded contract.')
     }
     const { packageHash, signerId, packageSignature, ...base } = candidate
     if (
@@ -1021,14 +1032,14 @@ export class PassportPersistenceEngine {
       hash(base) !== packageHash ||
       signerId !== hash(this.databaseId).slice(0, 32)
     ) {
-      throw new Error('Passport import package hash or signer is invalid.')
+      throw persistenceDomainError('Passport import package hash or signer is invalid.')
     }
     const expected = createHmac('sha256', this.anchorKey)
       .update(`passport-export:${signerId}:${packageHash}`, 'utf8')
       .digest()
     const actual = Buffer.from(packageSignature ?? '', 'hex')
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-      throw new Error('Passport import package signature is invalid.')
+      throw persistenceDomainError('Passport import package signature is invalid.')
     }
     const passports = candidate.passports.map((passport) => {
       if (
@@ -1036,7 +1047,7 @@ export class PassportPersistenceEngine {
         typeof passport.identity?.stintId !== 'string' ||
         passport.identity.stintId.length > 200
       ) {
-        throw new Error('Passport import contains an invalid passport identity.')
+        throw persistenceDomainError('Passport import contains an invalid passport identity.')
       }
       const normalized = decodeStintPassport(encodeStintPassport(passport))
       calculatePassportCoverage(normalized.items)
@@ -1055,7 +1066,7 @@ export class PassportPersistenceEngine {
   }
 
   private migrate(): void {
-    const version = this.schemaVersion()
+    let version = this.schemaVersion()
     if (version > SCHEMA_VERSION) throw new Error(`Passport schema ${version} is newer than supported schema ${SCHEMA_VERSION}.`)
     if (version === 0) {
       begin(this.db)
@@ -1077,8 +1088,9 @@ export class PassportPersistenceEngine {
         rollback(this.db)
         throw error
       }
+      return
     }
-    if (version > 0 && version < 3) {
+    if (version < 3) {
       begin(this.db)
       try {
         this.db.exec('ALTER TABLE passport_event ADD COLUMN semantic_hash TEXT')
@@ -1086,7 +1098,36 @@ export class PassportPersistenceEngine {
           CREATE UNIQUE INDEX IF NOT EXISTS idx_passport_event_semantic
           ON passport_event(semantic_hash) WHERE semantic_hash IS NOT NULL
         `)
-        this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+        this.db.exec('PRAGMA user_version = 3')
+        this.db.exec('COMMIT')
+        version = 3
+      } catch (error) {
+        rollback(this.db)
+        throw error
+      }
+    }
+    if (version < 4) {
+      begin(this.db)
+      try {
+        this.db.exec("ALTER TABLE passport_item ADD COLUMN evidence_data_class TEXT NOT NULL DEFAULT 'D2'")
+        this.db.exec("ALTER TABLE passport_item ADD COLUMN detail_data_class TEXT NOT NULL DEFAULT 'D2'")
+        this.db.exec("ALTER TABLE passport_item ADD COLUMN owner_data_class TEXT NOT NULL DEFAULT 'D2'")
+        this.db.exec("ALTER TABLE passport_item ADD COLUMN reason_data_class TEXT NOT NULL DEFAULT 'D2'")
+        this.db.exec("ALTER TABLE passport_item ADD COLUMN provenance_data_class TEXT NOT NULL DEFAULT 'D2'")
+        this.db.exec(`
+          UPDATE passport_item
+          SET data_class = CASE
+                WHEN owner_json IS NOT NULL OR override_reason IS NOT NULL OR reason_code IS NOT NULL
+                  THEN 'D3'
+                ELSE ${ITEM_DATA_CLASS_SQL}
+              END,
+              evidence_data_class = ${ITEM_DATA_CLASS_SQL},
+              detail_data_class = ${ITEM_DATA_CLASS_SQL},
+              owner_data_class = 'D3',
+              reason_data_class = 'D3',
+              provenance_data_class = ${ITEM_DATA_CLASS_SQL}
+        `)
+        this.db.exec('PRAGMA user_version = 4')
         this.db.exec('COMMIT')
       } catch (error) {
         rollback(this.db)
@@ -1440,6 +1481,11 @@ export class PassportPersistenceEngine {
   }
 
   private upsertPassportInTransaction(passport: StintPassport): void {
+    this.upsertPassportHeaderInTransaction(passport)
+    this.upsertPassportItemsInTransaction(passport)
+  }
+
+  private upsertPassportHeaderInTransaction(passport: StintPassport): void {
     const passportBinary = encodeStintPassport(passport)
     const passportJson = JSON.stringify(stintPassportProtoJson(passport))
     const passportSha256 = hashBytes(passportBinary)
@@ -1497,13 +1543,17 @@ export class PassportPersistenceEngine {
       passportJson,
       passportSha256
     )
+  }
+
+  private upsertPassportItemsInTransaction(passport: StintPassport): void {
     const upsertItem = this.db.prepare(`
       INSERT INTO passport_item (
         stint_id, item_id, status, owner_json, detail, override_reason,
         reason_code, verified_at, expires_at, evidence_json, evidence_state,
         evidence_captured_at, revision,
-        item_hash, data_class
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        item_hash, data_class, evidence_data_class, detail_data_class,
+        owner_data_class, reason_data_class, provenance_data_class
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(stint_id, item_id) DO UPDATE SET
         status = excluded.status,
         owner_json = excluded.owner_json,
@@ -1516,10 +1566,16 @@ export class PassportPersistenceEngine {
         evidence_state = excluded.evidence_state,
         evidence_captured_at = excluded.evidence_captured_at,
         revision = excluded.revision,
-        item_hash = excluded.item_hash
+        item_hash = excluded.item_hash,
+        data_class = excluded.data_class,
+        evidence_data_class = excluded.evidence_data_class,
+        detail_data_class = excluded.detail_data_class,
+        owner_data_class = excluded.owner_data_class,
+        reason_data_class = excluded.reason_data_class,
+        provenance_data_class = excluded.provenance_data_class
     `)
     for (const item of passport.items) {
-      const definition = PASSPORT_ITEM_DEFINITIONS.find((candidate) => candidate.id === item.id)
+      const dataClass = itemDataClass(item.id)
       upsertItem.run(
         passport.identity.stintId,
         item.id,
@@ -1535,7 +1591,12 @@ export class PassportPersistenceEngine {
         item.evidence?.capturedAt ?? null,
         item.revision,
         itemHash(item),
-        item.owner || item.reasonCode ? 'D3' : definition?.dataClass ?? 'D2'
+        item.owner || item.overrideReason || item.reasonCode ? 'D3' : dataClass,
+        dataClass,
+        dataClass,
+        'D3',
+        'D3',
+        dataClass
       )
     }
   }
@@ -1550,11 +1611,11 @@ export class PassportPersistenceEngine {
       event.canonicalEvent.subjectRef !== `stint:${passport.identity.stintId}` ||
       event.canonicalEvent.partitionKey !== `stint:${passport.identity.stintId}`
     ) {
-      throw new Error('Canonical Passport event identity does not match the persisted stint.')
+      throw persistenceDomainError('Canonical Passport event identity does not match the persisted stint.')
     }
     const privacyRank = { D0: 0, D1: 1, D2: 2, D3: 3, D4: 4, D5: 5 } as const
     if (privacyRank[event.canonicalEvent.privacyClass] > privacyRank[event.dataClass]) {
-      throw new Error('Canonical Passport event privacy exceeds its persistence data class.')
+      throw persistenceDomainError('Canonical Passport event privacy exceeds its persistence data class.')
     }
     const dedupeKey = event.canonicalEvent.dedupeKey
     const existing = this.db.prepare('SELECT event_id FROM passport_event WHERE dedupe_key = ?').get(dedupeKey)
@@ -1945,47 +2006,116 @@ export class PassportPersistenceEngine {
     }
   }
 
-  private redactEvidenceByClass(dataClass: 'D1' | 'D2', cutoff: number): number {
+  private redactEvidenceByClass(
+    dataClass: PassportDataClass,
+    cutoff: number,
+    closedOnly = false
+  ): number {
+    const explicit = cutoff === Number.MAX_SAFE_INTEGER
     const rows = this.db.prepare(`
-      SELECT stint_id, item_id, status, owner_json, detail, override_reason,
-        reason_code, verified_at, expires_at, revision
-      FROM passport_item
-      WHERE data_class = ?
-        AND evidence_json IS NOT NULL
-        AND COALESCE(evidence_captured_at, 0) < ?
-    `).all(dataClass, cutoff) as Row[]
+      SELECT item.stint_id, item.item_id, item.status, item.owner_json, item.detail,
+        item.override_reason, item.reason_code, item.verified_at, item.expires_at,
+        item.evidence_json, item.evidence_state, item.evidence_captured_at,
+        item.revision, item.evidence_data_class, item.detail_data_class,
+        item.owner_data_class, item.reason_data_class, item.provenance_data_class
+      FROM passport_item item
+      JOIN stint_passport passport ON passport.stint_id = item.stint_id
+      WHERE (
+        (item.evidence_data_class = ? AND item.evidence_json IS NOT NULL) OR
+        (item.detail_data_class = ? AND item.detail NOT IN (
+          'Evidence removed by data-class deletion.',
+          '[retention-redacted]'
+        )) OR
+        (item.owner_data_class = ? AND item.owner_json IS NOT NULL) OR
+        (item.reason_data_class = ? AND (
+          item.override_reason IS NOT NULL OR item.reason_code IS NOT NULL
+        )) OR
+        (item.provenance_data_class = ? AND item.evidence_captured_at IS NOT NULL)
+      )
+      AND (
+        ? = 1 OR
+        (? = 1 AND passport.closed_at IS NOT NULL AND passport.closed_at < ?) OR
+        (? = 0 AND item.evidence_captured_at IS NOT NULL AND item.evidence_captured_at < ?)
+      )
+    `).all(
+      dataClass,
+      dataClass,
+      dataClass,
+      dataClass,
+      dataClass,
+      explicit ? 1 : 0,
+      closedOnly ? 1 : 0,
+      cutoff,
+      closedOnly ? 1 : 0,
+      cutoff
+    ) as Row[]
     const eventRows = this.db.prepare(`
-      SELECT event_id, stint_id FROM passport_event
-      WHERE data_class = ?
-        AND payload_state = 'available'
-        AND captured_at < ?
-    `).all(dataClass, cutoff) as Row[]
+      SELECT event.event_id, event.stint_id
+      FROM passport_event event
+      JOIN stint_passport passport ON passport.stint_id = event.stint_id
+      WHERE event.data_class = ?
+        AND event.payload_state = 'available'
+        AND (? = 1 OR event.captured_at < ?)
+        AND (
+          ? = 0 OR
+          (passport.closed_at IS NOT NULL AND passport.closed_at < ?)
+        )
+    `).all(
+      dataClass,
+      explicit ? 1 : 0,
+      cutoff,
+      closedOnly ? 1 : 0,
+      cutoff
+    ) as Row[]
     if (rows.length === 0 && eventRows.length === 0) return 0
     return this.transaction(() => {
       const update = this.db.prepare(`
         UPDATE passport_item
-        SET evidence_json = NULL,
-            evidence_state = 'retention-redacted',
-            evidence_captured_at = NULL,
+        SET owner_json = ?,
+            detail = ?,
+            override_reason = ?,
+            reason_code = ?,
+            evidence_json = ?,
+            evidence_state = ?,
+            evidence_captured_at = ?,
+            revision = ?,
             item_hash = ?
         WHERE stint_id = ? AND item_id = ?
       `)
       const affectedStints = new Set<string>()
       for (const row of rows) {
+        const redactEvidence = text(row.evidence_data_class) === dataClass
+        const redactDetail = text(row.detail_data_class) === dataClass
+        const redactOwner = text(row.owner_data_class) === dataClass
+        const redactReason = text(row.reason_data_class) === dataClass
+        const redactProvenance = text(row.provenance_data_class) === dataClass
+        const evidenceRemoved = redactEvidence || redactProvenance
         const item: PassportItem = {
           id: text(row.item_id) as PassportItemId,
           status: text(row.status) as PassportItem['status'],
-          owner: parse(row.owner_json, undefined),
-          detail: text(row.detail),
-          overrideReason: optionalText(row.override_reason),
-          reasonCode: optionalText(row.reason_code),
+          owner: redactOwner ? undefined : parse(row.owner_json, undefined),
+          detail: redactDetail ? 'Evidence removed by data-class deletion.' : text(row.detail),
+          overrideReason: redactReason ? undefined : optionalText(row.override_reason),
+          reasonCode: redactReason ? undefined : optionalText(row.reason_code),
           verifiedAt: row.verified_at == null ? undefined : numberValue(row.verified_at),
           expiresAt: row.expires_at == null ? undefined : numberValue(row.expires_at),
-          evidence: undefined,
-          revision: numberValue(row.revision)
+          evidence: evidenceRemoved ? undefined : parse(row.evidence_json, undefined),
+          revision: numberValue(row.revision) + 1
         }
 
-        update.run(itemHash(item), text(row.stint_id), item.id)
+        update.run(
+          item.owner ? stable(item.owner) : null,
+          item.detail,
+          item.overrideReason ?? null,
+          item.reasonCode ?? null,
+          item.evidence ? stable(item.evidence) : null,
+          evidenceRemoved ? 'retention-redacted' : text(row.evidence_state),
+          evidenceRemoved ? null : row.evidence_captured_at as SQLInputValue,
+          item.revision,
+          itemHash(item),
+          text(row.stint_id),
+          item.id
+        )
         affectedStints.add(text(row.stint_id))
       }
       const redactEvent = this.db.prepare(`
@@ -2006,11 +2136,64 @@ export class PassportPersistenceEngine {
       for (const stintId of affectedStints) {
         const passport = this.getPassport(stintId)
         if (!passport) continue
-        this.upsertPassportInTransaction(passport)
+        this.upsertPassportHeaderInTransaction({
+          ...passport,
+          revision: passport.revision + 1
+        })
         this.rehashStintInTransaction(stintId)
-        this.appendEventInTransaction(passport, this.retentionEvent(passport, dataClass))
+        const redacted = this.getPassport(stintId)
+        if (redacted) {
+          this.appendEventInTransaction(redacted, this.retentionEvent(redacted, dataClass))
+        }
       }
       return rows.length + eventRows.length
+    })
+  }
+
+  private redactClosedIdentity(cutoff: number): number {
+    const rows = this.db.prepare(`
+      SELECT stint_id FROM stint_passport
+      WHERE closed_at IS NOT NULL
+        AND closed_at < ?
+        AND (
+          driver_label <> '[retention-redacted]' OR
+          driver_ref NOT LIKE 'redacted:%' OR
+          team_ref IS NOT NULL OR
+          team_label IS NOT NULL OR
+          challenge_owner_json IS NOT NULL
+        )
+    `).all(cutoff) as Row[]
+    if (rows.length === 0) return 0
+    return this.transaction(() => {
+      for (const row of rows) {
+        const passport = this.getPassport(text(row.stint_id))
+        if (!passport) continue
+        const redacted: StintPassport = {
+          ...passport,
+          identity: {
+            ...passport.identity,
+            driverRef: `redacted:${this.pseudonym('retained-driver', passport.identity.driverRef)}`,
+            driverLabel: '[retention-redacted]',
+            teamRef: undefined,
+            teamLabel: undefined
+          },
+          challengeOwner: undefined,
+          revision: passport.revision + 1
+        }
+        this.upsertPassportHeaderInTransaction(redacted)
+        this.db.prepare(`
+          UPDATE stint_passport
+          SET driver_ref = ?, driver_label = ?, team_ref = NULL, team_label = NULL
+          WHERE stint_id = ?
+        `).run(
+          redacted.identity.driverRef,
+          redacted.identity.driverLabel,
+          redacted.identity.stintId
+        )
+        this.rehashStintInTransaction(redacted.identity.stintId)
+        this.appendEventInTransaction(redacted, this.retentionEvent(redacted, 'D3'))
+      }
+      return rows.length
     })
   }
 
@@ -2139,7 +2322,9 @@ function sanitizePrivacy(
 function sanitizeRosterMember(member: PassportRosterMember): PassportRosterMember {
   const memberId = text(member?.memberId).trim().slice(0, 120)
   const displayName = text(member?.displayName).replace(/\s+/g, ' ').trim().slice(0, 120)
-  if (!memberId || !displayName) throw new Error('Roster members require an ID and display name.')
+  if (!memberId || !displayName) {
+    throw persistenceDomainError('Roster members require an ID and display name.')
+  }
   const roles = [...new Set(member.roles)].filter((role) =>
     role === 'driver' ||
     role === 'engineer' ||
@@ -2147,7 +2332,9 @@ function sanitizeRosterMember(member: PassportRosterMember): PassportRosterMembe
     role === 'spotter' ||
     role === 'team-manager'
   )
-  if (roles.length === 0) throw new Error(`Roster member ${displayName} requires at least one valid role.`)
+  if (roles.length === 0) {
+    throw persistenceDomainError(`Roster member ${displayName} requires at least one valid role.`)
+  }
   return { memberId, displayName, roles, active: member.active === true }
 }
 

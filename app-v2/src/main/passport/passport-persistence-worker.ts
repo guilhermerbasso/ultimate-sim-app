@@ -9,6 +9,11 @@ import {
   writeSync
 } from 'node:fs'
 import { PassportPersistenceEngine } from './persistence-engine'
+import {
+  PASSPORT_DOMAIN_ERROR_CODE,
+  classifyPersistenceWorkerError,
+  persistenceDomainError
+} from './persistence-errors'
 
 interface Request {
   id: number
@@ -75,7 +80,7 @@ async function execute(request: Request): Promise<unknown> {
       (candidate.checkpoint !== 'before-dispatch' &&
         candidate.checkpoint !== 'after-commit-before-response')
     ) {
-      throw new Error('Passport crash boundary configuration is invalid.')
+      throw persistenceDomainError('Passport crash boundary configuration is invalid.')
     }
     crashBoundary = {
       operation: candidate.operation,
@@ -100,7 +105,9 @@ async function execute(request: Request): Promise<unknown> {
   if (request.method === 'repairPersistence') {
     const current = requireEngine()
     const token = String(request.args[0] ?? '')
-    if (!current.validateRepairToken(token)) throw new Error('Persistence repair token is invalid.')
+    if (!current.validateRepairToken(token)) {
+      throw persistenceDomainError('Persistence repair token is invalid.')
+    }
     current.flush()
     const path = current.databasePath
     current.close()
@@ -124,7 +131,9 @@ async function execute(request: Request): Promise<unknown> {
   }
   const target = requireEngine() as unknown as Record<string, (...args: unknown[]) => unknown>
   const method = target[request.method]
-  if (typeof method !== 'function') throw new Error(`Unknown persistence method: ${request.method}`)
+  if (typeof method !== 'function') {
+    throw persistenceDomainError(`Unknown persistence method: ${request.method}`)
+  }
   return await method.apply(engine, request.args)
 }
 
@@ -150,7 +159,8 @@ process.on('message', (value: unknown) => {
     send({
       id,
       ok: false,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      code: PASSPORT_DOMAIN_ERROR_CODE
     })
     return
   }
@@ -170,7 +180,7 @@ process.on('message', (value: unknown) => {
         id: request.id,
         ok: false,
         error: error instanceof Error ? error.message : String(error),
-        code: (error as { code?: string })?.code
+        code: classifyPersistenceWorkerError(error)
       })
     }
   })

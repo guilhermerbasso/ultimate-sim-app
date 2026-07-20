@@ -414,6 +414,28 @@ function phase3Event(index: number): PassportStoreEvent {
 }
 
 describe('PassportPersistenceClient real worker lifecycle', () => {
+  it('[supported] keeps a healthy real worker available after repeated invalid imports', async () => {
+    const path = phase3Database('domain-errors')
+    const client = new PassportPersistenceClient({
+      path,
+      restartDelayMs: 1,
+      workerFactory: () => phase3Worker() as any
+    })
+    clients.push(client)
+    await waitForPhase3(() => !client.status().inFlight)
+
+    for (let index = 0; index < 4; index += 1) {
+      await expect(client.verifyImportPackage({ invalid: index })).rejects.toThrow(/import|bounded|trusted/i)
+    }
+
+    expect(client.status()).toMatchObject({
+      state: 'ready',
+      failures: 0,
+      restarts: 0
+    })
+    await expect(client.getConfig()).resolves.toEqual(DEFAULT_PASSPORT_CONFIG)
+  })
+
   it('[supported] rejects a lock-blocked real request, restarts, and exposes only acknowledged durable state', async () => {
     const path = phase3Database('restart')
     const realWorkers: RealPersistenceProcess[] = []

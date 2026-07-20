@@ -138,7 +138,7 @@ jobs:
         uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
         with:
           version: 1.71.0
-          checksum: d3de2838c68a5759ca276884254bc70df4e4ad185d6ed5f65f327b6ce6363eab
+          checksum: b003ead3eebe7920a4e6f748fdf5b666e4763637a7fb1837c975ac9c5d21d558
           setup_only: true
 
       - name: Install dependencies

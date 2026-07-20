@@ -18,6 +18,11 @@ import type {
   PassportStoreEvent,
   PassportStoreMetrics
 } from './persistence-engine'
+import { PASSPORT_DOMAIN_ERROR_CODE } from './persistence-errors'
+import {
+  PASSPORT_CLIENT_CLOSE_DEADLINE_MS,
+  PASSPORT_WORKER_TERMINATION_DEADLINE_MS
+} from './persistence-deadlines'
 
 const MAX_QUEUE_ITEMS = 32
 const MAX_QUEUE_BYTES = 1024 * 1024
@@ -25,7 +30,6 @@ const DEFAULT_DEADLINE_MS = 1_500
 const AUDIT_DEADLINE_MS = 30_000
 const FAILURE_THRESHOLD = 3
 const MAX_RESTARTS = 3
-const CLOSE_DEADLINE_MS = 3_000
 
 interface WorkerLike {
   postMessage(value: unknown): void
@@ -62,13 +66,21 @@ class PersistenceProcess implements WorkerLike {
     if (this.child.exitCode !== null || this.child.signalCode !== null) {
       return Promise.resolve(this.child.exitCode ?? 0)
     }
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(this.child.exitCode ?? 0), 2_000)
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Passport persistence process did not terminate before its deadline.')),
+        PASSPORT_WORKER_TERMINATION_DEADLINE_MS
+      )
       this.child.once('exit', (code) => {
         clearTimeout(timer)
         resolve(code ?? 0)
       })
-      this.child.kill('SIGKILL')
+      try {
+        this.child.kill('SIGKILL')
+      } catch (error) {
+        clearTimeout(timer)
+        reject(error)
+      }
     })
   }
 }
@@ -130,6 +142,8 @@ export class PassportPersistenceClient {
   private closed = false
   private closePromise: Promise<void> | null = null
   private restartTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly pendingTerminations = new Set<Promise<void>>()
+  private readonly terminationErrors: unknown[] = []
   private lastError: string | undefined
   private readonly now: () => number
   private readonly restartDelayMs: number
@@ -208,7 +222,7 @@ export class PassportPersistenceClient {
             new Promise<never>((_, reject) => {
               closeTimer = setTimeout(
                 () => reject(new Error('Passport persistence close drain timed out.')),
-                CLOSE_DEADLINE_MS
+                PASSPORT_CLIENT_CLOSE_DEADLINE_MS
               )
             })
           ])
@@ -232,9 +246,24 @@ export class PassportPersistenceClient {
       const worker = this.worker
       this.worker = null
       if (worker) {
-        worker.removeAllListeners()
-        await worker.terminate().catch(() => 0)
+        void this.terminateWorker(worker)
       }
+      await Promise.all([...this.pendingTerminations])
+      const terminationError = this.terminationErrors.length === 0
+        ? undefined
+        : this.terminationErrors.length === 1
+          ? this.terminationErrors[0]
+          : new AggregateError(
+              [...this.terminationErrors],
+              'Multiple Passport persistence workers did not settle.'
+            )
+      if (drainError && terminationError) {
+        throw new AggregateError(
+          [drainError, terminationError],
+          'Passport persistence close failed and its worker did not settle.'
+        )
+      }
+      if (terminationError) throw terminationError
       if (drainError) throw drainError
     })()
     return this.closePromise
@@ -428,7 +457,12 @@ export class PassportPersistenceClient {
       ;(error as Error & { code?: string }).code = response.code
       if (response.code === 'PERSISTENCE_QUARANTINED') this.quarantined = true
       entry.reject(error)
-      if (entry.request.method !== 'initialize') this.recordFailure(error)
+      if (
+        entry.request.method !== 'initialize' &&
+        response.code !== PASSPORT_DOMAIN_ERROR_CODE
+      ) {
+        this.recordFailure(error)
+      }
     }
     this.pump()
   }
@@ -445,8 +479,7 @@ export class PassportPersistenceClient {
     const activeWorker = this.worker
     this.worker = null
     if (activeWorker) {
-      activeWorker.removeAllListeners()
-      void activeWorker.terminate().catch(() => 0)
+      void this.terminateWorker(activeWorker)
     }
     this.recordFailure(error)
     if (!this.closing && !this.circuitOpen && this.restarts < MAX_RESTARTS && !this.restartTimer) {
@@ -472,5 +505,23 @@ export class PassportPersistenceClient {
       this.queuedBytes = retained.reduce((total, entry) => total + entry.bytes, 0)
       this.pump()
     }
+  }
+
+  private terminateWorker(worker: WorkerLike): Promise<void> {
+    worker.removeAllListeners()
+    let termination: Promise<void>
+    termination = Promise.resolve()
+      .then(() => worker.terminate())
+      .then(
+        () => undefined,
+        (error) => {
+          this.terminationErrors.push(error)
+        }
+      )
+      .finally(() => {
+        this.pendingTerminations.delete(termination)
+      })
+    this.pendingTerminations.add(termination)
+    return termination
   }
 }

@@ -50,6 +50,7 @@ import {
 import { inspectPassportReadiness } from './readiness'
 import { PassportPersistenceClient } from './persistence-client'
 import type { PassportExportPackage, PassportStoreEvent } from './persistence-engine'
+import { PASSPORT_SERVICE_DRAIN_DEADLINE_MS } from './persistence-deadlines'
 
 const SUBSCRIPTION_ID = 'stint-passport'
 const OVERFLOW_RECOVERY_FRAMES = 3
@@ -61,6 +62,24 @@ function clean(value: unknown, max = 160): string {
   return typeof value === 'string'
     ? value.replace(/\s+/g, ' ').trim().slice(0, max)
     : ''
+}
+
+async function withinDeadline<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function factText(event: CanonicalRaceOpsEvent, name: string): string {
@@ -161,6 +180,13 @@ function ownerIsValid(
   )
 }
 
+interface ChallengeMutationFence {
+  challengeId: string
+  generation: number
+  stintId: string
+  passportRevision: number
+}
+
 export class StintPassportService {
   private readonly subscription: Phase02TapSubscription
   private current: StintPassport | null = null
@@ -232,11 +258,35 @@ export class StintPassportService {
       this.broadcastTimer = null
       if (this.retentionTimer) clearInterval(this.retentionTimer)
       this.retentionTimer = null
-      await this.ready.catch(() => undefined)
-      await this.drainStoreOperations()
-      if (this.current) await this.closeCurrentInternal('disconnect', true)
-      await this.drainStoreOperations()
-      await this.store.close()
+      let drainError: unknown
+      try {
+        await withinDeadline(
+          (async () => {
+            await this.ready.catch(() => undefined)
+            await this.drainStoreOperations()
+            if (this.current) await this.closeCurrentInternal('disconnect', true)
+            await this.drainStoreOperations()
+          })(),
+          PASSPORT_SERVICE_DRAIN_DEADLINE_MS,
+          'Passport service persistence drain timed out.'
+        )
+      } catch (error) {
+        drainError = error
+      }
+      let closeError: unknown
+      try {
+        await this.store.close()
+      } catch (error) {
+        closeError = error
+      }
+      if (drainError && closeError) {
+        throw new AggregateError(
+          [drainError, closeError],
+          'Passport service drain and persistence client close both failed.'
+        )
+      }
+      if (closeError) throw closeError
+      if (drainError) throw drainError
     })()
     return this.disposePromise
   }
@@ -362,6 +412,7 @@ export class StintPassportService {
     this.store.setKillSwitch(killSwitch)
     if (this.current) await this.closeCurrentInternal('restart-recovery', true)
     await this.store.purgeRetention()
+    this.applyRetentionToMemory(this.now())
     this.retentionTimer = setInterval(() => {
       void this.runRetention('scheduled').catch((error) => {
         this.lastError = error instanceof Error ? error.message : String(error)
@@ -373,6 +424,7 @@ export class StintPassportService {
   async runRetention(reason: 'scheduled' | 'explicit' | 'startup'): Promise<PassportDeleteResult[]> {
     await this.ready.catch(() => undefined)
     const results = await this.trackStoreOperation(this.store.purgeRetention())
+    this.applyRetentionToMemory(this.now())
     if (results.length > 0) {
       await this.store.logRuntime('retention', { reason, results })
       this.notify()
@@ -382,25 +434,31 @@ export class StintPassportService {
 
   async setRoster(roster: readonly PassportRosterMember[]): Promise<PassportRosterMember[]> {
     await this.ready
-    this.roster = roster.map((member) => ({
+    const candidate = roster.map((member) => ({
       memberId: clean(member.memberId, 120),
       displayName: clean(member.displayName, 120),
       roles: [...new Set(member.roles)].filter(isPassportRole),
       active: member.active === true
     }))
-    if (this.roster.some((member) => !member.memberId || !member.displayName || member.roles.length === 0)) {
+    if (candidate.some((member) => !member.memberId || !member.displayName || member.roles.length === 0)) {
       throw new Error('Every roster member requires an ID, display name, and at least one role.')
     }
-    if (new Set(this.roster.map((member) => member.memberId)).size !== this.roster.length) {
+    if (new Set(candidate.map((member) => member.memberId)).size !== candidate.length) {
       throw new Error('Roster member IDs must be unique.')
     }
+    const persisted = this.privacy.identityPersistenceOptIn
+      ? await this.store.saveRoster(candidate)
+      : candidate
+    this.roster = persisted.map((member) => ({
+      ...member,
+      roles: [...member.roles]
+    }))
     this.invalidateAttestations('roster-changed')
-    if (this.privacy.identityPersistenceOptIn) this.roster = await this.store.saveRoster(this.roster)
     if (this.current && this.lastEvent) {
       await this.revalidateCurrent(undefined, 'roster-updated')
     }
     this.notify()
-    return [...this.roster]
+    return this.roster.map((member) => ({ ...member, roles: [...member.roles] }))
   }
 
   async setConfig(config: PassportConfig): Promise<PassportConfig> {
@@ -569,69 +627,73 @@ export class StintPassportService {
       throw new Error('Passport challenge completion is already in progress.')
     }
     this.challengeClaim = { challengeId: challenge.challengeId, generation }
+    const fence: ChallengeMutationFence = {
+      challengeId: challenge.challengeId,
+      generation,
+      stintId: input.stintId,
+      passportRevision: challenge.passportRevision
+    }
     const previous = current
     try {
-    await this.refreshExternal('challenge-revalidation')
-    current = this.requireCurrent(input.stintId)
-    if (
-      this.challengeGeneration !== generation ||
-      this.challenge?.challengeId !== challenge.challengeId ||
-      current.revision !== challenge.passportRevision
-    ) {
-      throw new Error('Passport challenge was superseded during revalidation.')
-    }
-    const now = this.now()
-    const finalDefinition = passportItemDefinition('final-acknowledgement')
-    const items = expirePassportItems(current.items, now).map((item): PassportItem =>
-      item.id === 'final-acknowledgement'
-        ? {
-            ...item,
-            status: 'manual-confirmed',
-            owner: input.owner,
-            detail: 'Final challenge-response acknowledgement completed.',
-            verifiedAt: now,
-            expiresAt: now + finalDefinition.ttlMs,
-            evidence: {
-              source: 'challenge-response',
-              summary: `Acknowledged by ${input.owner.memberId}/${input.owner.role}.`,
-              contentHash: evidenceHash({ stintId: input.stintId, owner: input.owner, now }),
-              capturedAt: now,
-              state: 'available'
-            },
-            revision: item.revision + 1
-          }
-        : item
-    )
-    current = withCoverage(current, items)
-    const errors = validateChallengeReadiness(current, this.roster, now)
-    if (errors.length > 0) throw new Error(errors.join(' '))
-    if (current.persisted) {
-      const integrity = await this.store.verifyActiveStint(current.identity.stintId)
-      if (!integrity.verified) {
-        throw new Error(integrity.message ?? 'A trusted integrity signature is required before Ready.')
+      await this.refreshExternal('challenge-revalidation')
+      current = this.assertChallengeFence(fence, 'revalidation')
+      const now = this.now()
+      const finalDefinition = passportItemDefinition('final-acknowledgement')
+      const items = expirePassportItems(current.items, now).map((item): PassportItem =>
+        item.id === 'final-acknowledgement'
+          ? {
+              ...item,
+              status: 'manual-confirmed',
+              owner: input.owner,
+              detail: 'Final challenge-response acknowledgement completed.',
+              verifiedAt: now,
+              expiresAt: now + finalDefinition.ttlMs,
+              evidence: {
+                source: 'challenge-response',
+                summary: `Acknowledged by ${input.owner.memberId}/${input.owner.role}.`,
+                contentHash: evidenceHash({ stintId: input.stintId, owner: input.owner, now }),
+                capturedAt: now,
+                state: 'available'
+              },
+              revision: item.revision + 1
+            }
+          : item
+      )
+      current = withCoverage(current, items)
+      const errors = validateChallengeReadiness(current, this.roster, now)
+      if (errors.length > 0) throw new Error(errors.join(' '))
+      if (current.persisted) {
+        const integrity = await this.store.verifyActiveStint(current.identity.stintId)
+        this.assertChallengeFence(fence, 'integrity verification')
+        if (!integrity.verified) {
+          throw new Error(integrity.message ?? 'A trusted integrity signature is required before Ready.')
+        }
       }
-    }
-    this.current = {
-      ...current,
-      lifecycle: 'ready',
-      challengeCompletedAt: now,
-      challengeOwner: input.owner,
-      revision: current.revision + 1
-    }
-    await this.persistCurrent(this.event(
-      'ultimate.sim.raceops.passport.challenge-completed.v1',
-      {
-        coverage: this.current.coverage,
-        owner: input.owner,
-        itemHashes: this.current.items.map((item) => item.evidence?.contentHash ?? '')
-      },
-      'D3'
-    ), previous)
-    this.experiment.completedChallenges += 1
-    this.experiment.totalOverheadMs += Math.max(0, now - (challenge.expiresAt - 60_000))
-    this.clearChallenge(false)
-    this.notify()
-    return this.current
+      const candidate: StintPassport = {
+        ...current,
+        lifecycle: 'ready',
+        challengeCompletedAt: now,
+        challengeOwner: input.owner,
+        revision: current.revision + 1
+      }
+      const persisted = await this.persistChallengeCandidate(candidate, this.event(
+        'ultimate.sim.raceops.passport.challenge-completed.v1',
+        {
+          coverage: candidate.coverage,
+          owner: input.owner,
+          itemHashes: candidate.items.map((item) => item.evidence?.contentHash ?? '')
+        },
+        'D3',
+        undefined,
+        candidate
+      ), previous, fence)
+      this.assertChallengeFence(fence, 'durable commit')
+      this.current = persisted
+      this.experiment.completedChallenges += 1
+      this.experiment.totalOverheadMs += Math.max(0, now - (challenge.expiresAt - 60_000))
+      this.clearChallenge(false)
+      this.notify()
+      return this.current
     } finally {
       if (this.challengeClaim?.challengeId === challenge.challengeId &&
         this.challengeClaim.generation === generation) {
@@ -739,8 +801,6 @@ export class StintPassportService {
               ...item,
               evidence: undefined,
               detail: 'Evidence removed by data-class deletion.',
-              overrideReason: undefined,
-              reasonCode: undefined,
               revision: item.revision + 1
             }
           : item
@@ -751,6 +811,7 @@ export class StintPassportService {
     for (let index = 0; index < this.ephemeralHistory.length; index += 1) {
       this.ephemeralHistory[index] = redact(this.ephemeralHistory[index])
     }
+    this.clearChallenge()
     this.notify()
     return result
   }
@@ -1004,6 +1065,7 @@ export class StintPassportService {
       if (this.current) this.current = { ...this.current, persisted: false }
       return
     }
+
     const operationKey = event.canonicalEvent.dedupeKey
     const cached = this.ambiguousMutations.get(operationKey)
     const attempted = cached ?? {
@@ -1034,19 +1096,61 @@ export class StintPassportService {
     }
   }
 
+  private async persistChallengeCandidate(
+    candidate: StintPassport,
+    event: PassportStoreEvent,
+    rollbackState: StintPassport,
+    fence: ChallengeMutationFence
+  ): Promise<StintPassport> {
+    if (!this.privacy.identityPersistenceOptIn) {
+      this.assertChallengeFence(fence, 'ephemeral commit')
+      return { ...candidate, persisted: false, durability: 'ephemeral' }
+    }
+    const operationKey = event.canonicalEvent.dedupeKey
+    const attempted = this.ambiguousMutations.get(operationKey) ?? {
+      passport: { ...candidate, persisted: true, durability: 'pending' as const },
+      event
+    }
+    let persisted: StintPassport
+    try {
+      persisted = await this.trackStoreOperation(
+        this.store.persistPassport(attempted.passport, attempted.event)
+      )
+    } catch (error) {
+      this.ambiguousMutations.set(operationKey, attempted)
+      this.recordPersistenceError(error)
+      if (this.challengeFenceMatches(fence)) {
+        this.current = {
+          ...rollbackState,
+          durability: this.store.status().state === 'quarantined' ? 'quarantined' : 'failed',
+          lifecycle: rollbackState.lifecycle === 'ready' ? 'awaiting-checklist' : rollbackState.lifecycle,
+          challengeCompletedAt: undefined,
+          challengeOwner: undefined
+        }
+        this.notify()
+      }
+      throw error
+    }
+    this.ambiguousMutations.delete(operationKey)
+    this.assertChallengeFence(fence, 'persistence response')
+    this.lastError = undefined
+    return { ...persisted, durability: 'durable' }
+  }
+
   private event(
     eventType: string,
     payload: Record<string, unknown>,
     dataClass: PassportDataClass,
-    itemId?: PassportItem['id']
+    itemId?: PassportItem['id'],
+    passport: StintPassport | null = this.current
   ): PassportStoreEvent {
     const capturedAt = this.now()
     const operationHash = evidenceHash({
-      stintId: this.current?.identity.stintId ?? 'none',
+      stintId: passport?.identity.stintId ?? 'none',
       eventType,
       itemId: itemId ?? '',
       dataClass,
-      revision: this.current?.revision ?? 0,
+      revision: passport?.revision ?? 0,
       payload
     })
     const dedupeKey = `passport:${operationHash}`
@@ -1082,26 +1186,26 @@ export class StintPassportService {
       eventId: `${operationHash.slice(0, 8)}-${operationHash.slice(8, 12)}-5${operationHash.slice(13, 16)}-a${operationHash.slice(17, 20)}-${operationHash.slice(20, 32)}`,
       eventClass: 'fact',
       eventType,
-      sessionRef: this.current?.identity.sessionRef ?? '',
+      sessionRef: passport?.identity.sessionRef ?? '',
       actorRef: 'system:stint-passport',
-      subjectRef: this.current ? `stint:${this.current.identity.stintId}` : '',
+      subjectRef: passport ? `stint:${passport.identity.stintId}` : '',
       observedInterval: interval,
       facts,
       confidence: emptyConfidence(),
       severity: eventType.includes('failed') ? 'warning' : 'info',
       priority: eventType.includes('closed') ? 'high' : 'normal',
-      evidenceRefs: this.current?.items.flatMap((item) => item.evidence?.contentHash ? [item.evidence.contentHash] : []) ?? [],
+      evidenceRefs: passport?.items.flatMap((item) => item.evidence?.contentHash ? [item.evidence.contentHash] : []) ?? [],
       policyRef: 'local-only.passport.v2',
       capabilityRef: 'passport.main.mutation.v2',
       consentEpoch: this.privacy.identityPersistenceOptIn ? String(this.privacy.updatedAt) : '0',
       approvalRef: this.challenge?.challengeId ?? '',
-      correlationId: this.current?.identity.stintId ?? '',
+      correlationId: passport?.identity.stintId ?? '',
       dedupeKey,
       privacyClass: dataClass,
       integrityFlags: this.overflowBlocked ? ['gap', 'derived'] : ['derived'],
       supersedesEventId: '',
       sequence: '0',
-      partitionKey: this.current ? `stint:${this.current.identity.stintId}` : 'passport:none',
+      partitionKey: passport ? `stint:${passport.identity.stintId}` : 'passport:none',
       partitionSeq: '0',
       telemetryContext: this.current?.telemetryContext ?? 'unknown',
       sourceTick: String(capturedAt),
@@ -1121,6 +1225,27 @@ export class StintPassportService {
       throw new Error('The requested stint is no longer current.')
     }
     return this.current
+  }
+
+  private challengeFenceMatches(fence: ChallengeMutationFence): boolean {
+    return (
+      this.challengeGeneration === fence.generation &&
+      this.challenge?.challengeId === fence.challengeId &&
+      this.challengeClaim?.challengeId === fence.challengeId &&
+      this.challengeClaim.generation === fence.generation &&
+      this.current?.identity.stintId === fence.stintId &&
+      this.current.revision === fence.passportRevision
+    )
+  }
+
+  private assertChallengeFence(
+    fence: ChallengeMutationFence,
+    stage: string
+  ): StintPassport {
+    if (!this.challengeFenceMatches(fence)) {
+      throw new Error(`Passport challenge was superseded during ${stage}.`)
+    }
+    return this.current as StintPassport
   }
 
   private clearChallenge(demoteReady = true): void {
@@ -1181,6 +1306,82 @@ export class StintPassportService {
       }
     }
     return covered
+  }
+
+  private applyRetentionToMemory(now: number): void {
+    const redact = (passport: StintPassport): StintPassport => {
+      let changed = false
+      const d3Expired = passport.closedAt !== undefined &&
+        passport.closedAt < now - this.privacy.retentionDays.D3 * 86_400_000
+      const items = passport.items.map((item): PassportItem => {
+        const dataClass = passportItemDefinition(item.id).dataClass
+        const cutoff = now - this.privacy.retentionDays[dataClass] * 86_400_000
+        const evidenceExpired = item.evidence !== undefined &&
+          (dataClass === 'D3' ? d3Expired : item.evidence.capturedAt < cutoff)
+        const d3MetadataPresent = d3Expired && (
+          item.owner !== undefined ||
+          item.overrideReason !== undefined ||
+          item.reasonCode !== undefined ||
+          (dataClass === 'D3' && (
+            item.evidence !== undefined ||
+            item.detail !== 'Evidence removed by retention policy.'
+          ))
+        )
+        if (!evidenceExpired && !d3MetadataPresent) return item
+        changed = true
+        return {
+          ...item,
+          ...(evidenceExpired
+            ? {
+                detail: 'Evidence removed by retention policy.',
+                evidence: undefined
+              }
+            : {}),
+          ...(d3Expired
+            ? {
+                owner: undefined,
+                overrideReason: undefined,
+                reasonCode: undefined,
+                ...(dataClass === 'D3'
+                  ? {
+                      detail: 'Evidence removed by retention policy.',
+                      evidence: undefined
+                    }
+                  : {})
+              }
+            : {}),
+          revision: item.revision + 1
+        }
+      })
+      const d3IdentityPresent = d3Expired && (
+        passport.identity.driverLabel !== '[retention-redacted]' ||
+        passport.identity.driverRef !== '[retention-redacted]' ||
+        passport.identity.teamRef !== undefined ||
+        passport.identity.teamLabel !== undefined ||
+        passport.challengeOwner !== undefined
+      )
+      if (!changed && !d3IdentityPresent) return passport
+      return {
+        ...withCoverage(passport, items),
+        ...(d3IdentityPresent
+          ? {
+              identity: {
+                ...passport.identity,
+                driverRef: '[retention-redacted]',
+                driverLabel: '[retention-redacted]',
+                teamRef: undefined,
+                teamLabel: undefined
+              },
+              challengeOwner: undefined
+            }
+          : {}),
+        revision: passport.revision + 1
+      }
+    }
+    if (this.current) this.current = redact(this.current)
+    for (let index = 0; index < this.ephemeralHistory.length; index += 1) {
+      this.ephemeralHistory[index] = redact(this.ephemeralHistory[index])
+    }
   }
 
   private invalidateAttestations(reason: string): void {

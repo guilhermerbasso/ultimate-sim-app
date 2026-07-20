@@ -537,6 +537,71 @@ describe('PassportStore privacy and incremental integrity', () => {
   })
 
   describe('PassportStore Phase 2 retention and raw privacy', () => {
+    it('migrates schema v3 item rows to independent field classifications', () => {
+      const path = join(scratch('field-class-migration'), 'passport.db')
+      const first = open(path, 10_000).store
+      enablePersistence(first)
+      first.persistPassport(passport(), event(1))
+      closeTracked(first)
+
+      const legacy = new DatabaseSync(path)
+      legacy.exec(`
+        PRAGMA foreign_keys = OFF;
+        ALTER TABLE passport_item RENAME TO passport_item_v4;
+        CREATE TABLE passport_item (
+          stint_id TEXT NOT NULL REFERENCES stint_passport(stint_id) ON DELETE CASCADE,
+          item_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          owner_json TEXT,
+          detail TEXT NOT NULL,
+          override_reason TEXT,
+          reason_code TEXT,
+          verified_at INTEGER,
+          expires_at INTEGER,
+          evidence_json TEXT,
+          evidence_state TEXT NOT NULL,
+          evidence_captured_at INTEGER,
+          revision INTEGER NOT NULL,
+          item_hash TEXT NOT NULL,
+          data_class TEXT NOT NULL,
+          PRIMARY KEY(stint_id, item_id)
+        );
+        INSERT INTO passport_item (
+          stint_id, item_id, status, owner_json, detail, override_reason,
+          reason_code, verified_at, expires_at, evidence_json, evidence_state,
+          evidence_captured_at, revision, item_hash, data_class
+        )
+        SELECT
+          stint_id, item_id, status, owner_json, detail, override_reason,
+          reason_code, verified_at, expires_at, evidence_json, evidence_state,
+          evidence_captured_at, revision, item_hash, data_class
+        FROM passport_item_v4;
+        DROP TABLE passport_item_v4;
+        PRAGMA user_version = 3;
+      `)
+      legacy.close()
+
+      const migrated = open(path, 20_000).store
+      expect(migrated.schemaVersion()).toBe(4)
+      const db = new DatabaseSync(path)
+      const row = db.prepare(`
+        SELECT data_class, evidence_data_class, detail_data_class,
+          owner_data_class, reason_data_class, provenance_data_class
+        FROM passport_item WHERE item_id = 'required-devices'
+      `).get() as Record<string, string>
+      db.close()
+      expect(row).toEqual({
+        data_class: 'D3',
+        evidence_data_class: 'D1',
+        detail_data_class: 'D1',
+        owner_data_class: 'D3',
+        reason_data_class: 'D3',
+        provenance_data_class: 'D1'
+      })
+      expect(migrated.getPassport('stint-1')).not.toBeNull()
+      expect(migrated.getIntegrity()).toMatchObject({ state: 'anchored', verified: true })
+    })
+
     it('keeps D1/D2 redaction and D3 passport/roster deletion durable across reopen', () => {
       const path = join(scratch('retention-reopen'), 'passport.db')
       const first = open(path, 10_000).store
@@ -616,6 +681,149 @@ describe('PassportStore privacy and incremental integrity', () => {
       expect(exported).not.toContain(sentinelId)
       expect(exported).not.toContain('PHASE2-PRIVATE-REASON-SENTINEL')
       expect(exported).not.toContain('PHASE2-PRIVATE-OVERRIDE-SENTINEL')
+    })
+
+    it('redacts owner-bearing D1/D2 evidence by field class across reopen and export', () => {
+      const path = join(scratch('field-class-redaction'), 'passport.db')
+      const first = open(path, 10_000).store
+      enablePersistence(first)
+      const data = passport('field-class-stint', 1_000)
+      const sentinels = {
+        d1: 'FIELD-CLASS-D1-EVIDENCE-SENTINEL',
+        d2: 'FIELD-CLASS-D2-EVIDENCE-SENTINEL',
+        owner: 'FIELD-CLASS-OWNER-SENTINEL',
+        reason: 'FIELD-CLASS-REASON-SENTINEL'
+      }
+      data.items = data.items.map((item) => {
+        const dataClass = passportItemDataClassForPhase2(item.id)
+        if (dataClass !== 'D1' && dataClass !== 'D2') return item
+        return {
+          ...item,
+          owner: { memberId: sentinels.owner, role: item.owner?.role ?? 'engineer' },
+          detail: dataClass === 'D1' ? sentinels.d1 : sentinels.d2,
+          overrideReason: sentinels.reason,
+          reasonCode: sentinels.reason,
+          evidence: item.evidence
+            ? {
+                ...item.evidence,
+                summary: dataClass === 'D1' ? sentinels.d1 : sentinels.d2
+              }
+            : undefined
+        }
+      })
+      first.persistPassport(data, event(1, 'field-class', data.identity.stintId))
+
+      const classification = new DatabaseSync(path)
+      const classified = classification.prepare(`
+        SELECT data_class, evidence_data_class, detail_data_class,
+          owner_data_class, reason_data_class, provenance_data_class
+        FROM passport_item WHERE item_id = 'required-devices'
+      `).get() as Record<string, string>
+      classification.close()
+      expect(classified).toMatchObject({
+        data_class: 'D3',
+        evidence_data_class: 'D1',
+        detail_data_class: 'D1',
+        owner_data_class: 'D3',
+        reason_data_class: 'D3',
+        provenance_data_class: 'D1'
+      })
+
+      first.deleteByClass('D1')
+      first.deleteByClass('D2')
+      closeTracked(first)
+
+      const reopened = open(path, 20_000).store
+      const retained = reopened.getPassport(data.identity.stintId)
+      expect(retained).not.toBeNull()
+      for (const item of retained?.items ?? []) {
+        const dataClass = passportItemDataClassForPhase2(item.id)
+        if (dataClass !== 'D1' && dataClass !== 'D2') continue
+        expect(item.evidence).toBeUndefined()
+        expect(item.detail).toBe('Evidence removed by data-class deletion.')
+        expect(item.owner?.memberId).toBe(sentinels.owner)
+        expect(item.reasonCode).toBe(sentinels.reason)
+      }
+      const exported = JSON.stringify(reopened.exportPackage('full-local'))
+      expect(exported).not.toContain(sentinels.d1)
+      expect(exported).not.toContain(sentinels.d2)
+      expect(reopened.verifyActiveStint(data.identity.stintId)).toMatchObject({
+        state: 'anchored',
+        verified: true
+      })
+    })
+
+    it('expires only explicitly D3 fields while retaining longer-lived D1/D2 evidence', () => {
+      const day = 86_400_000
+      const path = join(scratch('d3-field-retention'), 'passport.db')
+      const first = open(path, 40 * day).store
+      first.setPrivacy({
+        ...DEFAULT_PASSPORT_PRIVACY,
+        identityPersistenceOptIn: true,
+        retentionDays: { D1: 90, D2: 30, D3: 7 },
+        updatedAt: 0
+      })
+      const data = {
+        ...passport('d3-retention-stint', 20 * day),
+        lifecycle: 'closed' as const,
+        closedAt: 30 * day,
+        closeReason: 'manual' as const
+      }
+      data.identity.driverRef = 'D3-RETENTION-DRIVER-REF'
+      data.identity.driverLabel = 'D3-RETENTION-DRIVER-LABEL'
+      data.items = data.items.map((item) => {
+        const dataClass = passportItemDataClassForPhase2(item.id)
+        return {
+          ...item,
+          detail: `${dataClass}-RETENTION-DETAIL-SENTINEL`,
+          reasonCode: 'D3-RETENTION-REASON-SENTINEL',
+          overrideReason: 'D3-RETENTION-REASON-SENTINEL',
+          evidence: item.evidence
+            ? {
+                ...item.evidence,
+                summary: `${dataClass}-RETENTION-EVIDENCE-SENTINEL`,
+                capturedAt: 20 * day
+              }
+            : undefined
+        }
+      })
+      first.persistPassport(data, event(1, 'd3-retention', data.identity.stintId))
+
+      const results = first.purgeRetention(40 * day)
+      expect(results).toContainEqual(expect.objectContaining({
+        dataClass: 'D3',
+        deletedStints: 0
+      }))
+      const retained = first.getPassport(data.identity.stintId)
+      expect(retained).not.toBeNull()
+      expect(retained?.identity.driverLabel).toBe('[retention-redacted]')
+      expect(retained?.identity.driverRef).toMatch(/^redacted:/)
+      expect(retained?.challengeOwner).toBeUndefined()
+      for (const item of retained?.items ?? []) {
+        const dataClass = passportItemDataClassForPhase2(item.id)
+        expect(item.owner).toBeUndefined()
+        expect(item.reasonCode).toBeUndefined()
+        expect(item.overrideReason).toBeUndefined()
+        if (dataClass === 'D3') {
+          expect(item.evidence).toBeUndefined()
+        } else {
+          expect(item.evidence?.summary).toBe(`${dataClass}-RETENTION-EVIDENCE-SENTINEL`)
+        }
+      }
+      closeTracked(first)
+
+      const reopened = open(path, 41 * day).store
+      expect(reopened.getPassport(data.identity.stintId)).not.toBeNull()
+      const exported = JSON.stringify(reopened.exportPackage('full-local'))
+      expect(exported).not.toContain('D3-RETENTION-DRIVER-REF')
+      expect(exported).not.toContain('D3-RETENTION-DRIVER-LABEL')
+      expect(exported).not.toContain('D3-RETENTION-REASON-SENTINEL')
+      expect(exported).toContain('D1-RETENTION-EVIDENCE-SENTINEL')
+      expect(exported).toContain('D2-RETENTION-EVIDENCE-SENTINEL')
+      expect(reopened.verifyActiveStint(data.identity.stintId)).toMatchObject({
+        state: 'anchored',
+        verified: true
+      })
     })
 
     it('[spec-gap] securely erases D1/D2/D3 sentinels from DB, WAL, SHM, and quarantine bytes', async () => {

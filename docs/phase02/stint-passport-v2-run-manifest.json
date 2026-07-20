@@ -3,9 +3,9 @@
   "kind": "acceptance-plan",
   "status": "pending-ci-attestation",
   "acceptanceContract": "docs/phase02/stint-passport-v2-acceptance-contract.json",
-  "acceptanceContractSha256": "81fea004cc3373e320522579c463b101dbc3886ca8998a954daf87639989bbb5",
+  "acceptanceContractSha256": "6d360d2a247364edc36fe2c6fe2bf58d07d65b8446da1bca8f46c13dcb72f0f8",
   "branch": "feat/phase2-stint-passport-v2",
-  "baseCommit": "ef7778181b73759a090079d666de986d3774561f",
+  "baseCommit": "1061de32a02537d1c47165f081b8c53e4b499fa9",
   "sourceBinding": {
     "mode": "ci-runtime",
     "commit": "resolved-from-GITHUB_SHA",
@@ -16,7 +16,7 @@
   "evidence": {
     "targetedTests": {
       "status": "required",
-      "command": "npm test -- --run src/shared/stint-passport.test.ts src/main/phase02/raceops-codec.test.ts src/main/passport/evaluator.test.ts src/main/passport/readiness.test.ts src/main/passport/store.test.ts src/main/passport/service.test.ts src/main/passport/persistence-client.test.ts src/main/passport/passport-persistence-worker.test.ts src/main/passport/offline.test.ts src/main/modules/stint-passport.test.ts src/preload/ipc-allowlists.test.ts src/renderer/src/views/StintPassportView.test.ts src/main/passport/acceptance-evidence.test.ts",
+      "command": "npm test -- --run src/shared/stint-passport.test.ts src/main/phase02/raceops-codec.test.ts src/main/passport/evaluator.test.ts src/main/passport/readiness.test.ts src/main/passport/store.test.ts src/main/passport/service.test.ts src/main/passport/persistence-client.test.ts src/main/passport/passport-persistence-worker.test.ts src/main/passport/offline.test.ts src/main/modules/stint-passport.test.ts src/preload/ipc-allowlists.test.ts src/renderer/src/views/StintPassportView.test.ts src/main/passport/passport-v2-blockers.test.ts src/main/passport/acceptance-evidence.test.ts",
       "selectors": [
         "src/shared/stint-passport.test.ts",
         "src/main/phase02/raceops-codec.test.ts",
@@ -30,10 +30,11 @@
         "src/main/modules/stint-passport.test.ts",
         "src/preload/ipc-allowlists.test.ts",
         "src/renderer/src/views/StintPassportView.test.ts",
+        "src/main/passport/passport-v2-blockers.test.ts",
         "src/main/passport/acceptance-evidence.test.ts"
       ],
-      "tests": 214,
-      "files": 13
+      "tests": 237,
+      "files": 14
     },
     "typecheck": {
       "status": "required",

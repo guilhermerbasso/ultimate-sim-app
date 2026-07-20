@@ -26,6 +26,7 @@ import { isBenignSerialError, serialErrorMessage } from './serial/errors'
 import { logger } from './modules/logger'
 import { instrumentBroadcast, instrumentIpcMain } from './modules/diagnostics-log'
 import { claimFirstTrayHint, trayHintFlagPath } from './tray-hint'
+import { PASSPORT_APP_PERSISTENCE_DEADLINE_MS } from './passport/persistence-deadlines'
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('io.github.ultimatesim.app')
@@ -94,7 +95,7 @@ const gracefulTeardownTasks = new GracefulTeardownRegistry()
 const QUIESCE_TIMEOUT_MS = 5_000
 const HARDWARE_OPERATION_TIMEOUT_MS = 1_000
 const RGB_MATRIX_ALL_OFF_TIMEOUT_MS = 2_000
-const PERSISTENCE_TIMEOUT_MS = 2_500
+const PERSISTENCE_TIMEOUT_MS = PASSPORT_APP_PERSISTENCE_DEADLINE_MS
 // One-shot guard so the "still running in the tray" hint is evaluated at most once
 // per run (the persisted flag file then makes it once per install).
 let trayHintShownThisRun = false
