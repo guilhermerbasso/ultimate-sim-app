@@ -120,6 +120,7 @@ const ALLOWED_PREFIXES = [
   'steward:',
   'story:',
   'community:',
+  'blueprints:',
   'collaboration:',
   'dashai:',
   'bio:',
