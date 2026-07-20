@@ -217,6 +217,7 @@ describe('historical stint debrief integration', () => {
       { sessionId: summaries[0].id, useLlm: false }
     ) as DebriefArchiveGenerateResult
     expect(generated.debrief.sessionInfo?.trackName).toBe('Track A')
+    expect(generated.unitSystem).toBe('metric')
     expect(generated.debrief.text).toContain('Track A')
     expect(generated.setup?.suggestions[0].primary.change).toContain('Track A')
     expect(generated.setup?.suggestions[0].primary.change).not.toContain('Track B')

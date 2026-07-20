@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { lstat, mkdir, open, opendir, readFile, rename, rm, unlink } from 'node:fs/promises'
+import { basename, dirname, resolve } from 'node:path'
 import {
   DEBRIEF_ARCHIVE_MAX_BYTES,
   createDebriefArchive,
@@ -13,6 +13,8 @@ import {
 } from '../../shared/stint-debrief'
 
 const MISSING_SESSION_MESSAGE = 'Historical debrief session was not found or was deleted.'
+export const DEBRIEF_ARCHIVE_STALE_TEMP_MS = 5 * 60 * 1_000
+const DEBRIEF_ARCHIVE_TEMP_SCAN_LIMIT = 2_048
 
 export interface StintDebriefArchivePersistence {
   load?(filePath: string): Promise<unknown>
@@ -43,6 +45,10 @@ function errorMessage(error: unknown): string {
 
 function sameRecord(left: DebriefArchiveRecord, right: DebriefArchiveRecord): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function escapedRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function serializedArchive(archive: DebriefArchive): { archive: DebriefArchive; payload: string } {
@@ -91,18 +97,85 @@ export class StintDebriefArchiveStore {
 
   private async atomicWrite(targetPath: string, payload: string): Promise<void> {
     const tempPath = `${targetPath}.${process.pid}.${++this.writeSequence}.tmp`
+    let handle: Awaited<ReturnType<typeof open>> | null = null
     try {
-      await mkdir(dirname(targetPath), { recursive: true })
-      await writeFile(tempPath, payload, 'utf8')
+      const directory = dirname(targetPath)
+      await mkdir(directory, { recursive: true })
+      handle = await open(tempPath, 'wx', 0o600)
+      await handle.writeFile(payload, 'utf8')
+      await handle.sync()
+      await handle.close()
+      handle = null
       await rename(tempPath, targetPath)
+      await this.syncDirectory(directory)
     } catch (error) {
+      await handle?.close().catch(() => undefined)
       await rm(tempPath, { force: true }).catch(() => undefined)
       throw error
     }
   }
 
+  private async syncDirectory(directory: string): Promise<void> {
+    let handle: Awaited<ReturnType<typeof open>> | null = null
+    try {
+      handle = await open(directory, 'r')
+      await handle.sync()
+    } catch {
+      // The payload itself is fsynced before rename. Some Windows filesystems do
+      // not permit opening a directory handle, so directory fsync is best-effort.
+    } finally {
+      await handle?.close().catch(() => undefined)
+    }
+  }
+
+  private async cleanupStaleTempFiles(): Promise<void> {
+    const directory = resolve(dirname(this.filePath))
+    const archiveName = basename(this.filePath)
+    const writerTempPattern = new RegExp(
+      `^${escapedRegExp(archiveName)}\\.[1-9]\\d{0,9}\\.[1-9]\\d{0,9}\\.tmp$`
+    )
+    let directoryHandle: Awaited<ReturnType<typeof opendir>> | null = null
+    try {
+      directoryHandle = await opendir(directory)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+
+    const cutoff = Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS
+    let scanned = 0
+    try {
+      for await (const entry of directoryHandle) {
+        scanned += 1
+        if (scanned > DEBRIEF_ARCHIVE_TEMP_SCAN_LIMIT) break
+        if (!writerTempPattern.test(entry.name) || entry.isSymbolicLink()) continue
+
+        const candidatePath = resolve(directory, entry.name)
+        if (
+          dirname(candidatePath) !== directory ||
+          basename(candidatePath) !== entry.name
+        ) {
+          continue
+        }
+
+        let info: Awaited<ReturnType<typeof lstat>>
+        try {
+          info = await lstat(candidatePath)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+          throw error
+        }
+        if (info.isSymbolicLink() || !info.isFile() || info.mtimeMs > cutoff) continue
+        await unlink(candidatePath)
+      }
+    } finally {
+      await directoryHandle.close().catch(() => undefined)
+    }
+  }
+
   private async load(loader?: (filePath: string) => Promise<unknown>): Promise<void> {
     try {
+      await this.cleanupStaleTempFiles()
       let parsed: unknown
       if (loader) {
         parsed = await loader(this.filePath)

@@ -923,6 +923,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
         sessionId: record.id,
         debrief,
         setup: cloneJson(record.setup),
+        unitSystem: record.unitSystem,
         captureSource: record.captureSource,
         setupStatus: debriefSetupStatus(record),
         analysisStatus: debriefAnalysisStatus(record)

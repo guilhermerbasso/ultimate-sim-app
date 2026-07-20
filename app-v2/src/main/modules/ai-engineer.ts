@@ -41,6 +41,7 @@ import {
   controlledDefinitionResponse,
   detectRacecraftLikeQuestionLanguage,
   detectRacecraftQuestionWithLanguage,
+  detectTyreSelectionQuestionLanguage,
   isPureDefinitionRequest,
   racecraftClarificationText,
   racecraftSafetyFromSnapshot,
@@ -767,6 +768,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
     const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
     const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
+    const tyreSelectionLanguage = detectTyreSelectionQuestionLanguage(question)
     const adviceLanguage =
       deps.getRacecraftLanguage?.() ??
       detectedRacecraft?.language ??
@@ -811,6 +813,26 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       carName: snapshot?.carName,
       carPath: snapshot?.carPath
     })
+    if (tyreSelectionLanguage) {
+      const safety =
+        deps.racecraftContext?.()?.safety ??
+        makeFallbackContext().safety
+      const safetyReason = racecraftSafetyReason(safety)
+      if (safetyReason) {
+        const text = racecraftSafetyMessage(safetyReason, adviceLanguage)
+        return finalize(
+          question,
+          text,
+          'answer',
+          'intent',
+          undefined,
+          context,
+          adviceLanguage,
+          text,
+          false
+        )
+      }
+    }
     const supportedDefinition = safeInformationalDefinition(question, adviceLanguage)
     const controlledDefinition =
       supportedDefinition ??

@@ -12,6 +12,7 @@ import {
   detectRacecraftQuestion,
   detectRacecraftQuestionWithLanguage,
   detectRacecraftLikeQuestionLanguage,
+  detectTyreSelectionQuestionLanguage,
   isExplicitSafeInformationalQuestion,
   MAX_QUALI_BRIEFING_LENGTH,
   MAX_RACECRAFT_ADVICE_LENGTH,
@@ -369,6 +370,21 @@ describe('racecraft question routing', () => {
   ])('does not mistake ordinary words for definition markers: %s', (question) => {
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
+  })
+
+  it.each([
+    ['pt-BR', 'Quais pneus devo usar?'],
+    ['pt-BR', 'Por favor, quais compostos você recomendaria?'],
+    ['es', '¿Qué neumáticos debo usar?'],
+    ['es', 'Por favor, ¿cuáles compuestos recomendaría?'],
+    ['fr', 'Quels pneus dois-je utiliser ?'],
+    ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?'],
+    ['de', 'Welchen Reifen soll ich verwenden?'],
+    ['de', 'Welche Reifen würden Sie bitte empfehlen?']
+  ] as const)('default-denies localized tyre-choice structure: %s — %s', (language, question) => {
+    expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
+    expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
+    expect(controlledDefinitionResponse(question, language)).toBeNull()
   })
 
   it.each([

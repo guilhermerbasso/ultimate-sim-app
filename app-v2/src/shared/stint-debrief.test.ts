@@ -84,6 +84,7 @@ function archiveRecord(
         rationale: 'Middle tread is hotter than both edges.',
         evidence: 'Middle average 108 C; edges 96 C.',
         primary: {
+          code: 'tyre-pressure-decrease-cold',
           area: 'tyres',
           direction: 'decrease',
           magnitude: 'small',
@@ -105,7 +106,7 @@ function archiveRecord(
       source: 'deterministic',
       language: 'en-US',
       reason: 'session-end',
-      sessionInfo
+      sessionInfo: { ...sessionInfo }
     },
     language: 'en-US',
     unitSystem: 'metric',
@@ -305,10 +306,86 @@ describe('historical debrief archive contracts', () => {
     ;(malformedSetup.setup!.suggestions[0].primary as { area: string }).area = 'magic'
     expect(normalizeDebriefArchiveRecord(malformedSetup)).toBeNull()
 
+    const unknownSetupCode = archiveRecord(1_005)
+    ;(unknownSetupCode.setup!.suggestions[0].primary as { code: string }).code = 'invented-change'
+    expect(normalizeDebriefArchiveRecord(unknownSetupCode)).toBeNull()
+
+    const mismatchedSetupCode = archiveRecord(1_006)
+    mismatchedSetupCode.setup!.suggestions[0].primary.code = 'front-arb-soften'
+    expect(normalizeDebriefArchiveRecord(mismatchedSetupCode)).toBeNull()
+
+    const wrongSymptomCode = archiveRecord(1_007)
+    wrongSymptomCode.setup!.suggestions[0].primary = {
+      code: 'rear-aero-increase',
+      area: 'aero',
+      direction: 'increase',
+      magnitude: 'small',
+      change: 'Persisted prose is not authoritative.'
+    }
+    expect(normalizeDebriefArchiveRecord(wrongSymptomCode)).toBeNull()
+
     expect(normalizeStintDebrief({
       ...archiveRecord(1_004).debrief,
       text: 'x'.repeat(20_000)
     })).toBeNull()
+  })
+
+  it.each([
+    ['missing debrief sessionInfo', (record: DebriefArchiveRecord) => {
+      delete record.debrief.sessionInfo
+    }],
+    ['track', (record: DebriefArchiveRecord) => {
+      record.debrief.sessionInfo!.trackName = 'Different track'
+    }],
+    ['car', (record: DebriefArchiveRecord) => {
+      record.debrief.sessionInfo!.carName = 'Different car'
+    }],
+    ['session type', (record: DebriefArchiveRecord) => {
+      record.debrief.sessionInfo!.sessionType = 'Practice'
+    }],
+    ['lap count', (record: DebriefArchiveRecord) => {
+      record.debrief.sessionInfo!.lapsCompleted = 9
+    }],
+    ['best lap', (record: DebriefArchiveRecord) => {
+      record.sessionInfo.bestLapTimeSec = 83.2
+    }],
+    ['reason presence', (record: DebriefArchiveRecord) => {
+      delete record.sessionInfo.reason
+    }],
+    ['language', (record: DebriefArchiveRecord) => {
+      record.debrief.language = 'pt-BR'
+    }],
+    ['debrief timestamp', (record: DebriefArchiveRecord) => {
+      record.debrief.generatedAt += 1
+    }]
+  ] as const)('rejects archive/debrief duplicated metadata mismatch: %s', (_label, mutate) => {
+    const record = archiveRecord(1_100)
+    mutate(record)
+    expect(normalizeDebriefArchiveRecord(record)).toBeNull()
+  })
+
+  it('preserves equal absence semantics while rejecting contradictory legacy setup metadata', () => {
+    const absentReason = archiveRecord(1_101)
+    delete absentReason.sessionInfo.reason
+    delete absentReason.debrief.sessionInfo!.reason
+    expect(normalizeDebriefArchiveRecord(absentReason)?.sessionInfo).not.toHaveProperty('reason')
+
+    const legacyWithSetup = archiveRecord(1_102, {
+      captureSource: 'legacy-last-debrief',
+      metadataQuality: 'legacy-defaults'
+    })
+    expect(normalizeDebriefArchiveRecord(legacyWithSetup)).toBeNull()
+
+    const mismatchedMetadata = archiveRecord(1_103, {
+      captureSource: 'legacy-last-debrief',
+      metadataQuality: 'captured',
+      setup: null
+    })
+    expect(normalizeDebriefArchiveRecord(mismatchedMetadata)).toBeNull()
+
+    const futureSetup = archiveRecord(1_104)
+    futureSetup.setup!.generatedAt = futureSetup.capturedAt + 1
+    expect(normalizeDebriefArchiveRecord(futureSetup)).toBeNull()
   })
 
   it('deduplicates, sorts stably, and keeps only the newest bounded records', () => {

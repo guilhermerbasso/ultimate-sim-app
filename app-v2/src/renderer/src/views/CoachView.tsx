@@ -18,8 +18,9 @@ import { TrackCoachingHeatmap } from '../components/TrackCoachingHeatmap'
 import { useTrackMapData } from '../lib/track-map'
 import { useTelemetrySelector } from '../lib/telemetry'
 import { tt } from '../i18n'
-import { formatMeasurement } from '../../../shared/units'
+import { formatMeasurement, type UnitSystem } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
+import { localizeSetupSuggestion } from '../lib/setup-guidance'
 
 // AI Coach + Setup Engineer (F2). Renders the DETERMINISTIC per-lap report from
 // the `coach:` module: ranked findings (worst-first by estimated time loss),
@@ -64,7 +65,6 @@ const SEVERITY_LABEL: Record<CoachSeverity, string> = {
 }
 
 const PHASE_LABEL: Record<string, string> = { entry: 'Entry', mid: 'Mid', exit: 'Exit' }
-const CONFIDENCE_LABEL: Record<string, string> = { high: 'High', med: 'Medium', low: 'Low' }
 
 const page: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 18 }
 
@@ -188,6 +188,7 @@ interface ExplainState {
 }
 
 export default function CoachView({ showToast, language }: AppViewProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const [tab, setTab] = useState<CoachTab>('report')
   const [report, setReport] = useState<CoachReport | null>(null)
   const [setup, setSetup] = useState<SetupReport | null>(null)
@@ -357,9 +358,14 @@ export default function CoachView({ showToast, language }: AppViewProps): ReactE
 
           <section style={panel}>
             <h2 style={sectionTitle}>{tt(language, 'coach.setupSuggestions')}</h2>
-            <p style={mutedText}>{setup?.summary ?? tt(language, 'coach.setupRecommendationsAfterLap')}</p>
+            <p style={mutedText}>{tt(language, 'coach.setupRecommendationsAfterLap')}</p>
             {(setup?.suggestions ?? []).map((s) => (
-              <SetupCard key={s.id} suggestion={s} language={language} />
+              <SetupCard
+                key={s.id}
+                suggestion={s}
+                language={language}
+                unitSystem={unitSystem}
+              />
             ))}
           </section>
         </>
@@ -443,18 +449,48 @@ function FindingCard({
   )
 }
 
-function SetupCard({ suggestion, language }: { suggestion: SetupSuggestion; language: AppViewProps['language'] }): ReactElement {
+function SetupCard({
+  suggestion,
+  language,
+  unitSystem
+}: {
+  suggestion: SetupSuggestion
+  language: AppViewProps['language']
+  unitSystem: UnitSystem
+}): ReactElement {
+  const localized = localizeSetupSuggestion(suggestion, language ?? 'en', unitSystem)
+  if (!localized) {
+    return (
+      <div style={cardBase}>
+        <span style={mutedText}>
+          {tt(language, 'debrief.history.setup.structuredInsufficient')}
+        </span>
+      </div>
+    )
+  }
   return (
     <div style={cardBase}>
+      <span style={eyebrow}>{localized.symptom}</span>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif', fontSize: 15 }}>{suggestion.primary.change}</strong>
-        <span style={{ ...chip, padding: '2px 8px' }}>Confidence {CONFIDENCE_LABEL[suggestion.confidence] ?? suggestion.confidence}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif', fontSize: 15 }}>
+            {localized.primary.change}
+          </strong>
+          <span style={mutedText}>{localized.primary.details}</span>
+        </div>
+        <span style={{ ...chip, padding: '2px 8px' }}>
+          {tt(language, 'debrief.history.confidence', {
+            confidence: tt(language, `debrief.history.confidence.${suggestion.confidence}`)
+          })}
+        </span>
       </div>
-      <span style={bodyText}>{suggestion.rationale}</span>
-      <span style={mutedText}>{suggestion.evidence}</span>
-      {suggestion.alternatives.length > 0 && (
+      <span style={bodyText}>{localized.rationale}</span>
+      <span style={mutedText}>{localized.evidence}</span>
+      {localized.alternatives.length > 0 && (
         <span style={mutedText}>
-          {tt(language, 'coach.alternatives', { alternatives: suggestion.alternatives.map((a) => a.change).join(' · ') })}
+          {tt(language, 'coach.alternatives', {
+            alternatives: localized.alternatives.map((alternative) => alternative.change).join(' · ')
+          })}
         </span>
       )}
     </div>

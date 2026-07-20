@@ -1,8 +1,11 @@
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
+  utimesSync,
   writeFileSync
 } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
@@ -12,11 +15,15 @@ import {
   DEBRIEF_ARCHIVE_MAX_BYTES,
   DEBRIEF_ARCHIVE_MAX_RECORDS,
   DEBRIEF_ARCHIVE_RECORD_SCHEMA,
+  DEBRIEF_ARCHIVE_SCHEMA,
   DEBRIEF_ARCHIVE_VERSION,
   normalizeDebriefArchiveRecord,
   type DebriefArchiveRecord
 } from '../../shared/stint-debrief'
-import { StintDebriefArchiveStore } from './stint-debrief-archive'
+import {
+  DEBRIEF_ARCHIVE_STALE_TEMP_MS,
+  StintDebriefArchiveStore
+} from './stint-debrief-archive'
 
 const scratchDirs: string[] = []
 
@@ -149,6 +156,108 @@ describe('StintDebriefArchiveStore', () => {
     store.quiesce()
     await store.dispose()
     expect(readFileSync(file, 'utf8')).toHaveLength(DEBRIEF_ARCHIVE_MAX_BYTES + 1)
+  })
+
+  it('cleans only stale files matching this archive writer exact temp grammar', async () => {
+    const root = scratch('stale-temp-name-age')
+    const file = join(root, 'archive[history].json')
+    const stale = `${file}.12345.7.tmp`
+    const fresh = `${file}.12345.8.tmp`
+    const unrelated = join(root, 'unrelated.12345.7.tmp')
+    const lookalike = join(root, 'archivehistory.json.12345.7.tmp')
+    for (const path of [stale, fresh, unrelated, lookalike]) {
+      writeFileSync(path, 'private history', 'utf8')
+    }
+    const old = new Date(Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS - 1_000)
+    for (const path of [stale, unrelated, lookalike]) utimesSync(path, old, old)
+
+    const store = new StintDebriefArchiveStore(file)
+    await store.ready()
+
+    expect(existsSync(stale)).toBe(false)
+    expect(existsSync(fresh)).toBe(true)
+    expect(existsSync(unrelated)).toBe(true)
+    expect(existsSync(lookalike)).toBe(true)
+    store.quiesce()
+    await store.dispose()
+  })
+
+  it('removes a stale crash-before-rename snapshot without recovering or exposing it', async () => {
+    const root = scratch('crash-before-rename')
+    const file = join(root, 'archive.json')
+    const primary = new StintDebriefArchiveStore(file)
+    await primary.append(record(1))
+    primary.quiesce()
+    await primary.dispose()
+
+    const crashTemp = `${file}.9876.3.tmp`
+    writeFileSync(crashTemp, `${JSON.stringify({
+      schema: DEBRIEF_ARCHIVE_SCHEMA,
+      version: DEBRIEF_ARCHIVE_VERSION,
+      records: [record(2)]
+    })}\n`, 'utf8')
+    const old = new Date(Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS - 1_000)
+    utimesSync(crashTemp, old, old)
+
+    const restarted = new StintDebriefArchiveStore(file)
+    await expect(restarted.list()).resolves.toEqual([
+      expect.objectContaining({ capturedAt: 1 })
+    ])
+    expect(existsSync(crashTemp)).toBe(false)
+    restarted.quiesce()
+    await restarted.dispose()
+  })
+
+  it('removes a bounded batch of stale snapshots so evicted private history does not linger', async () => {
+    const root = scratch('stale-temp-batch')
+    const file = join(root, 'archive.json')
+    const old = new Date(Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS - 1_000)
+    const stalePaths = Array.from({ length: 70 }, (_, index) =>
+      `${file}.${index + 1}.${index + 1}.tmp`)
+    for (const stalePath of stalePaths) {
+      writeFileSync(stalePath, `private history ${stalePath}`, 'utf8')
+      utimesSync(stalePath, old, old)
+    }
+
+    const store = new StintDebriefArchiveStore(file)
+    await store.ready()
+
+    expect(stalePaths.filter(existsSync)).toEqual([])
+    store.quiesce()
+    await store.dispose()
+  })
+
+  it('keeps cleanup path-confined and never follows matching symlinks or junctions', async () => {
+    const root = scratch('stale-temp-path-safety')
+    const archiveDir = join(root, 'archive')
+    const outsideDir = join(root, 'outside')
+    mkdirSync(archiveDir)
+    mkdirSync(outsideDir)
+    const file = join(archiveDir, 'archive.json')
+    const outsideMarker = join(outsideDir, 'private.json')
+    writeFileSync(outsideMarker, 'do not delete', 'utf8')
+    const outsideMatchingName = join(root, 'archive.json.111.2.tmp')
+    writeFileSync(outsideMatchingName, 'outside archive directory', 'utf8')
+    const old = new Date(Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS - 1_000)
+    utimesSync(outsideMatchingName, old, old)
+
+    const linkedTemp = `${file}.111.2.tmp`
+    let linkCreated = false
+    try {
+      symlinkSync(outsideDir, linkedTemp, 'junction')
+      linkCreated = true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+    }
+
+    const store = new StintDebriefArchiveStore(file)
+    await store.ready()
+
+    expect(existsSync(outsideMatchingName)).toBe(true)
+    expect(readFileSync(outsideMarker, 'utf8')).toBe('do not delete')
+    if (linkCreated) expect(existsSync(linkedTemp)).toBe(true)
+    store.quiesce()
+    await store.dispose()
   })
 
   it('serializes concurrent writes and carries every accepted record forward', async () => {

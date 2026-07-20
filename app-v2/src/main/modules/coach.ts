@@ -49,7 +49,6 @@ import type { SessionKind } from '../../shared/ai-engineer'
 import {
   buildSetupReport,
   type CornerTyres,
-  type SetupBalanceSignal,
   type SetupReport,
   type TyreTreadTemps
 } from '../../shared/setup-advisor'
@@ -1063,7 +1062,7 @@ function explainPrompt(finding: CoachFinding): string {
     .join('\n')
 }
 
-// ── Telemetry → setup-advisor input (tyre tread mapping + heuristic balance) ──
+// ── Telemetry → setup-advisor input (direct tyre evidence only) ───────────────
 
 function num(value: number | undefined): number | undefined {
   return value !== undefined && Number.isFinite(value) ? value : undefined
@@ -1106,79 +1105,18 @@ function buildTyres(corners: Corners<TyreInfo> | undefined): CornerTyres | undef
   return Object.keys(out).length > 0 ? out : undefined
 }
 
-// HEURISTIC: infer a per-phase understeer(-)/oversteer(+) bias from the coach
-// findings so the setup advisor can suggest a balance change. This is a coarse
-// signal (no chassis model), weighted by each finding's estimated time loss.
-function deriveBalanceSignals(findings: CoachFinding[]): SetupBalanceSignal[] {
-  const score: Record<CoachPhase, number> = { entry: 0, mid: 0, exit: 0 }
-  const note: Record<CoachPhase, string[]> = { entry: [], mid: [], exit: [] }
-  for (const f of findings) {
-    if (f.severity === 'good') continue
-    const w = Math.max(0.04, f.estTimeLossSec)
-    const phase: CoachPhase = f.phase ?? 'mid'
-    switch (f.kind) {
-      case 'trail-brake-lock':
-        score.entry += 1.5 * w
-        note.entry.push('trail-brake travando')
-        break
-      case 'tc-overuse':
-        score.exit += 1.5 * w
-        note.exit.push('TC cutting on exit')
-        break
-      case 'brake-early':
-        score.entry -= w
-        note.entry.push('freada cedo')
-        break
-      case 'abs-overuse':
-        score.entry -= 0.5 * w
-        note.entry.push('ABS demais')
-        break
-      case 'steering-busy':
-        score[phase] -= 1.5 * w
-        note[phase].push('steering agitado')
-        break
-      case 'coast':
-        if (phase === 'mid') {
-          score.mid -= w
-          note.mid.push('coasting at the apex')
-        }
-        break
-      case 'throttle-hesitation':
-        score.exit -= 0.5 * w
-        note.exit.push('hesitant exit')
-        break
-      default:
-        break
-    }
-  }
-  const out: SetupBalanceSignal[] = []
-  for (const phase of ['entry', 'mid', 'exit'] as CoachPhase[]) {
-    const bias = Math.max(-1, Math.min(1, score[phase] * 3))
-    if (Math.abs(bias) >= 0.25) {
-      out.push({ phase, bias, evidence: note[phase].length ? `Sinais: ${note[phase].join(', ')}` : undefined })
-    }
-  }
-  return out
-}
-
-function deriveFrontLock(findings: CoachFinding[]): boolean {
-  return findings.some((f) => f.kind === 'brake-late' || f.kind === 'trail-brake-lock' || f.kind === 'abs-overuse')
-}
-
-function buildSetupInput(
+export function buildSetupInput(
   snapshot: TelemetrySnapshot,
-  findings: CoachFinding[]
+  _techniqueFindings: readonly CoachFinding[] = []
 ): {
   tyres?: CornerTyres
-  brakeBiasPct?: number
-  balance?: SetupBalanceSignal[]
-  frontLock?: boolean
 } {
+  // Braking points, coasting, steering activity, generic ABS/TC activation and
+  // other technique findings do not identify chassis balance or a locked axle.
+  // Until telemetry exposes a validated direct handling or wheel-specific lock
+  // signal, only measured tyre data is eligible for deterministic setup advice.
   return {
-    tyres: buildTyres(snapshot.tyres),
-    brakeBiasPct: num(snapshot.brakeBiasPct),
-    balance: deriveBalanceSignals(findings),
-    frontLock: deriveFrontLock(findings)
+    tyres: buildTyres(snapshot.tyres)
   }
 }
 

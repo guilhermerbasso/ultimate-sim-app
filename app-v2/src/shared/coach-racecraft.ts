@@ -646,6 +646,94 @@ const DEFINITION_RECOMMENDATION_CLAUSE =
 const DEFINITION_ACTION_PHRASE =
   /\b(?:save fuel|conserve fuel|finish the race|pit now|attack (?:the )?|pass (?:the )?|overtake the|reduce (?:the )?(?:tyre |tire )?pressure|increase (?:the )?(?:tyre |tire )?pressure|set (?:the )?(?:tyre |tire )?pressure|change (?:the )?(?:tyre|tyres|tire|tires)|replace (?:the )?(?:tyre|tyres|tire|tires)|choose (?:a |the )?(?:tyre|tire|compound)|use (?:a |the )?(?:tyre|tire|compound)|economizar combustivel|terminar a corrida|trocar (?:o |os )?pneus|reduzir (?:a )?pressao|aumentar (?:a )?pressao|usar (?:o |os )?pneus|ahorrar combustible|cambiar (?:el |los )?neumaticos|reducir (?:la )?presion|usar (?:el |los )?neumaticos|economiser (?:du )?carburant|changer (?:le |les )?pneus|reduire (?:la )?pression|utiliser (?:le |les )?pneus|kraftstoff sparen|reifen wechseln|reifendruck reduzieren|reifen verwenden)\b/
 
+/**
+ * Detect localized tyre/compound choice or recommendation grammar by combining
+ * inflection-tolerant domain stems with choice/modality/action structure. This is
+ * intentionally conservative: unsafe race-control states must never treat a
+ * natural plural/case-inflected setup question as a harmless definition.
+ */
+export function detectTyreSelectionQuestionLanguage(
+  question: string
+): CoachAdviceLanguage | null {
+  const q = normalize(question)
+    .replace(/[’']/g, ' ')
+    .replace(/[^\p{L}\p{N}\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!q) return null
+
+  const meaningOnly =
+    /\b(?:definition|meaning|significa\p{L}*|definicao|definicion|signification|bedeut\p{L}*)\b/u.test(q)
+  if (meaningOnly) return null
+  const patterns: ReadonlyArray<{
+    language: CoachAdviceLanguage
+    domain: RegExp
+    choice: RegExp
+    action: RegExp
+  }> = [
+    {
+      language: 'pt-BR',
+      domain: /\b(?:pneu|compost)\p{L}*\b/u,
+      choice: /\b(?:(?:qual|quais)\s+(?:(?:tipo|jogo)\s+de\s+)?|que\s+)(?:pneu|compost)\p{L}*\b/u,
+      action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
+    },
+    {
+      language: 'es',
+      domain: /\b(?:neumatic|compuest)\p{L}*\b/u,
+      choice: /\b(?:que|cual\p{L}*)\s+(?:(?:tipo|juego)\s+de\s+)?(?:neumatic|compuest)\p{L}*\b/u,
+      action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
+    },
+    {
+      language: 'fr',
+      domain: /\b(?:pneu|compos|gomm)\p{L}*\b/u,
+      choice: /\bquel\p{L}*\s+(?:(?:type|jeu)\s+de\s+)?(?:pneu|compos|gomm)\p{L}*\b/u,
+      action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
+    },
+    {
+      language: 'de',
+      domain: /\b(?:reifen|misch)\p{L}*\b/u,
+      choice: /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|misch)\p{L}*\b/u,
+      action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
+    },
+    {
+      language: 'en-US',
+      domain: /\b(?:tyre|tire|compound)\p{L}*\b/u,
+      choice: /\b(?:which|what)\s+(?:(?:type|set)\s+of\s+)?(?:tyre|tire|compound)\p{L}*\b/u,
+      action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
+    }
+  ]
+  for (const pattern of patterns) {
+    if (
+      pattern.domain.test(q) &&
+      (pattern.action.test(q) || pattern.choice.test(q))
+    ) {
+      return pattern.language
+    }
+  }
+  if (
+    /(?:轮胎|配方)/u.test(q) &&
+    /(?:哪|什么|选择|推荐|使用)/u.test(q)
+  ) return 'zh'
+  if (
+    /(?:タイヤ|コンパウンド)/u.test(q) &&
+    /(?:どの|どれ|選|使|推奨|薦)/u.test(q)
+  ) return 'ja'
+  return null
+}
+
+function hasDirectTyreChoiceStructure(value: string): boolean {
+  const q = normalize(value).replace(/[^\p{L}\p{N}\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/gu, ' ')
+  return [
+    /\b(?:(?:qual|quais)\s+(?:(?:tipo|jogo)\s+de\s+)?|que\s+)(?:pneu|compost)\p{L}*\b/u,
+    /\b(?:que|cual\p{L}*)\s+(?:(?:tipo|juego)\s+de\s+)?(?:neumatic|compuest)\p{L}*\b/u,
+    /\bquel\p{L}*\s+(?:(?:type|jeu)\s+de\s+)?(?:pneu|compos|gomm)\p{L}*\b/u,
+    /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|misch)\p{L}*\b/u,
+    /\b(?:which|what)\s+(?:(?:type|set)\s+of\s+)?(?:tyre|tire|compound)\p{L}*\b/u,
+    /(?:哪|什么).*(?:轮胎|配方)/u,
+    /(?:どの|どれ).*(?:タイヤ|コンパウンド)/u
+  ].some((pattern) => pattern.test(q))
+}
+
 function isPureDefinitionBody(
   body: string,
   explicitMeaningEnvelope = false
@@ -653,6 +741,11 @@ function isPureDefinitionBody(
   if (
     DEFINITION_PERSONAL_CONTEXT.test(body) ||
     DEFINITION_RECOMMENDATION_CLAUSE.test(body)
+  ) return false
+  const tyreSelectionLanguage = detectTyreSelectionQuestionLanguage(body)
+  if (
+    tyreSelectionLanguage !== null &&
+    (!explicitMeaningEnvelope || hasDirectTyreChoiceStructure(body))
   ) return false
   return explicitMeaningEnvelope || !DEFINITION_ACTION_PHRASE.test(body)
 }
@@ -1941,13 +2034,13 @@ export function racecraftSafetyMessage(
 ): string {
   if (reason === 'race-control-unknown') {
     return localized(language, {
-      'en-US': 'RACE-CONTROL STATE UNAVAILABLE — I cannot safely advise a pass or pull-away.',
-      'pt-BR': 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL — não posso orientar uma ultrapassagem ou fuga com segurança.',
-      es: 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE — no puedo aconsejar un adelantamiento o escapada con seguridad.',
-      fr: 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE — impossible de conseiller un dépassement ou une échappée en sécurité.',
-      de: 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR — ich kann kein sicheres Überhol- oder Absetzmanöver empfehlen.',
-      zh: '无法获取赛会控制状态——不能安全地建议超车或拉开差距。',
-      ja: 'レースコントロール状態を取得できません — 安全に追い越しや引き離しを助言できません。'
+      'en-US': 'TACTICS PAUSED — RACE-CONTROL STATE UNAVAILABLE. I cannot safely advise a pass, pull-away, or tyre choice.',
+      'pt-BR': 'TÁTICA PAUSADA — ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL. Não posso orientar ultrapassagem, fuga ou escolha de pneus com segurança.',
+      es: 'TÁCTICA EN PAUSA — ESTADO DE CONTROL DE CARRERA NO DISPONIBLE. No puedo aconsejar un adelantamiento, escapada o elección de neumáticos con seguridad.',
+      fr: 'TACTIQUE EN PAUSE — ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE. Impossible de conseiller un dépassement, une échappée ou un choix de pneus en sécurité.',
+      de: 'TAKTIK PAUSIERT — RENNLEITUNGSSTATUS NICHT VERFÜGBAR. Ich kann kein sicheres Überhol-, Absetz- oder Reifenwahlmanöver empfehlen.',
+      zh: '战术暂停——无法获取赛会控制状态。不能安全地建议超车、拉开差距或轮胎选择。',
+      ja: '戦術停止 — レースコントロール状態を取得できません。追い越し、引き離し、タイヤ選択を安全に助言できません。'
     })
   }
   if (reason === 'overlap' || reason === 'proximity') {

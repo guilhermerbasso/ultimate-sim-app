@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { LiveCoachEngine, type LiveCoachDeps } from './coach'
+import { buildSetupInput, LiveCoachEngine, type LiveCoachDeps } from './coach'
 import type { CornerMapData } from '../track-map/corner-map'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import type { CoachFinding, CoachFindingKind, CoachPhase } from '../../shared/coach'
+import { buildSetupReport } from '../../shared/setup-advisor'
 
 // ─── Live Coach engine — corner-aware spoken coaching ─────────────────────────
 //
@@ -55,6 +57,23 @@ function snap(over: Partial<TelemetrySnapshot>): TelemetrySnapshot {
     currentLap: 1,
     lapDistPct: 0,
     ...over
+  }
+}
+
+function setupFinding(kind: CoachFindingKind, phase: CoachPhase): CoachFinding {
+  return {
+    id: `setup-adversarial:${kind}`,
+    kind,
+    phase,
+    sector: 1,
+    zonePctStart: 0.1,
+    zonePctEnd: 0.2,
+    severity: 'med',
+    estTimeLossSec: 0.5,
+    title: kind,
+    detail: kind,
+    evidence: kind,
+    metrics: {}
   }
 }
 
@@ -351,5 +370,59 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     const turn2 = h.speaks.find((s) => s.text.startsWith('Turn 2 (Sector'))
     expect(turn2?.text).toContain('brake earlier')
     expect(turn2?.lang).toBe('en-US')
+  })
+})
+
+describe('LapCoach setup evidence boundary', () => {
+  it('does not turn early-braking or coasting technique findings into chassis changes', () => {
+    const input = buildSetupInput(
+      snap({ tyres: undefined, brakeBiasPct: 61 }),
+      [setupFinding('brake-early', 'entry'), setupFinding('coast', 'mid')]
+    )
+    const report = buildSetupReport(input, { now: 1 })
+
+    expect(report.suggestions).toEqual([])
+    expect(report.suggestions.some((suggestion) => suggestion.primary.area === 'arb')).toBe(false)
+  })
+
+  it('does not turn generic ABS activity into a front-lock or brake-bias change', () => {
+    const input = buildSetupInput(
+      snap({ absActive: true, brakeBiasPct: 61, tyres: undefined }),
+      [setupFinding('abs-overuse', 'entry')]
+    )
+    const report = buildSetupReport(input, { now: 1 })
+
+    expect(report.suggestions).toEqual([])
+    expect(report.suggestions.some((suggestion) => suggestion.primary.area === 'brakes')).toBe(false)
+  })
+
+  it('still produces setup guidance from direct tyre tread evidence', () => {
+    const input = buildSetupInput(
+      snap({
+        tyres: {
+          lf: {
+            tempLeftC: 80,
+            tempMiddleC: 100,
+            tempRightC: 80,
+            tempC: 87,
+            pressureKpa: 180,
+            wearPct: 0.12
+          },
+          rf: {},
+          lr: {},
+          rr: {}
+        }
+      }),
+      []
+    )
+    const report = buildSetupReport(input, { now: 1 })
+
+    expect(report.suggestions).toEqual([
+      expect.objectContaining({
+        symptom: 'pressure-high',
+        corner: 'lf',
+        primary: expect.objectContaining({ area: 'tyres', direction: 'decrease' })
+      })
+    ])
   })
 })

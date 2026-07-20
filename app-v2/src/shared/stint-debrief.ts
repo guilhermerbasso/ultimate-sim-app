@@ -17,10 +17,13 @@
 import { coachComposeAction, type CoachFinding } from './coach'
 import type { PredictionsSnapshot } from './predictions'
 import type { AppLanguage } from './settings'
-import type {
-  SetupAdjustment,
-  SetupReport,
-  SetupSuggestion
+import {
+  SETUP_ADJUSTMENT_SPECS,
+  SETUP_SUGGESTION_ADJUSTMENT_CODES,
+  type SetupAdjustment,
+  type SetupAdjustmentCode,
+  type SetupReport,
+  type SetupSuggestion
 } from './setup-advisor'
 import type { SpeechLanguage } from './tts-voice'
 import { formatMeasurement, type UnitSystem } from './units'
@@ -160,6 +163,7 @@ export interface DebriefArchiveGenerateResult {
   sessionId: string
   debrief: StintDebrief
   setup: SetupReport | null
+  unitSystem: UnitSystem
   captureSource: DebriefCaptureSource
   setupStatus: DebriefSetupStatus
   analysisStatus: DebriefAnalysisStatus
@@ -389,8 +393,30 @@ function normalizeSessionInfo(
     ...(sessionType !== undefined ? { sessionType } : {}),
     ...(lapsCompleted !== undefined ? { lapsCompleted } : {}),
     ...(bestLapTimeSec !== undefined ? { bestLapTimeSec } : {}),
-    ...(reason !== undefined ? { reason } : expectedReason ? { reason: expectedReason } : {})
+    ...(reason !== undefined ? { reason } : {})
   }
+}
+
+const SESSION_INFO_KEYS: readonly (keyof DebriefSessionInfo)[] = [
+  'trackName',
+  'carName',
+  'sessionType',
+  'lapsCompleted',
+  'bestLapTimeSec',
+  'reason'
+]
+
+function sameSessionInfo(
+  left: DebriefSessionInfo,
+  right: DebriefSessionInfo
+): boolean {
+  const leftRecord = left as Record<string, unknown>
+  const rightRecord = right as Record<string, unknown>
+  return SESSION_INFO_KEYS.every((key) => {
+    const leftHasKey = own(leftRecord, key)
+    const rightHasKey = own(rightRecord, key)
+    return leftHasKey === rightHasKey && (!leftHasKey || left[key] === right[key])
+  })
 }
 
 function normalizeFinding(value: unknown): CoachFinding | null {
@@ -593,11 +619,14 @@ function normalizePredictions(value: unknown): PredictionsSnapshot | null {
 
 function normalizeSetupAdjustment(value: unknown): SetupAdjustment | null {
   if (!plainObject(value)) return null
+  const code = optionalString(value, 'code', 80)
   const area = boundedString(value.area, 32)
   const direction = boundedString(value.direction, 32)
   const magnitude = boundedString(value.magnitude, 16)
   const change = boundedString(value.change, 2_048, { allowEmpty: true, trim: false })
   if (
+    code === null ||
+    (code !== undefined && !own(SETUP_ADJUSTMENT_SPECS, code)) ||
     area === null ||
     !SETUP_AREAS.has(area) ||
     direction === null ||
@@ -608,7 +637,17 @@ function normalizeSetupAdjustment(value: unknown): SetupAdjustment | null {
   ) {
     return null
   }
+  const spec = code === undefined
+    ? undefined
+    : SETUP_ADJUSTMENT_SPECS[code as SetupAdjustmentCode]
+  if (
+    spec &&
+    (spec.area !== area || spec.direction !== direction || spec.magnitude !== magnitude)
+  ) {
+    return null
+  }
   return {
+    ...(code !== undefined ? { code: code as SetupAdjustmentCode } : {}),
     area: area as SetupAdjustment['area'],
     direction: direction as SetupAdjustment['direction'],
     magnitude: magnitude as SetupAdjustment['magnitude'],
@@ -651,6 +690,18 @@ function normalizeSetupSuggestion(value: unknown): SetupSuggestion | null {
     const alternative = normalizeSetupAdjustment(rawAlternative)
     if (!alternative) return null
     alternatives.push(alternative)
+  }
+  const allowedCodes =
+    SETUP_SUGGESTION_ADJUSTMENT_CODES[symptom as SetupSuggestion['symptom']]
+  if (
+    (primary.code !== undefined && !allowedCodes.primary.includes(primary.code)) ||
+    alternatives.some(
+      (alternative) =>
+        alternative.code !== undefined &&
+        !allowedCodes.alternatives.includes(alternative.code)
+    )
+  ) {
+    return null
   }
   return {
     id,
@@ -786,8 +837,12 @@ export function normalizeDebriefArchiveRecord(value: unknown): DebriefArchiveRec
   if (
     !sessionInfo ||
     !debrief ||
+    debrief.generatedAt !== capturedAt ||
     debrief.reason !== reason ||
     debrief.language !== language ||
+    !debrief.sessionInfo ||
+    !sameSessionInfo(sessionInfo, debrief.sessionInfo) ||
+    (captureSource === 'legacy-last-debrief') !== (metadataQuality === 'legacy-defaults') ||
     !Array.isArray(value.findings) ||
     value.findings.length > 128
   ) {
@@ -811,6 +866,8 @@ export function normalizeDebriefArchiveRecord(value: unknown): DebriefArchiveRec
     setup = normalizeSetupReport(value.setup)
     if (!setup) return null
   }
+  if (captureSource === 'legacy-last-debrief' && setup !== null) return null
+  if (setup && setup.generatedAt > capturedAt) return null
   const normalized: DebriefArchiveRecord = {
     schema: DEBRIEF_ARCHIVE_RECORD_SCHEMA,
     version: DEBRIEF_ARCHIVE_VERSION,

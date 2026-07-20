@@ -80,25 +80,28 @@ function generated(
       suggestions: [{
         id: `setup-${session.id}`,
         symptom: 'pressure-high',
-        corner: 'all',
+        corner: 'lf',
         confidence: 'high',
         rationale: 'Middle tread stayed hotter than both edges.',
         evidence: 'Middle 108 C; edge average 96 C.',
         primary: {
+          code: 'tyre-pressure-decrease-cold',
           area: 'tyres',
           direction: 'decrease',
           magnitude: 'small',
           change: 'Reduce cold pressure by one small step.'
         },
         alternatives: [{
-          area: 'alignment',
-          direction: 'adjust',
-          magnitude: 'small',
+          code: 'tyre-pressure-decrease-repeat',
+          area: 'tyres',
+          direction: 'decrease',
+          magnitude: 'medium',
           change: 'Recheck camber after the pressure run.'
         }],
-        metrics: { middleDeltaC: 12 }
+        metrics: { middleC: 108, edgesC: 96, deltaC: 12 }
       }]
     } : null,
+    unitSystem: session.unitSystem,
     captureSource: session.captureSource,
     setupStatus: withSetup ? 'available' : 'insufficient',
     analysisStatus: session.analysisStatus
@@ -210,13 +213,74 @@ describe('StintDebrief historical output', () => {
     mocks.generateArchivedDebrief.mockResolvedValue(generated(session))
 
     render(React.createElement(StintDebrief, { language: 'en' }))
-    await screen.findByText('Reduce cold pressure by one small step.')
-    expect(screen.getByText(/Middle tread stayed hotter/)).toBeTruthy()
-    expect(screen.getByText(/Middle 108 C; edge average 96 C/)).toBeTruthy()
-    expect(screen.getByText('Recheck camber after the pressure run.')).toBeTruthy()
+    await screen.findByText('Reduce left-front tyre cold pressure by 3.4–6.9 kPa.')
+    expect(screen.getByText(/indicating excessive pressure/)).toBeTruthy()
+    expect(screen.getByText(/Centre 108 °C; edge average 96 °C/)).toBeTruthy()
+    expect(screen.getByText(/Repeat in medium steps until the centre and edges converge/)).toBeTruthy()
+    expect(screen.queryByText('Middle tread stayed hotter than both edges.')).toBeNull()
+    expect(screen.queryByText('Recheck camber after the pressure run.')).toBeNull()
     expect(screen.getByText(/No setup is applied automatically/)).toBeTruthy()
     expect(screen.getByText(/one variable at a time/)).toBeTruthy()
     expect(screen.getByText(/Setup Experiment Twin/)).toBeTruthy()
+  })
+
+  it.each([
+    ['en', 'Reduce left-front tyre cold pressure by 3.4–6.9 kPa.', 'indicating excessive pressure', 'Centre 108 °C'],
+    ['pt-BR', 'Reduza a pressão a frio do pneu dianteiro esquerdo em 3,4–6,9 kPa.', 'pressão excessiva', 'Centro 108 °C'],
+    ['es', 'Reduce la presión en frío del neumático delantero izquierdo en 3,4–6,9 kPa.', 'presión excesiva', 'Centro 108 °C'],
+    ['fr', 'Réduisez la pression à froid du pneu avant gauche de 3,4–6,9 kPa.', 'pression excessive', 'Centre 108 °C'],
+    ['de', 'Kaltluftdruck für linker Vorderreifen um 3,4–6,9 kPa senken.', 'zu hohen Druck', 'Mitte 108 °C'],
+    ['zh', '将左前轮胎冷胎压降低 3.4–6.9 kPa。', '胎压过高', '中心 108 °C'],
+    ['ja', '左フロントタイヤの冷間空気圧を 3.4–6.9 kPa 下げます。', '空気圧過多', '中央 108 °C']
+  ] as const)(
+    'localizes structured setup guidance without persisted prose in %s',
+    async (language, expectedChange, rationaleMarker, evidenceMarker) => {
+      const session = summary('debrief_1111111111111111', 1_000, 'Locale Track')
+      const payload = generated(session)
+      payload.setup!.suggestions[0].primary.change = 'RAW ENGLISH CHANGE'
+      payload.setup!.suggestions[0].rationale = 'TEXTO PORTUGUÊS PERSISTIDO'
+      payload.setup!.suggestions[0].evidence = 'RAW ENGLISH EVIDENCE'
+      payload.setup!.suggestions[0].alternatives[0].change = 'RAW PORTUGUESE ALTERNATIVE'
+      mocks.listDebriefArchive.mockResolvedValue([session])
+      mocks.generateArchivedDebrief.mockResolvedValue(payload)
+
+      render(React.createElement(StintDebrief, { language }))
+
+      await screen.findByText(expectedChange)
+      expect(screen.getAllByText((content) => content.includes(rationaleMarker)).length)
+        .toBeGreaterThan(0)
+      expect(screen.getAllByText((content) => content.includes(evidenceMarker)).length)
+        .toBeGreaterThan(0)
+      expect(screen.queryByText(/RAW ENGLISH|TEXTO PORTUGUÊS|RAW PORTUGUESE/)).toBeNull()
+    }
+  )
+
+  it('shows localized insufficiency instead of raw prose when structured fields are incomplete', async () => {
+    const session = summary('debrief_1111111111111111', 1_000, 'Legacy Setup Track')
+    const payload = generated(session)
+    payload.setup!.suggestions[0].primary.code = undefined
+    payload.setup!.suggestions[0].primary.change = 'NEVER DISPLAY THIS RAW CHANGE'
+    mocks.listDebriefArchive.mockResolvedValue([session])
+    mocks.generateArchivedDebrief.mockResolvedValue(payload)
+
+    render(React.createElement(StintDebrief, { language: 'en' }))
+
+    await screen.findByText(/lacks the structured code or measured metrics/)
+    expect(screen.queryByText('NEVER DISPLAY THIS RAW CHANGE')).toBeNull()
+  })
+
+  it('fails closed when structured setup metrics contradict the archived symptom', async () => {
+    const session = summary('debrief_1111111111111111', 1_000, 'Contradictory Setup Track')
+    const payload = generated(session)
+    payload.setup!.suggestions[0].metrics = { middleC: 80, edgesC: 100, deltaC: 20 }
+    payload.setup!.suggestions[0].evidence = 'RAW CLAIM THAT CENTRE WAS HOTTER'
+    mocks.listDebriefArchive.mockResolvedValue([session])
+    mocks.generateArchivedDebrief.mockResolvedValue(payload)
+
+    render(React.createElement(StintDebrief, { language: 'en' }))
+
+    await screen.findByText(/lacks the structured code or measured metrics/)
+    expect(screen.queryByText('RAW CLAIM THAT CENTRE WAS HOTTER')).toBeNull()
   })
 
   it('states that setup evidence is insufficient instead of guessing', async () => {

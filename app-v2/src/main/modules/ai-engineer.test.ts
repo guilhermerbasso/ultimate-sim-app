@@ -693,6 +693,43 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
+    ['pt-BR', 'Quais pneus devo usar?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
+    ['pt-BR', 'Por favor, quais compostos você recomendaria?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
+    ['es', '¿Qué neumáticos debo usar?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
+    ['es', 'Por favor, ¿cuáles compuestos recomendaría?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
+    ['fr', 'Quels pneus dois-je utiliser ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
+    ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
+    ['de', 'Welchen Reifen soll ich verwenden?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
+    ['de', 'Welche Reifen würden Sie bitte empfehlen?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR']
+  ] as const)(
+    'default-denies natural localized tyre selection under yellow and unknown: %s — %s',
+    async (language, question, pausedMarker, unknownMarker) => {
+      for (const [label, safety, marker] of [
+        ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }, pausedMarker],
+        [
+          'unknown',
+          { connected: true, onTrack: true, flagsKnown: false, pitStateKnown: false, paceStateKnown: false },
+          unknownMarker
+        ]
+      ] as const) {
+        const harness = makeHarness({
+          racecraftLanguage: language,
+          racecraftContext: { safety }
+        })
+
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.source, `${label}:${question}`).toBe('intent')
+        expect(answer.text, `${label}:${question}`).toContain(pausedMarker)
+        expect(answer.text, `${label}:${question}`).toContain(marker)
+        expect(answer.speak, `${label}:${question}`).toBe(false)
+        expect(harness.runtime.generateWithTools, `${label}:${question}`).not.toHaveBeenCalled()
+        expect(harness.modelManager.ensureModel, `${label}:${question}`).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  it.each([
     ['yellow', { flagYellow: true }, 'Can I pass on the next corner?', 'TACTICS PAUSED'],
     ['red', { flagRed: true }, 'C.a.n I p@ss on the next c0rner?', 'safety or penalty flag'],
     ['safety car', { paceMode: 'singleFileRestart' as const }, 'Should I push past this car after the restart?', 'TACTICS PAUSED'],

@@ -19,7 +19,9 @@ import {
   type DebriefReason
 } from '../../../../shared/stint-debrief'
 import type { SetupSuggestion } from '../../../../shared/setup-advisor'
+import type { UnitSystem } from '../../../../shared/units'
 import { tt, type ResolvedLanguage } from '../../i18n'
+import { localizeSetupSuggestion } from '../../lib/setup-guidance'
 
 type PanelStatus = 'loading-list' | 'empty' | 'loading-session' | 'ready' | 'deleted' | 'error'
 
@@ -214,17 +216,36 @@ function confidenceLabel(language: ResolvedLanguage, confidence: SetupSuggestion
 
 function SetupSuggestionCard({
   suggestion,
-  language
+  language,
+  unitSystem
 }: {
   suggestion: SetupSuggestion
   language: ResolvedLanguage
+  unitSystem: UnitSystem
 }): ReactElement {
+  const localized = localizeSetupSuggestion(suggestion, language, unitSystem)
+  if (!localized) {
+    return (
+      <article style={card}>
+        <strong style={{ color: 'var(--text-primary)' }}>
+          {tt(language, 'debrief.history.setupInsufficientTitle')}
+        </strong>
+        <p style={mutedText}>
+          {tt(language, 'debrief.history.setup.structuredInsufficient')}
+        </p>
+      </article>
+    )
+  }
   return (
     <article style={card}>
+      <span style={eyebrow}>{localized.symptom}</span>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-        <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif' }}>
-          {suggestion.primary.change}
-        </strong>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif' }}>
+            {localized.primary.change}
+          </strong>
+          <span style={mutedText}>{localized.primary.details}</span>
+        </div>
         <span style={chip}>
           {tt(language, 'debrief.history.confidence', {
             confidence: confidenceLabel(language, suggestion.confidence)
@@ -232,18 +253,19 @@ function SetupSuggestionCard({
         </span>
       </div>
       <p style={bodyText}>
-        <strong>{tt(language, 'debrief.history.rationale')}</strong> {suggestion.rationale}
+        <strong>{tt(language, 'debrief.history.rationale')}</strong> {localized.rationale}
       </p>
       <p style={mutedText}>
-        <strong>{tt(language, 'debrief.history.evidence')}</strong> {suggestion.evidence}
+        <strong>{tt(language, 'debrief.history.evidence')}</strong> {localized.evidence}
       </p>
-      {suggestion.alternatives.length > 0 ? (
+      {localized.alternatives.length > 0 ? (
         <div>
           <span style={labelText}>{tt(language, 'debrief.history.alternatives')}</span>
           <ul style={{ ...bulletList, marginTop: 5 }}>
-            {suggestion.alternatives.map((alternative, index) => (
+            {localized.alternatives.map((alternative, index) => (
               <li key={`${suggestion.id}:alternative:${index}`} style={mutedText}>
-                {alternative.change}
+                <span>{alternative.change}</span>
+                <span style={{ display: 'block' }}>{alternative.details}</span>
               </li>
             ))}
           </ul>
@@ -521,6 +543,7 @@ export default function StintDebrief({
                     key={suggestion.id}
                     suggestion={suggestion}
                     language={language}
+                    unitSystem={result.unitSystem}
                   />
                 ))}
               </div>
