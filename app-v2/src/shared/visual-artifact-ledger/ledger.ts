@@ -859,11 +859,14 @@ interface LedgerDependencySnapshot {
   readonly scheduler?: ValidatedImageScheduler
 }
 
-function ledgerDependencyMethod<T extends object>(
-  target: T,
-  key: PropertyKey,
+function ledgerDependencyMethod<
+  TTarget extends object,
+  TKey extends keyof TTarget
+>(
+  target: TTarget,
+  key: TKey,
   label: string
-): (...args: never[]) => unknown {
+): TTarget[TKey] {
   if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
   let owner: object | null = target
   while (owner !== null) {
@@ -873,7 +876,7 @@ function ledgerDependencyMethod<T extends object>(
       if (!('value' in descriptor) || typeof descriptor.value !== 'function') {
         fail('TRUST', `${label} must be a getter-free data method.`)
       }
-      return descriptor.value as (...args: never[]) => unknown
+      return descriptor.value
     }
     owner = Object.getPrototypeOf(owner)
   }
@@ -963,19 +966,19 @@ function assertLedgerDependencies(
       principalVerifier,
       'verifyPrincipal',
       'Ledger principal verifier'
-    ) as AuthenticatedPrincipalVerifier['verifyPrincipal'],
+    ),
     evidenceVerifier,
     verifyEvidence: ledgerDependencyMethod(
       evidenceVerifier,
       'verifyEvidence',
       'Ledger evidence verifier'
-    ) as EvidenceAttestationVerifier['verifyEvidence'],
+    ),
     rootVerifier,
     verifyRoot: ledgerDependencyMethod(
       rootVerifier,
       'verifyRoot',
       'Ledger root verifier'
-    ) as RootAttestationVerifier['verifyRoot'],
+    ),
     finalizationAuthority,
     finalizationAuthorityId: ledgerDependencyIdentity(
       finalizationAuthority,
@@ -986,47 +989,47 @@ function assertLedgerDependencies(
       finalizationAuthority,
       'commitAppend',
       'Ledger publication authority append commit'
-    ) as LedgerFinalizationAuthority['commitAppend'],
+    ),
     appendRecover: ledgerDependencyMethod(
       finalizationAuthority,
       'recoverAppend',
       'Ledger publication authority append recovery'
-    ) as LedgerFinalizationAuthority['recoverAppend'],
+    ),
     publicationEventsAfter: ledgerDependencyMethod(
       finalizationAuthority,
       'eventsAfter',
       'Ledger publication authority event reader'
-    ) as LedgerFinalizationAuthority['eventsAfter'],
+    ),
     publicationHead: ledgerDependencyMethod(
       finalizationAuthority,
       'head',
       'Ledger publication authority head reader'
-    ) as LedgerFinalizationAuthority['head'],
+    ),
     verifyAppendCommit: ledgerDependencyMethod(
       finalizationAuthority,
       'verifyAppendCommit',
       'Ledger publication authority append verifier'
-    ) as LedgerFinalizationAuthority['verifyAppendCommit'],
+    ),
     finalizationCommit: ledgerDependencyMethod(
       finalizationAuthority,
       'commit',
       'Ledger finalization authority commit'
-    ) as LedgerFinalizationAuthority['commit'],
+    ),
     finalizationRecover: ledgerDependencyMethod(
       finalizationAuthority,
       'recover',
       'Ledger finalization authority recovery'
-    ) as LedgerFinalizationAuthority['recover'],
+    ),
     finalizationCurrent: ledgerDependencyMethod(
       finalizationAuthority,
       'current',
       'Ledger finalization authority current record'
-    ) as LedgerFinalizationAuthority['current'],
+    ),
     verifyFinalizationCommit: ledgerDependencyMethod(
       finalizationAuthority,
       'verifyCommit',
       'Ledger finalization authority commit verifier'
-    ) as LedgerFinalizationAuthority['verifyCommit'],
+    ),
     ...(scheduler === undefined
       ? {}
       : { scheduler: scheduler as ValidatedImageScheduler })

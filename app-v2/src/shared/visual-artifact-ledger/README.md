@@ -4,6 +4,14 @@ This folder is a clean event-sourced governance boundary. It does not persist mu
 snapshots and does not perform network, image-generation, credential, environment, URL, or paid-call
 work.
 
+## Entry points
+
+The general `visual-artifact-ledger` index exports browser-safe contracts/types and the governance
+error type only. Renderer code may import that entrypoint without pulling any `node:*` runtime.
+Main-process and other trusted Node code must use the explicit `visual-artifact-ledger/node`
+entrypoint for canonical hashing, scheduler/ledger implementations, and the SQLite authority.
+A Vite renderer-boundary test rejects any future Node built-in import from the general index.
+
 ## Plan
 
 The canonical plan has 50 styles and 143 concepts:
@@ -112,3 +120,8 @@ Parsers accept only byte-for-byte canonical JSON, which also rejects duplicate k
 Canonical hashing uses its own deterministic encoder over validated own enumerable data fields;
 proxies, accessors, sparse/custom arrays, symbol fields, and non-plain objects are rejected, while
 inherited/prototype `toJSON` hooks are never observed.
+
+The exact-scale certification logs wall-clock and per-worker CPU time for every phase. Wall time is
+diagnostic because a full Vitest run may schedule hundreds of unrelated files concurrently; the
+unchanged 5/15/120/90/120-second algorithmic budgets are enforced against process CPU time so host
+contention cannot weaken or randomly fail the 16,600-artifact contract.

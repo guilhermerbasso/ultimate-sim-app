@@ -413,11 +413,14 @@ interface SchedulerDependencySnapshot {
   readonly verifyRoot: RootAttestationVerifier['verifyRoot']
 }
 
-function dependencyMethod<T extends object>(
-  target: T,
-  key: PropertyKey,
+function dependencyMethod<
+  TTarget extends object,
+  TKey extends keyof TTarget
+>(
+  target: TTarget,
+  key: TKey,
   label: string
-): (...args: never[]) => unknown {
+): TTarget[TKey] {
   if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
   let owner: object | null = target
   while (owner !== null) {
@@ -427,7 +430,7 @@ function dependencyMethod<T extends object>(
       if (!('value' in descriptor) || typeof descriptor.value !== 'function') {
         fail('TRUST', `${label} must be a getter-free data method.`)
       }
-      return descriptor.value as (...args: never[]) => unknown
+      return descriptor.value
     }
     owner = Object.getPrototypeOf(owner)
   }
@@ -508,41 +511,41 @@ function assertDependencies(
       authority,
       'commit',
       'Scheduler authority commit'
-    ) as SchedulerAuthority['commit'],
+    ),
     authorityRecover: dependencyMethod(
       authority,
       'recover',
       'Scheduler authority recovery'
-    ) as SchedulerAuthority['recover'],
+    ),
     authorityVerifyCommit: dependencyMethod(
       authority,
       'verifyCommit',
       'Scheduler authority commit verifier'
-    ) as SchedulerAuthority['verifyCommit'],
+    ),
     principalVerifier,
     verifyPrincipal: dependencyMethod(
       principalVerifier,
       'verifyPrincipal',
       'Scheduler principal verifier'
-    ) as AuthenticatedPrincipalVerifier['verifyPrincipal'],
+    ),
     approvalVerifier,
     verifyPromptApprovalCheckpoint: dependencyMethod(
       approvalVerifier,
       'verifyPromptApprovalCheckpoint',
       'Prompt approval checkpoint verifier'
-    ) as PromptApprovalCheckpointVerifier['verifyPromptApprovalCheckpoint'],
+    ),
     serviceReceiptVerifier,
     verifyServiceReceipt: dependencyMethod(
       serviceReceiptVerifier,
       'verifyServiceReceipt',
       'Scheduler service receipt verifier'
-    ) as SchedulerServiceReceiptVerifier['verifyServiceReceipt'],
+    ),
     rootVerifier,
     verifyRoot: dependencyMethod(
       rootVerifier,
       'verifyRoot',
       'Scheduler root verifier'
-    ) as RootAttestationVerifier['verifyRoot']
+    )
   })
 }
 

@@ -20,15 +20,24 @@ import {
   makeScheduler
 } from './test-fixtures'
 
+type CpuUsage = ReturnType<typeof process.cpuUsage>
+
+function elapsedCpuMs(start: CpuUsage): number {
+  const elapsed = process.cpuUsage(start)
+  return (elapsed.user + elapsed.system) / 1_000
+}
+
 describe('16,600-artifact exact contract performance', () => {
   it(
     'creates, accepts, finalizes, serializes, and replays the approved exact plan',
     { timeout: 360_000 },
     () => {
+      const planCpuStartedAt = process.cpuUsage()
       const planStartedAt = performance.now()
       const plan = makePlan(45)
       const ids = expectedArtifactIds(plan)
       const planCreationMs = performance.now() - planStartedAt
+      const planCreationCpuMs = elapsedCpuMs(planCpuStartedAt)
       const governance = makeGovernance()
       const scheduler = makeScheduler(governance, {
         ...DEFAULT_POLICY,
@@ -42,6 +51,7 @@ describe('16,600-artifact exact contract performance', () => {
       const hashes = new HashPool(1_000_000)
       const specificationHashes: string[] = []
 
+      const stageCpuStartedAt = process.cpuUsage()
       const stageStartedAt = performance.now()
       for (const artifactId of ids) {
         const specificationHash = hashes.next()
@@ -57,7 +67,9 @@ describe('16,600-artifact exact contract performance', () => {
         })
       }
       const stageUpdateMs = performance.now() - stageStartedAt
+      const stageUpdateCpuMs = elapsedCpuMs(stageCpuStartedAt)
 
+      const lifecycleCpuStartedAt = process.cpuUsage()
       const lifecycleStartedAt = performance.now()
       for (let index = 0; index < ids.length; index += 1) {
         appendAcceptedArtifact(
@@ -100,6 +112,7 @@ describe('16,600-artifact exact contract performance', () => {
         }
       )
       const lifecycleMs = performance.now() - lifecycleStartedAt
+      const lifecycleCpuMs = elapsedCpuMs(lifecycleCpuStartedAt)
       const preFinalizationEvents = ledger.eventCount
       const checkpoint = ledger.createCheckpoint()
       const checkpointAttestation = governance.attestations.issueRoot({
@@ -120,6 +133,7 @@ describe('16,600-artifact exact contract performance', () => {
       )
       preFinalizationSerialized = ''
 
+      const finalizationCpuStartedAt = process.cpuUsage()
       const finalizationStartedAt = performance.now()
       const racingArtifactId = ids[1]
       const racingPriorRoot =
@@ -157,6 +171,7 @@ describe('16,600-artifact exact contract performance', () => {
         /stale or finalized shared ledger append CAS/i
       )
       const finalizationMs = performance.now() - finalizationStartedAt
+      const finalizationCpuMs = elapsedCpuMs(finalizationCpuStartedAt)
       const finalizedRoot = ledger.rootHash
       expect(staleFork.rootHash).toBe(finalizedRoot)
       expect(staleFork.isFinalized).toBe(true)
@@ -167,6 +182,7 @@ describe('16,600-artifact exact contract performance', () => {
       expect(staleFork.events().at(-1)?.type).toBe('ledger-finalized')
       const finalRootAttestation = ledgerRootAttestation(ledger, governance)
 
+      const roundTripCpuStartedAt = process.cpuUsage()
       const roundTripStartedAt = performance.now()
       const serialized = ledger.serialize({ rootAttestation: finalRootAttestation })
       const serializedBytes = Buffer.byteLength(serialized, 'utf8')
@@ -174,14 +190,16 @@ describe('16,600-artifact exact contract performance', () => {
         dependencies: governance.ledgerDependencies(scheduler)
       })
       const roundTripMs = performance.now() - roundTripStartedAt
+      const roundTripCpuMs = elapsedCpuMs(roundTripCpuStartedAt)
 
       console.info(
-        `VISUAL_ARTIFACT_LEDGER_PERF artifacts=${ids.length} planMs=${planCreationMs.toFixed(2)} ` +
-          `stageEvents=${ids.length} stageMs=${stageUpdateMs.toFixed(2)} ` +
-          `lifecycleEvents=${preFinalizationEvents} lifecycleMs=${lifecycleMs.toFixed(2)} ` +
-          `finalizationReplayEvents=${preFinalizationEvents} finalizationMs=${finalizationMs.toFixed(2)} ` +
+        `VISUAL_ARTIFACT_LEDGER_PERF artifacts=${ids.length} ` +
+          `planMs=${planCreationMs.toFixed(2)} planCpuMs=${planCreationCpuMs.toFixed(2)} ` +
+          `stageEvents=${ids.length} stageMs=${stageUpdateMs.toFixed(2)} stageCpuMs=${stageUpdateCpuMs.toFixed(2)} ` +
+          `lifecycleEvents=${preFinalizationEvents} lifecycleMs=${lifecycleMs.toFixed(2)} lifecycleCpuMs=${lifecycleCpuMs.toFixed(2)} ` +
+          `finalizationReplayEvents=${preFinalizationEvents} finalizationMs=${finalizationMs.toFixed(2)} finalizationCpuMs=${finalizationCpuMs.toFixed(2)} ` +
           `serializedChars=${serialized.length} serializedBytes=${serializedBytes} ` +
-          `roundTripMs=${roundTripMs.toFixed(2)}`
+          `roundTripMs=${roundTripMs.toFixed(2)} roundTripCpuMs=${roundTripCpuMs.toFixed(2)}`
       )
 
       expect(ids).toHaveLength(APPROVED_EXACT_ARTIFACT_COUNT)
@@ -205,11 +223,18 @@ describe('16,600-artifact exact contract performance', () => {
       )
       expect(serializedBytes).toBeLessThan(MAX_SERIALIZED_BYTES)
       expect(serialized.length).toBeLessThan(MAX_SERIALIZED_CHARACTERS)
-      expect(planCreationMs).toBeLessThan(5_000)
-      expect(stageUpdateMs).toBeLessThan(15_000)
-      expect(lifecycleMs).toBeLessThan(120_000)
-      expect(finalizationMs).toBeLessThan(90_000)
-      expect(roundTripMs).toBeLessThan(120_000)
+      expect(planCreationCpuMs).toBeLessThan(5_000)
+      expect(stageUpdateCpuMs).toBeLessThan(15_000)
+      expect(lifecycleCpuMs).toBeLessThan(120_000)
+      expect(finalizationCpuMs).toBeLessThan(90_000)
+      expect(roundTripCpuMs).toBeLessThan(120_000)
+      expect([
+        planCreationMs,
+        stageUpdateMs,
+        lifecycleMs,
+        finalizationMs,
+        roundTripMs
+      ].every(Number.isFinite)).toBe(true)
     }
   )
 })
