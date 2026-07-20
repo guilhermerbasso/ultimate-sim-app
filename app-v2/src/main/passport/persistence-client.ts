@@ -21,7 +21,10 @@ import type {
   PassportStoreEvent,
   PassportStoreMetrics
 } from './persistence-engine'
-import { PASSPORT_DOMAIN_ERROR_CODE } from './persistence-errors'
+import {
+  PASSPORT_DOMAIN_ERROR_CODE,
+  PASSPORT_HEALTH_ERROR_CODE
+} from './persistence-errors'
 import {
   PASSPORT_CLIENT_CLOSE_DEADLINE_MS,
   PASSPORT_WORKER_TERMINATION_DEADLINE_MS
@@ -33,6 +36,12 @@ const DEFAULT_DEADLINE_MS = 1_500
 const AUDIT_DEADLINE_MS = 30_000
 const FAILURE_THRESHOLD = 3
 const MAX_RESTARTS = 3
+
+function persistenceHealthError(error: Error): Error {
+  const coded = error as Error & { code?: string }
+  if (!coded.code) coded.code = PASSPORT_HEALTH_ERROR_CODE
+  return coded
+}
 
 interface WorkerLike {
   postMessage(value: unknown): void
@@ -525,10 +534,13 @@ export class PassportPersistenceClient {
     this.inFlight = entry
     this.inFlightTimer = setTimeout(() => {
       if (this.inFlight !== entry) return
-      entry.reject(new Error(`Passport persistence request timed out: ${entry.request.method}`))
+      const error = persistenceHealthError(
+        new Error(`Passport persistence request timed out: ${entry.request.method}`)
+      )
+      entry.reject(error)
       this.inFlight = null
       this.inFlightTimer = null
-      this.onWorkerFailure(this.worker, new Error(`Persistence deadline exceeded for ${entry.request.method}.`))
+      this.onWorkerFailure(this.worker, error)
     }, entry.deadlineMs)
     try {
       this.worker.postMessage(entry.request)
@@ -569,6 +581,7 @@ export class PassportPersistenceClient {
   private onWorkerFailure(worker: WorkerLike | null, error: Error): void {
     if (this.closed) return
     if (worker && this.worker !== worker) return
+    error = persistenceHealthError(error)
     if (this.inFlightTimer) clearTimeout(this.inFlightTimer)
     this.inFlightTimer = null
     if (this.inFlight) {

@@ -20,7 +20,8 @@ import {
   type PassportConfig,
   type PassportIntegrityState,
   type PassportItem,
-  type PassportRosterMember
+  type PassportRosterMember,
+  type StintPassport
 } from '../../shared/stint-passport'
 import type { CanonicalRaceOpsEvent } from '../../shared/phase02-contracts'
 import { telemetrySnapshotToRaceOpsEvent } from '../phase02/telemetry-contract-adapter'
@@ -775,11 +776,9 @@ describe('B1 – Privacy evidence class scoped deletion', () => {
     expect(snapshot.roster).toEqual([])
     expect(snapshot.privacy.identityPersistenceOptIn).toBe(false)
     expect(JSON.stringify(snapshot)).not.toContain(sentinel)
-    if (crash) {
-      await expect(test.service.exportPackage('full-local')).rejects.toThrow()
-    } else {
-      expect(JSON.stringify(await test.service.exportPackage('full-local'))).not.toContain(sentinel)
-    }
+    await expect(test.service.exportPackage('full-local')).rejects.toThrow(
+      crash ? /crashed|unresolved/i : /privacy read failed|unresolved/i
+    )
   })
 
   it('[blocker-B1-g] a stale persistence failure cannot restore D3 state after durable deletion', async () => {
@@ -1816,7 +1815,11 @@ describe('B6 – Lower-class deletion races against queued resolve persistence',
       attempts.push({ generation: args[1], operationId: args[2] })
       if (crashBeforeCommit) {
         crashBeforeCommit = false
-        throw new Error('Persistence process exited before dispatch.')
+        const error = new Error('Persistence process exited before dispatch.') as Error & {
+          code?: string
+        }
+        error.code = PASSPORT_HEALTH_ERROR_CODE
+        throw error
       }
       return originalDelete(...args)
     }) as typeof test.client.deleteByClass
@@ -2181,7 +2184,11 @@ describe('B11 – Serialized validated mutation intents', () => {
       ...args: Parameters<typeof test.client.deleteByClass>
     ) => {
       if (args[0] === 'D2' && failDelete) {
-        throw new Error('Persistence worker exited before D2 deletion commit.')
+        const error = new Error(
+          'Persistence worker exited before D2 deletion commit.'
+        ) as Error & { code?: string }
+        error.code = PASSPORT_HEALTH_ERROR_CODE
+        throw error
       }
       return originalDelete(...args)
     }) as typeof test.client.deleteByClass
@@ -2449,6 +2456,210 @@ describe('B11 – Serialized validated mutation intents', () => {
     expect(durable?.items.find((item) => item.id === itemId)).toMatchObject({
       status: 'unknown',
       evidence: undefined
+    })
+  })
+
+  describe('B12 – Privacy queue epochs and fail-closed ambiguity', () => {
+    it('[blocker-B12-a] a newer opt-out supersedes an older held opt-in before migration publish', async () => {
+      const test = harness('B12-optin-vs-optout')
+      await test.service.setConfig(test.config)
+      await test.tap.emit(delivery(telemetry(), 1n))
+      const current = (await test.service.snapshot()).current!
+      await configureRoster(test, current.identity.driverRef)
+      const originalSaveRoster = test.client.saveRoster.bind(test.client)
+      let migrationStarted!: () => void
+      let releaseMigration!: () => void
+      const started = new Promise<void>((resolve) => { migrationStarted = resolve })
+      const barrier = new Promise<void>((resolve) => { releaseMigration = resolve })
+      test.client.saveRoster = vi.fn(async (
+        ...args: Parameters<typeof test.client.saveRoster>
+      ) => {
+        if (args[2]?.endsWith(':roster')) {
+          migrationStarted()
+          await barrier
+        }
+        return originalSaveRoster(...args)
+      }) as typeof test.client.saveRoster
+
+      const optIn = outcomeOf(test.service.setPrivacy({
+        ...DEFAULT_PASSPORT_PRIVACY,
+        identityPersistenceOptIn: true,
+        updatedAt: 20_000
+      }))
+      await started
+      const optOut = test.service.setPrivacy({
+        ...DEFAULT_PASSPORT_PRIVACY,
+        identityPersistenceOptIn: false,
+        updatedAt: 21_000
+      })
+      releaseMigration()
+
+      expect(await optIn).toBe('rejected')
+      await expect(optOut).resolves.toMatchObject({ identityPersistenceOptIn: false })
+      expect(await test.service.snapshot()).toMatchObject({
+        current: null,
+        history: [],
+        roster: [],
+        privacy: { identityPersistenceOptIn: false }
+      })
+      expect(test.store.getAuthoritativeState()).toMatchObject({
+        privacy: { identityPersistenceOptIn: false },
+        roster: [],
+        passports: [],
+        persistenceMigration: undefined
+      })
+      const restarted = await restartPersistentHarness(test, 70_000)
+      expect(await restarted.service.snapshot()).toMatchObject({
+        current: null,
+        history: [],
+        roster: [],
+        privacy: { identityPersistenceOptIn: false }
+      })
+    })
+
+    it('[blocker-B12-b] D1 deletion supersedes a held opt-in without restoring evidence', async () => {
+      const test = harness('B12-optin-vs-d1-delete')
+      await test.service.setConfig(test.config)
+      await test.tap.emit(delivery(telemetry(), 1n))
+      const current = (await test.service.snapshot()).current!
+      await configureRoster(test, current.identity.driverRef)
+      await test.service.resolveItem({
+        stintId: current.identity.stintId,
+        itemId: 'audio-comms',
+        status: 'manual-confirmed',
+        owner: { memberId: 'spotter-1', role: 'spotter' },
+        reasonCode: 'D1_PRE_OPTIN_SENTINEL'
+      })
+      const evidenceHash = (await test.service.snapshot()).current?.items.find((item) =>
+        item.id === 'audio-comms'
+      )?.evidence?.contentHash
+      expect(evidenceHash).toMatch(/^[0-9a-f]{64}$/)
+      const originalSaveRoster = test.client.saveRoster.bind(test.client)
+      let migrationStarted!: () => void
+      let releaseMigration!: () => void
+      const started = new Promise<void>((resolve) => { migrationStarted = resolve })
+      const barrier = new Promise<void>((resolve) => { releaseMigration = resolve })
+      test.client.saveRoster = vi.fn(async (
+        ...args: Parameters<typeof test.client.saveRoster>
+      ) => {
+        if (args[2]?.endsWith(':roster')) {
+          migrationStarted()
+          await barrier
+        }
+        return originalSaveRoster(...args)
+      }) as typeof test.client.saveRoster
+
+      const optIn = outcomeOf(test.service.setPrivacy({
+        ...DEFAULT_PASSPORT_PRIVACY,
+        identityPersistenceOptIn: true,
+        updatedAt: 20_000
+      }))
+      await started
+      const deletion = test.service.deleteByClass('D1')
+      releaseMigration()
+
+      expect(await optIn).toBe('rejected')
+      await expect(deletion).resolves.toMatchObject({ dataClass: 'D1' })
+      const live = await test.service.snapshot()
+      expect(live.current?.items.find((item) => item.id === 'audio-comms')).toMatchObject({
+        status: 'unknown',
+        evidence: undefined
+      })
+      const exported = await test.service.exportPackage('full-local')
+      expect(exported.passports.flatMap((passport) => passport.items).find((item) =>
+        item.id === 'audio-comms'
+      )).toMatchObject({ status: 'unknown', evidence: undefined })
+      expect(test.store.getAuthoritativeState().persistenceMigration).toBeUndefined()
+      expect(JSON.stringify(exported)).not.toContain(evidenceHash)
+
+      const restarted = await restartPersistentHarness(test, 71_000)
+      const restartedExport = await restarted.service.exportPackage('full-local')
+      expect(restarted.store.getAuthoritativeState().persistenceMigration).toBeUndefined()
+      expect(JSON.stringify(restartedExport)).not.toContain(evidenceHash)
+    })
+
+    it('[blocker-B12-c] EIO after a committed D1 delete keeps export blocked until reconciliation', async () => {
+      const test = harness('B12-d1-eio')
+      const current = await persistentCurrent(test)
+      await test.service.resolveItem({
+        stintId: current.identity.stintId,
+        itemId: 'audio-comms',
+        status: 'manual-confirmed',
+        owner: { memberId: 'spotter-1', role: 'spotter' },
+        reasonCode: 'D1_EIO_SENTINEL'
+      })
+      const evidenceHash = (await test.service.snapshot()).current?.items.find((item) =>
+        item.id === 'audio-comms'
+      )?.evidence?.contentHash
+      expect(evidenceHash).toMatch(/^[0-9a-f]{64}$/)
+      const originalDelete = test.client.deleteByClass.bind(test.client)
+      const originalAuthoritative = test.client.getAuthoritativeState.bind(test.client)
+      let authoritativeReads = 0
+      let allowReconciliation = false
+      test.client.getAuthoritativeState = vi.fn(async (
+        ...args: Parameters<typeof test.client.getAuthoritativeState>
+      ) => {
+        authoritativeReads += 1
+        if (authoritativeReads > 1 && !allowReconciliation) {
+          throw Object.assign(new Error('opaque committed delete read failure'), { code: 'EIO' })
+        }
+        return originalAuthoritative(...args)
+      }) as typeof test.client.getAuthoritativeState
+      test.client.deleteByClass = vi.fn(async (
+        ...args: Parameters<typeof test.client.deleteByClass>
+      ) => {
+        await originalDelete(...args)
+        throw Object.assign(new Error('opaque delete response failure'), { code: 'EIO' })
+      }) as typeof test.client.deleteByClass
+
+      await expect(test.service.deleteByClass('D1')).rejects.toThrow(/unresolved|EIO|opaque/i)
+      const local = (test.service as unknown as { current: StintPassport | null }).current
+      expect(local?.items.find((item) => item.id === 'audio-comms')).toMatchObject({
+        status: 'unknown',
+        evidence: undefined
+      })
+      await expect(test.service.exportPackage('full-local')).rejects.toThrow(/unresolved|EIO|opaque/i)
+
+      allowReconciliation = true
+      const exported = await test.service.exportPackage('full-local')
+      expect(JSON.stringify(exported)).not.toContain(evidenceHash)
+      expect(exported.passports.flatMap((passport) => passport.items).find((item) =>
+        item.id === 'audio-comms'
+      )).toMatchObject({ status: 'unknown', evidence: undefined })
+    })
+
+    it('[blocker-B12-d] retention editing while opted out preserves the ephemeral stint and generations', async () => {
+      const test = harness('B12-optedout-retention')
+      await test.service.setConfig(test.config)
+      await test.tap.emit(delivery(telemetry(), 1n))
+      const before = await test.service.snapshot()
+      const privacyGeneration = test.store.getPrivacyMutationGeneration()
+      const rosterGeneration = test.store.getRosterMutationGeneration()
+
+      await test.service.setPrivacy({
+        ...before.privacy,
+        identityPersistenceOptIn: false,
+        retentionDays: { ...before.privacy.retentionDays, D1: 91 },
+        updatedAt: 20_000
+      })
+
+      const after = await test.service.snapshot()
+      expect(after.current?.identity.stintId).toBe(before.current?.identity.stintId)
+      expect(after.roster).toEqual(before.roster)
+      expect(after.privacy).toMatchObject({
+        identityPersistenceOptIn: false,
+        retentionDays: { D1: 91 }
+      })
+      expect(test.store.getPrivacyMutationGeneration()).toBe(privacyGeneration)
+      expect(test.store.getRosterMutationGeneration()).toBe(rosterGeneration)
+      expect(test.store.getPrivacy()).toMatchObject({
+        identityPersistenceOptIn: false,
+        retentionDays: { D1: 91 }
+      })
+      expect(test.store.listPassports()).toEqual([])
+      expect((await test.service.exportPackage('full-local')).passports.some((passport) =>
+        passport.identity.stintId === before.current?.identity.stintId
+      )).toBe(true)
     })
   })
 

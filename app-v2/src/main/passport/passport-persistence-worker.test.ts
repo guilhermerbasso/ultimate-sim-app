@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fork, type ChildProcess } from 'node:child_process'
@@ -581,4 +581,83 @@ describe('packaged Passport persistence worker', () => {
         }
       })
   }, 15_000)
+
+  it.each([
+    ['after-repair-journal', 'authorized'],
+    ['after-repair-database-erase', 'database-erased'],
+    ['after-repair-key-erase', 'keys-erased'],
+    ['after-repair-receipt-temp-write', 'database-created'],
+    ['after-repair-receipt-promotion', 'receipt-staged']
+  ] as const)(
+    '[blocker-B12-e] resumes repair after %s without stale data or lost authorization',
+    async (checkpoint, expectedPhase) => {
+      const path = tempDatabase(checkpoint)
+      const sentinel = `REPAIR-JOURNAL-SENTINEL-${checkpoint}`
+      const first = spawnWorker()
+      await rpc(first, 'initialize', [path])
+      await rpc(first, 'setPrivacy', [privacy(true)])
+      await rpc(first, 'persistPassport', [passport('worker-stint', 1, sentinel), event(1)])
+      await first.terminate()
+
+      const marker = new DatabaseSync(path)
+      marker.prepare("UPDATE passport_meta SET value = 'corrupt' WHERE key = 'integrity_state'").run()
+      marker.close()
+
+      const crashingRepair = spawnWorker()
+      await rpc(crashingRepair, 'initialize', [path])
+      const integrity = await rpc(crashingRepair, 'getIntegrity')
+      const repairToken = (integrity.result as { repairToken?: string }).repairToken
+      const operationId = `repair:journal:${checkpoint}`
+      expect(repairToken).toMatch(/^[a-f0-9]+$/)
+      await rpc(crashingRepair, 'configureCrashBoundary', [{
+        operation: 'repairPersistence',
+        checkpoint
+      }])
+      await expect(rpc(crashingRepair, 'repairPersistence', [repairToken, operationId]))
+        .rejects.toThrow(/exited/i)
+
+      const journalPath = `${path}.repair-journal.json`
+      expect(JSON.parse(readFileSync(journalPath, 'utf8'))).toMatchObject({
+        operationId,
+        phase: expectedPhase
+      })
+      if (checkpoint === 'after-repair-receipt-temp-write') {
+        expect(existsSync(`${path}.repair-receipt.json.pending`)).toBe(true)
+      }
+      if (checkpoint === 'after-repair-receipt-promotion') {
+        expect(existsSync(`${path}.repair-receipt.json`)).toBe(true)
+      }
+
+      const recovered = spawnWorker()
+      await expect(rpc(recovered, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+      await expect(rpc(recovered, 'getAuthoritativeState', [operationId]))
+        .resolves.toMatchObject({
+          ok: true,
+          result: {
+            privacy: { identityPersistenceOptIn: false },
+            roster: [],
+            passports: []
+          }
+        })
+      const retry = await rpc(recovered, 'repairPersistence', [repairToken, operationId])
+      expect(retry).toMatchObject({
+        ok: true,
+        result: { quarantinedPath: expect.stringContaining('.quarantine-') }
+      })
+      const receipt = JSON.parse(readFileSync(`${path}.repair-receipt.json`, 'utf8'))
+      expect(receipt).toMatchObject({
+        operationId,
+        quarantinedPath: (retry.result as { quarantinedPath: string }).quarantinedPath
+      })
+      expect(existsSync(journalPath)).toBe(false)
+      expect(existsSync(`${journalPath}.pending`)).toBe(false)
+      expect(existsSync(receipt.quarantinedPath)).toBe(true)
+      const artifacts = readdirSync(dirname(path))
+        .map((name) => readFileSync(join(dirname(path), name)))
+      for (const bytes of artifacts) {
+        expect(bytes.includes(Buffer.from(sentinel))).toBe(false)
+      }
+    },
+    30_000
+  )
 })

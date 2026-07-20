@@ -248,7 +248,9 @@ export default function StintPassportView({
   const [config, setConfig] = useState<PassportConfig | null>(null)
   const [privacy, setPrivacy] = useState<PassportPrivacySettings | null>(null)
   const [packageHash, setPackageHash] = useState('')
-  const [repairToken, setRepairToken] = useState('')
+  const [repairTokenRevealed, setRepairTokenRevealed] = useState(false)
+  const [repairTokenConfirmation, setRepairTokenConfirmation] = useState('')
+  const [repairTokenCopied, setRepairTokenCopied] = useState(false)
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -270,6 +272,15 @@ export default function StintPassportView({
     void refresh()
     return window.ipc.subscribe(STINT_PASSPORT_CHANNELS.updated, () => void refresh())
   }, [refresh])
+
+  const availableRepairToken = snapshot?.integrity.state === 'corrupt'
+    ? snapshot.integrity.repairToken ?? ''
+    : ''
+  useEffect(() => {
+    setRepairTokenRevealed(false)
+    setRepairTokenConfirmation('')
+    setRepairTokenCopied(false)
+  }, [availableRepairToken])
 
   const run = useCallback(async (name: string, operation: () => Promise<void>): Promise<void> => {
     setBusy(name)
@@ -325,6 +336,10 @@ export default function StintPassportView({
     !persistenceHealthy ||
     !queueHealthy ||
     (current?.persisted === true && !integrityHealthy)
+  const repairTokenMismatch = repairTokenConfirmation.length > 0 &&
+    repairTokenConfirmation !== availableRepairToken
+  const repairConfirmed = availableRepairToken.length > 0 &&
+    repairTokenConfirmation === availableRepairToken
   const memberNameById = useMemo(
     () => new Map((snapshot?.roster ?? []).map((member) => [member.memberId, member.displayName])),
     [snapshot?.roster]
@@ -732,19 +747,107 @@ export default function StintPassportView({
           })}</p>
           {packageHash && <p style={{ fontFamily: 'monospace' }}>SHA-256: {packageHash}</p>}
           {snapshot.integrity.state === 'corrupt' && (
-            <div style={{ marginTop: 12 }}>
-              <label>
-                <span style={label}>{tt(language, 'passport.repairToken')}</span>
-                <input style={input} value={repairToken} onChange={(event) => setRepairToken(event.target.value)} />
-              </label>
-              <button style={secondaryButton} onClick={() => {
-                if (window.confirm(tt(language, 'passport.confirmRepair')) === false) return
-                void run('repair', async () => {
-                await mutate(STINT_PASSPORT_CHANNELS.repairPersistence, repairToken)
-                setRepairToken('')
-                await refresh()
-                })
-              }} type="button">{tt(language, 'passport.repairPersistence')}</button>
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                border: '1px solid var(--accent-danger)',
+                borderRadius: 'var(--radius-sm)'
+              }}
+            >
+              <p id="passport-repair-warning" role="alert" style={{ color: 'var(--accent-danger)' }}>
+                <strong>{tt(language, 'passport.repairWarning')}</strong>
+              </p>
+              {availableRepairToken ? (
+                <>
+                  <button
+                    aria-controls="passport-repair-token-value"
+                    aria-expanded={repairTokenRevealed}
+                    style={secondaryButton}
+                    onClick={() => {
+                      setRepairTokenRevealed((value) => !value)
+                      setRepairTokenCopied(false)
+                    }}
+                    type="button"
+                  >
+                    {repairTokenRevealed
+                      ? tt(language, 'passport.hideRepairToken')
+                      : tt(language, 'passport.revealRepairToken')}
+                  </button>
+                  {repairTokenRevealed && (
+                    <div id="passport-repair-token-value" style={{ marginTop: 10 }}>
+                      <div style={label}>{tt(language, 'passport.repairToken')}</div>
+                      <code
+                        aria-label={tt(language, 'passport.repairTokenValue')}
+                        style={{ display: 'block', overflowWrap: 'anywhere', marginTop: 5 }}
+                      >
+                        {availableRepairToken}
+                      </code>
+                      <button
+                        style={{ ...secondaryButton, marginTop: 8 }}
+                        onClick={() => {
+                          void run('copy-repair-token', async () => {
+                            if (!navigator.clipboard?.writeText) {
+                              throw new Error(tt(language, 'passport.repairCopyUnavailable'))
+                            }
+                            await navigator.clipboard.writeText(availableRepairToken)
+                            setRepairTokenCopied(true)
+                          })
+                        }}
+                        type="button"
+                      >
+                        {tt(language, 'passport.copyRepairToken')}
+                      </button>
+                      <span aria-live="polite" style={{ marginLeft: 8 }}>
+                        {repairTokenCopied ? tt(language, 'passport.repairTokenCopied') : ''}
+                      </span>
+                    </div>
+                  )}
+                  <label style={{ display: 'block', marginTop: 12 }}>
+                    <span style={label}>{tt(language, 'passport.confirmRepairToken')}</span>
+                    <input
+                      aria-describedby={`passport-repair-warning${repairTokenMismatch ? ' passport-repair-mismatch' : ''}`}
+                      autoComplete="off"
+                      spellCheck={false}
+                      style={input}
+                      type="password"
+                      value={repairTokenConfirmation}
+                      onChange={(event) => setRepairTokenConfirmation(event.target.value)}
+                    />
+                  </label>
+                  {repairTokenMismatch && (
+                    <p id="passport-repair-mismatch" role="alert" style={{ color: 'var(--accent-danger)' }}>
+                      {tt(language, 'passport.repairTokenMismatch')}
+                    </p>
+                  )}
+                  <button
+                    disabled={!repairConfirmed || busy !== null}
+                    style={{
+                      ...button,
+                      background: 'var(--accent-danger)',
+                      marginTop: 10,
+                      opacity: repairConfirmed && busy === null ? 1 : 0.55
+                    }}
+                    onClick={() => {
+                      if (!repairConfirmed) return
+                      if (window.confirm(tt(language, 'passport.confirmRepair')) === false) return
+                      void run('repair', async () => {
+                        await mutate(STINT_PASSPORT_CHANNELS.repairPersistence, availableRepairToken)
+                        await refresh()
+                      }).finally(() => {
+                        setRepairTokenRevealed(false)
+                        setRepairTokenConfirmation('')
+                        setRepairTokenCopied(false)
+                      })
+                    }}
+                    type="button"
+                  >
+                    {tt(language, 'passport.repairPersistence')}
+                  </button>
+                </>
+              ) : (
+                <p role="alert">{tt(language, 'passport.repairTokenUnavailable')}</p>
+              )}
             </div>
           )}
           <div style={{ marginTop: 12 }}>

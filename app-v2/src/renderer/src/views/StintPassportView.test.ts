@@ -528,7 +528,11 @@ describe('Stint Passport mutation, destructive, and replay boundaries', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     renderPassport(snapshot, invoke)
     fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
-    fireEvent.change(screen.getByLabelText('Repair acknowledgement token'), {
+    expect(screen.queryByText('repair-secret')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal repair token' }))
+    expect(screen.getByLabelText('Revealed repair acknowledgement token').textContent)
+      .toBe('repair-secret')
+    fireEvent.change(screen.getByLabelText(/Retype the repair token/i), {
       target: { value: 'repair-secret' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Quarantine corrupt database and reset' }))
@@ -537,6 +541,115 @@ describe('Stint Passport mutation, destructive, and replay boundaries', () => {
     expect(invoke.mock.calls.some(([channel]) =>
       channel === 'stintPassport:repairPersistence'
     )).toBe(false)
+  })
+
+  it('[blocker-B12-f] lets a player reveal, copy, retype, and complete repair without developer tools', async () => {
+    const corrupt = emptySnapshot()
+    corrupt.integrity.state = 'corrupt'
+    corrupt.integrity.repairToken = 'repair-player-token'
+    const repaired = emptySnapshot()
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText }
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    let repairCommitted = false
+    const invoke = vi.fn(async (channel: string, input?: unknown) => {
+    if (channel === 'stintPassport:repairPersistence') {
+      expect(input).toEqual({
+        capability: 'test-capability',
+        payload: 'repair-player-token'
+      })
+      repairCommitted = true
+      return { quarantinedPath: 'passport.db.quarantine-1.json' }
+    }
+    return repairCommitted ? repaired : corrupt
+    })
+    renderPassport(corrupt, invoke)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+
+    const reveal = screen.getByRole('button', { name: 'Reveal repair token' })
+    expect(reveal.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('repair-player-token')).toBeNull()
+    fireEvent.click(reveal)
+    expect(reveal.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByLabelText('Revealed repair acknowledgement token').textContent)
+    .toBe('repair-player-token')
+    fireEvent.click(screen.getByRole('button', { name: 'Copy repair token' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('repair-player-token'))
+    expect(screen.getByText('Copied.')).not.toBeNull()
+
+    const confirmation = screen.getByLabelText(/Retype the repair token/i)
+    fireEvent.change(confirmation, { target: { value: 'repair-player-token' } })
+    const repair = screen.getByRole('button', {
+    name: 'Quarantine corrupt database and reset'
+    }) as HTMLButtonElement
+    expect(repair.disabled).toBe(false)
+    fireEvent.click(repair)
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+    'stintPassport:repairPersistence',
+    { capability: 'test-capability', payload: 'repair-player-token' }
+    ))
+    await waitFor(() => expect(screen.queryByText('repair-player-token')).toBeNull())
+    expect(screen.queryByLabelText(/Retype the repair token/i)).toBeNull()
+  })
+
+  it('[blocker-B12-f] visibly blocks a mistyped repair token', async () => {
+    const snapshot = emptySnapshot()
+    snapshot.integrity.state = 'corrupt'
+    snapshot.integrity.repairToken = 'repair-expected-token'
+    const invoke = vi.fn(async (_channel: string) => snapshot)
+    renderPassport(snapshot, invoke)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.change(screen.getByLabelText(/Retype the repair token/i), {
+      target: { value: 'repair-wrong-token' }
+    })
+
+    expect(screen.getByText(/does not match/i).getAttribute('role')).toBe('alert')
+    const repair = screen.getByRole('button', {
+      name: 'Quarantine corrupt database and reset'
+    }) as HTMLButtonElement
+    expect(repair.disabled).toBe(true)
+    fireEvent.click(repair)
+    expect(invoke.mock.calls.some(([channel]) =>
+      channel === 'stintPassport:repairPersistence'
+    )).toBe(false)
+  })
+
+  it('[blocker-B12-f] hides and clears repair disclosure when the snapshot token changes', async () => {
+    let snapshot = emptySnapshot()
+    snapshot.integrity.state = 'corrupt'
+    snapshot.integrity.repairToken = 'repair-old-token'
+    let updated: (() => void) | undefined
+    const subscribe = vi.fn((_channel: string, callback: () => void) => {
+    updated = callback
+    return () => undefined
+    })
+    renderPassport(snapshot, vi.fn(async () => snapshot), vi.fn(), subscribe)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal repair token' }))
+    fireEvent.change(screen.getByLabelText(/Retype the repair token/i), {
+    target: { value: 'repair-old-token' }
+    })
+    expect(screen.getByText('repair-old-token')).not.toBeNull()
+
+    snapshot = {
+    ...snapshot,
+    integrity: {
+      ...snapshot.integrity,
+      repairToken: 'repair-new-token'
+    }
+    }
+    updated?.()
+
+    await waitFor(() => expect(
+    screen.getByRole('button', { name: 'Reveal repair token' }).getAttribute('aria-expanded')
+    ).toBe('false'))
+    expect(screen.queryByText('repair-old-token')).toBeNull()
+    expect(screen.queryByText('repair-new-token')).toBeNull()
+    expect((screen.getByLabelText(/Retype the repair token/i) as HTMLInputElement).value).toBe('')
   })
 
   it('keeps replay history inspectable without current or challenge mutation controls', async () => {
@@ -610,14 +723,14 @@ describe('Stint Passport repair failure truth', () => {
     })
     renderPassport(snapshot, invoke, showToast)
     fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
-    fireEvent.change(screen.getByLabelText('Repair acknowledgement token'), {
+    fireEvent.change(screen.getByLabelText(/Retype the repair token/i), {
       target: { value: 'repair-secret' }
     })
     fireEvent.click(screen.getByRole('button', {
       name: 'Quarantine corrupt database and reset'
     }))
 
-    expect((await screen.findByRole('alert')).textContent).toContain('repair failed closed')
+    expect((await screen.findByText('repair failed closed')).closest('[role="alert"]')).not.toBeNull()
     expect(showToast).toHaveBeenCalledWith('repair failed closed', 'error')
     expect(showToast.mock.calls.some(([, tone]) => tone === 'success')).toBe(false)
     expect(screen.queryByText(/^Ready$/i)).toBeNull()

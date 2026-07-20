@@ -147,6 +147,7 @@ export interface PassportRetentionReceiptResult {
 
 export interface PassportPersistenceMigrationPlan {
   operationId: string
+  privacyMutationGeneration: number
   roster: PassportRosterMember[]
   passport?: StintPassport
   event?: PassportStoreEvent
@@ -770,6 +771,12 @@ export class PassportPersistenceEngine {
     if (normalizedMigration && !enablesPersistence) {
       throw persistenceDomainError('Passport persistence migration requires a new privacy opt-in.')
     }
+    if (
+      normalizedMigration &&
+      normalizedMigration.privacyMutationGeneration !== currentGeneration
+    ) {
+      throw persistenceDomainError('Passport persistence migration generation conflict.')
+    }
     const expectedGeneration = privacyMutationGeneration ?? (
       disablesPersistence ? currentGeneration + 1 : currentGeneration
     )
@@ -792,7 +799,7 @@ export class PassportPersistenceEngine {
         next,
         bool(current?.kill_switch)
       )
-      if (!next.identityPersistenceOptIn) {
+      if (disablesPersistence) {
         this.clearPersistenceMigrationInTransaction()
         const ids = (this.db.prepare('SELECT stint_id FROM stint_passport').all() as Row[])
           .map((row) => text(row.stint_id))
@@ -1300,6 +1307,7 @@ export class PassportPersistenceEngine {
         'Passport privacy deletion generation conflict.'
       )
       this.writeMetaGeneration('privacy_mutation_generation', nextPrivacyGeneration)
+      this.clearPersistenceMigrationInTransaction()
       const result: PassportDeleteResult = {
         deletedStints: 0,
         redactedEvidence: this.redactEvidenceByClass(
@@ -1676,6 +1684,12 @@ export class PassportPersistenceEngine {
     if (!operationId) {
       throw persistenceDomainError('Passport persistence migration operation ID is required.')
     }
+    if (
+      !Number.isSafeInteger(migration.privacyMutationGeneration) ||
+      migration.privacyMutationGeneration < 0
+    ) {
+      throw persistenceDomainError('Passport persistence migration generation is invalid.')
+    }
     const roster = migration.roster.map(sanitizeRosterMember)
     if (new Set(roster.map((member) => member.memberId)).size !== roster.length) {
       throw persistenceDomainError('Passport persistence migration roster IDs must be unique.')
@@ -1697,6 +1711,7 @@ export class PassportPersistenceEngine {
     }
     return {
       operationId,
+      privacyMutationGeneration: migration.privacyMutationGeneration,
       roster,
       passport,
       event,
@@ -1722,6 +1737,8 @@ export class PassportPersistenceEngine {
     if (
       !parsed ||
       typeof parsed.operationId !== 'string' ||
+      !Number.isSafeInteger(parsed.privacyMutationGeneration) ||
+      parsed.privacyMutationGeneration < 0 ||
       !Array.isArray(parsed.roster) ||
       typeof parsed.rosterComplete !== 'boolean' ||
       typeof parsed.passportComplete !== 'boolean' ||

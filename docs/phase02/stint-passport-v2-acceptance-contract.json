@@ -41,7 +41,12 @@
     "Opt-in persistence migration durably tracks and independently resumes roster and Passport publication until both steps converge across failure and restart",
     "Ambiguous retention commits retain the export barrier until an authoritative receipt and sanitized live state are reconciled",
     "D1 and D2 deletion atomically demotes Ready Passports, clears challenge completion and readiness proof, and publishes coherent live, durable and restarted state",
-    "Persistence repair uses a stable authenticated operation receipt so ambiguous erase commits block export and converge idempotently without relying on an invalidated prior token"
+    "Persistence repair uses a stable authenticated operation receipt so ambiguous erase commits block export and converge idempotently without relying on an invalidated prior token",
+    "Opt-in persistence migration runs inside the serialized privacy queue with its original operation ID, privacy epoch and class-deletion fences, so newer opt-out or D1-D3 deletion supersedes every stale durable or live publish",
+    "Only explicitly coded domain failures bypass ambiguity recovery; process, transport, storage, filesystem, SQLite, timeout and unknown failures retain a fail-closed barrier until bounded authoritative reconciliation",
+    "Retention-only edits while already opted out preserve ephemeral roster and stint state without advancing privacy or roster mutation generations",
+    "Persistence repair writes and fsyncs a durable pre-erasure journal and resumes database erase, key erase, fresh database creation and receipt promotion idempotently after crashes at every destructive phase",
+    "Corruption repair UI keeps the snapshot token hidden by default and provides accessible reveal, copy, exact retype, mismatch and destructive-confirmation controls that clear on repair or token change"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

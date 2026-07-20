@@ -59,6 +59,7 @@ import type {
   PassportStoreEvent
 } from './persistence-engine'
 import { PASSPORT_SERVICE_DRAIN_DEADLINE_MS } from './persistence-deadlines'
+import { PASSPORT_DOMAIN_ERROR_CODE } from './persistence-errors'
 
 const SUBSCRIPTION_ID = 'stint-passport'
 const OVERFLOW_RECOVERY_FRAMES = 3
@@ -70,6 +71,12 @@ function clean(value: unknown, max = 160): string {
   return typeof value === 'string'
     ? value.replace(/\s+/g, ' ').trim().slice(0, max)
     : ''
+}
+
+function passportDomainError(message: string): Error {
+  const error = new Error(message) as Error & { code?: string }
+  error.code = PASSPORT_DOMAIN_ERROR_CODE
+  return error
 }
 
 async function withinDeadline<T>(
@@ -140,6 +147,13 @@ function passportStateKey(passport: StintPassport): string {
       owner: item.owner,
       overrideReason: item.overrideReason
     })).sort((left, right) => left.id.localeCompare(right.id))
+  })
+}
+
+function durablePassportStateKey(passport: StintPassport): string {
+  return stableJson({
+    ...passport,
+    items: [...passport.items].sort((left, right) => left.id.localeCompare(right.id))
   })
 }
 
@@ -249,7 +263,14 @@ interface PendingMutationRecovery {
   classes: readonly PassportDataClass[]
   desiredStateKey: string
   desiredIdentityPersistenceOptIn?: boolean
+  snapshotSafe: boolean
   recover: () => Promise<void>
+}
+
+interface PersistenceMigrationFence {
+  operationId: string
+  privacyMutationGeneration: number
+  deletionGeneration: Readonly<Record<PassportDataClass, number>>
 }
 
 export class StintPassportService {
@@ -279,6 +300,7 @@ export class StintPassportService {
   private mutationIntentQueue: Promise<void> = Promise.resolve()
   private rosterIntentQueue: Promise<void> = Promise.resolve()
   private readonly deletingPrivacyClasses = new Map<PassportDataClass, number>()
+  private readonly pendingOptInOperations = new Set<string>()
   private readonly privacyClassDeletionGeneration: Record<PassportDataClass, number> = {
     D1: 0,
     D2: 0,
@@ -376,7 +398,13 @@ export class StintPassportService {
 
   async snapshot(): Promise<PassportSnapshot> {
     await this.ready
-    await this.awaitMutationBarrier('snapshot', true)
+    let unresolvedButSanitized = false
+    try {
+      await this.awaitMutationBarrier('snapshot', true)
+    } catch (error) {
+      if (!this.pendingMutationRecovery?.snapshotSafe) throw error
+      unresolvedButSanitized = true
+    }
     const queue = this.subscription.status()
     let persistence = this.store.status()
     const runtimeUnsafe = queue.killSwitch ||
@@ -396,6 +424,7 @@ export class StintPassportService {
     if (
       this.current &&
       this.lastEvent &&
+      !unresolvedButSanitized &&
       this.current.telemetryContext === 'live' &&
       persistence.state === 'ready' &&
       !runtimeUnsafe &&
@@ -414,7 +443,7 @@ export class StintPassportService {
       message: 'Passport integrity is unavailable while persistence is not ready.'
     }
     let persisted: StintPassport[] = []
-    if (persistence.state === 'ready') {
+    if (persistence.state === 'ready' && !unresolvedButSanitized) {
       try {
         integrity = await this.store.getIntegrity()
         if (this.privacy.identityPersistenceOptIn) {
@@ -616,9 +645,16 @@ export class StintPassportService {
   async setPrivacy(privacy: PassportPrivacySettings): Promise<PassportPrivacySettings> {
     const desired = this.buildPrivacyCandidate(privacy)
     await this.ready
-    const d3DeletionWasActive = this.deletingPrivacyClasses.has('D3')
-    const d3DeletionGeneration = this.privacyClassDeletionGeneration.D3
-    const deleting = !desired.identityPersistenceOptIn
+    const requestsOptIn =
+      desired.identityPersistenceOptIn &&
+      !this.privacy.identityPersistenceOptIn
+    const requestsOptOut =
+      !desired.identityPersistenceOptIn &&
+      (
+        this.privacy.identityPersistenceOptIn ||
+        this.pendingOptInOperations.size > 0
+      )
+    const deleting = requestsOptOut
       ? (['D1', 'D2', 'D3'] as const)
       : []
     const intent = this.createMutationIntent(
@@ -626,15 +662,15 @@ export class StintPassportService {
       deleting,
       `privacy:${randomUUID()}`
     )
-    return this.enqueueMutationIntent(
-      intent,
-      () => this.executePrivacyIntent(
+    if (requestsOptIn) this.pendingOptInOperations.add(intent.operationId)
+    try {
+      return await this.enqueueMutationIntent(
         intent,
-        desired,
-        () => d3DeletionWasActive ||
-          d3DeletionGeneration !== this.privacyClassDeletionGeneration.D3
+        () => this.executePrivacyIntent(intent, desired)
       )
-    )
+    } finally {
+      this.pendingOptInOperations.delete(intent.operationId)
+    }
   }
 
   async resolveItem(input: PassportItemResolutionInput): Promise<StintPassport> {
@@ -2036,12 +2072,17 @@ export class StintPassportService {
     intent: ServiceMutationIntent,
     operation: () => Promise<T>
   ): Promise<T> {
-    const rosterIntent =
-      intent.kind === 'roster-save' ||
-      intent.kind === 'persistence-migration' ||
-      (intent.kind === 'privacy-settings' && intent.deletingClasses.length === 0)
+    const rosterIntent = intent.kind === 'roster-save'
     const previous = rosterIntent ? this.rosterIntentQueue : this.mutationIntentQueue
-    const run = previous.then(async () => {
+    const crossDomain = rosterIntent
+      ? this.mutationIntentQueue
+      : (
+          intent.kind === 'persistence-migration' ||
+          (intent.kind === 'privacy-settings' && intent.deletingClasses.length === 0)
+        )
+        ? this.rosterIntentQueue
+        : Promise.resolve()
+    const run = Promise.all([previous, crossDomain]).then(async () => {
       if (!this.supersedePendingMutationWith(intent)) {
         await this.recoverPendingMutation()
       }
@@ -2072,8 +2113,8 @@ export class StintPassportService {
     const supersedesOptIn =
       pending.kind === 'privacy-settings' &&
       pending.desiredIdentityPersistenceOptIn === true &&
-      erased.has('D3') &&
-      (intent.kind === 'privacy-settings' || intent.kind === 'privacy-delete:D3')
+      erased.size > 0 &&
+      (intent.kind === 'privacy-settings' || intent.kind.startsWith('privacy-delete:'))
     if (!repairsEverything && !supersedesDeletion && !supersedesOptIn) {
       return false
     }
@@ -2124,7 +2165,8 @@ export class StintPassportService {
     intent: ServiceMutationIntent,
     desiredStateKey: string,
     recover: () => Promise<void>,
-    desiredIdentityPersistenceOptIn?: boolean
+    desiredIdentityPersistenceOptIn?: boolean,
+    snapshotSafe = false
   ): void {
     const existing = this.pendingMutationRecovery
     if (existing && existing.operationId !== intent.operationId) {
@@ -2138,6 +2180,7 @@ export class StintPassportService {
       classes: [...intent.deletingClasses],
       desiredStateKey,
       desiredIdentityPersistenceOptIn,
+      snapshotSafe,
       recover
     }
   }
@@ -2163,6 +2206,12 @@ export class StintPassportService {
       }
     } catch (error) {
       this.recordPersistenceError(error)
+      if (!this.isAmbiguousPersistenceFailure(error)) {
+        if (this.pendingMutationRecovery === pending) {
+          this.pendingMutationRecovery = undefined
+        }
+        throw error
+      }
       throw new Error(
         `Passport mutation ${pending.operationId} remains unresolved after bounded authoritative recovery: ${
           error instanceof Error ? error.message : String(error)
@@ -2178,7 +2227,10 @@ export class StintPassportService {
   ): Promise<readonly PassportRosterMember[]> {
     if (!this.privacy.identityPersistenceOptIn) return candidate
     const expectedGeneration = this.rosterMutationGeneration
-    const recover = async (): Promise<readonly PassportRosterMember[]> => {
+    const recover = async (
+      retry: boolean,
+      originalError?: unknown
+    ): Promise<readonly PassportRosterMember[]> => {
       let state = await this.readAuthoritativeState(intent.operationId)
       this.reconcileAuthoritativeState(state)
       if (
@@ -2189,7 +2241,12 @@ export class StintPassportService {
       }
       if (state.rosterMutationGeneration !== expectedGeneration) {
         this.publishRoster(state.roster, true)
-        throw new Error('Roster mutation was superseded by authoritative durable state.')
+        throw passportDomainError('Roster mutation was superseded by authoritative durable state.')
+      }
+      if (!retry) {
+        throw passportDomainError(
+          originalError instanceof Error ? originalError.message : String(originalError)
+        )
       }
       try {
         await this.trackStoreOperation(
@@ -2231,28 +2288,15 @@ export class StintPassportService {
       this.rosterMutationGeneration = expectedGeneration + 1
       return persisted
     } catch (error) {
-      if (
-        !this.isAmbiguousPersistenceFailure(error) &&
-        !/roster mutation generation conflict/i.test(
-          error instanceof Error ? error.message : String(error)
-        )
-      ) {
-        throw error
-      }
       try {
-        return await recover()
+        return await recover(this.shouldRetryKnownHealthFailure(error), error)
       } catch (recoveryError) {
-        if (
-          recoveryError instanceof Error &&
-          /superseded by authoritative durable state/i.test(recoveryError.message)
-        ) {
-          throw recoveryError
-        }
+        if (!this.isAmbiguousPersistenceFailure(recoveryError)) throw recoveryError
         this.installPendingRecovery(
           intent,
           rosterStateKey(candidate),
           async () => {
-            const persisted = await recover()
+            const persisted = await recover(true)
             this.publishRoster(persisted, invalidateOnRecovery)
           }
         )
@@ -2262,11 +2306,13 @@ export class StintPassportService {
   }
 
   private isAmbiguousPersistenceFailure(error: unknown): boolean {
-    if (!(error instanceof Error)) return true
-    const code = (error as Error & { code?: string }).code
-    if (code === 'PERSISTENCE_DOMAIN_ERROR') return false
-    return /worker|process|exited|circuit|deadline|timed out|ipc|transport|storage|disk|unavailable/i
-      .test(error.message)
+    return !(error instanceof Error) ||
+      (error as Error & { code?: string }).code !== PASSPORT_DOMAIN_ERROR_CODE
+  }
+
+  private shouldRetryKnownHealthFailure(error: unknown): boolean {
+    const code = (error as { code?: unknown } | null)?.code
+    return typeof code === 'string' && code.length > 0 && code !== PASSPORT_DOMAIN_ERROR_CODE
   }
 
   private async readAuthoritativeState(
@@ -2320,13 +2366,15 @@ export class StintPassportService {
   }
 
   private buildPersistenceMigration(
-    intent: ServiceMutationIntent
+    intent: ServiceMutationIntent,
+    privacyMutationGeneration: number
   ): PassportPersistenceMigrationPlan {
     const passport = this.current
       ? JSON.parse(JSON.stringify(this.current)) as StintPassport
       : undefined
     return {
       operationId: intent.operationId,
+      privacyMutationGeneration,
       roster: this.cloneRoster(this.roster),
       passport,
       event: passport
@@ -2341,10 +2389,47 @@ export class StintPassportService {
     }
   }
 
+  private assertPersistenceMigrationFence(
+    migration: PassportPersistenceMigrationPlan,
+    fence?: PersistenceMigrationFence,
+    state?: PassportAuthoritativeState,
+    requireMigration = true
+  ): void {
+    if (
+      fence &&
+      (
+        fence.operationId !== migration.operationId ||
+        fence.privacyMutationGeneration !== migration.privacyMutationGeneration ||
+        (['D1', 'D2', 'D3'] as const).some((dataClass) =>
+          fence.deletionGeneration[dataClass] !==
+            this.privacyClassDeletionGeneration[dataClass]
+        )
+      )
+    ) {
+      throw passportDomainError('Persistence migration was superseded by a privacy mutation.')
+    }
+    if (!state) return
+    if (
+      !state.privacy.identityPersistenceOptIn ||
+      state.privacyMutationGeneration !== migration.privacyMutationGeneration ||
+      (
+        requireMigration &&
+        (
+          state.persistenceMigration?.operationId !== migration.operationId ||
+          state.persistenceMigration.privacyMutationGeneration !==
+            migration.privacyMutationGeneration
+        )
+      )
+    ) {
+      throw passportDomainError(
+        'Persistence migration was superseded by authoritative privacy state.'
+      )
+    }
+  }
+
   private async executePrivacyIntent(
     intent: ServiceMutationIntent,
-    desired: PassportPrivacySettings,
-    supersededByDeletion: () => boolean
+    desired: PassportPrivacySettings
   ): Promise<PassportPrivacySettings> {
     const initial = await this.readAuthoritativeState(intent.operationId)
     this.reconcileAuthoritativeState(initial)
@@ -2362,7 +2447,19 @@ export class StintPassportService {
     const enabling =
       !previous.identityPersistenceOptIn && desired.identityPersistenceOptIn
     const attemptedGeneration = baseGeneration + (disabling ? 1 : 0)
-    const migration = enabling ? this.buildPersistenceMigration(intent) : undefined
+    const migration = enabling
+      ? this.buildPersistenceMigration(intent, baseGeneration)
+      : undefined
+    const migrationRequired = Boolean(
+      migration && (migration.roster.length > 0 || migration.passport)
+    )
+    const migrationFence: PersistenceMigrationFence | undefined = migration
+      ? {
+          operationId: intent.operationId,
+          privacyMutationGeneration: baseGeneration,
+          deletionGeneration: { ...this.privacyClassDeletionGeneration }
+        }
+      : undefined
 
     const applyCommitted = async (
       persisted: PassportPrivacySettings,
@@ -2374,30 +2471,35 @@ export class StintPassportService {
       }
       this.privacyMutationGeneration = state?.privacyMutationGeneration ??
         attemptedGeneration
-      if (!persisted.identityPersistenceOptIn) {
+      if (disabling && !persisted.identityPersistenceOptIn) {
         this.rosterMutationGeneration = state?.rosterMutationGeneration ??
           this.rosterMutationGeneration + 1
         this.applyDurableD3Deletion()
         return
       }
       if (state) this.reconcileAuthoritativeState(state)
-      if (migration) {
+      if (migrationRequired && migration) {
+        this.assertPersistenceMigrationFence(migration, migrationFence, state)
         await this.resumePersistenceMigration(
           state?.persistenceMigration ?? {
             ...migration,
             rosterComplete: false,
             passportComplete: false
-          }
+          },
+          migrationFence
         )
       }
     }
 
-    const recover = async (): Promise<void> => {
+    const recover = async (retry: boolean, originalError?: unknown): Promise<void> => {
       let state = await this.readAuthoritativeState(intent.operationId)
       const committed = state.mutation?.kind === 'privacy-settings' &&
         state.mutation.generation === attemptedGeneration &&
         privacyIntentKey(state.privacy) === desiredKey
       if (committed) {
+        if (migrationRequired && migration) {
+          this.assertPersistenceMigrationFence(migration, migrationFence, state)
+        }
         await applyCommitted(state.privacy, state)
         return
       }
@@ -2409,7 +2511,16 @@ export class StintPassportService {
           reconcileRoster: true,
           reconcilePassports: true
         })
-        throw new Error('Privacy intent was superseded by unknown authoritative state.')
+        throw passportDomainError('Privacy intent was superseded by authoritative state.')
+      }
+      if (!retry) {
+        this.reconcileAuthoritativeState(state, {
+          reconcileRoster: true,
+          reconcilePassports: true
+        })
+        throw passportDomainError(
+          originalError instanceof Error ? originalError.message : String(originalError)
+        )
       }
       await this.trackStoreOperation(
         this.store.setPrivacy(
@@ -2419,6 +2530,7 @@ export class StintPassportService {
           migration
         )
       )
+      if (migration) this.assertPersistenceMigrationFence(migration, migrationFence)
       if (!desired.identityPersistenceOptIn) await applyCommitted(desired)
       state = await this.readAuthoritativeState(intent.operationId)
       if (
@@ -2440,13 +2552,19 @@ export class StintPassportService {
           migration
         )
       )
+      if (migration) this.assertPersistenceMigrationFence(migration, migrationFence)
       await applyCommitted(persisted)
-      if (enabling && supersededByDeletion()) {
-        throw new Error('Privacy opt-in was superseded by privacy deletion.')
-      }
       this.notify()
       return { ...this.privacy, retentionDays: { ...this.privacy.retentionDays } }
     } catch (error) {
+      if (migration) {
+        try {
+          this.assertPersistenceMigrationFence(migration, migrationFence)
+        } catch (superseded) {
+          this.recordPersistenceError(superseded)
+          throw superseded
+        }
+      }
       if (!this.isAmbiguousPersistenceFailure(error)) {
         this.recordPersistenceError(error)
         throw error
@@ -2464,15 +2582,29 @@ export class StintPassportService {
         }
         this.clearChallenge(false)
       }
-      this.installPendingRecovery(
-        intent,
-        desiredKey,
-        recover,
-        desired.identityPersistenceOptIn
-      )
-      await this.recoverPendingMutation()
-      if (enabling && supersededByDeletion()) {
-        throw new Error('Privacy opt-in was superseded by privacy deletion.')
+      try {
+        await recover(this.shouldRetryKnownHealthFailure(error), error)
+      } catch (recoveryError) {
+        if (!this.isAmbiguousPersistenceFailure(recoveryError)) {
+          this.recordPersistenceError(recoveryError)
+          throw recoveryError
+        }
+        if (!desired.identityPersistenceOptIn) {
+          this.privacy = {
+            ...desired,
+            retentionDays: { ...desired.retentionDays }
+          }
+          this.applyDurableD3Deletion()
+          this.notify()
+        }
+        this.installPendingRecovery(
+          intent,
+          desiredKey,
+          async () => { await recover(true) },
+          desired.identityPersistenceOptIn,
+          !desired.identityPersistenceOptIn
+        )
+        await this.recoverPendingMutation()
       }
       this.notify()
       return { ...this.privacy, retentionDays: { ...this.privacy.retentionDays } }
@@ -2480,15 +2612,15 @@ export class StintPassportService {
   }
 
   private async resumePersistenceMigration(
-    initial: PassportPersistenceMigrationState
+    initial: PassportPersistenceMigrationState,
+    fence?: PersistenceMigrationFence
   ): Promise<void> {
     let migration: PassportPersistenceMigrationState | undefined = initial
-    if (!this.privacy.identityPersistenceOptIn) {
-      throw new Error('Persistence migration cannot continue while identity persistence is disabled.')
-    }
+    this.assertPersistenceMigrationFence(initial, fence)
+    let state = await this.readAuthoritativeState(initial.operationId)
+    this.assertPersistenceMigrationFence(initial, fence, state)
 
     if (!migration.rosterComplete) {
-      let state = await this.readAuthoritativeState(`${migration.operationId}:roster`)
       if (rosterStateKey(state.roster) !== rosterStateKey(migration.roster)) {
         try {
           await this.trackStoreOperation(
@@ -2498,66 +2630,96 @@ export class StintPassportService {
               `${migration.operationId}:roster`
             )
           )
+          this.assertPersistenceMigrationFence(initial, fence)
         } catch (error) {
           state = await this.readAuthoritativeState(`${migration.operationId}:roster`)
-          if (rosterStateKey(state.roster) !== rosterStateKey(migration.roster)) {
+          this.assertPersistenceMigrationFence(initial, fence, state)
+          if (rosterStateKey(state.roster) !== rosterStateKey(initial.roster)) {
             throw error
           }
+        }
+        state = await this.readAuthoritativeState(`${migration.operationId}:roster`)
+        this.assertPersistenceMigrationFence(initial, fence, state)
+        if (rosterStateKey(state.roster) !== rosterStateKey(initial.roster)) {
+          throw passportDomainError('Persistence migration roster was superseded.')
         }
       }
       migration = await this.trackStoreOperation(
         this.store.advancePersistenceMigration(migration.operationId, 'roster')
       )
-      this.publishRoster(initial.roster, false)
+      this.assertPersistenceMigrationFence(initial, fence)
+      state = await this.readAuthoritativeState(initial.operationId)
+      this.assertPersistenceMigrationFence(initial, fence, state, migration !== undefined)
     }
 
     if (migration && !migration.passportComplete) {
       if (migration.passport && migration.event) {
-        let state = await this.readAuthoritativeState()
+        state = await this.readAuthoritativeState(initial.operationId)
+        this.assertPersistenceMigrationFence(initial, fence, state)
         let durable = state.passports.find((passport) =>
           passport.identity.stintId === migration!.passport!.identity.stintId
         )
-        const expectedKey = stableJson({
+        const expectedKey = durablePassportStateKey({
           ...migration.passport,
           persisted: true,
           durability: 'durable'
         })
-        if (!durable || stableJson(durable) !== expectedKey) {
+        if (!durable || durablePassportStateKey(durable) !== expectedKey) {
           try {
             durable = await this.trackStoreOperation(
               this.store.persistPassport(
                 migration.passport,
                 migration.event,
-                state.privacyMutationGeneration
+                initial.privacyMutationGeneration
               )
             )
+            this.assertPersistenceMigrationFence(initial, fence)
           } catch (error) {
-            state = await this.readAuthoritativeState()
+            state = await this.readAuthoritativeState(initial.operationId)
+            this.assertPersistenceMigrationFence(initial, fence, state)
             durable = state.passports.find((passport) =>
               passport.identity.stintId === migration!.passport!.identity.stintId
             )
-            if (!durable || stableJson(durable) !== expectedKey) throw error
+            if (!durable || durablePassportStateKey(durable) !== expectedKey) throw error
+          }
+          state = await this.readAuthoritativeState(initial.operationId)
+          this.assertPersistenceMigrationFence(initial, fence, state)
+          durable = state.passports.find((passport) =>
+            passport.identity.stintId === migration!.passport!.identity.stintId
+          )
+          if (!durable || durablePassportStateKey(durable) !== expectedKey) {
+            throw passportDomainError('Persistence migration Passport was superseded.')
           }
         }
-        if (this.current?.identity.stintId === durable.identity.stintId) {
-          this.current = durable
-        }
-        const historyIndex = this.ephemeralHistory.findIndex((passport) =>
-          passport.identity.stintId === durable!.identity.stintId
-        )
-        if (historyIndex >= 0) this.ephemeralHistory[historyIndex] = durable
       }
       migration = await this.trackStoreOperation(
         this.store.advancePersistenceMigration(migration.operationId, 'passport')
       )
+      this.assertPersistenceMigrationFence(initial, fence)
     }
 
-    if (migration) throw new Error('Persistence migration remains incomplete.')
-    const state = await this.readAuthoritativeState()
+    if (migration) throw passportDomainError('Persistence migration remains incomplete.')
+    state = await this.readAuthoritativeState(initial.operationId)
+    this.assertPersistenceMigrationFence(initial, fence, state, false)
     this.reconcileAuthoritativeState(state, {
       reconcileRoster: true,
       reconcilePassports: true
     })
+    const durable = initial.passport
+      ? state.passports.find((passport) =>
+          passport.identity.stintId === initial.passport!.identity.stintId
+        )
+      : undefined
+    this.assertPersistenceMigrationFence(initial, fence, state, false)
+    if (durable && this.current?.identity.stintId === durable.identity.stintId) {
+      this.current = durable
+    }
+    if (durable) {
+      const historyIndex = this.ephemeralHistory.findIndex((passport) =>
+        passport.identity.stintId === durable.identity.stintId
+      )
+      if (historyIndex >= 0) this.ephemeralHistory[historyIndex] = durable
+    }
   }
 
   private async executeDeleteIntent(
@@ -2601,7 +2763,10 @@ export class StintPassportService {
       this.notify()
       return result
     }
-    const recover = async (): Promise<PassportDeleteResult> => {
+    const recover = async (
+      retry: boolean,
+      originalError?: unknown
+    ): Promise<PassportDeleteResult> => {
       let state = await this.readAuthoritativeState(intent.operationId)
       const receipt = state.mutation
       if (
@@ -2616,7 +2781,16 @@ export class StintPassportService {
           reconcileRoster: true,
           reconcilePassports: true
         })
-        throw new Error('Privacy deletion observed an unknown authoritative generation.')
+        throw passportDomainError('Privacy deletion was superseded by authoritative state.')
+      }
+      if (!retry) {
+        this.reconcileAuthoritativeState(state, {
+          reconcileRoster: true,
+          reconcilePassports: true
+        })
+        throw passportDomainError(
+          originalError instanceof Error ? originalError.message : String(originalError)
+        )
       }
       const result = await this.trackStoreOperation(
         this.store.deleteByClass(dataClass, attemptedGeneration, intent.operationId)
@@ -2633,12 +2807,10 @@ export class StintPassportService {
       return applyCommitted(state.mutation.result as PassportDeleteResult, state)
     }
 
-    let commitConfirmed = false
     try {
       const result = await this.trackStoreOperation(
         this.store.deleteByClass(dataClass, attemptedGeneration, intent.operationId)
       )
-      commitConfirmed = true
       applyCommitted(result)
       const state = await this.readAuthoritativeState(intent.operationId)
       if (
@@ -2650,25 +2822,44 @@ export class StintPassportService {
       }
       return applyCommitted(state.mutation.result as PassportDeleteResult, state)
     } catch (error) {
-      if (commitConfirmed) {
-        this.recordPersistenceError(error)
-        throw error
-      }
       if (!this.isAmbiguousPersistenceFailure(error)) {
         this.recordPersistenceError(error)
         throw error
       }
+      if (dataClass !== 'D3') {
+        this.applyLocalClassDeletion(dataClass)
+        this.notify()
+      }
+      try {
+        return await recover(this.shouldRetryKnownHealthFailure(error), error)
+      } catch (recoveryError) {
+        if (!this.isAmbiguousPersistenceFailure(recoveryError)) {
+          this.recordPersistenceError(recoveryError)
+          throw recoveryError
+        }
+      }
+      if (dataClass === 'D3') {
+        this.privacy = {
+          ...this.privacy,
+          identityPersistenceOptIn: false,
+          updatedAt: this.now()
+        }
+        this.applyDurableD3Deletion()
+        this.notify()
+      }
+      let recovered: PassportDeleteResult | undefined
       this.installPendingRecovery(
         intent,
         `${dataClass}:${attemptedGeneration}`,
-        async () => { await recover() }
+        async () => { recovered = await recover(true) },
+        undefined,
+        true
       )
       await this.recoverPendingMutation()
-      const state = await this.readAuthoritativeState(intent.operationId)
-      if (!state.mutation?.result) {
+      if (!recovered) {
         throw new Error('Privacy deletion receipt is unavailable after recovery.')
       }
-      return state.mutation.result as PassportDeleteResult
+      return recovered
     }
   }
 
@@ -2724,7 +2915,7 @@ export class StintPassportService {
           reconcileRoster: true,
           reconcilePassports: true
         })
-        throw new Error('Retention mutation observed an unknown authoritative generation.')
+        throw passportDomainError('Retention mutation was superseded by authoritative state.')
       }
       const results = await this.trackStoreOperation(
         this.store.purgeRetention(
@@ -2836,11 +3027,14 @@ export class StintPassportService {
         this.recordPersistenceError(error)
         throw error
       }
+      applyCommitted()
       let recovered: { quarantinedPath: string } | undefined
       this.installPendingRecovery(
         intent,
         `repair:${intent.operationId}`,
-        async () => { recovered = await recover() }
+        async () => { recovered = await recover() },
+        undefined,
+        true
       )
       await this.recoverPendingMutation()
       if (!recovered) throw new Error('Persistence repair recovery did not return a receipt.')
