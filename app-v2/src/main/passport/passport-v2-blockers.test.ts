@@ -116,7 +116,8 @@ function clientFor(engine: PassportPersistenceEngine): IPassportPersistenceClien
     'getConfig', 'setConfig', 'getPrivacy', 'getPrivacyMutationGeneration',
     'getAuthoritativeState',
     'getRosterMutationGeneration', 'setPrivacy', 'getKillSwitch',
-    'listRoster', 'saveRoster', 'persistPassport', 'listPassports', 'getPassport',
+    'listRoster', 'saveRoster', 'advancePersistenceMigration',
+    'persistPassport', 'listPassports', 'getPassport',
     'getIntegrity', 'verifyActiveStint', 'purgeRetention', 'deleteByClass',
     'exportPackage', 'verifyImportPackage', 'logRuntime', 'eventHeaders', 'metricsSnapshot',
     'persistLifecycle', 'repairPersistence', 'simulateWorkerCrash'
@@ -1851,27 +1852,17 @@ describe('B7 – Explicit roster races against stale automatic seeding', () => {
 
     let explicitStarted!: () => void
     let releaseExplicit!: () => void
-    let seedStarted!: () => void
-    let releaseSeed!: () => void
     const explicitStart = new Promise<void>((resolve) => { explicitStarted = resolve })
     const explicitBarrier = new Promise<void>((resolve) => { releaseExplicit = resolve })
-    const seedStart = new Promise<void>((resolve) => { seedStarted = resolve })
-    const seedBarrier = new Promise<void>((resolve) => { releaseSeed = resolve })
     let saveCalls = 0
-    let seededCandidate: readonly PassportRosterMember[] = []
     const originalSaveRoster = test.client.saveRoster.bind(test.client)
     test.client.saveRoster = vi.fn(async (
       ...args: Parameters<typeof test.client.saveRoster>
     ) => {
-      const [candidate] = args
       saveCalls += 1
       if (saveCalls === 1) {
         explicitStarted()
         await explicitBarrier
-      } else if (saveCalls === 2) {
-        seededCandidate = candidate
-        seedStarted()
-        await seedBarrier
       }
       return originalSaveRoster(...args)
     }) as typeof test.client.saveRoster
@@ -1884,15 +1875,13 @@ describe('B7 – Explicit roster races against stale automatic seeding', () => {
     await explicitStart
 
     const liveStart = outcomeOf(test.tap.emit(driverBDelivery))
-    await seedStart
-
-    expect(seededCandidate.some((member) => member.memberId === 'spotter-1')).toBe(true)
-    expect(seededCandidate.some((member) => member.memberId === driverBRef)).toBe(true)
+    await Promise.resolve()
+    expect(saveCalls).toBe(1)
 
     releaseExplicit()
     await expect(explicitUpdate).resolves.toEqual(explicitRoster)
-    releaseSeed()
     expect(await liveStart).toBe('fulfilled')
+    expect(saveCalls).toBe(1)
 
     const expectedIds = explicitRoster.map((member) => member.memberId).sort()
     const liveSnapshot = await test.service.snapshot()
@@ -2120,5 +2109,401 @@ describe('B9 – Privacy opt-out response-loss reconciliation', () => {
       privacy: { identityPersistenceOptIn: false }
     })
     expect(restarted.store.listPassports()).toEqual([])
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B11 – Serialized validated intents and exact authoritative recovery
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('B11 – Serialized validated mutation intents', () => {
+  it('[blocker-B11-a] invalid concurrent roster input cannot supersede a delayed valid commit', async () => {
+    const test = harness('B11-roster-validation-order')
+    const current = await persistentCurrent(test)
+    const originalSaveRoster = test.client.saveRoster.bind(test.client)
+    let entered!: () => void
+    let release!: () => void
+    const atSave = new Promise<void>((resolve) => { entered = resolve })
+    const barrier = new Promise<void>((resolve) => { release = resolve })
+    test.client.saveRoster = vi.fn(async (
+      ...args: Parameters<typeof test.client.saveRoster>
+    ) => {
+      entered()
+      await barrier
+      return originalSaveRoster(...args)
+    }) as typeof test.client.saveRoster
+    const valid: PassportRosterMember[] = [
+      {
+        memberId: current.identity.driverRef,
+        displayName: 'Driver A',
+        roles: ['driver'],
+        active: true
+      },
+      {
+        memberId: 'engineer-valid',
+        displayName: 'Engineer Valid',
+        roles: ['engineer'],
+        active: true
+      }
+    ]
+
+    const validCommit = test.service.setRoster(valid)
+    await atSave
+    await expect(test.service.setRoster([{
+      memberId: '',
+      displayName: 'Invalid',
+      roles: [],
+      active: true
+    }])).rejects.toThrow(/requires an ID/i)
+    release()
+    await expect(validCommit).resolves.toEqual(valid)
+
+    expect((await test.service.snapshot()).roster).toEqual(valid)
+    expect(test.store.listRoster()).toEqual(valid)
+    const restarted = await restartPersistentHarness(test, 40_000)
+    expect((await restarted.service.snapshot()).roster).toEqual(valid)
+  })
+
+  it('[blocker-B11-b] unrelated retention cannot clear a failed D2 deletion recovery or leak exports', async () => {
+    const test = harness('B11-bound-deletion-recovery')
+    const current = await persistentCurrent(test)
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'fuel-load',
+      status: 'manual-confirmed',
+      owner: { memberId: 'engineer-1', role: 'engineer' },
+      reasonCode: 'D2-PENDING-DELETE-SENTINEL'
+    })
+    const originalDelete = test.client.deleteByClass.bind(test.client)
+    const purge = vi.spyOn(test.client, 'purgeRetention')
+    let failDelete = true
+    test.client.deleteByClass = vi.fn(async (
+      ...args: Parameters<typeof test.client.deleteByClass>
+    ) => {
+      if (args[0] === 'D2' && failDelete) {
+        throw new Error('Persistence worker exited before D2 deletion commit.')
+      }
+      return originalDelete(...args)
+    }) as typeof test.client.deleteByClass
+
+    await expect(test.service.deleteByClass('D2')).rejects.toThrow(/unresolved|exited/i)
+    await expect(test.service.runRetention('explicit')).rejects.toThrow(/unresolved|exited/i)
+    expect(purge).not.toHaveBeenCalled()
+    await expect(test.service.exportPackage('full-local')).rejects.toThrow(/unresolved|exited/i)
+    expect((test.service as unknown as {
+      pendingMutationRecovery?: { kind: string }
+    }).pendingMutationRecovery?.kind).toBe('privacy-delete:D2')
+
+    failDelete = false
+    const exported = await test.service.exportPackage('full-local')
+    const exportedFuel = exported.passports
+      .flatMap((passport) => passport.items)
+      .find((item) => item.id === 'fuel-load')
+    expect(exportedFuel).toMatchObject({ status: 'unknown', evidence: undefined })
+    expect(test.store.getPassport(current.identity.stintId)?.items.find((item) =>
+      item.id === 'fuel-load'
+    )).toMatchObject({ status: 'unknown', evidence: undefined })
+    const restarted = await restartPersistentHarness(test, 45_000)
+    expect(restarted.store.getPassport(current.identity.stintId)?.items.find((item) =>
+      item.id === 'fuel-load'
+    )).toMatchObject({ status: 'unknown', evidence: undefined })
+  })
+
+  it('[blocker-B11-c] opt-in migration resumes roster and passport steps after a roster save failure', async () => {
+    const test = harness('B11-optin-migration-resume')
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    const current = (await test.service.snapshot()).current!
+    await configureRoster(test, current.identity.driverRef)
+    const originalSaveRoster = test.client.saveRoster.bind(test.client)
+    let failMigration = true
+    test.client.saveRoster = vi.fn(async (
+      ...args: Parameters<typeof test.client.saveRoster>
+    ) => {
+      if (args[2]?.endsWith(':roster') && failMigration) {
+        throw new Error('Persistence worker storage failure during roster migration.')
+      }
+      return originalSaveRoster(...args)
+    }) as typeof test.client.saveRoster
+    const desired = {
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 20_000
+    }
+
+    await expect(test.service.setPrivacy(desired)).rejects.toThrow(/roster migration|unresolved/i)
+    expect(test.store.getAuthoritativeState().persistenceMigration).toMatchObject({
+      rosterComplete: false,
+      passportComplete: false
+    })
+    await expect(test.service.exportPackage('full-local')).rejects.toThrow(/unresolved|migration/i)
+
+    failMigration = false
+    await expect(test.service.setPrivacy({
+      ...desired,
+      updatedAt: 21_000
+    })).resolves.toMatchObject({ identityPersistenceOptIn: true })
+    const authoritative = test.store.getAuthoritativeState()
+    expect(authoritative.persistenceMigration).toBeUndefined()
+    expect(authoritative.roster).toEqual((await test.service.snapshot()).roster)
+    expect(authoritative.passports.some((passport) =>
+      passport.identity.stintId === current.identity.stintId
+    )).toBe(true)
+
+    const restarted = await restartPersistentHarness(test, 50_000)
+    const restartedSnapshot = await restarted.service.snapshot()
+    expect(restartedSnapshot.roster).toEqual(authoritative.roster)
+    expect(restartedSnapshot.history.some((passport) =>
+      passport.identity.stintId === current.identity.stintId
+    )).toBe(true)
+  })
+
+  it('[blocker-B11-c] restart resumes a durably recorded incomplete opt-in migration', async () => {
+    const test = harness('B11-optin-migration-restart')
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    const current = (await test.service.snapshot()).current!
+    await configureRoster(test, current.identity.driverRef)
+    const originalSaveRoster = test.client.saveRoster.bind(test.client)
+    test.client.saveRoster = vi.fn(async (
+      ...args: Parameters<typeof test.client.saveRoster>
+    ) => {
+      if (args[2]?.endsWith(':roster')) {
+        throw new Error('Persistence worker storage failure during roster migration.')
+      }
+      return originalSaveRoster(...args)
+    }) as typeof test.client.saveRoster
+
+    await expect(test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 20_000
+    })).rejects.toThrow(/roster migration|unresolved/i)
+    expect(test.store.getAuthoritativeState().persistenceMigration).toMatchObject({
+      rosterComplete: false,
+      passportComplete: false
+    })
+
+    const internal = test.service as unknown as {
+      subscription: Phase02TapSubscription
+      retentionTimer: ReturnType<typeof setInterval> | null
+    }
+    internal.subscription.dispose()
+    if (internal.retentionTimer) clearInterval(internal.retentionTimer)
+    services.splice(services.indexOf(test.service), 1)
+    test.store.close()
+    stores.splice(stores.indexOf(test.store), 1)
+
+    const restartedStore = new PassportPersistenceEngine({
+      path: join(test.dir, 'passport.db'),
+      now: () => 50_000
+    })
+    stores.push(restartedStore)
+    const restartedService = new StintPassportService(
+      { ...test.ctx, phase02Tap: new FakeTap() } as unknown as ModuleContext,
+      clientFor(restartedStore),
+      () => 50_000
+    )
+    services.push(restartedService)
+
+    const restartedSnapshot = await restartedService.snapshot()
+    const authoritative = restartedStore.getAuthoritativeState()
+    expect(authoritative.persistenceMigration).toBeUndefined()
+    expect(authoritative.roster).toEqual(restartedSnapshot.roster)
+    expect(authoritative.passports.find((passport) =>
+      passport.identity.stintId === current.identity.stintId
+    )).toMatchObject({ lifecycle: 'interrupted', persisted: true, durability: 'durable' })
+  })
+
+  it('[blocker-B11-c] opt-in migration and a newer explicit roster serialize without deadlock', async () => {
+    const test = harness('B11-optin-roster-serialization')
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    const current = (await test.service.snapshot()).current!
+    await configureRoster(test, current.identity.driverRef)
+    const originalSaveRoster = test.client.saveRoster.bind(test.client)
+    let migrationStarted!: () => void
+    let releaseMigration!: () => void
+    const started = new Promise<void>((resolve) => { migrationStarted = resolve })
+    const barrier = new Promise<void>((resolve) => { releaseMigration = resolve })
+    test.client.saveRoster = vi.fn(async (
+      ...args: Parameters<typeof test.client.saveRoster>
+    ) => {
+      if (args[2]?.endsWith(':roster')) {
+        migrationStarted()
+        await barrier
+      }
+      return originalSaveRoster(...args)
+    }) as typeof test.client.saveRoster
+    const explicitRoster: PassportRosterMember[] = [
+      {
+        memberId: current.identity.driverRef,
+        displayName: 'Driver A',
+        roles: ['driver'],
+        active: true
+      },
+      {
+        memberId: 'engineer-new',
+        displayName: 'Engineer New',
+        roles: ['engineer'],
+        active: true
+      }
+    ]
+
+    const optIn = test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 20_000
+    })
+    await started
+    const explicit = test.service.setRoster(explicitRoster)
+    releaseMigration()
+    await expect(Promise.all([optIn, explicit])).resolves.toBeDefined()
+
+    expect((await test.service.snapshot()).roster).toEqual(explicitRoster)
+    expect(test.store.listRoster()).toEqual(explicitRoster)
+    expect(test.store.getAuthoritativeState().persistenceMigration).toBeUndefined()
+  })
+
+  it('[blocker-B11-d] retention COMMIT response loss reconciles one stable receipt and sanitized state', async () => {
+    const test = harness('B11-retention-response-loss')
+    const current = await persistentCurrent(test)
+    await test.service.setPrivacy({
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 1, D2: 1, D3: 1 },
+      updatedAt: 10_000
+    })
+    test.setNow(2 * 86_400_000 + 20_000)
+    const originalPurge = test.client.purgeRetention.bind(test.client)
+    let calls = 0
+    let operationId: string | undefined
+    test.client.purgeRetention = vi.fn(async (
+      ...args: Parameters<typeof test.client.purgeRetention>
+    ) => {
+      calls += 1
+      operationId = args[1]
+      const committed = await originalPurge(...args)
+      throw new Error('Persistence process exited after retention COMMIT.')
+      return committed
+    }) as typeof test.client.purgeRetention
+
+    const retentionResults = await test.service.runRetention('explicit')
+    expect(retentionResults.some((result) => result.dataClass === 'D2')).toBe(true)
+    expect(calls).toBe(1)
+    expect(operationId).toMatch(/^privacy-retention:/)
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current?.items.find((item) => item.id === 'fuel-load')).toMatchObject({
+      status: 'unknown',
+      evidence: undefined
+    })
+    expect(test.store.getAuthoritativeState(operationId).mutation).toMatchObject({
+      kind: 'privacy-retention',
+      operationId
+    })
+
+    const restarted = await restartPersistentHarness(test, 2 * 86_400_000 + 30_000)
+    expect(restarted.store.getPassport(current.identity.stintId)?.items.find((item) =>
+      item.id === 'fuel-load'
+    )).toMatchObject({ status: 'unknown', evidence: undefined })
+  })
+
+  it.each([
+    { dataClass: 'D1' as const, itemId: 'audio-comms' as const },
+    { dataClass: 'D2' as const, itemId: 'fuel-load' as const }
+  ])('[blocker-B11-e] $dataClass deletion atomically demotes Ready live, durable, and restarted state', async ({
+    dataClass,
+    itemId
+  }) => {
+    const test = harness(`B11-ready-demotion-${dataClass}`)
+    const { current, challenge } = await preparedPersistentChallenge(test)
+    await test.service.completeChallenge({
+      stintId: current.identity.stintId,
+      challengeId: challenge.challengeId,
+      response: challenge.nonce,
+      owner: { memberId: current.identity.driverRef, role: 'driver' }
+    })
+    expect((await test.service.snapshot()).current?.lifecycle).toBe('ready')
+
+    await test.service.deleteByClass(dataClass)
+    const live = await test.service.snapshot()
+    expect(live.current).toMatchObject({
+      lifecycle: 'awaiting-checklist',
+      challengeCompletedAt: undefined,
+      challengeOwner: undefined
+    })
+    expect(live.challenge).toBeUndefined()
+    expect(live.current?.items.find((item) => item.id === itemId)).toMatchObject({
+      status: 'unknown',
+      evidence: undefined
+    })
+    expect(test.store.getPassport(current.identity.stintId)).toMatchObject({
+      lifecycle: 'awaiting-checklist',
+      challengeCompletedAt: undefined,
+      challengeOwner: undefined
+    })
+
+    const restarted = await restartPersistentHarness(test, 55_000)
+    const durable = restarted.store.getPassport(current.identity.stintId)
+    expect(durable?.lifecycle).not.toBe('ready')
+    expect(durable?.challengeCompletedAt).toBeUndefined()
+    expect(durable?.items.find((item) => item.id === itemId)).toMatchObject({
+      status: 'unknown',
+      evidence: undefined
+    })
+  })
+
+  it('[blocker-B11-f] repair COMMIT response loss blocks stale export and retries with the stable operation', async () => {
+    const test = harness('B11-repair-response-loss')
+    const current = await persistentCurrent(test)
+    const sentinel = current.identity.driverRef
+    const originalRepair = test.client.repairPersistence
+    let allowRecovery = false
+    let calls = 0
+    let committedOperationId: string | undefined
+    test.client.repairPersistence = vi.fn(async (
+      _token: string,
+      operationId?: string
+    ) => {
+      calls += 1
+      if (calls === 1) {
+        committedOperationId = operationId
+        test.store.setPrivacy(
+          {
+            ...test.store.getPrivacy(),
+            identityPersistenceOptIn: false,
+            updatedAt: 60_000
+          },
+          test.store.getPrivacyMutationGeneration() + 1,
+          'privacy:repair-emulation'
+        )
+        throw new Error('Persistence process exited after repair erase COMMIT.')
+      }
+      if (!allowRecovery) throw new Error('Persistence repair worker is unavailable.')
+      return { quarantinedPath: join(test.dir, 'repair-quarantine.json') }
+    }) as typeof originalRepair
+
+    await expect(test.service.repairPersistence('repair-token-sentinel'))
+      .rejects.toThrow(/unresolved|unavailable/i)
+    expect(committedOperationId).toMatch(/^persistence-repair:/)
+    expect(JSON.stringify(test.store.exportPackage('full-local'))).not.toContain(sentinel)
+    await expect(test.service.exportPackage('full-local')).rejects.toThrow(/unresolved|unavailable/i)
+
+    allowRecovery = true
+    await expect(test.service.repairPersistence('repair-token-sentinel')).resolves.toMatchObject({
+      quarantinedPath: expect.stringContaining('repair-quarantine')
+    })
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current).toBeNull()
+    expect(snapshot.history).toEqual([])
+    expect(snapshot.roster).toEqual([])
+    expect(JSON.stringify(await test.service.exportPackage('full-local'))).not.toContain(sentinel)
+    expect(calls).toBeGreaterThanOrEqual(4)
+
+    const restarted = await restartPersistentHarness(test, 65_000)
+    expect(await restarted.service.snapshot()).toMatchObject({
+      current: null,
+      history: [],
+      roster: []
+    })
   })
 })

@@ -119,7 +119,8 @@ function clientFor(engine: PassportPersistenceEngine): PassportPersistenceClient
     'getConfig', 'setConfig', 'getPrivacy', 'getPrivacyMutationGeneration',
     'getAuthoritativeState',
     'getRosterMutationGeneration', 'setPrivacy', 'getKillSwitch',
-    'listRoster', 'saveRoster', 'persistPassport', 'listPassports', 'getPassport',
+    'listRoster', 'saveRoster', 'advancePersistenceMigration',
+    'persistPassport', 'listPassports', 'getPassport',
     'getIntegrity', 'verifyActiveStint', 'purgeRetention', 'deleteByClass',
     'exportPackage', 'logRuntime', 'eventHeaders', 'metricsSnapshot'
   ]) {

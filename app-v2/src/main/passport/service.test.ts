@@ -117,7 +117,8 @@ function clientFor(engine: PassportPersistenceEngine): PassportPersistenceClient
     'getConfig', 'setConfig', 'getPrivacy', 'getPrivacyMutationGeneration',
     'getAuthoritativeState',
     'getRosterMutationGeneration', 'setPrivacy', 'getKillSwitch',
-    'listRoster', 'saveRoster', 'persistPassport', 'listPassports', 'getPassport',
+    'listRoster', 'saveRoster', 'advancePersistenceMigration',
+    'persistPassport', 'listPassports', 'getPassport',
     'getIntegrity', 'verifyActiveStint', 'purgeRetention', 'deleteByClass',
     'exportPackage', 'verifyImportPackage', 'logRuntime', 'eventHeaders', 'metricsSnapshot'
   ]) {
@@ -1129,10 +1130,10 @@ describe('StintPassportService lifecycle and privacy', () => {
       const retentionBarrier = new Promise<void>((resolve) => { releaseRetention = resolve })
       const deleteBarrier = new Promise<void>((resolve) => { releaseDelete = resolve })
       const auditBarrier = new Promise<void>((resolve) => { releaseAudit = resolve })
-      test.client.purgeRetention = vi.fn(async () => {
+      test.client.purgeRetention = vi.fn(async (...args: Parameters<typeof test.store.purgeRetention>) => {
         retentionEntered()
         await retentionBarrier
-        return []
+        return test.store.purgeRetention(...args)
       })
       test.client.runFullAudit = vi.fn(async () => {
         auditEntered()
@@ -1142,10 +1143,10 @@ describe('StintPassportService lifecycle and privacy', () => {
           durationMs: 0
         }
       })
-      test.client.deleteByClass = vi.fn(async () => {
+      test.client.deleteByClass = vi.fn(async (...args: Parameters<typeof test.store.deleteByClass>) => {
         deleteEntered()
         await deleteBarrier
-        return { dataClass: 'D1' as const, deletedStints: 0, redactedEvidence: 0 }
+        return test.store.deleteByClass(...args)
       })
       const close = vi.fn(async () => undefined)
       test.client.close = close

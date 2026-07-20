@@ -671,6 +671,55 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     await expect(client.getPrivacyMutationGeneration()).resolves.toBe(1)
   }, 15_000)
 
+  it('[blocker-B11-i] real post-COMMIT retention exit exposes one authoritative receipt and idempotent retry', async () => {
+    const path = phase3Database('retention-postcommit')
+    const realWorkers: RealPersistenceProcess[] = []
+    const client = new PassportPersistenceClient({
+      path,
+      restartDelayMs: 1,
+      workerFactory: () => {
+        const worker = phase3Worker()
+        realWorkers.push(worker)
+        return worker as any
+      }
+    })
+    clients.push(client)
+    await waitForPhase3(() => !client.status().inFlight)
+    await client.setPrivacy({
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 1, D2: 1, D3: 1 },
+      updatedAt: 2_000
+    })
+    await client.persistPassport(phase3Passport(1), phase3Event(1))
+    const retainedAt = 2 * 86_400_000
+    const operationId = 'privacy-retention:real-postcommit-exit'
+    await configurePhase3Crash(client, 'purgeRetention', 'after-commit-before-response')
+
+    await expect(client.purgeRetention(retainedAt, operationId, 1))
+      .rejects.toThrow(/exited/i)
+    await waitForPhase3(() => realWorkers.length >= 2 && !client.status().inFlight)
+    const authoritative = await client.getAuthoritativeState(operationId)
+    expect(authoritative).toMatchObject({
+      privacyMutationGeneration: 1,
+      mutation: {
+        operationId,
+        kind: 'privacy-retention',
+        generation: 1,
+        result: { retainedAt }
+      }
+    })
+    expect(authoritative.passports[0].items
+      .filter((item) => PASSPORT_ITEM_DEFINITIONS.find((definition) =>
+        definition.id === item.id
+      )?.dataClass !== 'D3')
+      .every((item) => item.evidence === undefined)).toBe(true)
+    const retained = (authoritative.mutation?.result as {
+      results: unknown[]
+    }).results
+    await expect(client.purgeRetention(retainedAt, operationId, 1)).resolves.toEqual(retained)
+    await expect(client.getPrivacyMutationGeneration()).resolves.toBe(1)
+  }, 15_000)
+
   it('[supported] ignores stale, duplicate, and future responses without resolving the wrong request', async () => {
     const { client, workers } = createClient([
       (worker, request) => {

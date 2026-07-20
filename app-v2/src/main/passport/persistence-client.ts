@@ -16,6 +16,8 @@ import type {
   PassportAuthoritativeState,
   PassportEventHeader,
   PassportExportPackage,
+  PassportPersistenceMigrationPlan,
+  PassportPersistenceMigrationState,
   PassportStoreEvent,
   PassportStoreMetrics
 } from './persistence-engine'
@@ -299,11 +301,12 @@ export class PassportPersistenceClient {
   setPrivacy(
     value: PassportPrivacySettings,
     privacyMutationGeneration?: number,
-    operationId?: string
+    operationId?: string,
+    migration?: PassportPersistenceMigrationPlan
   ): Promise<PassportPrivacySettings> {
     return this.request(
       'setPrivacy',
-      [value, privacyMutationGeneration, operationId],
+      [value, privacyMutationGeneration, operationId, migration],
       { bypassKill: true, bypassCircuit: true }
     )
   }
@@ -316,6 +319,15 @@ export class PassportPersistenceClient {
     operationId?: string
   ): Promise<PassportRosterMember[]> {
     return this.request('saveRoster', [value, expectedGeneration, operationId])
+  }
+  advancePersistenceMigration(
+    operationId: string,
+    step: 'roster' | 'passport'
+  ): Promise<PassportPersistenceMigrationState | undefined> {
+    return this.request('advancePersistenceMigration', [operationId, step], {
+      bypassKill: true,
+      bypassCircuit: true
+    })
   }
   persistPassport(
     passport: StintPassport,
@@ -338,8 +350,19 @@ export class PassportPersistenceClient {
     if (integrity.state === 'corrupt') this.quarantined = true
     return { integrity, durationMs: Math.max(0, this.now() - started) }
   }
-  purgeRetention(): Promise<PassportDeleteResult[]> {
-    return this.request('purgeRetention', [], { bypassKill: true, bypassCircuit: true })
+  purgeRetention(
+    retainedAt?: number,
+    operationId?: string,
+    privacyMutationGeneration?: number
+  ): Promise<PassportDeleteResult[]> {
+    return this.request(
+      'purgeRetention',
+      [retainedAt, operationId, privacyMutationGeneration],
+      {
+      bypassKill: true,
+      bypassCircuit: true
+      }
+    )
   }
   deleteByClass(
     value: PassportDataClass,
@@ -388,8 +411,8 @@ export class PassportPersistenceClient {
   simulateWorkerCrash(): Promise<void> {
     return this.request('simulateCrash', [], { bypassKill: true, deadlineMs: 500 })
   }
-  repairPersistence(token: string): Promise<{ quarantinedPath: string }> {
-    return this.request<{ quarantinedPath: string }>('repairPersistence', [token], {
+  repairPersistence(token: string, operationId?: string): Promise<{ quarantinedPath: string }> {
+    return this.request<{ quarantinedPath: string }>('repairPersistence', [token, operationId], {
       bypassKill: true,
       bypassCircuit: true,
       deadlineMs: 10_000

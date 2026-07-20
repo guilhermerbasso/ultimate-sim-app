@@ -1460,6 +1460,31 @@ describe('PassportStore privacy and incremental integrity', () => {
     expect(redacted.count).toBeGreaterThan(0)
   })
 
+  it('[blocker-B11-h] applies retention idempotently with a stable receipt and generation fence', () => {
+    const { store } = open(join(scratch('retention-receipt'), 'passport.db'), 1_000)
+    store.setPrivacy({
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 1, D2: 1, D3: 1 },
+      updatedAt: 0
+    })
+    store.persistPassport(passport(), event(1))
+    const retainedAt = 2 * 86_400_000
+    const operationId = 'privacy-retention:stable-receipt-test'
+
+    const first = store.purgeRetention(retainedAt, operationId, 1)
+    const retry = store.purgeRetention(retainedAt, operationId, 1)
+    expect(retry).toEqual(first)
+    expect(store.getPrivacyMutationGeneration()).toBe(1)
+    expect(store.getAuthoritativeState(operationId).mutation).toMatchObject({
+      operationId,
+      kind: 'privacy-retention',
+      generation: 1,
+      result: { retainedAt, results: first }
+    })
+    expect(() => store.purgeRetention(retainedAt + 1, operationId, 2))
+      .toThrow(/operation ID was reused/i)
+  })
+
   it('deletes D1 queue/runtime diagnostics through the same data-class control', () => {
     const { store } = open(join(scratch('d1-runtime'), 'passport.db'), 1_000)
     store.logRuntime('tap-overflow', { dropped: 3 })

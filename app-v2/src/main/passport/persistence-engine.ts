@@ -137,14 +137,32 @@ export interface PassportExportPackage {
 export type PassportMutationKind =
   | 'privacy-settings'
   | `privacy-delete:${PassportDataClass}`
+  | 'privacy-retention'
   | 'roster-save'
+
+export interface PassportRetentionReceiptResult {
+  retainedAt: number
+  results: PassportDeleteResult[]
+}
+
+export interface PassportPersistenceMigrationPlan {
+  operationId: string
+  roster: PassportRosterMember[]
+  passport?: StintPassport
+  event?: PassportStoreEvent
+}
+
+export interface PassportPersistenceMigrationState extends PassportPersistenceMigrationPlan {
+  rosterComplete: boolean
+  passportComplete: boolean
+}
 
 export interface PassportMutationReceipt {
   operationId: string
   kind: PassportMutationKind
   generation: number
   resultHash: string
-  result?: PassportDeleteResult | PassportPrivacySettings
+  result?: PassportDeleteResult | PassportPrivacySettings | PassportRetentionReceiptResult
 }
 
 export interface PassportAuthoritativeState {
@@ -154,6 +172,7 @@ export interface PassportAuthoritativeState {
   rosterMutationGeneration: number
   passports: StintPassport[]
   mutation?: PassportMutationReceipt
+  persistenceMigration?: PassportPersistenceMigrationState
 }
 
 const SCHEMA_SQL = `
@@ -327,6 +346,43 @@ function rosterIntentHash(value: readonly PassportRosterMember[]): string {
     roles: [...member.roles].sort(),
     active: member.active
   })).sort((left, right) => left.memberId.localeCompare(right.memberId)))
+}
+
+function privacyOperationHash(
+  value: PassportPrivacySettings,
+  migration?: PassportPersistenceMigrationPlan
+): string {
+  if (!migration) return privacyIntentHash(value)
+  return hash({
+    privacy: {
+      identityPersistenceOptIn: value.identityPersistenceOptIn,
+      retentionDays: value.retentionDays
+    },
+    migration: migration
+      ? {
+          operationId: migration.operationId,
+          roster: rosterIntentHash(migration.roster),
+          passport: migration.passport ? hash(migration.passport) : undefined,
+          event: migration.event ? hash(migration.event) : undefined
+        }
+      : undefined
+  })
+}
+
+function coherentAfterPrivacyRedaction(passport: StintPassport): StintPassport {
+  if (passport.lifecycle !== 'ready') return passport
+  const blocksReadiness = passport.items.some((item) => {
+    const definition = PASSPORT_ITEM_DEFINITIONS.find((candidate) => candidate.id === item.id)
+    return definition?.critical === true &&
+      (item.status === 'unknown' || item.status === 'mismatch' || item.status === 'expired')
+  })
+  if (!blocksReadiness) return passport
+  return {
+    ...passport,
+    lifecycle: 'awaiting-checklist',
+    challengeCompletedAt: undefined,
+    challengeOwner: undefined
+  }
 }
 
 function hashBytes(value: Uint8Array): string {
@@ -589,6 +645,10 @@ export class PassportPersistenceEngine {
   private anchorReady = false
   readonly databasePath: string
 
+  get databaseIdentity(): string {
+    return this.databaseId
+  }
+
   constructor(options: PassportStoreOptions) {
     this.databasePath = options.path
     this.anchorPath = options.path === ':memory:' ? '' : `${options.path}.anchor.json`
@@ -672,23 +732,29 @@ export class PassportPersistenceEngine {
       roster: privacy.identityPersistenceOptIn ? this.listRoster() : [],
       rosterMutationGeneration: this.getRosterMutationGeneration(),
       passports: privacy.identityPersistenceOptIn ? this.listPassports(limit) : [],
-      mutation: operationId ? this.readMutationReceipt(operationId) : undefined
+      mutation: operationId ? this.readMutationReceipt(operationId) : undefined,
+      persistenceMigration: this.readPersistenceMigration()
     }
   }
 
   setPrivacy(
     privacy: PassportPrivacySettings,
     privacyMutationGeneration?: number,
-    operationId?: string
+    operationId?: string,
+    migration?: PassportPersistenceMigrationPlan
   ): PassportPrivacySettings {
     this.assertWritable()
     const next = sanitizePrivacy(privacy, this.now())
     const mutationId = this.normalizeMutationId(operationId)
+    const normalizedMigration = migration
+      ? this.normalizePersistenceMigration(migration)
+      : undefined
+    const operationHash = privacyOperationHash(next, normalizedMigration)
     const receipt = mutationId ? this.readMutationReceipt(mutationId) : undefined
     if (receipt) {
       if (
         receipt.kind !== 'privacy-settings' ||
-        receipt.resultHash !== privacyIntentHash(next)
+        receipt.resultHash !== operationHash
       ) {
         throw persistenceDomainError('Passport privacy mutation operation ID was reused.')
       }
@@ -699,6 +765,11 @@ export class PassportPersistenceEngine {
     const currentGeneration = this.getPrivacyMutationGeneration()
     const disablesPersistence =
       currentPrivacy.identityPersistenceOptIn && !next.identityPersistenceOptIn
+    const enablesPersistence =
+      !currentPrivacy.identityPersistenceOptIn && next.identityPersistenceOptIn
+    if (normalizedMigration && !enablesPersistence) {
+      throw persistenceDomainError('Passport persistence migration requires a new privacy opt-in.')
+    }
     const expectedGeneration = privacyMutationGeneration ?? (
       disablesPersistence ? currentGeneration + 1 : currentGeneration
     )
@@ -722,6 +793,7 @@ export class PassportPersistenceEngine {
         bool(current?.kill_switch)
       )
       if (!next.identityPersistenceOptIn) {
+        this.clearPersistenceMigrationInTransaction()
         const ids = (this.db.prepare('SELECT stint_id FROM stint_passport').all() as Row[])
           .map((row) => text(row.stint_id))
         if (ids.length > 0) this.appendDeletionTombstone('D3', ids)
@@ -741,13 +813,15 @@ export class PassportPersistenceEngine {
           lastCheckedAt: this.now(),
           message: 'No persisted Passport event chain remains.'
         }
+      } else if (enablesPersistence && normalizedMigration) {
+        this.writePersistenceMigrationInTransaction(normalizedMigration)
       }
       if (mutationId) {
         this.writeMutationReceipt({
           operationId: mutationId,
           kind: 'privacy-settings',
           generation: expectedGeneration,
-          resultHash: privacyIntentHash(next),
+          resultHash: operationHash,
           result: next
         })
       }
@@ -843,6 +917,35 @@ export class PassportPersistenceEngine {
         })
       }
       return normalized
+    })
+  }
+
+  advancePersistenceMigration(
+    operationId: string,
+    step: 'roster' | 'passport'
+  ): PassportPersistenceMigrationState | undefined {
+    this.assertWritable()
+    const normalizedId = this.normalizeMutationId(operationId)
+    if (!normalizedId) {
+      throw persistenceDomainError('Passport persistence migration operation ID is required.')
+    }
+    return this.transaction(() => {
+      const migration = this.readPersistenceMigration()
+      if (!migration) return undefined
+      if (migration.operationId !== normalizedId) {
+        throw persistenceDomainError('Passport persistence migration operation ID was superseded.')
+      }
+      const next: PassportPersistenceMigrationState = {
+        ...migration,
+        rosterComplete: migration.rosterComplete || step === 'roster',
+        passportComplete: migration.passportComplete || step === 'passport'
+      }
+      if (next.rosterComplete && next.passportComplete) {
+        this.clearPersistenceMigrationInTransaction()
+        return undefined
+      }
+      this.writeMetaValueInTransaction('persistence_migration', stable(next))
+      return next
     })
   }
 
@@ -1057,25 +1160,69 @@ export class PassportPersistenceEngine {
     return { ...this.integrity }
   }
 
-  purgeRetention(now = this.now()): PassportDeleteResult[] {
+  purgeRetention(
+    now = this.now(),
+    operationId?: string,
+    privacyMutationGeneration?: number
+  ): PassportDeleteResult[] {
     this.assertWritable()
-    const privacy = this.getPrivacy()
-    const results: PassportDeleteResult[] = []
-    const d3Cutoff = now - privacy.retentionDays.D3 * 86_400_000
-    const d3Redactions = this.redactEvidenceByClass('D3', d3Cutoff, true) +
-      this.redactClosedIdentity(d3Cutoff)
-    if (d3Redactions > 0) {
-      results.push({ deletedStints: 0, redactedEvidence: d3Redactions, dataClass: 'D3' })
+    if (!Number.isSafeInteger(now) || now < 0) {
+      throw persistenceDomainError('Passport retention timestamp is invalid.')
     }
-    for (const dataClass of ['D1', 'D2'] as const) {
-      const cutoff = now - privacy.retentionDays[dataClass] * 86_400_000
-      const redactedEvidence = this.redactEvidenceByClass(dataClass, cutoff) +
-        (dataClass === 'D1' ? this.deleteRuntimeLogs(cutoff) : 0)
-      if (redactedEvidence > 0) {
-        results.push({ deletedStints: 0, redactedEvidence, dataClass })
+    const mutationId = this.normalizeMutationId(operationId)
+    const receipt = mutationId ? this.readMutationReceipt(mutationId) : undefined
+    if (receipt) {
+      const result = receipt.result as PassportRetentionReceiptResult | undefined
+      if (
+        receipt.kind !== 'privacy-retention' ||
+        !result ||
+        result.retainedAt !== now ||
+        !Array.isArray(result.results)
+      ) {
+        throw persistenceDomainError('Passport retention operation ID was reused.')
       }
+      return result.results
     }
-    return results
+    const currentGeneration = this.getPrivacyMutationGeneration()
+    const nextGeneration = privacyMutationGeneration ?? currentGeneration + 1
+    if (nextGeneration !== currentGeneration + 1) {
+      throw persistenceDomainError('Passport retention mutation generation conflict.')
+    }
+    return this.transaction(() => {
+      this.assertMetaGeneration(
+        'privacy_mutation_generation',
+        currentGeneration,
+        'Passport retention mutation generation conflict.'
+      )
+      this.writeMetaGeneration('privacy_mutation_generation', nextGeneration)
+      const privacy = this.getPrivacy()
+      const results: PassportDeleteResult[] = []
+      const d3Cutoff = now - privacy.retentionDays.D3 * 86_400_000
+      const d3Redactions = this.redactEvidenceByClass('D3', d3Cutoff, true, true) +
+        this.redactClosedIdentity(d3Cutoff, true)
+      if (d3Redactions > 0) {
+        results.push({ deletedStints: 0, redactedEvidence: d3Redactions, dataClass: 'D3' })
+      }
+      for (const dataClass of ['D1', 'D2'] as const) {
+        const cutoff = now - privacy.retentionDays[dataClass] * 86_400_000
+        const redactedEvidence = this.redactEvidenceByClass(dataClass, cutoff, false, true) +
+          (dataClass === 'D1' ? this.deleteRuntimeLogs(cutoff) : 0)
+        if (redactedEvidence > 0) {
+          results.push({ deletedStints: 0, redactedEvidence, dataClass })
+        }
+      }
+      if (mutationId) {
+        const result: PassportRetentionReceiptResult = { retainedAt: now, results }
+        this.writeMutationReceipt({
+          operationId: mutationId,
+          kind: 'privacy-retention',
+          generation: nextGeneration,
+          resultHash: hash(result),
+          result
+        })
+      }
+      return results
+    })
   }
 
   deleteByClass(
@@ -1116,6 +1263,7 @@ export class PassportPersistenceEngine {
         this.writeMetaGeneration('privacy_mutation_generation', nextPrivacyGeneration)
         const rosterGeneration = this.getRosterMutationGeneration()
         this.writeMetaGeneration('roster_mutation_generation', rosterGeneration + 1)
+        this.clearPersistenceMigrationInTransaction()
         if (ids.length > 0) this.appendDeletionTombstone('D3', ids)
         this.db.exec('DELETE FROM passport_roster')
         this.db.exec('DELETE FROM stint_passport')
@@ -1505,6 +1653,97 @@ export class PassportPersistenceEngine {
     return value
   }
 
+  private readMetaValue(key: string): string | undefined {
+    const row = this.db.prepare('SELECT value FROM passport_meta WHERE key = ?').get(key) as Row | undefined
+    return row ? text(row.value) : undefined
+  }
+
+  private writeMetaValueInTransaction(key: string, value: string): void {
+    this.db.prepare(`
+      INSERT INTO passport_meta(key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(key, value)
+  }
+
+  private clearPersistenceMigrationInTransaction(): void {
+    this.db.prepare("DELETE FROM passport_meta WHERE key = 'persistence_migration'").run()
+  }
+
+  private normalizePersistenceMigration(
+    migration: PassportPersistenceMigrationPlan
+  ): PassportPersistenceMigrationState {
+    const operationId = this.normalizeMutationId(migration.operationId)
+    if (!operationId) {
+      throw persistenceDomainError('Passport persistence migration operation ID is required.')
+    }
+    const roster = migration.roster.map(sanitizeRosterMember)
+    if (new Set(roster.map((member) => member.memberId)).size !== roster.length) {
+      throw persistenceDomainError('Passport persistence migration roster IDs must be unique.')
+    }
+    if ((migration.passport === undefined) !== (migration.event === undefined)) {
+      throw persistenceDomainError('Passport persistence migration requires both passport and event.')
+    }
+    const passport = migration.passport
+      ? decodeStintPassport(encodeStintPassport(migration.passport))
+      : undefined
+    const event = migration.event
+      ? {
+          ...migration.event,
+          canonicalEvent: decodeRaceOpsEvent(encodeRaceOpsEvent(migration.event.canonicalEvent))
+        }
+      : undefined
+    if (passport && event && event.itemId && !passport.items.some((item) => item.id === event.itemId)) {
+      throw persistenceDomainError('Passport persistence migration event item is invalid.')
+    }
+    return {
+      operationId,
+      roster,
+      passport,
+      event,
+      rosterComplete: roster.length === 0,
+      passportComplete: passport === undefined
+    }
+  }
+
+  private writePersistenceMigrationInTransaction(
+    migration: PassportPersistenceMigrationState
+  ): void {
+    if (migration.rosterComplete && migration.passportComplete) {
+      this.clearPersistenceMigrationInTransaction()
+      return
+    }
+    this.writeMetaValueInTransaction('persistence_migration', stable(migration))
+  }
+
+  private readPersistenceMigration(): PassportPersistenceMigrationState | undefined {
+    const value = this.readMetaValue('persistence_migration')
+    if (!value) return undefined
+    const parsed = parse<PassportPersistenceMigrationState | undefined>(value, undefined)
+    if (
+      !parsed ||
+      typeof parsed.operationId !== 'string' ||
+      !Array.isArray(parsed.roster) ||
+      typeof parsed.rosterComplete !== 'boolean' ||
+      typeof parsed.passportComplete !== 'boolean' ||
+      ((parsed.passport === undefined) !== (parsed.event === undefined))
+    ) {
+      throw persistenceDomainError('Passport persistence migration state is invalid.')
+    }
+    return {
+      ...parsed,
+      roster: parsed.roster.map(sanitizeRosterMember),
+      passport: parsed.passport
+        ? decodeStintPassport(encodeStintPassport(parsed.passport))
+        : undefined,
+      event: parsed.event
+        ? {
+            ...parsed.event,
+            canonicalEvent: decodeRaceOpsEvent(encodeRaceOpsEvent(parsed.event.canonicalEvent))
+          }
+        : undefined
+    }
+  }
+
   private metaGeneration(key: string): number {
     const value = Number(this.readOrCreateMeta(key, () => '0'))
     if (!Number.isSafeInteger(value) || value < 0) {
@@ -1708,7 +1947,8 @@ export class PassportPersistenceEngine {
       mutationRoot: hash({
         privacyGeneration: this.getPrivacyMutationGeneration(),
         rosterGeneration: this.getRosterMutationGeneration(),
-        receipts: mutationReceipts
+        receipts: mutationReceipts,
+        persistenceMigration: this.readPersistenceMigration()
       })
     }
   }
@@ -2740,10 +2980,10 @@ export class PassportPersistenceEngine {
       for (const stintId of affectedStints) {
         const passport = this.getPassport(stintId)
         if (!passport) continue
-        this.upsertPassportHeaderInTransaction({
+        this.upsertPassportHeaderInTransaction(coherentAfterPrivacyRedaction({
           ...passport,
           revision: passport.revision + 1
-        })
+        }))
         this.rehashStintInTransaction(stintId)
         const redacted = this.getPassport(stintId)
         if (redacted) {
@@ -2755,7 +2995,7 @@ export class PassportPersistenceEngine {
     return withinTransaction ? redact() : this.transaction(redact)
   }
 
-  private redactClosedIdentity(cutoff: number): number {
+  private redactClosedIdentity(cutoff: number, withinTransaction = false): number {
     const rows = this.db.prepare(`
       SELECT stint_id FROM stint_passport
       WHERE closed_at IS NOT NULL
@@ -2769,7 +3009,7 @@ export class PassportPersistenceEngine {
         )
     `).all(cutoff) as Row[]
     if (rows.length === 0) return 0
-    return this.transaction(() => {
+    const redact = () => {
       for (const row of rows) {
         const passport = this.getPassport(text(row.stint_id))
         if (!passport) continue
@@ -2799,7 +3039,8 @@ export class PassportPersistenceEngine {
         this.appendEventInTransaction(redacted, this.retentionEvent(redacted, 'D3'))
       }
       return rows.length
-    })
+    }
+    return withinTransaction ? redact() : this.transaction(redact)
   }
 
   private deleteRuntimeLogs(cutoff: number): number {

@@ -351,7 +351,10 @@ describe('packaged Passport persistence worker', () => {
       ok: false,
       error: expect.stringMatching(/unknown persistence method/i)
     })
-    await expect(rpc(worker, 'repairPersistence', ['invalid-token'])).resolves.toMatchObject({
+    await expect(rpc(worker, 'repairPersistence', [
+      'invalid-token',
+      'repair:invalid-token-test'
+    ])).resolves.toMatchObject({
       ok: false,
       error: expect.stringMatching(/repair token is invalid/i)
     })
@@ -515,7 +518,10 @@ describe('packaged Passport persistence worker', () => {
     const integrity = await rpc(repairWorker, 'getIntegrity')
     const repairToken = (integrity.result as { repairToken?: string }).repairToken
     expect(repairToken).toMatch(/^[a-f0-9]+$/)
-    const repair = await rpc(repairWorker, 'repairPersistence', [repairToken])
+    const repair = await rpc(repairWorker, 'repairPersistence', [
+      repairToken,
+      'repair:quarantine-artifact-test'
+    ])
     expect(repair).toMatchObject({ ok: true })
 
     const quarantinePath = (repair.result as { quarantinedPath: string }).quarantinedPath
@@ -530,4 +536,49 @@ describe('packaged Passport persistence worker', () => {
     await expect(rpc(repairWorker, 'getPassport', ['worker-stint']))
       .resolves.toMatchObject({ ok: true, result: null })
   })
+
+  it('[blocker-B11-g] retries the same repair operation after an erase COMMIT worker exit', async () => {
+    const path = tempDatabase('repair-postcommit-exit')
+    const first = spawnWorker()
+    await rpc(first, 'initialize', [path])
+    await rpc(first, 'setPrivacy', [privacy(true)])
+    await rpc(first, 'persistPassport', [
+      passport('worker-stint', 1, 'REPAIR-POSTCOMMIT-SENTINEL'),
+      event(1)
+    ])
+    await first.terminate()
+
+    const marker = new DatabaseSync(path)
+    marker.prepare("UPDATE passport_meta SET value = 'corrupt' WHERE key = 'integrity_state'").run()
+    marker.close()
+    const crashingRepair = spawnWorker()
+    await rpc(crashingRepair, 'initialize', [path])
+    const integrity = await rpc(crashingRepair, 'getIntegrity')
+    const repairToken = (integrity.result as { repairToken?: string }).repairToken
+    const operationId = 'repair:postcommit-worker-exit'
+    expect(repairToken).toMatch(/^[a-f0-9]+$/)
+    await rpc(crashingRepair, 'configureCrashBoundary', [{
+      operation: 'repairPersistence',
+      checkpoint: 'after-commit-before-response'
+    }])
+    await expect(rpc(crashingRepair, 'repairPersistence', [repairToken, operationId]))
+      .rejects.toThrow(/exited/i)
+
+    const recovered = spawnWorker()
+    await rpc(recovered, 'initialize', [path])
+    const retry = await rpc(recovered, 'repairPersistence', [repairToken, operationId])
+    expect(retry).toMatchObject({
+      ok: true,
+      result: { quarantinedPath: expect.stringContaining('.quarantine-') }
+    })
+    await expect(rpc(recovered, 'getAuthoritativeState', [operationId]))
+      .resolves.toMatchObject({
+        ok: true,
+        result: {
+          privacy: { identityPersistenceOptIn: false },
+          roster: [],
+          passports: []
+        }
+      })
+  }, 15_000)
 })

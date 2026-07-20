@@ -35,7 +35,13 @@
     "A class-scoped privacy mutation barrier marks deletion before epoch change, rejects stale queued resolutions, delays exports until authoritative sanitization, and preserves D1/D2 deletion across both race orderings and restart",
     "Stable roster mutation IDs and durable receipts reconcile post-COMMIT worker exits against authoritative roster and generation before publishing automatic driver authorization",
     "Stable privacy mutation IDs and durable receipts reconcile post-COMMIT opt-out immediately in live state and export, with idempotent retry that cannot advance generation twice",
-    "Circuit-bypass authoritative privacy reads start bounded recovery after a pre-COMMIT worker crash so same-operation deletion retries either converge or return an explicit bounded recoverable error"
+    "Circuit-bypass authoritative privacy reads start bounded recovery after a pre-COMMIT worker crash so same-operation deletion retries either converge or return an explicit bounded recoverable error",
+    "Roster and privacy candidates are validated before serialized intent assignment, so rejected requests cannot supersede accepted durable mutations",
+    "Pending mutation recovery is bound to the exact stable operation ID, mutation kind, affected classes and desired state and is cleared only by that operation or a proven superset erasure",
+    "Opt-in persistence migration durably tracks and independently resumes roster and Passport publication until both steps converge across failure and restart",
+    "Ambiguous retention commits retain the export barrier until an authoritative receipt and sanitized live state are reconciled",
+    "D1 and D2 deletion atomically demotes Ready Passports, clears challenge completion and readiness proof, and publishes coherent live, durable and restarted state",
+    "Persistence repair uses a stable authenticated operation receipt so ambiguous erase commits block export and converge idempotently without relying on an invalidated prior token"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

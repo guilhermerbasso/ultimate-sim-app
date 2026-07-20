@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto'
 import {
   closeSync,
   existsSync,
   fstatSync,
   fsyncSync,
   openSync,
+  readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
   writeSync
@@ -24,6 +27,15 @@ interface Request {
 interface CrashBoundary {
   operation: string
   checkpoint: 'before-dispatch' | 'after-commit-before-response'
+}
+
+interface RepairReceipt {
+  version: 1
+  operationId: string
+  tokenHash: string
+  databaseId: string
+  quarantinedPath: string
+  repairedAt: number
 }
 
 let engine: PassportPersistenceEngine | null = null
@@ -49,6 +61,50 @@ function secureErase(path: string): void {
 function requireEngine(): PassportPersistenceEngine {
   if (!engine) throw new Error('Passport persistence process is not initialized.')
   return engine
+}
+
+function repairReceiptPath(databasePath: string): string {
+  return `${databasePath}.repair-receipt.json`
+}
+
+function readRepairReceipt(databasePath: string): RepairReceipt | undefined {
+  const path = repairReceiptPath(databasePath)
+  if (!existsSync(path)) return undefined
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8')) as Partial<RepairReceipt>
+    if (
+      value.version !== 1 ||
+      typeof value.operationId !== 'string' ||
+      typeof value.tokenHash !== 'string' ||
+      typeof value.databaseId !== 'string' ||
+      typeof value.quarantinedPath !== 'string' ||
+      !Number.isSafeInteger(value.repairedAt)
+    ) {
+      return undefined
+    }
+    return value as RepairReceipt
+  } catch {
+    return undefined
+  }
+}
+
+function writeRepairReceipt(databasePath: string, receipt: RepairReceipt): void {
+  const path = repairReceiptPath(databasePath)
+  const pending = `${path}.pending`
+  writeFileSync(pending, `${JSON.stringify(receipt)}\n`, 'utf8')
+  renameSync(pending, path)
+}
+
+function isFreshRepairDatabase(
+  current: PassportPersistenceEngine,
+  receipt: RepairReceipt
+): boolean {
+  if (current.databaseIdentity !== receipt.databaseId) return false
+  const state = current.getAuthoritativeState()
+  return !state.privacy.identityPersistenceOptIn &&
+    state.roster.length === 0 &&
+    state.passports.length === 0 &&
+    state.persistenceMigration === undefined
 }
 
 function validateRequest(value: unknown): Request {
@@ -105,6 +161,19 @@ async function execute(request: Request): Promise<unknown> {
   if (request.method === 'repairPersistence') {
     const current = requireEngine()
     const token = String(request.args[0] ?? '')
+    const operationId = String(request.args[1] ?? '')
+    if (!/^[A-Za-z0-9:_-]{16,160}$/.test(operationId)) {
+      throw persistenceDomainError('Persistence repair operation ID is invalid.')
+    }
+    const tokenHash = createHash('sha256').update(token, 'utf8').digest('hex')
+    const priorReceipt = readRepairReceipt(current.databasePath)
+    if (
+      priorReceipt &&
+      (priorReceipt.operationId === operationId || priorReceipt.tokenHash === tokenHash) &&
+      isFreshRepairDatabase(current, priorReceipt)
+    ) {
+      return { quarantinedPath: priorReceipt.quarantinedPath }
+    }
     if (!current.validateRepairToken(token)) {
       throw persistenceDomainError('Persistence repair token is invalid.')
     }
@@ -121,12 +190,22 @@ async function execute(request: Request): Promise<unknown> {
     ]) {
       secureErase(`${path}${suffix}`)
     }
+    secureErase(repairReceiptPath(path))
+    secureErase(`${repairReceiptPath(path)}.pending`)
     writeFileSync(quarantine, JSON.stringify({
       kind: 'stint-passport-repair-quarantine',
       repairedAt: Date.now(),
       payloadRetained: false
     }))
     engine = new PassportPersistenceEngine({ path })
+    writeRepairReceipt(path, {
+      version: 1,
+      operationId,
+      tokenHash,
+      databaseId: engine.databaseIdentity,
+      quarantinedPath: quarantine,
+      repairedAt: Date.now()
+    })
     return { quarantinedPath: quarantine }
   }
   const target = requireEngine() as unknown as Record<string, (...args: unknown[]) => unknown>
