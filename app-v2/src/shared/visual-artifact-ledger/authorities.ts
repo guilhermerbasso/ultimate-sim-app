@@ -13,7 +13,7 @@ const INTRINSIC_PROMISE_PROTOTYPE = Promise.prototype
 const INTRINSIC_PROMISE_THEN = Promise.prototype.then
 const INTRINSIC_APPLY = Reflect.apply
 const INTRINSIC_FUNCTION_TO_STRING = Function.prototype.toString
-const INTRINSIC_STRING_INCLUDES = String.prototype.includes
+const INTRINSIC_REGEXP_TEST = RegExp.prototype.test
 const INTRINSIC_DEFINE_PROPERTY = Object.defineProperty
 const INTRINSIC_DELETE_PROPERTY = Reflect.deleteProperty
 const INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor
@@ -22,6 +22,8 @@ const INTRINSIC_IS_EXTENSIBLE = Object.isExtensible
 const INTRINSIC_IS_ASYNC_FUNCTION = utilTypes.isAsyncFunction
 const INTRINSIC_IS_PROMISE = utilTypes.isPromise
 const INTRINSIC_SPECIES = Symbol.species
+const NATIVE_FUNCTION_SOURCE =
+  /^\s*function(?:\s+[^(]*)?\([^)]*\)\s*\{\s*\[native code\]\s*\}\s*$/
 const SAFE_PROMISE_SPECIES = Object.freeze({
   [INTRINSIC_SPECIES]: INTRINSIC_PROMISE
 })
@@ -190,11 +192,14 @@ export function invokeSynchronousVerifier<TArgs extends unknown[]>(
   if (
     typeof verifier !== 'function' ||
     INTRINSIC_IS_ASYNC_FUNCTION(verifier) ||
-    INTRINSIC_APPLY(INTRINSIC_STRING_INCLUDES, verifierSource, [
-      '[native code]'
+    INTRINSIC_APPLY(INTRINSIC_REGEXP_TEST, NATIVE_FUNCTION_SOURCE, [
+      verifierSource
     ])
   ) {
-    fail('TRUST', `${label} must be a synchronous verifier function.`)
+    fail(
+      'TRUST',
+      `${label} must be a direct user-defined synchronous verifier function.`
+    )
   }
   const result = INTRINSIC_APPLY(verifier, thisArg, args)
   assertSynchronousVerifierTrue(result, label)

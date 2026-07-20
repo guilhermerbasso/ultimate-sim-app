@@ -27,6 +27,13 @@ describe('external verifier return contract', () => {
     ).not.toThrow()
   })
 
+  it('accepts userland verifiers containing native-code text', () => {
+    const verifier = () => '[native code]' === '[native code]'
+    expect(() =>
+      invokeSynchronousVerifier(verifier, undefined, [], 'External verifier')
+    ).not.toThrow()
+  })
+
   it('observes branded rejected Promises without trusting a shadowed catch', async () => {
     const rejected = Promise.reject(new Error('verifier rejected'))
     Object.defineProperty(rejected, 'catch', {
@@ -323,33 +330,38 @@ describe('external verifier return contract', () => {
     }
   })
 
-  it('uses captured String.includes when rejecting wrapped async functions', () => {
+  it('uses captured RegExp.test when rejecting wrapped async functions', () => {
     const descriptor = Object.getOwnPropertyDescriptor(
-      String.prototype,
-      'includes'
+      RegExp.prototype,
+      'test'
     )!
     let executed = false
+    let thrown: unknown
     const verifier = (async () => {
       executed = true
       return false
     }).bind(undefined)
     try {
-      Object.defineProperty(String.prototype, 'includes', {
+      Object.defineProperty(RegExp.prototype, 'test', {
         configurable: true,
         value: () => false
       })
-      expect(() =>
+      try {
         invokeSynchronousVerifier(
           verifier,
           undefined,
           [],
           'External verifier'
         )
-      ).toThrow(/synchronous verifier function/i)
-      expect(executed).toBe(false)
+      } catch (error) {
+        thrown = error
+      }
     } finally {
-      Object.defineProperty(String.prototype, 'includes', descriptor)
+      Object.defineProperty(RegExp.prototype, 'test', descriptor)
     }
+    expect(thrown).toBeInstanceOf(Error)
+    expect((thrown as Error).message).toMatch(/synchronous verifier function/i)
+    expect(executed).toBe(false)
   })
 
   it('does not mutate Promise.prototype constructor while observing rejection', async () => {

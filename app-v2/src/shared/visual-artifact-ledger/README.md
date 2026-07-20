@@ -64,8 +64,9 @@ requires an authenticated-principal attestation bound to its role, payload, prio
 Prompt bodies, arbitrary metadata, URLs, and secret-like values have no schema location.
 Attestations and dependency containers must be getter-free own data, cannot be proxies, and are
 validated/deep-copied once before verification, hashing, authority commit, or persistence.
-Every verifier is synchronous and succeeds only by returning the primitive boolean `true`; promises,
-thenables, truthy objects/strings/numbers, and `false` fail closed.
+Every verifier must be a direct user-defined synchronous function (not async, bound, proxied, or
+native) and succeeds only by returning the primitive boolean `true`; promises, thenables, truthy
+objects/strings/numbers, and `false` fail closed.
 Verifier implementations are trusted in-process code and must be isolated by the host if their own
 execution is adversarial; the module contains the effects of return-type mistakes and ordinary
 rejected Promises.
