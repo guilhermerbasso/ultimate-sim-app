@@ -37,6 +37,20 @@ offline race-operation rehearsal.
 - 📴 Pending reconnects are still cancelled while offline and on unmount, while legitimate later
   exponential backoff remains intact.
 
+### Authenticated local OBS certification
+- 🎥 **Expose selected dashboards through a read-only loopback Browser Source** while keeping bounded
+  OBS operator controls on a separate local WebSocket connection.
+- 🔐 The operator channel requires the OBS password authentication challenge and rejects servers that
+  omit it. Scene/source visibility and Replay Buffer saves remain behind negotiated capability
+  allowlists, health freshness, rate limits, replay protection, and manual override.
+- 🔄 General streaming and OBS share a serialized lifecycle: readiness publishes only after listen
+  succeeds, startup cancellation is deterministic, concurrent stops join safely, and profile-scoped
+  start/stop operations remain isolated.
+- 🌐 Local endpoint validation accepts canonical IPv4 and IPv6 loopback spellings—including
+  bracketed or unbracketed IPv6—and rejects embedded ASCII whitespace before URL construction.
+- 🛑 Authentication, capability, stale-health, wrong-scene, listen, cancellation, and transport
+  errors all fail closed.
+
 ### Mobile presentations without changing the source
 - 📱 **Save presentation profiles for exact iPhone, iPad, and Android viewports**, including
   orientation, safe areas, fit/fill behavior, and minimum touch sizing.
@@ -213,6 +227,10 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   pace-model, and language-aware debrief persistence retryable and shutdown-safe.
 - [#98](https://github.com/guilhermerbasso/ultimate-sim-app/pull/98) — add fail-closed multimodal
   accessibility cues with truthful capability leases, localized fallback, and atomic recovery.
+- [#103](https://github.com/guilhermerbasso/ultimate-sim-app/pull/103) — add the authenticated local
+  OBS certification target with read-only Browser Source and allowlisted operator controls.
+- [#104](https://github.com/guilhermerbasso/ultimate-sim-app/pull/104) — harden OBS loopback endpoint
+  validation for canonical IPv6 forms and embedded whitespace.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 
