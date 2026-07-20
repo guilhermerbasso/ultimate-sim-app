@@ -14,6 +14,9 @@
   disabled unless explicitly enabled.
 - **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and
   Touch Controls profiles. Edited dashboard copies remain selectable after migration and restart.
+- **Authenticated local OBS certification target** with a loopback Browser Source feed for selected
+  dashboards and a separate local WebSocket operator channel for allowlisted scene/source
+  visibility and Replay Buffer saves.
 - **Mobile presentation editor** for saved dashboards and Touch Controls, with phone/tablet presets,
   orientation, safe areas, fit/fill rules, minimum touch sizing, and revision-bound profiles that do
   not modify the source layout.
@@ -55,6 +58,11 @@
   suggestions respect per-cue route and modality limits.
 - PWA receiver reconnects preserve the first pending 250 ms deadline, deduplicate overlapping
   close/online triggers and metrics, and cancel pending reconnects while offline or unmounted.
+- OBS control requires a password-authentication challenge and rejects servers that omit it.
+  Capability negotiation/allowlists, health freshness, rate limits, replay protection, manual
+  override, and a serialized shared streaming/OBS lifecycle fail closed on invalid state.
+- OBS endpoint validation accepts canonical IPv4 and IPv6 loopback spellings, including bracketed or
+  unbracketed forms, and rejects embedded ASCII whitespace before URL construction.
 - Interactive Touch ownership drains safely on disconnect or stop: holds and mixed latches release
   in order, configured OFF runs exactly once, cleanup is idempotent, admission is revoked
   synchronously, and auth, target, connectivity, or teardown changes fail closed.
