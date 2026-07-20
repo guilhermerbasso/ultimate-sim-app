@@ -40,7 +40,7 @@ offline race-operation rehearsal.
 ### Authenticated local OBS certification
 - 🎥 **Expose selected dashboards through a read-only loopback Browser Source** while keeping bounded
   OBS operator controls on a separate local WebSocket connection.
-- 🔐 The operator channel requires the OBS password-authentication challenge and rejects servers that
+- 🔐 The operator channel requires the OBS password authentication challenge and rejects servers that
   omit it. Scene/source visibility and Replay Buffer saves remain behind negotiated capability
   allowlists, health freshness, rate limits, replay protection, and manual override.
 - 🔄 General streaming and OBS share a serialized lifecycle: readiness publishes only after listen
