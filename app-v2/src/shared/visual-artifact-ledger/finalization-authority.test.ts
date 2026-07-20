@@ -25,6 +25,7 @@ import {
 import { ZERO_HASH } from './constants'
 
 const AUTHORITY_ID = 'durable-ledger-publication'
+const ESBUILD_NODE_TARGET = `node${process.versions.node.split('.')[0]}`
 
 function hash(value: number): string {
   return value.toString(16).padStart(64, '0')
@@ -419,7 +420,7 @@ function compileWorker(directoryPath: string): string {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node24',
+    target: ESBUILD_NODE_TARGET,
     outfile: workerPath,
     logLevel: 'silent'
   })
