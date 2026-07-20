@@ -153,6 +153,78 @@ describe('Phase02TapKernel bounded asynchronous isolation', () => {
       })
     })
 
+    it('preserves a live-to-null boundary before over-capacity live telemetry', async () => {
+      const hub = new TelemetryHub()
+      const kernel = new Phase02TapKernel(hub)
+      kernels.push(kernel)
+      let release!: () => void
+      const barrier = new Promise<void>((resolve) => { release = resolve })
+      const contexts: string[] = []
+      const subscription = kernel.subscribe('passport-null-boundary', {
+        maxItems: 2,
+        maxBytes: 64 * 1024,
+        maxAgeMs: 10_000,
+        maxDrainBatch: 1
+      }, async (delivery) => {
+        contexts.push(delivery.event.telemetryContext)
+        if (contexts.length === 1) await barrier
+      })
+
+      hub.emit('snapshot', snapshot(1))
+      await settle()
+      hub.emit('snapshot', null)
+      for (let index = 2; index <= 12; index += 1) hub.emit('snapshot', snapshot(index))
+      await settle()
+      expect(subscription.status().dropped).toBeGreaterThan(0)
+
+      release()
+      for (let index = 0; index < 6; index += 1) await settle()
+
+      const boundaryIndex = contexts.findIndex((context) => context !== 'live')
+      expect(boundaryIndex).toBeGreaterThan(0)
+      expect(contexts.slice(boundaryIndex + 1)).toContain('live')
+      expect(subscription.status().queuedItems).toBe(0)
+    })
+
+    it('coalesces repeated replay boundaries while a consumer is blocked', async () => {
+      const hub = new TelemetryHub()
+      const kernel = new Phase02TapKernel(hub)
+      kernels.push(kernel)
+      let release!: () => void
+      const barrier = new Promise<void>((resolve) => { release = resolve })
+      const contexts: string[] = []
+      const subscription = kernel.subscribe('passport-replay-coalesce', {
+        maxItems: 2,
+        maxBytes: 64 * 1024,
+        maxAgeMs: 10_000,
+        maxDrainBatch: 1
+      }, async (delivery) => {
+        contexts.push(delivery.event.telemetryContext)
+        if (contexts.length === 1) await barrier
+      })
+
+      hub.emit('snapshot', snapshot(1))
+      await settle()
+      for (let index = 2; index <= 20; index += 1) {
+        const replay = snapshot(index)
+        replay.replayContext = {
+          ...replay.replayContext!,
+          state: 'replay',
+          reason: 'replay-playing',
+          active: true
+        }
+        hub.emit('snapshot', replay)
+        await settle()
+        expect(subscription.status().queuedItems).toBeLessThanOrEqual(1)
+      }
+
+      release()
+      await settle()
+      await settle()
+      expect(contexts).toEqual(['live', 'replay'])
+      expect(subscription.status().queuedItems).toBe(0)
+    })
+
     it('delivers no callback when a subscription is disposed while its drain is scheduled', async () => {
       const hub = new TelemetryHub()
       const kernel = new Phase02TapKernel(hub)

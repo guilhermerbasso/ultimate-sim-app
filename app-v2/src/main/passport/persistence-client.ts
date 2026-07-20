@@ -135,6 +135,7 @@ export class PassportPersistenceClient {
   private queuedBytes = 0
   private failures = 0
   private restarts = 0
+  private restartAttempts = 0
   private killed = false
   private circuitOpen = false
   private quarantined = false
@@ -450,17 +451,20 @@ export class PassportPersistenceClient {
     this.inFlightTimer = null
     this.inFlight = null
     if (response.ok) {
-      this.failures = 0
+      if (entry.request.method !== 'initialize') {
+        this.failures = 0
+        this.restartAttempts = 0
+      }
       entry.resolve(response.result)
     } else {
       const error = new Error(response.error || 'Passport persistence request failed.')
       ;(error as Error & { code?: string }).code = response.code
       if (response.code === 'PERSISTENCE_QUARANTINED') this.quarantined = true
       entry.reject(error)
-      if (
-        entry.request.method !== 'initialize' &&
-        response.code !== PASSPORT_DOMAIN_ERROR_CODE
-      ) {
+      if (response.code === PASSPORT_DOMAIN_ERROR_CODE) {
+        this.failures = 0
+        this.restartAttempts = 0
+      } else if (entry.request.method !== 'initialize') {
         this.recordFailure(error)
       }
     }
@@ -481,13 +485,24 @@ export class PassportPersistenceClient {
     if (activeWorker) {
       void this.terminateWorker(activeWorker)
     }
-    this.recordFailure(error)
-    if (!this.closing && !this.circuitOpen && this.restarts < MAX_RESTARTS && !this.restartTimer) {
-      this.restarts += 1
-      this.restartTimer = setTimeout(() => {
-        this.restartTimer = null
-        this.startWorker()
-      }, this.restartDelayMs)
+    this.failures += 1
+    this.lastError = error.message
+    if (!this.closing && !this.circuitOpen) {
+      if (this.restartAttempts < MAX_RESTARTS && !this.restartTimer) {
+        this.restartAttempts += 1
+        this.restarts += 1
+        this.restartTimer = setTimeout(() => {
+          this.restartTimer = null
+          this.startWorker()
+        }, this.restartDelayMs)
+      } else if (!this.restartTimer) {
+        this.circuitOpen = true
+        const exhausted = new Error('Passport persistence restart budget exhausted; circuit opened.')
+        this.lastError = exhausted.message
+        for (const entry of this.queue) entry.reject(exhausted)
+        this.queue.length = 0
+        this.queuedBytes = 0
+      }
     }
   }
 

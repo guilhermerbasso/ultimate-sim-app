@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PASSPORT_PRIVACY } from '../../shared/stint-passport'
 import { PassportPersistenceClient } from './persistence-client'
+import {
+  buildPassportWorkerTestFixture,
+  type PassportWorkerTestFixture
+} from './passport-worker-test-fixture'
 
 interface Request {
   id: number
@@ -100,6 +104,14 @@ async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 5))
 }
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Client condition timed out.')
+    await settle()
+  }
+}
+
 describe('PassportPersistenceClient failure domain', () => {
   it('enforces bounded queue backpressure while a worker request is stalled', async () => {
     const { client } = createClient([
@@ -166,6 +178,56 @@ describe('PassportPersistenceClient failure domain', () => {
     await expect(client.getPrivacy()).rejects.toThrow(/circuit/i)
   })
 
+  it('opens the circuit after four initialized processes crash their first real RPC', async () => {
+    const crashAfterInitialize = (worker: FakeWorker, request: Request) => {
+      if (request.method === 'initialize') worker.respond(request)
+      else worker.crash(97)
+    }
+    const { client, workers } = createClient([
+      crashAfterInitialize,
+      crashAfterInitialize,
+      crashAfterInitialize,
+      crashAfterInitialize
+    ])
+    await waitUntil(() => workers.length === 1 && workers[0].requests.some(
+      (request) => request.method === 'initialize'
+    ))
+
+    for (let index = 0; index < 3; index += 1) {
+      await expect(client.getConfig()).rejects.toThrow(/exited/i)
+      await waitUntil(() => workers.length === index + 2)
+    }
+
+    const exhaustedRequests = [
+      client.getConfig(),
+      client.getPrivacy(),
+      client.listRoster()
+    ]
+    const exhaustedResults = await Promise.race([
+      Promise.allSettled(exhaustedRequests),
+      new Promise<never>((_, reject) => setTimeout(
+        () => reject(new Error('queued rejection deadline exceeded')),
+        250
+      ))
+    ])
+    await waitUntil(() => client.status().state === 'open-circuit')
+    expect(exhaustedResults.every((result) => result.status === 'rejected')).toBe(true)
+    expect(workers).toHaveLength(4)
+    expect(client.status()).toMatchObject({
+      state: 'open-circuit',
+      queued: 0,
+      inFlight: false,
+      restarts: 3
+    })
+    await expect(Promise.race([
+      client.getPrivacy(),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error('bounded rejection deadline exceeded')),
+        250
+      ))
+    ])).rejects.toThrow(/circuit/i)
+  })
+
   it('serializes full audit against concurrent persistence requests', async () => {
     let auditRequest: Request | undefined
     const { client, workers } = createClient([
@@ -220,7 +282,6 @@ describe('PassportPersistenceClient failure domain', () => {
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { fork, type ChildProcess } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import {
@@ -234,16 +295,18 @@ import { emptyConfidence, emptyObservedInterval } from '../../shared/phase02-con
 import type { PassportStoreEvent } from './persistence-engine'
 
 const phase3Directories: string[] = []
+let phase3WorkerFixture: PassportWorkerTestFixture
 
 class RealPersistenceProcess {
   private readonly child: ChildProcess
 
   constructor() {
     this.child = fork(
-      fileURLToPath(new URL('../../../out/main/passport-persistence-worker.js', import.meta.url)),
+      phase3WorkerFixture.entry,
       [],
       {
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        execArgv: [],
         serialization: 'advanced',
         stdio: ['ignore', 'ignore', 'ignore', 'ipc']
       }
@@ -414,6 +477,14 @@ function phase3Event(index: number): PassportStoreEvent {
 }
 
 describe('PassportPersistenceClient real worker lifecycle', () => {
+  beforeAll(async () => {
+    phase3WorkerFixture = await buildPassportWorkerTestFixture('client')
+  })
+
+  afterAll(() => {
+    phase3WorkerFixture.cleanup()
+  })
+
   it('[supported] keeps a healthy real worker available after repeated invalid imports', async () => {
     const path = phase3Database('domain-errors')
     const client = new PassportPersistenceClient({

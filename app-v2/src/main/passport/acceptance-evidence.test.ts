@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
+import { buildPassportWorkerTestFixture } from './passport-worker-test-fixture'
 
 interface EvidenceCommand {
   name: string
@@ -521,21 +522,30 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
     expect(tampered.stderr).toContain('golden binary hash mismatch')
   }, 15_000)
 
-  it('[spec-gap] worker evidence executes crash, recovery, drain, and commit-boundary proofs', () => {
-    const executed = runNode(workerVerifierPath, appRoot)
-    let evidence: Record<string, unknown> = {}
-    if (executed.status === 0) {
-      evidence = JSON.parse(executed.stdout.trim()) as Record<string, unknown>
-    }
-    const proofs = Array.isArray(evidence.proofs) ? evidence.proofs : []
+  it('[spec-gap] worker evidence executes crash, recovery, drain, and commit-boundary proofs', async () => {
+    const fixture = await buildPassportWorkerTestFixture('acceptance')
+    try {
+      const executed = runNode(workerVerifierPath, appRoot, {
+        ...process.env,
+        PASSPORT_WORKER_FIXTURE: fixture.entry
+      })
+      let evidence: Record<string, unknown> = {}
+      if (executed.status === 0) {
+        evidence = JSON.parse(executed.stdout.trim()) as Record<string, unknown>
+      }
+      const proofs = Array.isArray(evidence.proofs) ? evidence.proofs : []
 
-    expect.soft(executed.status, executed.stderr).toBe(0)
-    expect.soft(evidence.smoke).toBe(true)
-    expect(proofs).toEqual(expect.arrayContaining([
-      'real-crash',
-      'recovery',
-      'drain',
-      'commit-boundary'
-    ]))
-  }, 15_000)
+      expect.soft(executed.status, executed.stderr).toBe(0)
+      expect.soft(evidence.packaged).toBe(false)
+      expect.soft(evidence.smoke).toBe(true)
+      expect(proofs).toEqual(expect.arrayContaining([
+        'real-crash',
+        'recovery',
+        'drain',
+        'commit-boundary'
+      ]))
+    } finally {
+      fixture.cleanup()
+    }
+  }, 30_000)
 })

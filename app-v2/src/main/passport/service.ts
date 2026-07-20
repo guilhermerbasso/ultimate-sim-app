@@ -96,6 +96,22 @@ function evidenceHash(value: unknown): string {
   return createHash('sha256').update(stableJson(value), 'utf8').digest('hex')
 }
 
+function lowerClassAttestationDetail(status: PassportItem['status']): string {
+  return status === 'manual-confirmed'
+    ? 'Manually confirmed by the assigned roster owner.'
+    : status === 'not-applicable'
+      ? 'Marked not applicable with a private retained reason.'
+      : 'Waived with a private retained reason.'
+}
+
+function lowerClassAttestationSummary(status: PassportItem['status']): string {
+  return status === 'manual-confirmed'
+    ? 'Manual attestation recorded.'
+    : status === 'not-applicable'
+      ? 'Not-applicable attestation recorded.'
+      : 'Waiver attestation recorded.'
+}
+
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`
@@ -183,6 +199,7 @@ function ownerIsValid(
 interface ChallengeMutationFence {
   challengeId: string
   generation: number
+  lifecycleGeneration: number
   stintId: string
   passportRevision: number
 }
@@ -207,6 +224,8 @@ export class StintPassportService {
   private challenge: PassportChallenge | undefined
   private challengeNonceHash: Buffer | undefined
   private challengeGeneration = 0
+  private lifecycleGeneration = 0
+  private persistenceGeneration = 0
   private challengeClaim: { challengeId: string; generation: number } | undefined
   private readonly pendingStoreOperations = new Set<Promise<unknown>>()
   private readonly ambiguousMutations = new Map<string, {
@@ -434,6 +453,7 @@ export class StintPassportService {
 
   async setRoster(roster: readonly PassportRosterMember[]): Promise<PassportRosterMember[]> {
     await this.ready
+    const persistenceGeneration = this.persistenceGeneration
     const candidate = roster.map((member) => ({
       memberId: clean(member.memberId, 120),
       displayName: clean(member.displayName, 120),
@@ -449,6 +469,7 @@ export class StintPassportService {
     const persisted = this.privacy.identityPersistenceOptIn
       ? await this.store.saveRoster(candidate)
       : candidate
+    this.assertPersistenceGeneration(persistenceGeneration, 'roster update')
     this.roster = persisted.map((member) => ({
       ...member,
       roles: [...member.roles]
@@ -472,11 +493,17 @@ export class StintPassportService {
 
   async setPrivacy(privacy: PassportPrivacySettings): Promise<PassportPrivacySettings> {
     await this.ready
+    const persistenceGeneration = this.persistenceGeneration
     const wasEnabled = this.privacy.identityPersistenceOptIn
     const previous = this.current
-    this.privacy = await this.store.setPrivacy(privacy)
+    const persistedPrivacy = await this.store.setPrivacy(privacy)
+    this.assertPersistenceGeneration(persistenceGeneration, 'privacy update')
+    this.privacy = persistedPrivacy
     if (!wasEnabled && this.privacy.identityPersistenceOptIn) {
-      if (this.roster.length > 0) await this.store.saveRoster(this.roster)
+      if (this.roster.length > 0) {
+        await this.store.saveRoster(this.roster)
+        this.assertPersistenceGeneration(persistenceGeneration, 'privacy roster update')
+      }
       if (this.current) {
         this.current = { ...this.current, persisted: true, durability: 'pending' }
         await this.persistCurrent(this.event('ultimate.sim.raceops.passport.persistence-enabled.v2', {
@@ -525,24 +552,34 @@ export class StintPassportService {
             ...item,
             status: input.status,
             owner: input.owner,
-            detail: input.status === 'manual-confirmed'
-              ? 'Manually confirmed by the assigned roster owner.'
-              : reasonCode,
+            detail: definition.dataClass === 'D3'
+              ? input.status === 'manual-confirmed'
+                ? 'Manually confirmed by the assigned roster owner.'
+                : reasonCode
+              : lowerClassAttestationDetail(input.status),
             overrideReason: reasonCode || undefined,
             reasonCode: reasonCode || undefined,
             verifiedAt: now,
             expiresAt: now + definition.ttlMs,
             evidence: {
               source: 'human-attestation',
-              summary: retainedText || reasonCode || `Confirmed for ${input.owner.role}.`,
-              contentHash: evidenceHash({
-                itemId: input.itemId,
-                status: input.status,
-                owner: input.owner,
-                reasonCode,
-                freeText: retainedText,
-                now
-              }),
+              summary: definition.dataClass === 'D3'
+                ? retainedText || reasonCode || `Confirmed for ${input.owner.role}.`
+                : lowerClassAttestationSummary(input.status),
+              contentHash: evidenceHash(definition.dataClass === 'D3'
+                ? {
+                    itemId: input.itemId,
+                    status: input.status,
+                    owner: input.owner,
+                    reasonCode,
+                    freeText: retainedText,
+                    now
+                  }
+                : {
+                    itemId: input.itemId,
+                    status: input.status,
+                    now
+                  }),
               capturedAt: now,
               state: 'available'
             },
@@ -558,9 +595,13 @@ export class StintPassportService {
       {
         itemId: input.itemId,
         status: input.status,
-        role: input.owner.role,
-        reasonCode,
-        ...(definition.dataClass === 'D3' ? { freeText: retainedText } : {})
+        ...(definition.dataClass === 'D3'
+          ? {
+              role: input.owner.role,
+              reasonCode,
+              freeText: retainedText
+            }
+          : {})
       },
       definition.dataClass,
       input.itemId
@@ -630,6 +671,7 @@ export class StintPassportService {
     const fence: ChallengeMutationFence = {
       challengeId: challenge.challengeId,
       generation,
+      lifecycleGeneration: this.lifecycleGeneration,
       stintId: input.stintId,
       passportRevision: challenge.passportRevision
     }
@@ -728,27 +770,29 @@ export class StintPassportService {
 
   async importPackage(value: unknown): Promise<PassportImportResult> {
     await this.ready
+    const persistenceGeneration = this.persistenceGeneration
     const bundle = await this.trackStoreOperation(this.store.verifyImportPackage(value))
+    this.assertPersistenceGeneration(persistenceGeneration, 'package replay')
     const prefix = bundle.packageHash.slice(0, 12)
-    for (const imported of bundle.passports.slice().reverse()) {
+    for (const sourcePassport of bundle.passports.slice().reverse()) {
       const replay: StintPassport = {
-        ...imported,
+        ...sourcePassport,
         identity: {
-          ...imported.identity,
-          stintId: `import:${prefix}:${imported.identity.stintId}`,
-          sessionRef: `replay:${prefix}:${imported.identity.sessionRef}`
+          ...sourcePassport.identity,
+          stintId: `import:${prefix}:${sourcePassport.identity.stintId}`,
+          sessionRef: `replay:${prefix}:${sourcePassport.identity.sessionRef}`
         },
-        lifecycle: imported.lifecycle === 'closed' ? 'closed' : 'interrupted',
+        lifecycle: sourcePassport.lifecycle === 'closed' ? 'closed' : 'interrupted',
         telemetryContext: 'replay',
         challengeCompletedAt: undefined,
         challengeOwner: undefined,
-        closeReason: imported.lifecycle === 'closed'
-          ? imported.closeReason
+        closeReason: sourcePassport.lifecycle === 'closed'
+          ? sourcePassport.closeReason
           : 'replay-boundary',
-        interrupted: imported.lifecycle !== 'closed',
+        interrupted: sourcePassport.lifecycle !== 'closed',
         persisted: false,
         durability: 'ephemeral',
-        revision: imported.revision + 1
+        revision: sourcePassport.revision + 1
       }
       const existing = this.ephemeralHistory.findIndex((entry) =>
         entry.identity.stintId === replay.identity.stintId
@@ -776,13 +820,17 @@ export class StintPassportService {
         this.recordPersistenceError(error)
         throw error
       }
-      this.redactedBefore.D3 = Number(this.lastEvent?.sourceTick) || this.now()
-      this.privacy = await this.store.getPrivacy()
-      this.current = null
-      this.clearChallenge(false)
-      this.roster = []
-      this.ephemeralHistory.length = 0
+      this.applyDurableD3Deletion()
       this.notify()
+      try {
+        this.privacy = {
+          ...await this.store.getPrivacy(),
+          identityPersistenceOptIn: false
+        }
+      } catch (error) {
+        this.recordPersistenceError(error)
+        throw error
+      }
       return result
     }
     let result: PassportDeleteResult
@@ -814,6 +862,23 @@ export class StintPassportService {
     this.clearChallenge()
     this.notify()
     return result
+  }
+
+  private applyDurableD3Deletion(): void {
+    this.redactedBefore.D3 = Number(this.lastEvent?.sourceTick) || this.now()
+    this.lifecycleGeneration += 1
+    this.persistenceGeneration += 1
+    this.current = null
+    this.clearChallenge(false)
+    this.roster = []
+    this.ephemeralHistory.length = 0
+    this.ambiguousMutations.clear()
+    this.lastEvent = null
+    this.privacy = {
+      ...this.privacy,
+      identityPersistenceOptIn: false,
+      updatedAt: this.now()
+    }
   }
 
   async runFullAudit(): Promise<PassportFullAuditResult> {
@@ -906,7 +971,8 @@ export class StintPassportService {
       return
     }
     if (!this.current) {
-      this.current = {
+      const persistenceGeneration = this.persistenceGeneration
+      const candidate: StintPassport = {
         contractVersion: STINT_PASSPORT_CONTRACT_VERSION,
         identity,
         lifecycle: 'awaiting-checklist',
@@ -921,6 +987,8 @@ export class StintPassportService {
         durability: this.privacy.identityPersistenceOptIn ? 'pending' : 'ephemeral'
       }
       await this.seedDriverRoster(identity.driverRef, identity.driverLabel)
+      this.assertPersistenceGeneration(persistenceGeneration, 'automatic roster update')
+      this.current = candidate
       this.current = withCoverage(this.current, evaluatePassportItems({
         passport: this.current,
         event,
@@ -1037,13 +1105,16 @@ export class StintPassportService {
     interrupted: boolean
   ): Promise<StintPassport | null> {
     if (!this.current) return null
+    this.lifecycleGeneration += 1
+    this.clearChallenge(false)
     const previous = this.current
     const closed: StintPassport = {
       ...this.current,
       lifecycle: interrupted ? 'interrupted' : 'closed',
       closedAt: this.now(),
       closeReason: reason,
-      interrupted
+      interrupted,
+      revision: this.current.revision + 1
     }
     this.current = closed
     await this.persistCurrent(this.event(
@@ -1051,10 +1122,11 @@ export class StintPassportService {
       { reason, interrupted, coverage: closed.coverage },
       'D3'
     ), previous)
-    this.ephemeralHistory.unshift(closed)
+    const finalized = this.current ?? closed
+    this.ephemeralHistory.unshift(finalized)
     this.ephemeralHistory.splice(HISTORY_LIMIT)
     this.current = null
-    return closed
+    return finalized
   }
 
   private async persistCurrent(
@@ -1067,6 +1139,7 @@ export class StintPassportService {
     }
 
     const operationKey = event.canonicalEvent.dedupeKey
+    const persistenceGeneration = this.persistenceGeneration
     const cached = this.ambiguousMutations.get(operationKey)
     const attempted = cached ?? {
       passport: { ...this.current, persisted: true, durability: 'pending' as const },
@@ -1074,13 +1147,20 @@ export class StintPassportService {
     }
     try {
       this.current = attempted.passport
-      this.current = await this.trackStoreOperation(
+      const persisted = await this.trackStoreOperation(
         this.store.persistPassport(attempted.passport, attempted.event)
       )
-      this.current = { ...this.current, durability: 'durable' }
+      if (persistenceGeneration !== this.persistenceGeneration) {
+        throw new Error('Passport persistence completion was superseded by privacy deletion.')
+      }
+      this.current = { ...persisted, durability: 'durable' }
       this.ambiguousMutations.delete(operationKey)
       this.lastError = undefined
     } catch (error) {
+      if (persistenceGeneration !== this.persistenceGeneration) {
+        this.recordPersistenceError(error)
+        throw error
+      }
       this.ambiguousMutations.set(operationKey, attempted)
       this.recordPersistenceError(error)
       const fallback = rollbackState ?? attempted.passport
@@ -1107,6 +1187,7 @@ export class StintPassportService {
       return { ...candidate, persisted: false, durability: 'ephemeral' }
     }
     const operationKey = event.canonicalEvent.dedupeKey
+    const persistenceGeneration = this.persistenceGeneration
     const attempted = this.ambiguousMutations.get(operationKey) ?? {
       passport: { ...candidate, persisted: true, durability: 'pending' as const },
       event
@@ -1117,6 +1198,10 @@ export class StintPassportService {
         this.store.persistPassport(attempted.passport, attempted.event)
       )
     } catch (error) {
+      if (persistenceGeneration !== this.persistenceGeneration) {
+        this.recordPersistenceError(error)
+        throw error
+      }
       this.ambiguousMutations.set(operationKey, attempted)
       this.recordPersistenceError(error)
       if (this.challengeFenceMatches(fence)) {
@@ -1130,6 +1215,9 @@ export class StintPassportService {
         this.notify()
       }
       throw error
+    }
+    if (persistenceGeneration !== this.persistenceGeneration) {
+      throw new Error('Passport persistence completion was superseded by privacy deletion.')
     }
     this.ambiguousMutations.delete(operationKey)
     this.assertChallengeFence(fence, 'persistence response')
@@ -1194,7 +1282,11 @@ export class StintPassportService {
       confidence: emptyConfidence(),
       severity: eventType.includes('failed') ? 'warning' : 'info',
       priority: eventType.includes('closed') ? 'high' : 'normal',
-      evidenceRefs: passport?.items.flatMap((item) => item.evidence?.contentHash ? [item.evidence.contentHash] : []) ?? [],
+      evidenceRefs: passport?.items.flatMap((item) =>
+        passportItemDefinition(item.id).dataClass === dataClass && item.evidence?.contentHash
+          ? [item.evidence.contentHash]
+          : []
+      ) ?? [],
       policyRef: 'local-only.passport.v2',
       capabilityRef: 'passport.main.mutation.v2',
       consentEpoch: this.privacy.identityPersistenceOptIn ? String(this.privacy.updatedAt) : '0',
@@ -1230,6 +1322,7 @@ export class StintPassportService {
   private challengeFenceMatches(fence: ChallengeMutationFence): boolean {
     return (
       this.challengeGeneration === fence.generation &&
+      this.lifecycleGeneration === fence.lifecycleGeneration &&
       this.challenge?.challengeId === fence.challengeId &&
       this.challengeClaim?.challengeId === fence.challengeId &&
       this.challengeClaim.generation === fence.generation &&
@@ -1318,10 +1411,28 @@ export class StintPassportService {
         const cutoff = now - this.privacy.retentionDays[dataClass] * 86_400_000
         const evidenceExpired = item.evidence !== undefined &&
           (dataClass === 'D3' ? d3Expired : item.evidence.capturedAt < cutoff)
+        const isolatedContentHash = item.evidence
+          ? evidenceHash({
+              itemId: item.id,
+              status: item.status,
+              now: item.evidence.capturedAt
+            })
+          : undefined
+        const reasonValues = [item.overrideReason, item.reasonCode]
+          .filter((value): value is string => value !== undefined)
+        const lowerClassAttestationLeak = d3Expired &&
+          dataClass !== 'D3' &&
+          item.evidence?.source === 'human-attestation' &&
+          (
+            item.evidence.contentHash !== isolatedContentHash ||
+            reasonValues.includes(item.detail) ||
+            reasonValues.includes(item.evidence.summary)
+          )
         const d3MetadataPresent = d3Expired && (
           item.owner !== undefined ||
           item.overrideReason !== undefined ||
           item.reasonCode !== undefined ||
+          lowerClassAttestationLeak ||
           (dataClass === 'D3' && (
             item.evidence !== undefined ||
             item.detail !== 'Evidence removed by retention policy.'
@@ -1331,6 +1442,16 @@ export class StintPassportService {
         changed = true
         return {
           ...item,
+          ...(lowerClassAttestationLeak && item.evidence
+            ? {
+                detail: lowerClassAttestationDetail(item.status),
+                evidence: {
+                  ...item.evidence,
+                  summary: lowerClassAttestationSummary(item.status),
+                  contentHash: isolatedContentHash!
+                }
+              }
+            : {}),
           ...(evidenceExpired
             ? {
                 detail: 'Evidence removed by retention policy.',
@@ -1419,11 +1540,27 @@ export class StintPassportService {
 
   private async seedDriverRoster(driverRef: string, driverLabel: string): Promise<void> {
     if (this.roster.some((member) => member.memberId === driverRef)) return
-    this.roster = [
-      ...this.roster,
+    const persistenceGeneration = this.persistenceGeneration
+    const candidate: PassportRosterMember[] = [
+      ...this.roster.map((member) => ({ ...member, roles: [...member.roles] })),
       { memberId: driverRef, displayName: driverLabel, roles: ['driver'], active: true }
     ]
-    if (this.privacy.identityPersistenceOptIn) await this.store.saveRoster(this.roster)
+    for (const member of candidate) {
+      Object.freeze(member.roles)
+      Object.freeze(member)
+    }
+    Object.freeze(candidate)
+    const persisted = this.privacy.identityPersistenceOptIn
+      ? await this.store.saveRoster(candidate)
+      : candidate
+    this.assertPersistenceGeneration(persistenceGeneration, 'automatic roster update')
+    this.roster = persisted.map((member) => ({ ...member, roles: [...member.roles] }))
+  }
+
+  private assertPersistenceGeneration(generation: number, operation: string): void {
+    if (generation !== this.persistenceGeneration) {
+      throw new Error(`${operation} was superseded by privacy deletion.`)
+    }
   }
 
   private trackStoreOperation<T>(operation: Promise<T>): Promise<T> {

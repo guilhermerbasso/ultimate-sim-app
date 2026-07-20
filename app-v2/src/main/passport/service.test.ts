@@ -1166,7 +1166,7 @@ describe('StintPassportService lifecycle and privacy', () => {
       })
     })
 
-    it('persists the acknowledged revision through disposal and restarts without false Ready state', async () => {
+    it('persists the acknowledged item through a revision-fenced disposal and restart without false Ready state', async () => {
       const test = harness('dispose-restart-durability')
       const current = await persistentCurrent(test)
       const acknowledged = await test.service.resolveItem({
@@ -1198,7 +1198,7 @@ describe('StintPassportService lifecycle and privacy', () => {
       expect(durable).toMatchObject({
         lifecycle: 'interrupted',
         closeReason: 'disconnect',
-        revision: acknowledged.revision
+        revision: acknowledged.revision + 1
       })
       expect(durable?.lifecycle).not.toBe('ready')
       expect(durable?.challengeCompletedAt).toBeUndefined()

@@ -18,11 +18,16 @@
     "Canonical RaceOpsEvent and StintPassport ProtoJSON/binary persistence/export",
     "Accessible navigation, history, replay inspection, privacy and runtime error UI",
     "Experiment instrumentation for defects, false blocks, bypasses, manual baseline and overhead",
-    "Independent evidence/detail/owner/reason/provenance privacy classes so owner-bearing D1/D2 evidence erasure survives reopen and export while D3 retention removes identity, owner and reason metadata",
-    "Generation, challenge, stint and revision CAS fences after every awaited challenge validation and durable write",
-    "Immutable roster candidate persistence before live swap or attestation invalidation, including failed-save restart preservation",
+    "Independent evidence/detail/owner/reason/provenance privacy classes so D3 reasons never down-class into D1/D2 evidence, details, hashes or canonical facts and D3 expiry survives close, reopen, restart and export",
+    "Durable D3 deletion clears all live identity, roster, history, challenge and ambiguous-mutation state before any fallible follow-up read or worker request and fences stale persistence, privacy, roster, automatic-seeding and import completions",
+    "Generation, lifecycle, challenge, stint and revision CAS fences after every awaited challenge validation and durable write, including close, disconnect and replay boundaries",
+    "Immutable roster candidate persistence before live swap or attestation invalidation, including automatic telemetry seeding and failed-save restart preservation",
     "Nested service, client, SQLite and worker termination deadlines strictly inside the application quit deadline with surfaced unsettled workers",
-    "Explicit expected-domain error classification with fail-closed health accounting for storage, transport, process and unknown worker failures"
+    "Explicit expected-domain error classification with fail-closed health accounting for storage, transport, process and unknown worker failures",
+    "Post-COMMIT anchor-promotion failures reconcile to the committed authoritative state through a signed pending anchor instead of reporting rollback semantics",
+    "Persistence process restart exhaustion opens the circuit and rejects current and queued work within bounded deadlines without initialize responses resetting crash history",
+    "Disconnect, null and replay lifecycle boundaries survive source and subscriber telemetry pressure without FIFO eviction while redundant boundary frames coalesce within bounded queues",
+    "Pre-build worker tests bundle the production worker source into isolated fixtures and never depend on ignored packaged output"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

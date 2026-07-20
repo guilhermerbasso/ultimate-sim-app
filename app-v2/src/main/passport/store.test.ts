@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -10,6 +11,11 @@ import {
   type StintPassport
 } from '../../shared/stint-passport'
 import { emptyConfidence, emptyObservedInterval } from '../../shared/phase02-contracts'
+import {
+  decodeRaceOpsEvent,
+  encodeRaceOpsEvent,
+  raceOpsEventToProtoJson
+} from '../phase02/raceops-codec'
 import {
   PassportPersistenceEngine as PassportStore,
   type PassportStoreEvent
@@ -408,27 +414,66 @@ describe('PassportStore privacy and incremental integrity', () => {
       stores.push(first)
       enablePersistence(first)
       blockPromotion = true
-
-      expect(() => first.persistPassport(passport(), event(1)))
-        .toThrow(/anchor promotion blocked/i)
-      expect(first.getIntegrity()).toMatchObject({
-        state: 'unavailable',
-        verified: false,
-        message: expect.stringMatching(/promotion is pending/i)
+      const authoritativeShape = (value: StintPassport | null) => value && ({
+        identity: value.identity,
+        lifecycle: value.lifecycle,
+        revision: value.revision,
+        persisted: value.persisted,
+        durability: value.durability,
+        items: value.items.map((item) => ({
+          id: item.id,
+          status: item.status,
+          contentHash: item.evidence?.contentHash
+        })).sort((left, right) => left.id.localeCompare(right.id))
       })
-      expect(first.getPassport('stint-1')).toMatchObject({
+
+      const committed = first.persistPassport(passport(), event(1))
+      expect(committed).toMatchObject({
         revision: 1,
         persisted: true,
         durability: 'durable'
       })
+      expect(first.getIntegrity()).toMatchObject({
+        state: 'anchored',
+        verified: true,
+        message: expect.stringMatching(/signed pending/i)
+      })
+      expect(authoritativeShape(first.getPassport('stint-1'))).toEqual(authoritativeShape(committed))
       await expect(first.runFullAudit()).resolves.toMatchObject({
         state: 'anchored',
         verified: true
       })
+      const failedCandidate: StintPassport = {
+        ...passport(),
+        revision: 2,
+        items: passport().items.map((item) => ({ ...item, revision: 2 }))
+      }
+      const failureDb = new DatabaseSync(path)
+      failureDb.exec(`
+        CREATE TRIGGER preserve_pending_anchor
+        BEFORE INSERT ON passport_event
+        BEGIN
+          SELECT RAISE(ABORT, 'pre-commit write failed');
+        END;
+      `)
+      expect(() => first.persistPassport(failedCandidate, event(2)))
+        .toThrow(/pre-commit write failed/i)
+      failureDb.exec('DROP TRIGGER preserve_pending_anchor')
+      failureDb.close()
 
       closeTracked(first)
-      blockPromotion = false
-      const reopened = open(path, 20_000).store
+      const reopened = new PassportStore({
+        path,
+        now: () => 20_000,
+        idFactory: () => 'anchor-reopen-id',
+        promoteAnchor(source, destination) {
+          if (blockPromotion) {
+            throw Object.assign(new Error('anchor promotion still blocked'), { code: 'EPERM' })
+          }
+          renameSync(source, destination)
+        }
+      })
+      stores.push(reopened)
       expect(reopened.getIntegrity()).toMatchObject({
         state: 'anchored',
         verified: true
@@ -437,6 +482,12 @@ describe('PassportStore privacy and incremental integrity', () => {
         revision: 1,
         persisted: true,
         durability: 'durable'
+      })
+      expect(authoritativeShape(reopened.getPassport('stint-1'))).toEqual(authoritativeShape(committed))
+      blockPromotion = false
+      await expect(reopened.runFullAudit()).resolves.toMatchObject({
+        state: 'anchored',
+        verified: true
       })
     })
 
@@ -773,6 +824,23 @@ describe('PassportStore privacy and incremental integrity', () => {
       data.identity.driverLabel = 'D3-RETENTION-DRIVER-LABEL'
       data.items = data.items.map((item) => {
         const dataClass = passportItemDataClassForPhase2(item.id)
+        if (item.id === 'fuel-load') {
+          return {
+            ...item,
+            status: 'waived-with-reason' as const,
+            owner: undefined,
+            detail: 'D3-RETENTION-REASON-SENTINEL',
+            reasonCode: undefined,
+            overrideReason: undefined,
+            evidence: {
+              ...item.evidence!,
+              source: 'human-attestation',
+              summary: 'D3-RETENTION-REASON-SENTINEL',
+              contentHash: 'f'.repeat(64),
+              capturedAt: 20 * day
+            }
+          }
+        }
         return {
           ...item,
           detail: `${dataClass}-RETENTION-DETAIL-SENTINEL`,
@@ -788,6 +856,34 @@ describe('PassportStore privacy and incremental integrity', () => {
         }
       })
       first.persistPassport(data, event(1, 'd3-retention', data.identity.stintId))
+      const legacyDb = new DatabaseSync(path)
+      const legacyRow = legacyDb.prepare(`
+        SELECT event_binary FROM passport_event WHERE stint_id = ? LIMIT 1
+      `).get(data.identity.stintId) as { event_binary: Uint8Array }
+      const legacyEvent = decodeRaceOpsEvent(legacyRow.event_binary)
+      const stateHashFact = legacyEvent.facts.find((fact) => fact.name === 'passport.state_hash')!
+      stateHashFact.provenance = {
+        ...stateHashFact.provenance!,
+        transformId: 'passport.state-hash.v2'
+      }
+      legacyEvent.facts.push({
+        name: 'passport.reasonCode',
+        canonicalUnit: 'text',
+        value: { kind: 'string', value: 'D3-RETENTION-REASON-SENTINEL' },
+        provenance: { ...stateHashFact.provenance! }
+      })
+      const legacyBinary = encodeRaceOpsEvent(legacyEvent)
+      legacyDb.prepare(`
+        UPDATE passport_event
+        SET event_binary = ?, payload_json = ?, payload_sha256 = ?
+        WHERE stint_id = ?
+      `).run(
+        legacyBinary,
+        JSON.stringify(raceOpsEventToProtoJson(legacyEvent)),
+        createHash('sha256').update(legacyBinary).digest('hex'),
+        data.identity.stintId
+      )
+      legacyDb.close()
 
       const results = first.purgeRetention(40 * day)
       expect(results).toContainEqual(expect.objectContaining({
@@ -806,6 +902,11 @@ describe('PassportStore privacy and incremental integrity', () => {
         expect(item.overrideReason).toBeUndefined()
         if (dataClass === 'D3') {
           expect(item.evidence).toBeUndefined()
+        } else if (item.id === 'fuel-load') {
+          expect(item.detail).toBe('Waived with a private retained reason.')
+          expect(item.evidence?.summary).toBe('Waiver attestation recorded.')
+          expect(item.evidence?.contentHash).toMatch(/^[0-9a-f]{64}$/)
+          expect(item.evidence?.contentHash).not.toBe('f'.repeat(64))
         } else {
           expect(item.evidence?.summary).toBe(`${dataClass}-RETENTION-EVIDENCE-SENTINEL`)
         }
@@ -818,6 +919,9 @@ describe('PassportStore privacy and incremental integrity', () => {
       expect(exported).not.toContain('D3-RETENTION-DRIVER-REF')
       expect(exported).not.toContain('D3-RETENTION-DRIVER-LABEL')
       expect(exported).not.toContain('D3-RETENTION-REASON-SENTINEL')
+      expect(reopened.exportPackage('full-local').canonicalEvents).toContainEqual(
+        expect.objectContaining({ payloadState: 'retention-redacted' })
+      )
       expect(exported).toContain('D1-RETENTION-EVIDENCE-SENTINEL')
       expect(exported).toContain('D2-RETENTION-EVIDENCE-SENTINEL')
       expect(reopened.verifyActiveStint(data.identity.stintId)).toMatchObject({

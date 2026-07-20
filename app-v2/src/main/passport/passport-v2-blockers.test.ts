@@ -18,8 +18,11 @@ import {
   PASSPORT_ITEM_DEFINITIONS,
   passportItemDefinition,
   type PassportConfig,
-  type PassportIntegrityState
+  type PassportIntegrityState,
+  type PassportItem,
+  type PassportRosterMember
 } from '../../shared/stint-passport'
+import type { CanonicalRaceOpsEvent } from '../../shared/phase02-contracts'
 import { telemetrySnapshotToRaceOpsEvent } from '../phase02/telemetry-contract-adapter'
 import { PassportPersistenceEngine } from './persistence-engine'
 import { PassportPersistenceClient } from './persistence-client'
@@ -604,6 +607,303 @@ describe('B1 – Privacy evidence class scoped deletion', () => {
       expect.objectContaining({ identity: expect.objectContaining({ stintId: current.identity.stintId }) })
     )
   })
+
+  it('[blocker-B1-e] lower-class evidence and events never derive from a retained D3 reason', async () => {
+    const test = harness('B1-reason-isolation')
+    const current = await persistentCurrent(test)
+    await test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 90, D2: 90, D3: 1 },
+      updatedAt: 2
+    })
+    const firstReason = 'D3-SENTINEL-ALPHA-DO-NOT-DOWNCLASS'
+    const secondReason = 'D3-SENTINEL-BRAVO-DO-NOT-DOWNCLASS'
+
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'weather-assumption',
+      status: 'not-applicable',
+      owner: { memberId: 'engineer-1', role: 'engineer' },
+      reasonCode: firstReason,
+      freeText: firstReason
+    })
+    const firstItem = (await test.service.snapshot()).current!.items.find(
+      (item) => item.id === 'weather-assumption'
+    )!
+    const firstEvent = (test.store.exportPackage('full-local').canonicalEvents as CanonicalRaceOpsEvent[]).filter(
+      (event) => event.eventType === 'ultimate.sim.raceops.passport.item-resolved.v1'
+    ).at(-1)!
+
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'weather-assumption',
+      status: 'not-applicable',
+      owner: { memberId: 'engineer-1', role: 'engineer' },
+      reasonCode: secondReason,
+      freeText: secondReason
+    })
+    const secondItem = (await test.service.snapshot()).current!.items.find(
+      (item) => item.id === 'weather-assumption'
+    )!
+    const secondEvent = (test.store.exportPackage('full-local').canonicalEvents as CanonicalRaceOpsEvent[]).filter(
+      (event) => event.eventType === 'ultimate.sim.raceops.passport.item-resolved.v1'
+    ).at(-1)!
+
+    expect(firstItem.detail).toBe(secondItem.detail)
+    expect(firstItem.evidence?.summary).toBe(secondItem.evidence?.summary)
+    expect(firstItem.evidence?.contentHash).toBe(secondItem.evidence?.contentHash)
+    expect(firstEvent.facts.filter((fact) => fact.name !== 'passport.state_hash')).toEqual(
+      secondEvent.facts.filter((fact) => fact.name !== 'passport.state_hash')
+    )
+    const stateHashFact = firstEvent.facts.find((fact) => fact.name === 'passport.state_hash')
+    expect(stateHashFact?.provenance?.transformId).toBe('passport.state-hash.v3.class-scoped')
+    expect(String(stateHashFact?.provenance?.privacyClass)).toMatch(/D2/)
+    expect(firstEvent.evidenceRefs).toEqual(secondEvent.evidenceRefs)
+    expect(JSON.stringify([firstItem.detail, firstItem.evidence, firstEvent])).not.toContain(firstReason)
+    expect(JSON.stringify([secondItem.detail, secondItem.evidence, secondEvent])).not.toContain(secondReason)
+
+    await test.service.closeCurrent('manual')
+    const ephemeralHistory = (test.service as unknown as {
+      ephemeralHistory: Array<{ items: PassportItem[] }>
+    }).ephemeralHistory
+    const legacyItem = ephemeralHistory[0].items.find(
+      (item) => item.id === 'weather-assumption'
+    )!
+    legacyItem.owner = undefined
+    legacyItem.overrideReason = undefined
+    legacyItem.reasonCode = undefined
+    legacyItem.detail = firstReason
+    const legacyEvidence = legacyItem.evidence!
+    legacyItem.evidence = {
+      ...legacyEvidence,
+      source: 'human-attestation',
+      summary: firstReason,
+      contentHash: 'e'.repeat(64)
+    }
+    test.setNow(2 * 86_400_000 + 10_000)
+    await test.service.runRetention('explicit')
+    const expiredExport = JSON.stringify(await test.service.exportPackage('full-local'))
+    expect(expiredExport).not.toContain(firstReason)
+    expect(expiredExport).not.toContain(secondReason)
+
+    await test.service.dispose()
+    services.splice(services.indexOf(test.service), 1)
+    stores.splice(stores.indexOf(test.store), 1)
+    const restartedStore = new PassportPersistenceEngine({
+      path: join(test.dir, 'passport.db'),
+      now: () => 3 * 86_400_000 + 10_000
+    })
+    stores.push(restartedStore)
+    const restarted = new StintPassportService(
+      { ...test.ctx, phase02Tap: new FakeTap() } as unknown as ModuleContext,
+      clientFor(restartedStore),
+      () => 3 * 86_400_000 + 10_000
+    )
+    services.push(restarted)
+
+    expect(JSON.stringify(await restarted.snapshot())).not.toContain(firstReason)
+    const restartedExport = JSON.stringify(await restarted.exportPackage('full-local'))
+    expect(restartedExport).not.toContain(firstReason)
+    expect(restartedExport).not.toContain(secondReason)
+  })
+
+  it.each([
+    { label: 'getPrivacy failure', crash: false },
+    { label: 'worker crash', crash: true }
+  ])('[blocker-B1-f] clears live D3 state before a post-delete $label', async ({ crash }) => {
+    const test = harness(`B1-post-delete-${crash ? 'crash' : 'read-failure'}`)
+    const current = await persistentCurrent(test)
+    const sentinel = `D3-DELETE-SENTINEL-${crash ? 'CRASH' : 'READ'}`
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'incoming-driver',
+      status: 'manual-confirmed',
+      owner: { memberId: current.identity.driverRef, role: 'driver' },
+      reasonCode: sentinel,
+      freeText: sentinel
+    })
+    expect(JSON.stringify(test.store.exportPackage('full-local'))).toContain(sentinel)
+
+    test.client.getPrivacy = vi.fn(async () => {
+      if (crash) test.store.close()
+      throw new Error(crash ? 'persistence process crashed' : 'post-delete privacy read failed')
+    }) as typeof test.client.getPrivacy
+
+    await expect(test.service.deleteByClass('D3')).rejects.toThrow(
+      crash ? /crashed/i : /privacy read failed/i
+    )
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current).toBeNull()
+    expect(snapshot.history).toEqual([])
+    expect(snapshot.roster).toEqual([])
+    expect(snapshot.privacy.identityPersistenceOptIn).toBe(false)
+    expect(JSON.stringify(snapshot)).not.toContain(sentinel)
+    if (crash) {
+      await expect(test.service.exportPackage('full-local')).rejects.toThrow()
+    } else {
+      expect(JSON.stringify(await test.service.exportPackage('full-local'))).not.toContain(sentinel)
+    }
+  })
+
+  it('[blocker-B1-g] a stale persistence failure cannot restore D3 state after durable deletion', async () => {
+    const test = harness('B1-stale-write-after-delete')
+    const current = await persistentCurrent(test)
+    let writeStarted!: () => void
+    let rejectWrite!: (error: Error) => void
+    const started = new Promise<void>((resolve) => { writeStarted = resolve })
+    const blockedWrite = new Promise<never>((_, reject) => { rejectWrite = reject })
+    test.client.persistPassport = vi.fn(async () => {
+      writeStarted()
+      return blockedWrite
+    }) as typeof test.client.persistPassport
+
+    const mutation = outcomeOf(test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'fuel-load',
+      status: 'manual-confirmed',
+      owner: { memberId: 'engineer-1', role: 'engineer' },
+      reasonCode: 'D3-STALE-ROLLBACK-SENTINEL'
+    }))
+    await started
+    await test.service.deleteByClass('D3')
+    rejectWrite(new Error('queued write rejected after privacy deletion'))
+    expect(await mutation).toBe('rejected')
+
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current).toBeNull()
+    expect(snapshot.history).toEqual([])
+    expect(snapshot.roster).toEqual([])
+    expect(snapshot.privacy.identityPersistenceOptIn).toBe(false)
+    expect(JSON.stringify(snapshot)).not.toContain('D3-STALE-ROLLBACK-SENTINEL')
+    expect((test.service as unknown as {
+      ambiguousMutations: Map<string, unknown>
+    }).ambiguousMutations.size).toBe(0)
+  })
+
+  it('[blocker-B1-h] a delayed roster save cannot republish D3 data after deletion', async () => {
+    const test = harness('B1-stale-roster-after-delete')
+    await persistentCurrent(test)
+    let saveStarted!: () => void
+    let resolveSave!: (value: PassportRosterMember[]) => void
+    const started = new Promise<void>((resolve) => { saveStarted = resolve })
+    const blockedSave = new Promise<PassportRosterMember[]>((resolve) => { resolveSave = resolve })
+    const candidate: PassportRosterMember[] = [{
+      memberId: 'D3-STALE-ROSTER-SENTINEL',
+      displayName: 'D3 stale roster sentinel',
+      roles: ['driver'],
+      active: true
+    }]
+    test.client.saveRoster = vi.fn(async () => {
+      saveStarted()
+      return blockedSave
+    }) as typeof test.client.saveRoster
+
+    const mutation = outcomeOf(test.service.setRoster(candidate))
+    await started
+    await test.service.deleteByClass('D3')
+    resolveSave(candidate)
+
+    expect(await mutation).toBe('rejected')
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current).toBeNull()
+    expect(snapshot.roster).toEqual([])
+    expect(snapshot.privacy.identityPersistenceOptIn).toBe(false)
+    expect(JSON.stringify(await test.service.exportPackage('full-local')))
+      .not.toContain('D3-STALE-ROSTER-SENTINEL')
+  })
+
+  it('[blocker-B1-i] delayed automatic roster seeding cannot recreate a stint after deletion', async () => {
+    const test = harness('B1-stale-seed-after-delete')
+    await test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 1
+    })
+    let saveStarted!: () => void
+    let resolveSave!: (value: PassportRosterMember[]) => void
+    let savedCandidate: PassportRosterMember[] = []
+    const started = new Promise<void>((resolve) => { saveStarted = resolve })
+    const blockedSave = new Promise<PassportRosterMember[]>((resolve) => { resolveSave = resolve })
+    test.client.saveRoster = vi.fn(async (candidate: PassportRosterMember[]) => {
+      savedCandidate = candidate
+      saveStarted()
+      return blockedSave
+    }) as typeof test.client.saveRoster
+
+    const liveStart = outcomeOf(test.tap.emit(delivery(
+      telemetry('D3-AUTO-SEED-SENTINEL', 77),
+      1n
+    )))
+    await started
+    await test.service.deleteByClass('D3')
+    resolveSave(savedCandidate)
+
+    expect(await liveStart).toBe('rejected')
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current).toBeNull()
+    expect(snapshot.roster).toEqual([])
+    expect(snapshot.history).toEqual([])
+    expect(snapshot.privacy.identityPersistenceOptIn).toBe(false)
+    expect(JSON.stringify(await test.service.exportPackage('full-local')))
+      .not.toContain('D3-AUTO-SEED-SENTINEL')
+  })
+
+  it('[blocker-B1-j] a delayed privacy roster save cannot restore a deleted prior stint', async () => {
+    const test = harness('B1-stale-privacy-roster-after-delete')
+    await test.service.snapshot()
+    await test.tap.emit(delivery(telemetry('D3-OLD-DRIVER-SENTINEL', 10), 1n))
+    let saveStarted!: () => void
+    let resolveFirstSave!: (value: PassportRosterMember[]) => void
+    let firstCandidate: PassportRosterMember[] = []
+    let saveCalls = 0
+    const started = new Promise<void>((resolve) => { saveStarted = resolve })
+    const blockedSave = new Promise<PassportRosterMember[]>((resolve) => {
+      resolveFirstSave = resolve
+    })
+    const saveRoster = test.client.saveRoster.bind(test.client)
+    test.client.saveRoster = vi.fn(async (candidate: PassportRosterMember[]) => {
+      saveCalls += 1
+      if (saveCalls === 1) {
+        firstCandidate = candidate
+        saveStarted()
+        return blockedSave
+      }
+      return saveRoster(candidate)
+    }) as typeof test.client.saveRoster
+
+    const staleEnable = outcomeOf(test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 1
+    }))
+    await started
+    await test.service.deleteByClass('D3')
+    await test.tap.emit(delivery(telemetry('D3-NEW-DRIVER-SENTINEL', 20, 1), 2n))
+    await test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 2
+    })
+    const authoritative = (await test.service.snapshot()).current!
+    expect(authoritative.identity.driverLabel).toBe('D3-NEW-DRIVER-SENTINEL')
+
+    const persistPassport = test.client.persistPassport.bind(test.client)
+    const stalePersist = vi.fn(async () => {
+      throw new Error('stale privacy flow must not persist')
+    })
+    test.client.persistPassport = stalePersist as typeof test.client.persistPassport
+    resolveFirstSave(firstCandidate)
+    expect(await staleEnable).toBe('rejected')
+    expect(await staleEnable).toBe('rejected')
+    expect(stalePersist).not.toHaveBeenCalled()
+    test.client.persistPassport = persistPassport
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current?.identity.stintId).toBe(authoritative.identity.stintId)
+    expect(snapshot.current?.identity.driverLabel).toBe('D3-NEW-DRIVER-SENTINEL')
+    expect(JSON.stringify(await test.service.exportPackage('full-local')))
+      .not.toContain('D3-OLD-DRIVER-SENTINEL')
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -757,6 +1057,86 @@ describe('B2 – Challenge CAS race after verifyActiveStint', () => {
     expect(snapshot.current?.identity.driverLabel).toBe('Driver B')
     expect(snapshot.current?.lifecycle).not.toBe('ready')
   })
+
+  it.each(['close', 'disconnect', 'replay'] as const)(
+    '[blocker-B2-e] a blocked verification cannot write Ready after a concurrent %s boundary starts',
+    async (mode) => {
+      const test = harness(`B2-${mode}-lifecycle-fence`)
+      const { current, challenge } = await preparedPersistentChallenge(test)
+      const trustedIntegrity: PassportIntegrityState = {
+        state: 'anchored',
+        verified: true,
+        scope: 'incremental',
+        checkedEvents: 1,
+        lastCheckedAt: 10_000,
+        message: 'Verified.'
+      }
+      let verificationStarted!: () => void
+      let releaseVerification!: () => void
+      const verificationStart = new Promise<void>((resolve) => { verificationStarted = resolve })
+      const verificationBarrier = new Promise<void>((resolve) => { releaseVerification = resolve })
+      test.client.verifyActiveStint = vi.fn(async () => {
+        verificationStarted()
+        await verificationBarrier
+        return trustedIntegrity
+      })
+
+      let closePersistStarted!: () => void
+      let releaseClosePersist!: () => void
+      const closePersistStart = new Promise<void>((resolve) => { closePersistStarted = resolve })
+      const closePersistBarrier = new Promise<void>((resolve) => { releaseClosePersist = resolve })
+      const originalPersist = test.client.persistPassport
+      const attemptedLifecycles: string[] = []
+      test.client.persistPassport = vi.fn(async (
+        ...args: Parameters<typeof test.client.persistPassport>
+      ) => {
+        const [candidate] = args
+        attemptedLifecycles.push(candidate.lifecycle)
+        if (candidate.lifecycle === 'closed' || candidate.lifecycle === 'interrupted') {
+          closePersistStarted()
+          await closePersistBarrier
+        }
+        return originalPersist(...args)
+      }) as typeof test.client.persistPassport
+
+      const completion = test.service.completeChallenge({
+        stintId: current.identity.stintId,
+        challengeId: challenge.challengeId,
+        response: challenge.nonce,
+        owner: { memberId: current.identity.driverRef, role: 'driver' }
+      })
+      await verificationStart
+
+      let lifecycle: Promise<unknown>
+      if (mode === 'close') {
+        lifecycle = test.service.closeCurrent('manual')
+      } else if (mode === 'disconnect') {
+        lifecycle = test.tap.emit(delivery(null, 2n))
+      } else {
+        const replay = telemetry('Driver A', 10, 2)
+        replay.replayContext = {
+          ...replay.replayContext!,
+          state: 'replay',
+          reason: 'replay-playing',
+          active: true
+        }
+        lifecycle = test.tap.emit(delivery(replay, 2n))
+      }
+      await closePersistStart
+      const terminalLifecycle = mode === 'close' ? 'closed' : 'interrupted'
+      expect((await test.service.snapshot()).current?.lifecycle).toBe(terminalLifecycle)
+
+      releaseVerification()
+      const completionOutcome = await outcomeOf(completion)
+      releaseClosePersist()
+      await lifecycle
+
+      expect(completionOutcome).toBe('rejected')
+      expect(attemptedLifecycles).toEqual([terminalLifecycle])
+      expect(test.store.getPassport(current.identity.stintId)?.lifecycle).toBe(terminalLifecycle)
+      expect((await test.service.snapshot()).current).toBeNull()
+    }
+  )
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -896,6 +1276,70 @@ describe('B3 – Roster persist-before-live-swap', () => {
       passport.identity.stintId === current.identity.stintId
     )
     expect(recovered?.items.find(i => i.id === 'audio-comms')?.status).toBe('manual-confirmed')
+  })
+
+  it('[blocker-B3-d] automatic driver seeding publishes only a durably saved immutable roster', async () => {
+    const test = harness('B3-automatic-seed-failure')
+    const current = await persistentCurrent(test)
+    const previousRoster = (await test.service.snapshot()).roster.filter(
+      (member) => member.memberId !== current.identity.driverRef
+    )
+    await test.service.setRoster(previousRoster)
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'audio-comms',
+      status: 'manual-confirmed',
+      owner: { memberId: 'spotter-1', role: 'spotter' },
+      reasonCode: 'COMMS_BEFORE_AUTOMATIC_SEED'
+    })
+    await test.service.closeCurrent('manual')
+
+    const durableBefore = test.store.listRoster()
+    const previousIds = previousRoster.map((member) => member.memberId).sort()
+    const originalPersistedSave = test.client.saveRoster
+    test.client.saveRoster = vi.fn(async (candidate: readonly PassportRosterMember[]) => {
+      expect(Object.isFrozen(candidate)).toBe(true)
+      expect(candidate.every((member) =>
+        Object.isFrozen(member) && Object.isFrozen(member.roles)
+      )).toBe(true)
+      expect(candidate.some((member) => member.memberId === current.identity.driverRef)).toBe(true)
+      throw new Error('automatic roster seed write failed')
+    }) as typeof originalPersistedSave
+
+    await expect(test.tap.emit(delivery(telemetry('Driver A', 10, 2), 2n)))
+      .rejects.toThrow(/automatic roster seed write failed/i)
+
+    const failedSnapshot = await test.service.snapshot()
+    expect(failedSnapshot.current).toBeNull()
+    expect(failedSnapshot.roster.map((member) => member.memberId).sort()).toEqual(previousIds)
+    expect(test.store.listRoster()).toEqual(durableBefore)
+    const priorStint = failedSnapshot.history.find(
+      (passport) => passport.identity.stintId === current.identity.stintId
+    )
+    expect(priorStint?.items.find((item) => item.id === 'audio-comms')?.status)
+      .toBe('manual-confirmed')
+
+    await test.service.dispose()
+    services.splice(services.indexOf(test.service), 1)
+    stores.splice(stores.indexOf(test.store), 1)
+    const restartedStore = new PassportPersistenceEngine({
+      path: join(test.dir, 'passport.db'),
+      now: () => 30_000
+    })
+    stores.push(restartedStore)
+    const restarted = new StintPassportService(
+      { ...test.ctx, phase02Tap: new FakeTap() } as unknown as ModuleContext,
+      clientFor(restartedStore),
+      () => 30_000
+    )
+    services.push(restarted)
+    const restartedSnapshot = await restarted.snapshot()
+
+    expect(restartedSnapshot.roster.map((member) => member.memberId).sort()).toEqual(previousIds)
+    expect(restartedStore.listRoster()).toEqual(durableBefore)
+    expect(restartedSnapshot.history.find(
+      (passport) => passport.identity.stintId === current.identity.stintId
+    )?.items.find((item) => item.id === 'audio-comms')?.status).toBe('manual-confirmed')
   })
 })
 

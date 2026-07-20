@@ -1,20 +1,25 @@
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { fork } from 'node:child_process'
 import { once } from 'node:events'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 const root = resolve(process.cwd())
-const workerPath = join(root, 'out', 'main', 'passport-persistence-worker.js')
+const fixturePath = process.env.PASSPORT_WORKER_FIXTURE
+const workerPath = fixturePath
+  ? resolve(fixturePath)
+  : join(root, 'out', 'main', 'passport-persistence-worker.js')
 const mainPath = join(root, 'out', 'main', 'index.js')
 if (!existsSync(workerPath) || statSync(workerPath).size < 1_000) {
   throw new Error('Packaged Passport persistence worker is missing or empty.')
 }
-const main = readFileSync(mainPath, 'utf8')
-if (!main.includes('passport-persistence-worker.js')) {
-  throw new Error('Main bundle does not reference the packaged Passport persistence worker.')
+if (!fixturePath) {
+  const main = readFileSync(mainPath, 'utf8')
+  if (!main.includes('passport-persistence-worker.js')) {
+    throw new Error('Main bundle does not reference the packaged Passport persistence worker.')
+  }
 }
 
-const smokeDb = join(root, 'out', 'passport-worker-smoke.db')
+const smokeDb = join(fixturePath ? dirname(workerPath) : join(root, 'out'), 'passport-worker-smoke.db')
 const sidecars = [
   '',
   '-wal',
@@ -33,6 +38,7 @@ let requestId = 0
 function startProcess() {
   const child = fork(workerPath, [], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    execArgv: [],
     serialization: 'advanced',
     stdio: ['ignore', 'ignore', 'ignore', 'ipc']
   })
@@ -132,6 +138,7 @@ try {
 console.log(JSON.stringify({
   worker: workerPath,
   bytes: statSync(workerPath).size,
+  packaged: !fixturePath,
   isolatedProcess: true,
   smoke: true,
   proofs

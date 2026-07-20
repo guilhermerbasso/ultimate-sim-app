@@ -1,9 +1,8 @@
 import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { fork, type ChildProcess } from 'node:child_process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
   DEFAULT_PASSPORT_PRIVACY,
   PASSPORT_ITEM_DEFINITIONS,
@@ -14,6 +13,10 @@ import {
 } from '../../shared/stint-passport'
 import { emptyConfidence, emptyObservedInterval } from '../../shared/phase02-contracts'
 import type { PassportStoreEvent } from './persistence-engine'
+import {
+  buildPassportWorkerTestFixture,
+  type PassportWorkerTestFixture
+} from './passport-worker-test-fixture'
 
 interface RpcResponse {
   id: number
@@ -23,14 +26,15 @@ interface RpcResponse {
   code?: string
 }
 
-const workerEntry = fileURLToPath(new URL('../../../out/main/passport-persistence-worker.js', import.meta.url))
+let workerFixture: PassportWorkerTestFixture
 
 class PersistenceProcess {
   readonly child: ChildProcess
 
   constructor() {
-    this.child = fork(workerEntry, [], {
+    this.child = fork(workerFixture.entry, [], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      execArgv: [],
       serialization: 'advanced',
       stdio: ['ignore', 'ignore', 'ignore', 'ipc']
     })
@@ -77,6 +81,14 @@ class PersistenceProcess {
 const workers: PersistenceProcess[] = []
 const directories: string[] = []
 let requestId = 0
+
+beforeAll(async () => {
+  workerFixture = await buildPassportWorkerTestFixture('process')
+})
+
+afterAll(() => {
+  workerFixture.cleanup()
+})
 
 afterEach(async () => {
   await Promise.all(workers.splice(0).map(async (worker) => {

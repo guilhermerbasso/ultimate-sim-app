@@ -12,6 +12,7 @@ import type { TelemetryHub } from '../telemetry/hub'
 import { telemetrySnapshotToRaceOpsEvent } from './telemetry-contract-adapter'
 
 const SOURCE_QUEUE_LIMIT = 4
+const MAX_RETAINED_LIFECYCLE_BOUNDARIES = 3
 
 interface SourceEntry {
   snapshot: TelemetrySnapshot | null
@@ -28,11 +29,28 @@ function estimateBytes(delivery: Phase02TapDelivery): number {
   ))
 }
 
-function isLifecycleBoundary(delivery: Phase02TapDelivery): boolean {
+function lifecycleBoundaryKey(delivery: Phase02TapDelivery): string | undefined {
   const connected = canonicalFactValue(
     delivery.event.facts.find((fact) => fact.name === 'telemetry.connected')
   )
-  return delivery.event.telemetryContext !== 'live' || connected === false
+  if (connected !== true) return 'disconnected'
+  if (delivery.event.telemetryContext === 'live') return undefined
+  return `${delivery.event.telemetryContext}:${delivery.event.sessionRef}`
+}
+
+function isLifecycleBoundary(delivery: Phase02TapDelivery): boolean {
+  return lifecycleBoundaryKey(delivery) !== undefined
+}
+
+function sourceLifecycleBoundaryKey(entry: SourceEntry): string | undefined {
+  if (!entry.snapshot?.connected) return 'disconnected'
+  const context = entry.snapshot.replayContext?.state
+  if (context !== 'replay' && context !== 'unknown') return undefined
+  return `${context}:${entry.snapshot.replayContext?.sessionIdentity ?? ''}`
+}
+
+function isSourceLifecycleBoundary(entry: SourceEntry): boolean {
+  return sourceLifecycleBoundaryKey(entry) !== undefined
 }
 
 function cloneEvent(event: CanonicalRaceOpsEvent): CanonicalRaceOpsEvent {
@@ -90,8 +108,23 @@ class BoundedTapSubscription implements Phase02TapSubscription {
     if (this.disposed || ((!this.state.enabled || this.state.killSwitch) && !boundary)) return
     const byteLength = estimateBytes(delivery)
     const next: Phase02TapDelivery = { ...delivery, byteLength }
-    if (byteLength > this.budgets.maxBytes) {
+    if (byteLength > this.budgets.maxBytes && !boundary) {
       this.markOverflow(1)
+      return
+    }
+    const boundaryKey = lifecycleBoundaryKey(next)
+    const lastIndex = this.queue.length - 1
+    if (
+      boundaryKey &&
+      lastIndex >= 0 &&
+      lifecycleBoundaryKey(this.queue[lastIndex]) === boundaryKey
+    ) {
+      this.queuedBytes -= this.queue[lastIndex].byteLength
+      this.queue[lastIndex] = next
+      this.queuedBytes += byteLength
+      this.state.accepted += 1
+      this.syncQueueState()
+      this.requestDrain()
       return
     }
     this.queue.push(next)
@@ -102,8 +135,29 @@ class BoundedTapSubscription implements Phase02TapSubscription {
       this.queue.length > this.budgets.maxItems ||
       this.queuedBytes > this.budgets.maxBytes
     ) {
-      const removed = this.queue.shift()
-      if (!removed) break
+      let removableIndex = this.queue.findIndex((queued) => !isLifecycleBoundary(queued))
+      if (removableIndex < 0) {
+        removableIndex = this.queue.findIndex((queued, index) => {
+          const key = lifecycleBoundaryKey(queued)
+          return key !== undefined && this.queue.slice(index + 1).some(
+            (candidate) => lifecycleBoundaryKey(candidate) === key
+          )
+        })
+      }
+      if (
+        removableIndex < 0 &&
+        (
+          this.queue.length > Math.min(
+            this.budgets.maxItems,
+            MAX_RETAINED_LIFECYCLE_BOUNDARIES
+          ) ||
+          (this.queuedBytes > this.budgets.maxBytes && this.queue.length > 1)
+        )
+      ) {
+        removableIndex = 0
+      }
+      if (removableIndex < 0) break
+      const [removed] = this.queue.splice(removableIndex, 1)
       this.queuedBytes -= removed.byteLength
       dropped += 1
     }
@@ -219,13 +273,36 @@ export class Phase02TapKernel implements Phase02Tap {
   private readonly onSnapshot = (snapshot: TelemetrySnapshot | null): void => {
     if (this.disposed) return
     this.sourceSequence += 1n
-    this.sourceQueue.push({
+    const entry: SourceEntry = {
       snapshot,
       sequence: this.sourceSequence,
       enqueuedAt: this.now()
-    })
-    if (this.sourceQueue.length > SOURCE_QUEUE_LIMIT) {
-      this.sourceQueue.shift()
+    }
+    const boundaryKey = sourceLifecycleBoundaryKey(entry)
+    const lastIndex = this.sourceQueue.length - 1
+    if (
+      boundaryKey &&
+      lastIndex >= 0 &&
+      sourceLifecycleBoundaryKey(this.sourceQueue[lastIndex]) === boundaryKey
+    ) {
+      this.sourceQueue[lastIndex] = entry
+    } else {
+      this.sourceQueue.push(entry)
+    }
+    while (this.sourceQueue.length > SOURCE_QUEUE_LIMIT) {
+      let removableIndex = this.sourceQueue.findIndex(
+        (queued) => !isSourceLifecycleBoundary(queued)
+      )
+      if (removableIndex < 0) {
+        removableIndex = this.sourceQueue.findIndex((queued, index) => {
+          const key = sourceLifecycleBoundaryKey(queued)
+          return key !== undefined && this.sourceQueue.slice(index + 1).some(
+            (candidate) => sourceLifecycleBoundaryKey(candidate) === key
+          )
+        })
+      }
+      if (removableIndex < 0) removableIndex = 0
+      this.sourceQueue.splice(removableIndex, 1)
       this.sourceGap = true
     }
     this.requestSourceDrain()

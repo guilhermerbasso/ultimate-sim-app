@@ -65,6 +65,10 @@ function itemDataClass(itemId: PassportItemId): PassportDataClass {
   return PASSPORT_ITEM_DEFINITIONS.find((definition) => definition.id === itemId)?.dataClass ?? 'D2'
 }
 
+function dataClassRank(dataClass: PassportDataClass): number {
+  return dataClass === 'D1' ? 1 : dataClass === 'D2' ? 2 : 3
+}
+
 type Row = Record<string, unknown>
 
 interface AnchorPayload {
@@ -409,7 +413,63 @@ function itemHash(item: PassportItem): string {
   })
 }
 
-function passportStateHash(passport: StintPassport): string {
+function lowerClassItemHash(item: PassportItem): string {
+  return hash({
+    id: item.id,
+    status: item.status,
+    detail: item.detail,
+    verifiedAt: item.verifiedAt,
+    expiresAt: item.expiresAt,
+    evidenceHash: item.evidence?.contentHash,
+    evidenceState: item.evidence?.state,
+    revision: item.revision
+  })
+}
+
+function lowerClassAttestationDetail(status: PassportItem['status']): string {
+  return status === 'manual-confirmed'
+    ? 'Manually confirmed by the assigned roster owner.'
+    : status === 'not-applicable'
+      ? 'Marked not applicable with a private retained reason.'
+      : 'Waived with a private retained reason.'
+}
+
+function lowerClassAttestationSummary(status: PassportItem['status']): string {
+  return status === 'manual-confirmed'
+    ? 'Manual attestation recorded.'
+    : status === 'not-applicable'
+      ? 'Not-applicable attestation recorded.'
+      : 'Waiver attestation recorded.'
+}
+
+function passportStateHash(
+  passport: StintPassport,
+  dataClass: PassportDataClass = 'D3'
+): string {
+  if (dataClass !== 'D3') {
+    const maximumRank = dataClassRank(dataClass)
+    return hash({
+      contractVersion: passport.contractVersion,
+      lifecycle: passport.lifecycle,
+      telemetryContext: passport.telemetryContext,
+      items: passport.items
+        .filter((item) => dataClassRank(itemDataClass(item.id)) <= maximumRank)
+        .map((item) => ({
+          id: item.id,
+          itemHash: lowerClassItemHash(item)
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      coverage: passport.coverage,
+      applicableItems: passport.applicableItems,
+      coveredItems: passport.coveredItems,
+      challengeCompletedAt: passport.challengeCompletedAt,
+      closedAt: passport.closedAt,
+      closeReason: passport.closeReason,
+      interrupted: passport.interrupted,
+      revision: passport.revision,
+      durability: passport.durability
+    })
+  }
   return hash({
     contractVersion: passport.contractVersion,
     identity: passport.identity,
@@ -437,7 +497,7 @@ function passportStateHash(passport: StintPassport): string {
 function semanticOperationHash(passport: StintPassport, event: PassportStoreEvent): string {
   const canonical = event.canonicalEvent
   return hash({
-    passportStateHash: passportStateHash(passport),
+    passportStateHash: passportStateHash(passport, event.dataClass),
     itemId: event.itemId,
     dataClass: event.dataClass,
     capturedAt: event.capturedAt,
@@ -725,6 +785,8 @@ export class PassportPersistenceEngine {
       `).all(stintId) as Row[]
       let previousHash: string | undefined
       let lastStateHash: string | undefined
+      let lastStateDataClass: PassportDataClass = 'D3'
+      let lastStateTransform = 'passport.state-hash.v2'
       for (let index = 0; index < rows.length; index += 1) {
         const row = rows[index]
         const payloadState = text(row.payload_state)
@@ -751,9 +813,11 @@ export class PassportPersistenceEngine {
               throw new Error('mirror mismatch')
             }
             const stateFact = canonical.facts.find((fact) => fact.name === 'passport.state_hash')
-            lastStateHash = typeof stateFact?.value?.value === 'string'
-              ? stateFact.value.value
-              : lastStateHash
+            if (typeof stateFact?.value?.value === 'string') {
+              lastStateHash = stateFact.value.value
+              lastStateDataClass = text(row.data_class) as PassportDataClass
+              lastStateTransform = stateFact.provenance?.transformId ?? lastStateTransform
+            }
           } catch {
             this.setStickyCorruption(`Canonical event mirror mismatch in stint ${stintId}.`)
             return { ...this.integrity }
@@ -788,7 +852,10 @@ export class PassportPersistenceEngine {
         }
       }
       const passport = this.getPassport(stintId)
-      if (!passport || !this.verifyPassportPayload(stintId, passport) || lastStateHash !== passportStateHash(passport)) {
+      const expectedStateHash = passport && lastStateTransform === 'passport.state-hash.v3.class-scoped'
+        ? passportStateHash(passport, lastStateDataClass)
+        : passport ? passportStateHash(passport) : undefined
+      if (!passport || !this.verifyPassportPayload(stintId, passport) || lastStateHash !== expectedStateHash) {
         this.setStickyCorruption(`Passport state hash mismatch in stint ${stintId}.`)
         this.integrity = this.stickyCorruptionState('full', checkedEvents, `Passport state hash mismatch in stint ${stintId}.`)
         return { ...this.integrity }
@@ -1200,7 +1267,12 @@ export class PassportPersistenceEngine {
     const pending = this.readSignedAnchor(this.pendingAnchorPath)
     if (pending) {
       if (this.anchorMatches(pending, local)) {
-        this.promotePendingAnchor()
+        try {
+          this.promotePendingAnchor()
+        } catch {
+          // A matching signed pending anchor remains authoritative until promotion succeeds.
+          return
+        }
       } else if (anchor && this.anchorMatches(anchor, local)) {
         rmSync(this.pendingAnchorPath, { force: true })
       } else {
@@ -1346,15 +1418,34 @@ export class PassportPersistenceEngine {
   private transaction<T>(work: () => T): T {
     const integrityBefore = this.integrity
     const metricsBefore = { ...this.metrics }
+    const pendingAnchorBefore = this.pendingAnchorPath && existsSync(this.pendingAnchorPath)
+      ? readFileSync(this.pendingAnchorPath, 'utf8')
+      : undefined
     let pending: SignedAnchor | null = null
+    let pendingWriteAttempted = false
     let committed = false
+    let anchorPromotionPending = false
     begin(this.db)
     try {
       const result = work()
+      pendingWriteAttempted = true
       pending = this.writePendingAnchor()
       this.db.exec('COMMIT')
       committed = true
-      if (pending) this.promotePendingAnchor()
+      if (pending) {
+        try {
+          this.promotePendingAnchor()
+        } catch (error) {
+          const snapshot = this.anchorSnapshot()
+          const pendingAnchor = this.readSignedAnchor(this.pendingAnchorPath)
+          const trustedAnchor = this.readSignedAnchor(this.anchorPath)
+          if (pendingAnchor && this.anchorMatches(pendingAnchor, snapshot)) {
+            anchorPromotionPending = true
+          } else if (!trustedAnchor || !this.anchorMatches(trustedAnchor, snapshot)) {
+            throw error
+          }
+        }
+      }
       this.heads.clear()
       this.hydrateHeads()
       if (pending) {
@@ -1366,14 +1457,22 @@ export class PassportPersistenceEngine {
           totalEvents: pending.eventCount,
           headHash: pending.eventRoot,
           lastCheckedAt: this.now(),
-          message: 'Local state verified against a trusted HMAC signature anchor.'
+          message: anchorPromotionPending
+            ? 'Committed local state is verified by a signed pending HMAC anchor.'
+            : 'Local state verified against a trusted HMAC signature anchor.'
         }
       }
       return result
     } catch (error) {
       if (!committed) {
         rollback(this.db)
-        if (this.pendingAnchorPath) rmSync(this.pendingAnchorPath, { force: true })
+        if (this.pendingAnchorPath && pendingWriteAttempted) {
+          if (pendingAnchorBefore === undefined) {
+            rmSync(this.pendingAnchorPath, { force: true })
+          } else {
+            atomicWrite(this.pendingAnchorPath, pendingAnchorBefore, 0o600)
+          }
+        }
         Object.assign(this.metrics, metricsBefore)
         this.integrity = integrityBefore
       } else if (pending) {
@@ -1627,7 +1726,7 @@ export class PassportPersistenceEngine {
     `).get(passport.identity.stintId) as Row | undefined
     const previousHash = optionalText(previous?.record_hash)
     const eventId = event.canonicalEvent.eventId || this.idFactory()
-    const stateHash = passportStateHash(passport)
+    const stateHash = passportStateHash(passport, event.dataClass)
     const canonicalEvent: CanonicalRaceOpsEvent = {
       ...event.canonicalEvent,
       eventId,
@@ -1644,7 +1743,7 @@ export class PassportPersistenceEngine {
           value: { kind: 'string', value: stateHash },
           provenance: {
             sourceId: 'passport-persistence-worker',
-            transformId: 'passport.state-hash.v2',
+            transformId: 'passport.state-hash.v3.class-scoped',
             schemaFingerprint: event.canonicalEvent.facts[0]?.provenance?.schemaFingerprint ?? '',
             canonicalUnit: 'sha256',
             validity: 'valid',
@@ -1652,7 +1751,7 @@ export class PassportPersistenceEngine {
             sourceTick: String(event.capturedAt),
             observedMonotonicNs: String(clock.logicalTimeMs * 1_000_000),
             ageMs: '0',
-            privacyClass: 'D1'
+            privacyClass: event.dataClass
           }
         }
       ]
@@ -1923,6 +2022,8 @@ export class PassportPersistenceEngine {
       `).all(stintId) as Row[]
       let previousHash: string | undefined
       let lastStateHash: string | undefined
+      let lastStateDataClass: PassportDataClass = 'D3'
+      let lastStateTransform = 'passport.state-hash.v2'
       for (const row of rows) {
         const payloadState = text(row.payload_state)
         if (payloadState === 'available') {
@@ -1948,9 +2049,11 @@ export class PassportPersistenceEngine {
               throw new Error('mirror mismatch')
             }
             const stateFact = canonical.facts.find((fact) => fact.name === 'passport.state_hash')
-            lastStateHash = typeof stateFact?.value?.value === 'string'
-              ? stateFact.value.value
-              : lastStateHash
+            if (typeof stateFact?.value?.value === 'string') {
+              lastStateHash = stateFact.value.value
+              lastStateDataClass = text(row.data_class) as PassportDataClass
+              lastStateTransform = stateFact.provenance?.transformId ?? lastStateTransform
+            }
           } catch {
             this.setStickyCorruption(`Canonical event mirror mismatch in stint ${stintId}.`)
             return this.stickyCorruptionState(scope, checked, `Canonical event mirror mismatch in stint ${stintId}.`)
@@ -1981,7 +2084,10 @@ export class PassportPersistenceEngine {
         checked += 1
       }
       const passport = this.getPassport(stintId)
-      if (rows.length > 0 && (!passport || !this.verifyPassportPayload(stintId, passport) || lastStateHash !== passportStateHash(passport))) {
+      const expectedStateHash = passport && lastStateTransform === 'passport.state-hash.v3.class-scoped'
+        ? passportStateHash(passport, lastStateDataClass)
+        : passport ? passportStateHash(passport) : undefined
+      if (rows.length > 0 && (!passport || !this.verifyPassportPayload(stintId, passport) || lastStateHash !== expectedStateHash)) {
         this.setStickyCorruption(`Passport state hash mismatch in stint ${stintId}.`)
         return this.stickyCorruptionState(scope, checked, `Passport state hash mismatch in stint ${stintId}.`)
       }
@@ -2012,7 +2118,7 @@ export class PassportPersistenceEngine {
     closedOnly = false
   ): number {
     const explicit = cutoff === Number.MAX_SAFE_INTEGER
-    const rows = this.db.prepare(`
+    const rawRows = this.db.prepare(`
       SELECT item.stint_id, item.item_id, item.status, item.owner_json, item.detail,
         item.override_reason, item.reason_code, item.verified_at, item.expires_at,
         item.evidence_json, item.evidence_state, item.evidence_captured_at,
@@ -2030,7 +2136,8 @@ export class PassportPersistenceEngine {
         (item.reason_data_class = ? AND (
           item.override_reason IS NOT NULL OR item.reason_code IS NOT NULL
         )) OR
-        (item.provenance_data_class = ? AND item.evidence_captured_at IS NOT NULL)
+        (item.provenance_data_class = ? AND item.evidence_captured_at IS NOT NULL) OR
+        (? = 'D3' AND item.evidence_json IS NOT NULL)
       )
       AND (
         ? = 1 OR
@@ -2043,14 +2150,39 @@ export class PassportPersistenceEngine {
       dataClass,
       dataClass,
       dataClass,
+      dataClass,
       explicit ? 1 : 0,
       closedOnly ? 1 : 0,
       cutoff,
       closedOnly ? 1 : 0,
       cutoff
     ) as Row[]
+    const rows = rawRows.filter((row) => {
+      const classScopedValuePresent =
+        (text(row.evidence_data_class) === dataClass && row.evidence_json != null) ||
+        (text(row.detail_data_class) === dataClass && ![
+          'Evidence removed by data-class deletion.',
+          '[retention-redacted]'
+        ].includes(text(row.detail))) ||
+        (text(row.owner_data_class) === dataClass && row.owner_json != null) ||
+        (text(row.reason_data_class) === dataClass && (
+          row.override_reason != null || row.reason_code != null
+        )) ||
+        (text(row.provenance_data_class) === dataClass && row.evidence_captured_at != null)
+      if (classScopedValuePresent) return true
+      if (dataClass !== 'D3' || itemDataClass(text(row.item_id) as PassportItemId) === 'D3') {
+        return false
+      }
+      const evidence = parse<PassportItem['evidence']>(row.evidence_json, undefined)
+      if (evidence?.source !== 'human-attestation') return false
+      return evidence.contentHash !== hash({
+        itemId: text(row.item_id),
+        status: text(row.status),
+        now: evidence.capturedAt
+      })
+    })
     const eventRows = this.db.prepare(`
-      SELECT event.event_id, event.stint_id
+      SELECT event.event_id, event.stint_id, event.sequence
       FROM passport_event event
       JOIN stint_passport passport ON passport.stint_id = event.stint_id
       WHERE event.data_class = ?
@@ -2067,7 +2199,39 @@ export class PassportPersistenceEngine {
       closedOnly ? 1 : 0,
       cutoff
     ) as Row[]
-    if (rows.length === 0 && eventRows.length === 0) return 0
+    const legacyEventRows = dataClass === 'D3'
+      ? (this.db.prepare(`
+          SELECT event.event_id, event.stint_id, event.sequence, event.event_binary
+          FROM passport_event event
+          JOIN stint_passport passport ON passport.stint_id = event.stint_id
+          WHERE event.data_class IN ('D1', 'D2')
+            AND event.payload_state = 'available'
+            AND (? = 1 OR event.captured_at < ?)
+            AND (
+              ? = 0 OR
+              (passport.closed_at IS NOT NULL AND passport.closed_at < ?)
+            )
+        `).all(
+          explicit ? 1 : 0,
+          cutoff,
+          closedOnly ? 1 : 0,
+          cutoff
+        ) as Row[]).filter((row) => {
+          try {
+            const canonical = decodeRaceOpsEvent(row.event_binary as Uint8Array)
+            return canonical.facts.some((fact) =>
+              ['passport.role', 'passport.reasonCode', 'passport.freeText'].includes(fact.name) ||
+              (
+                fact.name === 'passport.state_hash' &&
+                fact.provenance?.transformId !== 'passport.state-hash.v3.class-scoped'
+              )
+            )
+          } catch {
+            return false
+          }
+        })
+      : []
+    if (rows.length === 0 && eventRows.length === 0 && legacyEventRows.length === 0) return 0
     return this.transaction(() => {
       const update = this.db.prepare(`
         UPDATE passport_item
@@ -2090,16 +2254,46 @@ export class PassportPersistenceEngine {
         const redactReason = text(row.reason_data_class) === dataClass
         const redactProvenance = text(row.provenance_data_class) === dataClass
         const evidenceRemoved = redactEvidence || redactProvenance
+        const itemId = text(row.item_id) as PassportItemId
+        const status = text(row.status) as PassportItem['status']
+        const originalEvidence = parse<PassportItem['evidence']>(row.evidence_json, undefined)
+        const reasonValues = [optionalText(row.override_reason), optionalText(row.reason_code)]
+          .filter((value): value is string => value !== undefined)
+        const sanitizeLegacyAttestation = redactReason &&
+          itemDataClass(itemId) !== 'D3' &&
+          originalEvidence?.source === 'human-attestation'
+        const isolatedContentHash = originalEvidence
+          ? hash({ itemId, status, now: originalEvidence.capturedAt })
+          : undefined
+        const legacyContentHash = sanitizeLegacyAttestation &&
+          originalEvidence?.contentHash !== isolatedContentHash
+        const evidence = evidenceRemoved
+          ? undefined
+          : sanitizeLegacyAttestation && originalEvidence
+            ? {
+                ...originalEvidence,
+                summary: legacyContentHash || reasonValues.includes(originalEvidence.summary)
+                  ? lowerClassAttestationSummary(status)
+                  : originalEvidence.summary,
+                contentHash: isolatedContentHash!
+              }
+            : originalEvidence
         const item: PassportItem = {
-          id: text(row.item_id) as PassportItemId,
-          status: text(row.status) as PassportItem['status'],
+          id: itemId,
+          status,
           owner: redactOwner ? undefined : parse(row.owner_json, undefined),
-          detail: redactDetail ? 'Evidence removed by data-class deletion.' : text(row.detail),
+          detail: redactDetail
+            ? 'Evidence removed by data-class deletion.'
+            : sanitizeLegacyAttestation && (
+                legacyContentHash || reasonValues.includes(text(row.detail))
+              )
+              ? lowerClassAttestationDetail(status)
+              : text(row.detail),
           overrideReason: redactReason ? undefined : optionalText(row.override_reason),
           reasonCode: redactReason ? undefined : optionalText(row.reason_code),
           verifiedAt: row.verified_at == null ? undefined : numberValue(row.verified_at),
           expiresAt: row.expires_at == null ? undefined : numberValue(row.expires_at),
-          evidence: evidenceRemoved ? undefined : parse(row.evidence_json, undefined),
+          evidence,
           revision: numberValue(row.revision) + 1
         }
 
@@ -2120,19 +2314,34 @@ export class PassportPersistenceEngine {
       }
       const redactEvent = this.db.prepare(`
         UPDATE passport_event
-        SET event_binary = NULL,
+        SET event_id = ?,
+            dedupe_key = ?,
+            semantic_hash = NULL,
+            event_binary = NULL,
             payload_json = NULL,
+            payload_sha256 = ?,
             payload_state = 'retention-redacted',
             tombstone_json = ?
         WHERE event_id = ?
       `)
-      for (const row of eventRows) {
+      const redactEventRow = (row: Row, redactedClass: PassportDataClass): void => {
+        const sequence = numberValue(row.sequence)
+        const tombstone = {
+          dataClass: redactedClass,
+          redactedAt: this.now(),
+          reason: 'retention-or-explicit-delete'
+        }
         redactEvent.run(
-          stable({ dataClass, redactedAt: this.now(), reason: 'retention-or-explicit-delete' }),
+          `retention-redacted-${sequence}`,
+          `retention-redacted:${sequence}`,
+          hash(tombstone),
+          stable(tombstone),
           text(row.event_id)
         )
         affectedStints.add(text(row.stint_id))
       }
+      for (const row of eventRows) redactEventRow(row, dataClass)
+      for (const row of legacyEventRows) redactEventRow(row, 'D3')
       for (const stintId of affectedStints) {
         const passport = this.getPassport(stintId)
         if (!passport) continue
@@ -2146,7 +2355,7 @@ export class PassportPersistenceEngine {
           this.appendEventInTransaction(redacted, this.retentionEvent(redacted, dataClass))
         }
       }
-      return rows.length + eventRows.length
+      return rows.length + eventRows.length + legacyEventRows.length
     })
   }
 
