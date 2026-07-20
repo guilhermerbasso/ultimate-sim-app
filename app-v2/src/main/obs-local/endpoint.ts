@@ -16,7 +16,7 @@ function normalizeHost(value: string | undefined): string {
   const unwrapped = trimmed.startsWith('[') && trimmed.endsWith(']')
     ? trimmed.slice(1, -1)
     : trimmed
-  if (!unwrapped || /[\u0000-\u001f\u007f/?#@]/.test(unwrapped) || unwrapped.includes('://')) {
+  if (!unwrapped || /[\u0000-\u0020\u007f/?#@]/.test(unwrapped) || unwrapped.includes('://')) {
     throw new Error('OBS host must be a hostname or IP address without a URL scheme, path, or credentials.')
   }
   if (unwrapped.includes(':') && isIP(unwrapped) !== 6) {
@@ -35,8 +35,13 @@ function normalizePort(value: number | undefined): number {
 
 export function isLoopbackObsHost(value: string): boolean {
   const host = value.toLowerCase()
-  if (host === 'localhost' || host === '::1') return true
-  if (isIP(host) !== 4) return false
+  if (host === 'localhost') return true
+  const ipVersion = isIP(host)
+  if (ipVersion === 6) {
+    const canonicalHost = new URL(`http://[${host}]`).hostname
+    return canonicalHost === '::1' || canonicalHost === '[::1]'
+  }
+  if (ipVersion !== 4) return false
   return host.startsWith('127.')
 }
 

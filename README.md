@@ -45,6 +45,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Certify the rig before joining a session** ([#96](https://github.com/guilhermerbasso/ultimate-sim-app/pull/96)): Rig Preflight compares desired and observed hardware/runtime state, expires or revokes certification when evidence goes stale, requires stable USB identity, audits replacements, and fails closed on persistence or inventory uncertainty.
 - **Keep completed recordings, sidecars, learned pace data, and debrief language durable** ([#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97)): atomic finalization, bounded retry/backoff, explicit dropped-sample accounting, and scoped ended-session evidence prevent shutdown, context changes, or transient storage failures from silently hiding data.
 - **Deliver critical cues redundantly without claiming unavailable outputs** ([#98](https://github.com/guilhermerbasso/ultimate-sim-app/pull/98)): fail-closed accessibility profiles coordinate visual, caption, auditory, LED, and haptic channels with priority/preemption, expiring capability leases, localized Web Speech fallback, trusted Piper digests, and atomic voice/config recovery.
+- **Certify a local OBS feed and bounded operator controls** ([#103](https://github.com/guilhermerbasso/ultimate-sim-app/pull/103), [#104](https://github.com/guilhermerbasso/ultimate-sim-app/pull/104)): selected dashboards stay read-only in a loopback Browser Source, while a separate local WebSocket requires the OBS password authentication challenge and limits scene/source visibility and Replay Buffer actions through explicit capabilities.
 - **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
 
 ### 2.53.1 — SerialPort startup hotfix
@@ -104,6 +105,10 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Race playlist** support can interleave dashboards and Touch Controls panels and cycle them from mapped hardware buttons.
 - **Read-only dashboard streaming** in local, LAN, or Internet mode, with a dedicated Streaming area, persistent user-managed dashboard and Touch Controls targets, revision-bound phone/tablet presentation profiles, HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, debounced PWA receiver reconnects, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
 - **Authenticated interactive Touch Controls streaming** for allowlisted pit actions, radio holds, toggles, selectors, rotaries, and simulator actions, with target-bound capabilities, CSRF/replay protection, origin binding, rate limits, a live receiver lease, generation-fenced heartbeat recovery, and fail-closed ownership cleanup.
+- **Authenticated local OBS certification target** with a loopback dashboard Browser Source, separate
+  operator WebSocket that requires the OBS password authentication challenge, capability allowlists,
+  health freshness, manual override, serialized lifecycle, and strict IPv4/IPv6 loopback endpoint
+  validation.
 - **Adaptive dashboards** that show/hide or emphasize widgets according to session phase and live race context.
 - **AI dashboard builder** that assembles a preview from a plain-English description, with an offline keyword fallback when the local model is unavailable.
 - **OLED Dashboard** presets for 128x64 ButtonBox displays.
