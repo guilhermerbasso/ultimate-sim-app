@@ -2661,6 +2661,143 @@ describe('B11 – Serialized validated mutation intents', () => {
         passport.identity.stintId === before.current?.identity.stintId
       )).toBe(true)
     })
+
+    it('[blocker-B12-e] queued retention cannot permanently supersede a held opt-in migration', async () => {
+      const test = harness('B12-optin-retention-race')
+      await test.service.setConfig(test.config)
+      await test.tap.emit(delivery(telemetry(), 1n))
+      const current = (await test.service.snapshot()).current!
+      await configureRoster(test, current.identity.driverRef)
+      const beforeMigration = await test.service.snapshot()
+
+      const originalSaveRoster = test.client.saveRoster.bind(test.client)
+      let migrationStarted!: () => void
+      let releaseMigration!: () => void
+      const started = new Promise<void>((resolve) => { migrationStarted = resolve })
+      const barrier = new Promise<void>((resolve) => { releaseMigration = resolve })
+      test.client.saveRoster = vi.fn(async (
+        ...args: Parameters<typeof test.client.saveRoster>
+      ) => {
+        if (args[2]?.endsWith(':roster')) {
+          migrationStarted()
+          await barrier
+        }
+        return originalSaveRoster(...args)
+      }) as typeof test.client.saveRoster
+
+      const optIn = test.service.setPrivacy({
+        ...DEFAULT_PASSPORT_PRIVACY,
+        identityPersistenceOptIn: true,
+        retentionDays: { D1: 1, D2: 1, D3: 1 },
+        updatedAt: 20_000
+      })
+      await started
+
+      test.setNow(2 * 86_400_000 + 20_000)
+      let retentionSettled = false
+      const retention = test.service.runRetention('explicit')
+        .finally(() => { retentionSettled = true })
+      let exportSettled = false
+      const exportAttempt = test.service.exportPackage('full-local')
+        .finally(() => { exportSettled = true })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(retentionSettled).toBe(false)
+      expect(exportSettled).toBe(false)
+
+      releaseMigration()
+      const [migrationOutcome, retentionResults, exported] = await Promise.all([
+        optIn.then(
+          (value) => ({ status: 'fulfilled' as const, value }),
+          (error: unknown) => ({ status: 'rejected' as const, error })
+        ),
+        retention,
+        exportAttempt
+      ])
+
+      const authoritative = test.store.getAuthoritativeState()
+      const live = await test.service.snapshot()
+      expect(authoritative.persistenceMigration).toBeUndefined()
+      expect(live.persistence.queued).toBe(0)
+
+      if (migrationOutcome.status === 'fulfilled') {
+        expect(migrationOutcome.value).toMatchObject({ identityPersistenceOptIn: true })
+        expect(authoritative.privacy.identityPersistenceOptIn).toBe(true)
+        expect(retentionResults.some((result) => result.dataClass === 'D2')).toBe(true)
+        expect(authoritative.roster).toEqual(live.roster)
+        expect(authoritative.passports.map((passport) => passport.identity.stintId))
+          .toContain(current.identity.stintId)
+        expect(test.store.listPassports().map((passport) => passport.identity.stintId))
+          .toEqual(authoritative.passports.map((passport) => passport.identity.stintId))
+        const durable = test.store.getPassport(current.identity.stintId)
+        expect(durable).toMatchObject({
+          persisted: true,
+          durability: 'durable'
+        })
+        expect(live.current).toMatchObject({
+          identity: { stintId: current.identity.stintId },
+          revision: durable?.revision,
+          lifecycle: durable?.lifecycle,
+          persisted: true,
+          durability: 'durable'
+        })
+        expect(live.current?.items.find((item) => item.id === 'fuel-load')).toMatchObject({
+          status: 'unknown',
+          evidence: undefined
+        })
+        expect(exported.passports.some((passport) =>
+          passport.identity.stintId === current.identity.stintId
+        )).toBe(true)
+        expect(exported.passports.flatMap((passport) => passport.items).find((item) =>
+          item.id === 'fuel-load'
+        )).toMatchObject({ status: 'unknown', evidence: undefined })
+      } else {
+        expect(migrationOutcome.error).toBeInstanceOf(Error)
+        expect(String(migrationOutcome.error)).toMatch(/cancel|privacy|retention|supersed/i)
+        expect(authoritative.privacy.identityPersistenceOptIn).toBe(false)
+        expect(authoritative.roster).toEqual([])
+        expect(authoritative.passports).toEqual([])
+        expect(test.store.listPassports()).toEqual([])
+        expect(live.privacy.identityPersistenceOptIn).toBe(false)
+        expect(live.roster).toEqual(beforeMigration.roster)
+        expect(live.current).toMatchObject({
+          identity: { stintId: current.identity.stintId },
+          persisted: false,
+          durability: 'ephemeral'
+        })
+        expect(live.current?.items.find((item) => item.id === 'fuel-load')).toMatchObject({
+          status: 'unknown',
+          evidence: undefined
+        })
+        expect(exported.passports.some((passport) =>
+          passport.identity.stintId === current.identity.stintId
+        )).toBe(true)
+      }
+
+      const restarted = await restartPersistentHarness(test, 3 * 86_400_000)
+      const restartedAuthoritative = restarted.store.getAuthoritativeState()
+      const restartedLive = await restarted.service.snapshot()
+      const restartedExport = await restarted.service.exportPackage('full-local')
+      expect(restartedAuthoritative.persistenceMigration).toBeUndefined()
+      expect(restartedAuthoritative.privacy).toEqual(authoritative.privacy)
+      expect(restartedAuthoritative.roster).toEqual(authoritative.roster)
+      expect(restartedLive.privacy).toEqual(authoritative.privacy)
+      expect(restartedLive.roster).toEqual(authoritative.roster)
+      if (migrationOutcome.status === 'fulfilled') {
+        const restartedPassport = restartedAuthoritative.passports.find((passport) =>
+          passport.identity.stintId === current.identity.stintId
+        )
+        expect(restartedPassport).toBeDefined()
+        expect(restartedPassport?.items.find((item) => item.id === 'fuel-load'))
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect(restartedExport.passports.find((passport) =>
+          passport.identity.stintId === current.identity.stintId
+        )?.items.find((item) => item.id === 'fuel-load'))
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+      } else {
+        expect(restartedAuthoritative.passports).toEqual([])
+        expect(restartedExport.passports).toEqual([])
+      }
+    })
   })
 
   it('[blocker-B11-f] repair COMMIT response loss blocks stale export and retries with the stable operation', async () => {

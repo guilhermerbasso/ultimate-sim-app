@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fork, type ChildProcess } from 'node:child_process'
@@ -294,6 +294,129 @@ function event(index: number, stintId = 'worker-stint'): PassportStoreEvent {
   }
 }
 
+const repairArtifacts = ['.anchor.key', '.anchor.json', '.anchor.pending.json'] as const
+
+interface WorkerDatabaseSnapshot {
+  databaseId: string
+  passportJson: string | undefined
+  privacyJson: string
+  artifacts: Record<string, string | undefined>
+}
+
+function readWorkerDatabaseSnapshot(path: string, stintId: string): WorkerDatabaseSnapshot {
+  const db = new DatabaseSync(path)
+  try {
+    const identity = db.prepare(
+      "SELECT value FROM passport_meta WHERE key = 'database_id'"
+    ).get() as { value?: string } | undefined
+    const settings = db.prepare(
+      'SELECT privacy_json FROM passport_settings WHERE singleton = 1'
+    ).get() as { privacy_json?: string } | undefined
+    const passport = db.prepare(
+      'SELECT passport_json FROM stint_passport WHERE stint_id = ?'
+    ).get(stintId) as { passport_json?: string } | undefined
+    return {
+      databaseId: identity?.value ?? '',
+      passportJson: passport?.passport_json,
+      privacyJson: settings?.privacy_json ?? '',
+      artifacts: Object.fromEntries(repairArtifacts.map((suffix) => {
+        const artifactPath = `${path}${suffix}`
+        return [suffix, existsSync(artifactPath)
+          ? readFileSync(artifactPath).toString('base64')
+          : undefined]
+      }))
+    }
+  } finally {
+    db.close()
+  }
+}
+
+async function seedWorkerDatabase(
+  path: string,
+  stintId: string,
+  sentinel: string
+): Promise<WorkerDatabaseSnapshot> {
+  const worker = spawnWorker()
+  await rpc(worker, 'initialize', [path])
+  await rpc(worker, 'setPrivacy', [privacy(true)])
+  await rpc(worker, 'persistPassport', [
+    passport(stintId, 1, sentinel),
+    event(1, stintId)
+  ])
+  await rpc(worker, 'flush')
+  await worker.terminate()
+  const snapshot = readWorkerDatabaseSnapshot(path, stintId)
+  expect(snapshot.databaseId).toMatch(/^[a-f0-9]{48}$/)
+  expect(snapshot.passportJson).toContain(sentinel)
+  expect(JSON.parse(snapshot.privacyJson)).toMatchObject({
+    identityPersistenceOptIn: true
+  })
+  expect(snapshot.artifacts['.anchor.key']).toMatch(/^[A-Za-z0-9+/]+={0,2}$/)
+  expect(snapshot.artifacts['.anchor.json']).toMatch(/^[A-Za-z0-9+/]+={0,2}$/)
+  expect(snapshot.artifacts['.anchor.pending.json']).toBeUndefined()
+  return snapshot
+}
+
+async function captureAuthorizedRepairJournal(
+  path: string,
+  stintId: string,
+  operationId: string
+): Promise<{ journal: string; snapshot: WorkerDatabaseSnapshot }> {
+  const snapshot = await seedWorkerDatabase(path, stintId, `REPAIR-${stintId}`)
+  const marker = new DatabaseSync(path)
+  marker.prepare("UPDATE passport_meta SET value = 'corrupt' WHERE key = 'integrity_state'").run()
+  marker.close()
+
+  const crashingRepair = spawnWorker()
+  await rpc(crashingRepair, 'initialize', [path])
+  const integrity = await rpc(crashingRepair, 'getIntegrity')
+  const repairToken = (integrity.result as { repairToken?: string }).repairToken
+  expect(repairToken).toMatch(/^[a-f0-9]+$/)
+  await rpc(crashingRepair, 'configureCrashBoundary', [{
+    operation: 'repairPersistence',
+    checkpoint: 'after-repair-journal'
+  }])
+  await expect(rpc(crashingRepair, 'repairPersistence', [repairToken, operationId]))
+    .rejects.toThrow(/exited/i)
+
+  const journalPath = `${path}.repair-journal.json`
+  expect(JSON.parse(readFileSync(journalPath, 'utf8'))).toMatchObject({
+    operationId,
+    phase: 'authorized'
+  })
+  return {
+    journal: readFileSync(journalPath, 'utf8'),
+    snapshot
+  }
+}
+
+async function captureReceiptStagedRepairJournal(
+  path: string,
+  stintId: string,
+  operationId: string
+): Promise<string> {
+  await seedWorkerDatabase(path, stintId, `REPAIR-FINAL-${stintId}`)
+  const marker = new DatabaseSync(path)
+  marker.prepare("UPDATE passport_meta SET value = 'corrupt' WHERE key = 'integrity_state'").run()
+  marker.close()
+
+  const crashingRepair = spawnWorker()
+  await rpc(crashingRepair, 'initialize', [path])
+  const integrity = await rpc(crashingRepair, 'getIntegrity')
+  const repairToken = (integrity.result as { repairToken?: string }).repairToken
+  expect(repairToken).toMatch(/^[a-f0-9]+$/)
+  await rpc(crashingRepair, 'configureCrashBoundary', [{
+    operation: 'repairPersistence',
+    checkpoint: 'after-repair-receipt-promotion'
+  }])
+  await expect(rpc(crashingRepair, 'repairPersistence', [repairToken, operationId]))
+    .rejects.toThrow(/exited/i)
+
+  const journal = readFileSync(`${path}.repair-journal.json`, 'utf8')
+  expect(JSON.parse(journal)).toMatchObject({ operationId, phase: 'receipt-staged' })
+  return journal
+}
+
 describe('packaged Passport persistence worker', () => {
   it('[supported] runs off the main thread while the parent and an independent worker make progress', async () => {
     const path = tempDatabase('isolation')
@@ -536,6 +659,116 @@ describe('packaged Passport persistence worker', () => {
     await expect(rpc(repairWorker, 'getPassport', ['worker-stint']))
       .resolves.toMatchObject({ ok: true, result: null })
   })
+
+  it('[blocker-B13-a] rejects replay of a completed repair journal without touching a fresh database', async () => {
+    const path = tempDatabase('repair-journal-replay')
+    const captured = await captureAuthorizedRepairJournal(
+      path,
+      'old-stint',
+      'repair:journal-replay-old'
+    )
+
+    const finisher = spawnWorker()
+    await expect(rpc(finisher, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+    await expect(rpc(finisher, 'getAuthoritativeState')).resolves.toMatchObject({
+      ok: true,
+      result: { privacy: { identityPersistenceOptIn: false }, passports: [] }
+    })
+    await finisher.terminate()
+
+    const fresh = await seedWorkerDatabase(path, 'fresh-stint', 'FRESH-DATABASE-SENTINEL')
+    expect(fresh.databaseId).not.toBe(captured.snapshot.databaseId)
+    writeFileSync(`${path}.repair-journal.json`, captured.journal)
+
+    const replay = spawnWorker()
+    const replayInit = await rpc(replay, 'initialize', [path])
+    expect(replayInit).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/journal|repair|database|replay/i)
+    })
+    await replay.terminate()
+
+    expect(readWorkerDatabaseSnapshot(path, 'fresh-stint')).toEqual(fresh)
+  }, 30_000)
+
+  it('[blocker-B13-a] rejects replay of the final journal after its cleanup marker completed', async () => {
+    const path = tempDatabase('repair-final-journal-replay')
+    const captured = await captureReceiptStagedRepairJournal(
+      path,
+      'old-final-stint',
+      'repair:final-journal-replay'
+    )
+
+    const finisher = spawnWorker()
+    await expect(rpc(finisher, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+    await finisher.terminate()
+    const fresh = await seedWorkerDatabase(path, 'fresh-final-stint', 'FRESH-FINAL-SENTINEL')
+    writeFileSync(`${path}.repair-journal.json`, captured)
+
+    const replay = spawnWorker()
+    await expect(rpc(replay, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/journal|repair|replay|quarantined/i)
+    })
+    await replay.terminate()
+    expect(readWorkerDatabaseSnapshot(path, 'fresh-final-stint')).toEqual(fresh)
+  }, 30_000)
+
+  it('[blocker-B13-b] fails closed and preserves data and anchors after repair-journal tampering', async () => {
+    const path = tempDatabase('repair-journal-tamper')
+    const captured = await captureAuthorizedRepairJournal(
+      path,
+      'tamper-stint',
+      'repair:journal-tamper'
+    )
+    const journalPath = `${path}.repair-journal.json`
+    const tampered = JSON.parse(captured.journal) as { tokenHash: string }
+    tampered.tokenHash = '0'.repeat(64)
+    writeFileSync(journalPath, `${JSON.stringify(tampered)}\n`)
+
+    const restarted = spawnWorker()
+    const init = await rpc(restarted, 'initialize', [path])
+    expect(init).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/journal|repair|auth|invalid/i)
+    })
+    await restarted.terminate()
+
+    expect(readWorkerDatabaseSnapshot(path, 'tamper-stint')).toEqual(captured.snapshot)
+  }, 30_000)
+
+  it('[blocker-B13-c] rejects a structurally valid repair journal copied from another database', async () => {
+    const sourcePath = tempDatabase('repair-journal-source')
+    const targetPath = tempDatabase('repair-journal-target')
+    const source = await captureAuthorizedRepairJournal(
+      sourcePath,
+      'source-stint',
+      'repair:journal-copied'
+    )
+    const target = await seedWorkerDatabase(
+      targetPath,
+      'target-stint',
+      'COPIED-JOURNAL-TARGET-SENTINEL'
+    )
+    expect(target.databaseId).not.toBe(source.snapshot.databaseId)
+
+    const copied = JSON.parse(source.journal) as {
+      quarantinedPath: string
+      repairedAt: number
+    }
+    copied.quarantinedPath = `${targetPath}.quarantine-${copied.repairedAt}.json`
+    writeFileSync(`${targetPath}.repair-journal.json`, `${JSON.stringify(copied)}\n`)
+
+    const restarted = spawnWorker()
+    const init = await rpc(restarted, 'initialize', [targetPath])
+    expect(init).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/journal|repair|auth|database|invalid/i)
+    })
+    await restarted.terminate()
+
+    expect(readWorkerDatabaseSnapshot(targetPath, 'target-stint')).toEqual(target)
+  }, 30_000)
 
   it('[blocker-B11-g] retries the same repair operation after an erase COMMIT worker exit', async () => {
     const path = tempDatabase('repair-postcommit-exit')

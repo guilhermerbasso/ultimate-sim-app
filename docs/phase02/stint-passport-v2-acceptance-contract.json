@@ -46,7 +46,9 @@
     "Only explicitly coded domain failures bypass ambiguity recovery; process, transport, storage, filesystem, SQLite, timeout and unknown failures retain a fail-closed barrier until bounded authoritative reconciliation",
     "Retention-only edits while already opted out preserve ephemeral roster and stint state without advancing privacy or roster mutation generations",
     "Persistence repair writes and fsyncs a durable pre-erasure journal and resumes database erase, key erase, fresh database creation and receipt promotion idempotently after crashes at every destructive phase",
-    "Corruption repair UI keeps the snapshot token hidden by default and provides accessible reveal, copy, exact retype, mismatch and destructive-confirmation controls that clear on repair or token change"
+    "Corruption repair UI keeps the snapshot token hidden by default and provides accessible reveal, copy, exact retype, mismatch and destructive-confirmation controls that clear on repair or token change",
+    "Retention activates class-deletion fences only after earlier serialized opt-in migration work settles, so retention cannot supersede or strand a migration record and exports remain blocked until migration and retention converge",
+    "Repair journals are HMAC-authenticated and bound to a profile authority, monotonic repair epoch, stable operation ID, token hash and original database identity; completed, tampered and cross-profile journals fail closed before database, key or anchor mutation"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

@@ -1190,6 +1190,11 @@ export class PassportPersistenceEngine {
       }
       return result.results
     }
+    if (this.readPersistenceMigration()) {
+      throw persistenceDomainError(
+        'Passport persistence migration must complete before retention advances privacy state.'
+      )
+    }
     const currentGeneration = this.getPrivacyMutationGeneration()
     const nextGeneration = privacyMutationGeneration ?? currentGeneration + 1
     if (nextGeneration !== currentGeneration + 1) {

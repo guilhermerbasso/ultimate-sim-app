@@ -255,6 +255,7 @@ interface ServiceMutationIntent {
   operationId: string
   kind: PassportMutationKind | 'persistence-migration' | 'persistence-repair'
   deletingClasses: readonly PassportDataClass[]
+  deletionFenceActive: boolean
 }
 
 interface PendingMutationRecovery {
@@ -2056,8 +2057,16 @@ export class StintPassportService {
     const intent: ServiceMutationIntent = {
       operationId,
       kind,
-      deletingClasses: [...new Set(deletingClasses)]
+      deletingClasses: [...new Set(deletingClasses)],
+      deletionFenceActive: false
     }
+    if (kind !== 'privacy-retention') this.activateMutationDeletionFence(intent)
+    return intent
+  }
+
+  private activateMutationDeletionFence(intent: ServiceMutationIntent): void {
+    if (intent.deletionFenceActive) return
+    intent.deletionFenceActive = true
     for (const dataClass of intent.deletingClasses) {
       this.privacyClassDeletionGeneration[dataClass] += 1
       this.deletingPrivacyClasses.set(
@@ -2065,7 +2074,6 @@ export class StintPassportService {
         (this.deletingPrivacyClasses.get(dataClass) ?? 0) + 1
       )
     }
-    return intent
   }
 
   private enqueueMutationIntent<T>(
@@ -2083,12 +2091,14 @@ export class StintPassportService {
         ? this.rosterIntentQueue
         : Promise.resolve()
     const run = Promise.all([previous, crossDomain]).then(async () => {
+      this.activateMutationDeletionFence(intent)
       if (!this.supersedePendingMutationWith(intent)) {
         await this.recoverPendingMutation()
       }
       return operation()
     })
     const completed = run.finally(() => {
+      if (!intent.deletionFenceActive) return
       for (const dataClass of intent.deletingClasses) {
         const remaining = (this.deletingPrivacyClasses.get(dataClass) ?? 1) - 1
         if (remaining <= 0) this.deletingPrivacyClasses.delete(dataClass)

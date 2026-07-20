@@ -27,7 +27,14 @@ const sidecars = [
   '.anchor.json',
   '.anchor.pending.json',
   '.anchor.key',
-  '.quarantine.json'
+  '.quarantine.json',
+  '.repair-authority.json',
+  '.repair-authority.json.pending',
+  '.repair-authority.key',
+  '.repair-journal.json',
+  '.repair-journal.json.pending',
+  '.repair-receipt.json',
+  '.repair-receipt.json.pending'
 ]
 const cleanup = () => {
   for (const suffix of sidecars) rmSync(`${smokeDb}${suffix}`, { force: true })
