@@ -122,6 +122,6 @@ proxies, accessors, sparse/custom arrays, symbol fields, and non-plain objects a
 inherited/prototype `toJSON` hooks are never observed.
 
 The exact-scale certification logs wall-clock and per-worker CPU time for every phase. Wall time is
-diagnostic because a full Vitest run may schedule hundreds of unrelated files concurrently; the
-unchanged 5/15/120/90/120-second algorithmic budgets are enforced against process CPU time so host
-contention cannot weaken or randomly fail the 16,600-artifact contract.
+diagnostic, and `npm test` runs this file alone in one worker after the normal suite so unrelated
+files cannot consume its CPU or memory budget. The unchanged 5/15/120/90/120-second algorithmic
+budgets are enforced against process CPU time without weakening the 16,600-artifact contract.
