@@ -13,6 +13,7 @@ import {
   raceOpsBlueprintOperationKey,
   type RaceOpsBlueprintCatalogEntry,
   type RaceOpsBlueprintDryRunResponse,
+  type RaceOpsNumberParameter,
   type RaceOpsBlueprintOperationIdentity,
   type RaceOpsBlueprintParameter,
   type RaceOpsBlueprintRegistrySnapshot,
@@ -157,6 +158,15 @@ export function isCurrentRaceOpsResponse(
   return Boolean(currentFingerprint) && response.requestFingerprint === currentFingerprint
 }
 
+export function parseRaceOpsNumberParameterInput(
+  parameter: RaceOpsNumberParameter,
+  value: string
+): number | undefined {
+  if (value.trim() === '') return parameter.default
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function ParameterField({
   parameter,
   value,
@@ -180,8 +190,8 @@ function ParameterField({
           step={parameter.step}
           value={typeof value === 'number' ? value : parameter.default}
           onChange={(event) => {
-            const next = Number(event.currentTarget.value)
-            if (Number.isFinite(next)) onChange(next)
+            const next = parseRaceOpsNumberParameterInput(parameter, event.currentTarget.value)
+            if (next !== undefined) onChange(next)
           }}
           style={input}
         />

@@ -26,7 +26,13 @@ export function register(ctx: ModuleContext): RaceOpsBlueprintRegistry {
 
   const broadcastChanged = async <T>(work: Promise<T>): Promise<T> => {
     const result = await work
-    ctx.broadcast(RACEOPS_BLUEPRINT_CHANNELS.changed, await registry.getSnapshot())
+    try {
+      ctx.broadcast(RACEOPS_BLUEPRINT_CHANNELS.changed, await registry.getSnapshot())
+    } catch (error) {
+      logger.warn('raceops-blueprints', 'registry change broadcast failed', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
     return result
   }
 

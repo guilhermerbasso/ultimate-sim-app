@@ -918,20 +918,20 @@ function validateManifestRelations(manifest: RaceOpsBlueprintManifest): void {
       assertTemplateParameters(action.title, parameterIds, `${action.id}.title`)
       assertTemplateParameters(action.body, parameterIds, `${action.id}.body`)
     }
-    for (const [eventIndex, event] of manifest.fixture.events.entries()) {
-      for (const [field, value] of Object.entries(event.values)) {
-        if (typeof value === 'object' && !parameterIds.has(value.parameter)) {
-          invalid(
-            `fixture.events[${eventIndex}].values.${field} references unknown parameter ${value.parameter}.`
-          )
-        }
+  }
+  for (const [eventIndex, event] of manifest.fixture.events.entries()) {
+    for (const [field, value] of Object.entries(event.values)) {
+      if (typeof value === 'object' && !parameterIds.has(value.parameter)) {
+        invalid(
+          `fixture.events[${eventIndex}].values.${field} references unknown parameter ${value.parameter}.`
+        )
       }
     }
-    for (const [traceIndex, entry] of manifest.expectedTrace.entries()) {
-      for (const [key, value] of Object.entries(entry.payload)) {
-        if (typeof value === 'string') {
-          assertTemplateParameters(value, parameterIds, `expectedTrace[${traceIndex}].payload.${key}`)
-        }
+  }
+  for (const [traceIndex, entry] of manifest.expectedTrace.entries()) {
+    for (const [key, value] of Object.entries(entry.payload)) {
+      if (typeof value === 'string') {
+        assertTemplateParameters(value, parameterIds, `expectedTrace[${traceIndex}].payload.${key}`)
       }
     }
   }

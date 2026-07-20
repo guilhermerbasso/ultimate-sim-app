@@ -3,12 +3,14 @@ import { tt, translateView } from './i18n'
 import { navSections } from './navigation/navModel'
 import {
   isCurrentRaceOpsResponse,
+  parseRaceOpsNumberParameterInput,
   raceOpsCatalogEntryKey
 } from './views/RaceOpsBlueprintsView'
 import { viewRegistry } from './views/registry'
 import type {
   RaceOpsBlueprintCatalogEntry,
-  RaceOpsBlueprintDryRunResponse
+  RaceOpsBlueprintDryRunResponse,
+  RaceOpsNumberParameter
 } from '../../shared/raceops-blueprints'
 
 describe('RaceOps blueprints UI registration', () => {
@@ -46,5 +48,21 @@ describe('RaceOps blueprints UI registration', () => {
     expect(isCurrentRaceOpsResponse('raceops-request-old', response)).toBe(true)
     expect(isCurrentRaceOpsResponse('raceops-request-new', response)).toBe(false)
     expect(isCurrentRaceOpsResponse('', response)).toBe(false)
+  })
+
+  it('restores the default instead of coercing an empty number input to zero', () => {
+    const parameter: RaceOpsNumberParameter = {
+      id: 'pit-window-laps',
+      label: 'Pit window laps',
+      type: 'number',
+      default: 5,
+      min: 1,
+      max: 10,
+      step: 1
+    }
+
+    expect(parseRaceOpsNumberParameterInput(parameter, '')).toBe(5)
+    expect(parseRaceOpsNumberParameterInput(parameter, '7')).toBe(7)
+    expect(parseRaceOpsNumberParameterInput(parameter, 'not-a-number')).toBeUndefined()
   })
 })
