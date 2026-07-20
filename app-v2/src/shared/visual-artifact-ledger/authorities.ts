@@ -9,6 +9,7 @@ import { fail } from './errors'
 import { types as utilTypes } from 'node:util'
 
 const INTRINSIC_PROMISE = Promise
+const INTRINSIC_PROMISE_PROTOTYPE = Promise.prototype
 const INTRINSIC_PROMISE_THEN = Promise.prototype.then
 const INTRINSIC_APPLY = Reflect.apply
 const INTRINSIC_FUNCTION_TO_STRING = Function.prototype.toString
@@ -88,6 +89,14 @@ function observeRejectedNativePromise(value: object): void {
           configurable: true,
           value: SAFE_PROMISE_SPECIES
         })
+        constructorValue = SAFE_PROMISE_SPECIES
+      } else if (inherited.owner === INTRINSIC_PROMISE_PROTOTYPE) {
+        if (
+          !('value' in inherited.descriptor) ||
+          inherited.descriptor.value !== INTRINSIC_PROMISE
+        ) {
+          return
+        }
         constructorValue = SAFE_PROMISE_SPECIES
       } else if (inherited.descriptor.configurable) {
         constructorOwner = inherited.owner

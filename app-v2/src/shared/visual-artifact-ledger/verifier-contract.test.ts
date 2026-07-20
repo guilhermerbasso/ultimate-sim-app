@@ -354,6 +354,10 @@ describe('external verifier return contract', () => {
 
   it('does not mutate Promise.prototype constructor while observing rejection', async () => {
     const observations: boolean[] = []
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(
+      Promise.prototype,
+      'constructor'
+    )
     const hook = createHook({
       init: (_id, type, _trigger, resource) => {
         if (type === 'PROMISE') {
@@ -366,6 +370,7 @@ describe('external verifier return contract', () => {
     })
     hook.enable()
     const rejected = Promise.reject(new Error('verifier rejected'))
+    Object.preventExtensions(rejected)
     expect(() =>
       invokeSynchronousVerifier(
         () => rejected,
@@ -377,6 +382,9 @@ describe('external verifier return contract', () => {
     hook.disable()
     expect(observations.length).toBeGreaterThan(0)
     expect(observations.every(Boolean)).toBe(true)
+    expect(
+      Object.getOwnPropertyDescriptor(Promise.prototype, 'constructor')
+    ).toEqual(constructorDescriptor)
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 
