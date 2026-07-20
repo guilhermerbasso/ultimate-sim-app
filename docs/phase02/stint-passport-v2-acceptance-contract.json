@@ -48,7 +48,9 @@
     "Persistence repair writes and fsyncs a durable pre-erasure journal and resumes database erase, key erase, fresh database creation and receipt promotion idempotently after crashes at every destructive phase",
     "Corruption repair UI keeps the snapshot token hidden by default and provides accessible reveal, copy, exact retype, mismatch and destructive-confirmation controls that clear on repair or token change",
     "Retention activates class-deletion fences only after earlier serialized opt-in migration work settles, so retention cannot supersede or strand a migration record and exports remain blocked until migration and retention converge",
-    "Repair journals are HMAC-authenticated and bound to a profile authority, monotonic repair epoch, stable operation ID, token hash and original database identity; completed, tampered and cross-profile journals fail closed before database, key or anchor mutation"
+    "Repair journals are HMAC-authenticated and bound to a profile authority, monotonic repair epoch, stable operation ID, token hash and original database identity; completed, tampered and cross-profile journals fail closed before database, key or anchor mutation",
+    "Every repair phase advances two HMAC-chained, append-only high-water copies outside the replaceable database, anchor and journal set; either current copy rejects restored older journal-authority pairs and populated replacement databases fail closed",
+    "Database repair durably enters an authenticated erasing-database phase before its first header write, then safely resumes absent or raw-header-corrupt originals without opening SQLite while wrong identities and unreadable databases outside that active phase are never erased"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

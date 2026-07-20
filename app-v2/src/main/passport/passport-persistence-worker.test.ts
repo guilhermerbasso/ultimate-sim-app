@@ -1,4 +1,13 @@
-import { existsSync, readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fork, type ChildProcess } from 'node:child_process'
@@ -303,6 +312,28 @@ interface WorkerDatabaseSnapshot {
   artifacts: Record<string, string | undefined>
 }
 
+function snapshotFiles(directory: string): Record<string, Buffer> {
+  return Object.fromEntries(readdirSync(directory).map((name) => [
+    name,
+    readFileSync(join(directory, name))
+  ]))
+}
+
+function restoreFiles(directory: string, files: Record<string, Buffer>): void {
+  rmSync(directory, { recursive: true, force: true })
+  mkdirSync(directory, { recursive: true })
+  for (const [name, bytes] of Object.entries(files)) {
+    writeFileSync(join(directory, name), bytes)
+  }
+}
+
+function readAllFiles(directory: string): Buffer[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name)
+    return entry.isDirectory() ? readAllFiles(path) : [readFileSync(path)]
+  })
+}
+
 function readWorkerDatabaseSnapshot(path: string, stintId: string): WorkerDatabaseSnapshot {
   const db = new DatabaseSync(path)
   try {
@@ -415,6 +446,45 @@ async function captureReceiptStagedRepairJournal(
   const journal = readFileSync(`${path}.repair-journal.json`, 'utf8')
   expect(JSON.parse(journal)).toMatchObject({ operationId, phase: 'receipt-staged' })
   return journal
+}
+
+async function crashRepairAtCheckpoint(
+  path: string,
+  stintId: string,
+  operationId: string,
+  checkpoint: string,
+  expectedPhase: string
+): Promise<{
+  authority: string
+  journal: string
+  repairToken: string
+  original: WorkerDatabaseSnapshot
+}> {
+  const original = await seedWorkerDatabase(path, stintId, `REPAIR-PHASE-${stintId}`)
+  const marker = new DatabaseSync(path)
+  marker.prepare("UPDATE passport_meta SET value = 'corrupt' WHERE key = 'integrity_state'").run()
+  marker.close()
+
+  const crashingRepair = spawnWorker()
+  await rpc(crashingRepair, 'initialize', [path])
+  const integrity = await rpc(crashingRepair, 'getIntegrity')
+  const repairToken = (integrity.result as { repairToken?: string }).repairToken ?? ''
+  expect(repairToken).toMatch(/^[a-f0-9]+$/)
+  await rpc(crashingRepair, 'configureCrashBoundary', [{
+    operation: 'repairPersistence',
+    checkpoint
+  }])
+  await expect(rpc(crashingRepair, 'repairPersistence', [repairToken, operationId]))
+    .rejects.toThrow(/exited/i)
+
+  const journal = readFileSync(`${path}.repair-journal.json`, 'utf8')
+  expect(JSON.parse(journal)).toMatchObject({ operationId, phase: expectedPhase })
+  return {
+    authority: readFileSync(`${path}.repair-authority.json`, 'utf8'),
+    journal,
+    repairToken,
+    original
+  }
 }
 
 describe('packaged Passport persistence worker', () => {
@@ -770,6 +840,188 @@ describe('packaged Passport persistence worker', () => {
     expect(readWorkerDatabaseSnapshot(targetPath, 'target-stint')).toEqual(target)
   }, 30_000)
 
+  it.each([
+    ['after-repair-journal', 'authorized'],
+    ['before-repair-database-header-write', 'erasing-database'],
+    ['after-repair-database-erase', 'database-erased'],
+    ['after-repair-key-erase', 'keys-erased'],
+    ['after-repair-database-create', 'database-created'],
+    ['after-repair-receipt-promotion', 'receipt-staged']
+  ] as const)(
+    '[blocker-B14-a] rejects restored %s journal and authority below the monotonic high-water mark',
+    async (checkpoint, phase) => {
+      const path = tempDatabase(`rollback-${checkpoint}`)
+      const operationId = `repair:rollback:${phase}`
+      const captured = await crashRepairAtCheckpoint(
+        path,
+        `rollback-${phase}`,
+        operationId,
+        checkpoint,
+        phase
+      )
+
+      const finisher = spawnWorker()
+      await expect(rpc(finisher, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+      await finisher.terminate()
+      const fresh = await seedWorkerDatabase(
+        path,
+        `fresh-${phase}`,
+        `FRESH-HIGH-WATER-${phase}`
+      )
+      expect(fresh.databaseId).not.toBe(captured.original.databaseId)
+
+      writeFileSync(`${path}.repair-authority.json`, captured.authority)
+      writeFileSync(`${path}.repair-journal.json`, captured.journal)
+      const replay = spawnWorker()
+      await expect(rpc(replay, 'initialize', [path])).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/high-water|monotonic|replay|populated|repair/i)
+      })
+      await replay.terminate()
+      expect(readWorkerDatabaseSnapshot(path, `fresh-${phase}`)).toEqual(fresh)
+    },
+    30_000
+  )
+
+  it('[blocker-B14-a] one current high-water copy defeats rollback of the other copy and repair pair', async () => {
+    const path = tempDatabase('rollback-single-high-water-copy')
+    const captured = await crashRepairAtCheckpoint(
+      path,
+      'rollback-single-copy',
+      'repair:rollback-single-high-water',
+      'after-repair-key-erase',
+      'keys-erased'
+    )
+    const staleHighWater = snapshotFiles(`${path}.repair-high-water-a`)
+
+    const finisher = spawnWorker()
+    await expect(rpc(finisher, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+    await finisher.terminate()
+    const fresh = await seedWorkerDatabase(
+      path,
+      'fresh-single-copy',
+      'FRESH-SINGLE-HIGH-WATER'
+    )
+
+    writeFileSync(`${path}.repair-authority.json`, captured.authority)
+    writeFileSync(`${path}.repair-journal.json`, captured.journal)
+    restoreFiles(`${path}.repair-high-water-a`, staleHighWater)
+    const replay = spawnWorker()
+    await expect(rpc(replay, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/high-water|monotonic|replay|repair/i)
+    })
+    await replay.terminate()
+    expect(readWorkerDatabaseSnapshot(path, 'fresh-single-copy')).toEqual(fresh)
+    expect(readdirSync(`${path}.repair-high-water-a`))
+      .toEqual(readdirSync(`${path}.repair-high-water-b`))
+  }, 30_000)
+
+  it.each([
+    ['before-repair-database-header-write', 'readable'],
+    ['after-repair-database-header-write', 'unreadable'],
+    ['before-repair-database-unlink', 'unreadable'],
+    ['after-repair-database-unlink', 'absent']
+  ] as const)(
+    '[blocker-B14-b] resumes an authenticated erasing-database repair after %s',
+    async (checkpoint, databaseState) => {
+      const path = tempDatabase(`erase-fault-${checkpoint}`)
+      const operationId = `repair:erase-fault:${checkpoint}`
+      const captured = await crashRepairAtCheckpoint(
+        path,
+        `erase-${checkpoint}`,
+        operationId,
+        checkpoint,
+        'erasing-database'
+      )
+
+      if (databaseState === 'readable') {
+        expect(readWorkerDatabaseSnapshot(path, `erase-${checkpoint}`).passportJson)
+          .toContain(`REPAIR-PHASE-erase-${checkpoint}`)
+      } else if (databaseState === 'unreadable') {
+        expect(existsSync(path)).toBe(true)
+        expect(() => readWorkerDatabaseSnapshot(path, `erase-${checkpoint}`)).toThrow()
+      } else {
+        expect(existsSync(path)).toBe(false)
+      }
+
+      const recovered = spawnWorker()
+      await expect(rpc(recovered, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+      await expect(rpc(recovered, 'getAuthoritativeState')).resolves.toMatchObject({
+        ok: true,
+        result: {
+          privacy: { identityPersistenceOptIn: false },
+          roster: [],
+          passports: []
+        }
+      })
+      await expect(rpc(recovered, 'repairPersistence', [
+        captured.repairToken,
+        operationId
+      ])).resolves.toMatchObject({
+        ok: true,
+        result: { quarantinedPath: expect.stringContaining('.quarantine-') }
+      })
+    },
+    30_000
+  )
+
+  it('[blocker-B14-c] rejects a tampered erasing journal without touching the partial database', async () => {
+    const path = tempDatabase('erase-tampered-journal')
+    const captured = await crashRepairAtCheckpoint(
+      path,
+      'erase-tampered',
+      'repair:erase-tampered-journal',
+      'after-repair-database-header-write',
+      'erasing-database'
+    )
+    const partial = readFileSync(path)
+    const journal = JSON.parse(captured.journal) as { tokenHash: string }
+    journal.tokenHash = 'f'.repeat(64)
+    writeFileSync(`${path}.repair-journal.json`, `${JSON.stringify(journal)}\n`)
+
+    const replay = spawnWorker()
+    await expect(rpc(replay, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/journal|auth|repair|invalid/i)
+    })
+    await replay.terminate()
+    expect(readFileSync(path)).toEqual(partial)
+  }, 30_000)
+
+  it('[blocker-B14-d] refuses erasing-database resume against a newer populated identity', async () => {
+    const path = tempDatabase('erase-wrong-identity')
+    await crashRepairAtCheckpoint(
+      path,
+      'erase-original',
+      'repair:erase-wrong-identity',
+      'before-repair-database-header-write',
+      'erasing-database'
+    )
+    const replacementPath = tempDatabase('erase-replacement-source')
+    const replacement = await seedWorkerDatabase(
+      replacementPath,
+      'replacement-stint',
+      'REPLACEMENT-DATABASE-SENTINEL'
+    )
+    for (const suffix of ['', '-wal', '-shm', '.anchor.key', '.anchor.json', '.anchor.pending.json']) {
+      rmSync(`${path}${suffix}`, { force: true })
+      if (existsSync(`${replacementPath}${suffix}`)) {
+        copyFileSync(`${replacementPath}${suffix}`, `${path}${suffix}`)
+      }
+    }
+    const before = readWorkerDatabaseSnapshot(path, 'replacement-stint')
+    expect(before).toEqual(replacement)
+
+    const replay = spawnWorker()
+    await expect(rpc(replay, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/identity|newer|repair|database/i)
+    })
+    await replay.terminate()
+    expect(readWorkerDatabaseSnapshot(path, 'replacement-stint')).toEqual(before)
+  }, 30_000)
+
   it('[blocker-B11-g] retries the same repair operation after an erase COMMIT worker exit', async () => {
     const path = tempDatabase('repair-postcommit-exit')
     const first = spawnWorker()
@@ -819,6 +1071,7 @@ describe('packaged Passport persistence worker', () => {
     ['after-repair-journal', 'authorized'],
     ['after-repair-database-erase', 'database-erased'],
     ['after-repair-key-erase', 'keys-erased'],
+    ['after-repair-database-create', 'database-created'],
     ['after-repair-receipt-temp-write', 'database-created'],
     ['after-repair-receipt-promotion', 'receipt-staged']
   ] as const)(
@@ -885,8 +1138,7 @@ describe('packaged Passport persistence worker', () => {
       expect(existsSync(journalPath)).toBe(false)
       expect(existsSync(`${journalPath}.pending`)).toBe(false)
       expect(existsSync(receipt.quarantinedPath)).toBe(true)
-      const artifacts = readdirSync(dirname(path))
-        .map((name) => readFileSync(join(dirname(path), name)))
+      const artifacts = readAllFiles(dirname(path))
       for (const bytes of artifacts) {
         expect(bytes.includes(Buffer.from(sentinel))).toBe(false)
       }

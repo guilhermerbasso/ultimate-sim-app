@@ -34,10 +34,14 @@ const sidecars = [
   '.repair-journal.json',
   '.repair-journal.json.pending',
   '.repair-receipt.json',
-  '.repair-receipt.json.pending'
+  '.repair-receipt.json.pending',
+  '.repair-high-water-a',
+  '.repair-high-water-b'
 ]
 const cleanup = () => {
-  for (const suffix of sidecars) rmSync(`${smokeDb}${suffix}`, { force: true })
+  for (const suffix of sidecars) {
+    rmSync(`${smokeDb}${suffix}`, { force: true, recursive: true })
+  }
 }
 cleanup()
 
