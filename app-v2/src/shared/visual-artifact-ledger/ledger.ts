@@ -75,6 +75,12 @@ import {
 } from './scheduler'
 import { types as utilTypes } from 'node:util'
 
+const INTRINSIC_IS_PROXY = utilTypes.isProxy
+const INTRINSIC_ARRAY_IS_ARRAY = Array.isArray
+const INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR =
+  Object.getOwnPropertyDescriptor
+const INTRINSIC_GET_PROTOTYPE_OF = Object.getPrototypeOf
+
 export type EvidenceKind =
   | 'research'
   | 'prompt-draft'
@@ -867,18 +873,18 @@ function ledgerDependencyMethod<
   key: TKey,
   label: string
 ): TTarget[TKey] {
-  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  if (INTRINSIC_IS_PROXY(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
   let owner: object | null = target
   while (owner !== null) {
-    if (utilTypes.isProxy(owner)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
-    const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+    if (INTRINSIC_IS_PROXY(owner)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+    const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(owner, key)
     if (descriptor) {
       if (!('value' in descriptor) || typeof descriptor.value !== 'function') {
         fail('TRUST', `${label} must be a getter-free data method.`)
       }
       return descriptor.value
     }
-    owner = Object.getPrototypeOf(owner)
+    owner = INTRINSIC_GET_PROTOTYPE_OF(owner)
   }
   fail('TRUST', `${label} must be a function.`)
 }
@@ -888,8 +894,8 @@ function ledgerDependencyIdentity(
   key: string,
   label: string
 ): string {
-  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
-  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+  if (INTRINSIC_IS_PROXY(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(target, key)
   if (!descriptor?.enumerable || !('value' in descriptor)) {
     fail('TRUST', `${label} must be an own enumerable data field.`)
   }
@@ -1323,7 +1329,7 @@ export class VisualArtifactLedger {
       this.dependencies.finalizationAuthority,
       [this.plan.planHash, sequence]
     ) as readonly LedgerAppendRecord[]
-    if (!Array.isArray(records) || utilTypes.isProxy(records)) {
+    if (!INTRINSIC_ARRAY_IS_ARRAY(records) || INTRINSIC_IS_PROXY(records)) {
       fail('TRUST', 'Ledger publication authority events must be a concrete array.')
     }
     if (records.length > MAX_LEDGER_EVENTS - sequence) {
@@ -1331,7 +1337,10 @@ export class VisualArtifactLedger {
     }
     const normalized: LedgerAppendRecord[] = []
     for (let index = 0; index < records.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(records, String(index))
+      const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(
+        records,
+        String(index)
+      )
       if (!descriptor?.enumerable || !('value' in descriptor)) {
         fail(
           'TRUST',
@@ -1708,14 +1717,12 @@ export class VisualArtifactLedger {
       'Ledger publication authority append commit verifier'
     )
     if (recoveredAfterCommitFailure) {
-      const durableRecords = Reflect.apply(
-        this.dependencies.publicationEventsAfter,
-        this.dependencies.finalizationAuthority,
-        [operation.planHash, operation.expectedLedgerSequence]
-      ) as readonly LedgerAppendRecord[]
+      const durableRecords = this.authoritativeEventsAfter(
+        operation.expectedLedgerSequence
+      )
       const durableRecord =
         durableRecords.length > 0
-          ? this.normalizeAppendRecord(durableRecords[0])
+          ? durableRecords[0]
           : undefined
       if (
         !durableRecord ||

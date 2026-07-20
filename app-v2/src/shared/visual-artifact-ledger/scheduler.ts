@@ -56,6 +56,11 @@ import { fail } from './errors'
 import { parseArtifactId, type ArtifactId } from './plan'
 import { types as utilTypes } from 'node:util'
 
+const INTRINSIC_IS_PROXY = utilTypes.isProxy
+const INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR =
+  Object.getOwnPropertyDescriptor
+const INTRINSIC_GET_PROTOTYPE_OF = Object.getPrototypeOf
+
 export interface ImageSchedulingPolicy {
   readonly windowMs: number
   readonly requestLimit: typeof IMAGE_REQUEST_LIMIT
@@ -421,25 +426,25 @@ function dependencyMethod<
   key: TKey,
   label: string
 ): TTarget[TKey] {
-  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  if (INTRINSIC_IS_PROXY(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
   let owner: object | null = target
   while (owner !== null) {
-    if (utilTypes.isProxy(owner)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
-    const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+    if (INTRINSIC_IS_PROXY(owner)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+    const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(owner, key)
     if (descriptor) {
       if (!('value' in descriptor) || typeof descriptor.value !== 'function') {
         fail('TRUST', `${label} must be a getter-free data method.`)
       }
       return descriptor.value
     }
-    owner = Object.getPrototypeOf(owner)
+    owner = INTRINSIC_GET_PROTOTYPE_OF(owner)
   }
   fail('TRUST', `${label} must be a function.`)
 }
 
 function dependencyIdentity(target: object, key: string, label: string): string {
-  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
-  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+  if (INTRINSIC_IS_PROXY(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(target, key)
   if (!descriptor?.enumerable || !('value' in descriptor)) {
     fail('TRUST', `${label} must be an own enumerable data field.`)
   }

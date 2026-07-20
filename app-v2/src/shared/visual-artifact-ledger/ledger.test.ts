@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { types as utilTypes } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { canonicalStringify, sha256Hex } from './canonical'
 import type { LedgerAppendOperation } from './authorities'
@@ -977,6 +978,91 @@ describe('externally attested visual artifact ledger', () => {
     expect(ledger.rootHash).toBe(peer.rootHash)
     expect(ledger.getArtifact(ids[0])).toBeUndefined()
     expect(ledger.getArtifact(ids[1])?.revisions[0].status).toBe('started')
+  })
+
+  it('uses captured proxy detection for dependencies and authority event replay', () => {
+    const mutableUtilTypes = utilTypes as {
+      isProxy: (value: unknown) => boolean
+    }
+    const originalIsProxy = mutableUtilTypes.isProxy
+    let proxyTraps = 0
+    const proxied = <T extends object>(target: T): T =>
+      new Proxy(target, {
+        getOwnPropertyDescriptor: (subject, key) => {
+          proxyTraps += 1
+          return Reflect.getOwnPropertyDescriptor(subject, key)
+        },
+        getPrototypeOf: (subject) => {
+          proxyTraps += 1
+          return Reflect.getPrototypeOf(subject)
+        }
+      })
+
+    try {
+      mutableUtilTypes.isProxy = () => false
+      const dependencyGovernance = makeGovernance()
+      const dependencyScheduler = makeScheduler(dependencyGovernance)
+      const dependencyPlan = makePlan()
+      const dependencies =
+        dependencyGovernance.ledgerDependencies(dependencyScheduler)
+
+      expect(() =>
+        VisualArtifactLedger.create(dependencyPlan, {
+          ...dependencies,
+          finalizationAuthority: proxied(
+            dependencyGovernance.finalizationAuthority
+          )
+        })
+      ).toThrow(/Proxy/i)
+      expect(() =>
+        VisualArtifactLedger.create(dependencyPlan, {
+          ...dependencies,
+          principalVerifier: proxied(dependencyGovernance.attestations)
+        })
+      ).toThrow(/Proxy/i)
+      expect(proxyTraps).toBe(0)
+
+      const { governance, scheduler, plan, ids, clock, hashes } = setup()
+      const authority = governance.finalizationAuthority
+      const originalEventsAfter = authority.eventsAfter
+      let eventProxyTraps = 0
+      Object.defineProperty(authority, 'eventsAfter', {
+        configurable: true,
+        value: (
+          ...args: Parameters<typeof authority.eventsAfter>
+        ): ReturnType<typeof authority.eventsAfter> =>
+          new Proxy(Reflect.apply(originalEventsAfter, authority, args), {
+            get: (target, key, receiver) => {
+              eventProxyTraps += 1
+              return Reflect.get(target, key, receiver)
+            },
+            getOwnPropertyDescriptor: (target, key) => {
+              eventProxyTraps += 1
+              return Reflect.getOwnPropertyDescriptor(target, key)
+            }
+          })
+      })
+      const ledger = VisualArtifactLedger.create(
+        plan,
+        governance.ledgerDependencies(scheduler)
+      )
+      governance.finalizationAuthority.simulateLostNextAppendResponse()
+      expect(() =>
+        startArtifact(ledger, governance, ids[0], hashes, clock)
+      ).toThrow(/concrete array/i)
+
+      const stale = VisualArtifactLedger.create(
+        plan,
+        governance.ledgerDependencies(scheduler)
+      )
+      expect(() => stale.eventCount).toThrow(/concrete array/i)
+      expect(eventProxyTraps).toBe(0)
+      expect(
+        (ledger as unknown as { eventLog: readonly unknown[] }).eventLog
+      ).toHaveLength(0)
+    } finally {
+      mutableUtilTypes.isProxy = originalIsProxy
+    }
   })
 
   it('domain-separates finalization checkpoints from serialized envelope trust', () => {

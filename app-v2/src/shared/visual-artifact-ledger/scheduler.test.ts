@@ -1,3 +1,4 @@
+import { types as utilTypes } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { canonicalStringify, utf8ByteLength } from './canonical'
 import {
@@ -434,6 +435,56 @@ describe('externally authoritative image scheduler', () => {
       )
     ).toThrow(/plain object|Proxy/i)
     expect(proxyTraps).toBe(0)
+  })
+
+  it('uses the captured proxy detector for authority identities and verifier methods', () => {
+    const governance = makeGovernance()
+    const mutableUtilTypes = utilTypes as {
+      isProxy: (value: unknown) => boolean
+    }
+    const originalIsProxy = mutableUtilTypes.isProxy
+    let proxyTraps = 0
+    const proxied = <T extends object>(target: T): T =>
+      new Proxy(target, {
+        getOwnPropertyDescriptor: (subject, key) => {
+          proxyTraps += 1
+          return Reflect.getOwnPropertyDescriptor(subject, key)
+        },
+        getPrototypeOf: (subject) => {
+          proxyTraps += 1
+          return Reflect.getPrototypeOf(subject)
+        }
+      })
+
+    try {
+      mutableUtilTypes.isProxy = () => false
+      expect(() =>
+        ValidatedImageScheduler.create(
+          DEFAULT_POLICY,
+          { actorId: 'scheduler-control' },
+          {
+            ...governance.schedulerDependencies,
+            authority: proxied(governance.schedulerAuthority)
+          },
+          { token: 'untrusted' }
+        )
+      ).toThrow(/Proxy/i)
+
+      expect(() =>
+        ValidatedImageScheduler.create(
+          DEFAULT_POLICY,
+          { actorId: 'scheduler-control' },
+          {
+            ...governance.schedulerDependencies,
+            principalVerifier: proxied(governance.attestations)
+          },
+          { token: 'untrusted' }
+        )
+      ).toThrow(/Proxy/i)
+      expect(proxyTraps).toBe(0)
+    } finally {
+      mutableUtilTypes.isProxy = originalIsProxy
+    }
   })
 
   it('commits one immutable approval dependency fence despite verifier-side mutation', () => {
