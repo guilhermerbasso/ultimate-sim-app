@@ -33,6 +33,7 @@ const sidecars = [
   '.repair-authority.key',
   '.repair-journal.json',
   '.repair-journal.json.pending',
+  '.repair-journal.json.cleanup',
   '.repair-receipt.json',
   '.repair-receipt.json.pending',
   '.repair-high-water-a',

@@ -6,6 +6,7 @@ import {
   readdirSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   writeFileSync
 } from 'node:fs'
@@ -37,15 +38,270 @@ interface RpcResponse {
   code?: string
 }
 
+type InjectedIoOperation = 'mkdir' | 'open' | 'write' | 'fsync' | 'rename'
+type InjectedIoCode = 'ENOSPC' | 'EIO'
+type CleanupFaultPoint =
+  | 'after-completed-authority-promotion'
+  | 'after-cleanup-rename'
+  | 'during-cleanup-overwrite'
+  | 'before-cleanup-unlink'
+
+interface InjectedIoFault {
+  kind: 'io'
+  operation: InjectedIoOperation
+  path: string
+  code: InjectedIoCode
+  occurrence?: number
+  tracePath?: string
+}
+
+interface InjectedCleanupFault {
+  kind: 'cleanup'
+  point: CleanupFaultPoint
+  journalPath: string
+  authorityPath: string
+  tracePath: string
+}
+
+type PersistenceProcessFault = InjectedIoFault | InjectedCleanupFault
+
+const PASSPORT_WORKER_FAULT_ENV = 'ULTIMATE_SIM_PASSPORT_WORKER_FAULT'
+const PASSPORT_WORKER_FAULT_PRELOAD = String.raw`
+const fs = require('node:fs')
+const pathModule = require('node:path')
+const { syncBuiltinESMExports } = require('node:module')
+
+const raw = process.env.ULTIMATE_SIM_PASSPORT_WORKER_FAULT
+if (raw) {
+  const config = JSON.parse(raw)
+  const original = {
+    appendFileSync: fs.appendFileSync.bind(fs),
+    closeSync: fs.closeSync.bind(fs),
+    fsyncSync: fs.fsyncSync.bind(fs),
+    mkdirSync: fs.mkdirSync.bind(fs),
+    openSync: fs.openSync.bind(fs),
+    readFileSync: fs.readFileSync.bind(fs),
+    renameSync: fs.renameSync.bind(fs),
+    rmSync: fs.rmSync.bind(fs),
+    unlinkSync: fs.unlinkSync.bind(fs),
+    writeSync: fs.writeSync.bind(fs)
+  }
+  const descriptors = new Map()
+  let ioMatches = 0
+  let cleanupArtifact
+  let cleanupArtifactComparable
+
+  const comparable = (value) => {
+    const resolved = pathModule.resolve(String(value))
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  const record = (event) => {
+    if (!config.tracePath) return
+    original.appendFileSync(
+      config.tracePath,
+      JSON.stringify({ ...event, at: Date.now() }) + '\n',
+      'utf8'
+    )
+  }
+  const injectedError = (operation, target) => {
+    const error = new Error(
+      config.code + ': injected Passport worker ' + operation + ' fault for ' + target
+    )
+    error.code = config.code
+    error.errno = config.code === 'ENOSPC' ? -4055 : -4070
+    error.syscall = operation
+    error.path = target
+    return error
+  }
+  const shouldInjectIo = (operation, targets) => {
+    if (config.kind !== 'io' || config.operation !== operation) return false
+    const expected = comparable(config.path)
+    if (!targets.some((target) => target !== undefined && comparable(target) === expected)) {
+      return false
+    }
+    ioMatches += 1
+    return ioMatches === (config.occurrence || 1)
+  }
+  const writePartial = (args) => {
+    const descriptor = args[0]
+    const value = args[1]
+    if (typeof value === 'string') {
+      const partial = value.slice(0, Math.max(1, Math.floor(value.length / 2)))
+      return original.writeSync(descriptor, partial, args[2], args[3])
+    }
+    const offset = typeof args[2] === 'number' ? args[2] : 0
+    const requested = typeof args[3] === 'number'
+      ? args[3]
+      : Math.max(0, value.length - offset)
+    const length = Math.max(1, Math.floor(requested / 2))
+    return original.writeSync(descriptor, value, offset, length, args[4])
+  }
+  const exitAt = (point, details = {}) => {
+    record({ event: 'fault-exit', point, ...details })
+    process.exit(120)
+  }
+
+  fs.mkdirSync = function (...args) {
+    const target = String(args[0])
+    if (shouldInjectIo('mkdir', [target])) {
+      record({ event: 'io-fault', operation: 'mkdir', target, code: config.code })
+      throw injectedError('mkdir', target)
+    }
+    const result = original.mkdirSync(...args)
+    record({ event: 'mkdir', target })
+    return result
+  }
+
+  fs.openSync = function (...args) {
+    const target = String(args[0])
+    if (shouldInjectIo('open', [target])) {
+      record({ event: 'io-fault', operation: 'open', target, code: config.code })
+      throw injectedError('open', target)
+    }
+    const descriptor = original.openSync(...args)
+    descriptors.set(descriptor, target)
+    record({ event: 'open', target, flags: args[1] })
+    return descriptor
+  }
+
+  fs.writeSync = function (...args) {
+    const target = descriptors.get(args[0])
+    if (shouldInjectIo('write', [target])) {
+      const written = writePartial(args)
+      record({
+        event: 'io-fault',
+        operation: 'write',
+        target,
+        code: config.code,
+        partialBytes: written
+      })
+      throw injectedError('write', target)
+    }
+    if (
+      config.kind === 'cleanup' &&
+      config.point === 'during-cleanup-overwrite' &&
+      target !== undefined &&
+      cleanupArtifactComparable !== undefined &&
+      comparable(target) === cleanupArtifactComparable
+    ) {
+      const written = writePartial(args)
+      exitAt('during-cleanup-overwrite', {
+        artifactPath: cleanupArtifact,
+        partialBytes: written
+      })
+    }
+    const result = original.writeSync(...args)
+    record({ event: 'write', target, bytes: result })
+    return result
+  }
+
+  fs.fsyncSync = function (...args) {
+    const target = descriptors.get(args[0])
+    if (shouldInjectIo('fsync', [target])) {
+      record({ event: 'io-fault', operation: 'fsync', target, code: config.code })
+      throw injectedError('fsync', target)
+    }
+    const result = original.fsyncSync(...args)
+    record({ event: 'fsync', target })
+    return result
+  }
+
+  fs.renameSync = function (...args) {
+    const source = String(args[0])
+    const destination = String(args[1])
+    if (shouldInjectIo('rename', [source, destination])) {
+      record({
+        event: 'io-fault',
+        operation: 'rename',
+        source,
+        destination,
+        code: config.code
+      })
+      throw injectedError('rename', destination)
+    }
+    const result = original.renameSync(...args)
+    record({ event: 'rename', source, destination })
+    if (
+      config.kind === 'cleanup' &&
+      comparable(source) === comparable(config.journalPath)
+    ) {
+      cleanupArtifact = destination
+      cleanupArtifactComparable = comparable(destination)
+      record({ event: 'cleanup-rename', source, artifactPath: destination })
+      if (config.point === 'after-cleanup-rename') {
+        exitAt('after-cleanup-rename', { artifactPath: destination })
+      }
+    }
+    if (
+      config.kind === 'cleanup' &&
+      config.point === 'after-completed-authority-promotion' &&
+      comparable(source) === comparable(config.authorityPath + '.pending') &&
+      comparable(destination) === comparable(config.authorityPath)
+    ) {
+      let promoted
+      try {
+        promoted = JSON.parse(original.readFileSync(destination, 'utf8'))
+      } catch {
+        promoted = undefined
+      }
+      if (promoted && promoted.lastCompleted?.journalCleanupPending === true) {
+        exitAt('after-completed-authority-promotion', { authorityPath: destination })
+      }
+    }
+    return result
+  }
+
+  const remove = (kind, delegate, args) => {
+    const target = String(args[0])
+    if (
+      config.kind === 'cleanup' &&
+      config.point === 'before-cleanup-unlink' &&
+      cleanupArtifactComparable !== undefined &&
+      comparable(target) === cleanupArtifactComparable
+    ) {
+      exitAt('before-cleanup-unlink', { artifactPath: cleanupArtifact, kind })
+    }
+    const result = delegate(...args)
+    record({ event: kind, target })
+    return result
+  }
+  fs.rmSync = function (...args) {
+    return remove('rm', original.rmSync, args)
+  }
+  fs.unlinkSync = function (...args) {
+    return remove('unlink', original.unlinkSync, args)
+  }
+  fs.closeSync = function (...args) {
+    try {
+      return original.closeSync(...args)
+    } finally {
+      descriptors.delete(args[0])
+    }
+  }
+
+  syncBuiltinESMExports()
+}
+`
+
 let workerFixture: PassportWorkerTestFixture
+let workerFaultPreloadDirectory = ''
+let workerFaultPreloadPath = ''
 
 class PersistenceProcess {
   readonly child: ChildProcess
 
-  constructor() {
+  constructor(fault?: PersistenceProcessFault) {
+    const env = { ...process.env }
+    const execArgv: string[] = []
+    if (fault) {
+      env[PASSPORT_WORKER_FAULT_ENV] = JSON.stringify(fault)
+      execArgv.push('--require', workerFaultPreloadPath)
+    } else {
+      delete env[PASSPORT_WORKER_FAULT_ENV]
+    }
     this.child = fork(workerFixture.entry, [], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-      execArgv: [],
+      env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+      execArgv,
       serialization: 'advanced',
       stdio: ['ignore', 'ignore', 'ignore', 'ipc']
     })
@@ -95,10 +351,21 @@ let requestId = 0
 
 beforeAll(async () => {
   workerFixture = await buildPassportWorkerTestFixture('process')
+  workerFaultPreloadDirectory = mkdtempSync(
+    join(process.cwd(), '.passport-test-worker-fault-')
+  )
+  workerFaultPreloadPath = join(workerFaultPreloadDirectory, 'fault-preload.cjs')
+  writeFileSync(workerFaultPreloadPath, PASSPORT_WORKER_FAULT_PRELOAD, 'utf8')
 })
 
 afterAll(() => {
   workerFixture.cleanup()
+  rmSync(workerFaultPreloadDirectory, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100
+  })
 })
 
 afterEach(async () => {
@@ -120,8 +387,8 @@ function tempDatabase(name: string): string {
   return join(directory, 'passport.db')
 }
 
-function spawnWorker(): PersistenceProcess {
-  const worker = new PersistenceProcess()
+function spawnWorker(fault?: PersistenceProcessFault): PersistenceProcess {
+  const worker = new PersistenceProcess(fault)
   workers.push(worker)
   return worker
 }
@@ -579,6 +846,444 @@ async function crashRepairAtCheckpoint(
     journal,
     repairToken,
     original
+  }
+}
+
+interface RepairAuthorityTestState {
+  authorityId: string
+  profileBinding: string
+  completedEpoch: number
+  highWaterRevision: number
+  currentDatabaseId: string
+  signature: string
+  lastCompleted?: {
+    repairEpoch: number
+    operationId: string
+    tokenHash: string
+    originalDatabaseId: string
+    databaseId: string
+    finalJournalSignature: string
+    journalCleanupPending: boolean
+  }
+}
+
+interface RepairHighWaterTestState {
+  authorityId: string
+  profileBinding: string
+  revision: number
+  repairEpoch: number
+  phase: string
+  databaseId: string
+  operationId?: string
+  tokenHash?: string
+  originalDatabaseId?: string
+  journalSignature?: string
+  signature: string
+}
+
+interface RepairReceiptTestState {
+  operationId: string
+  tokenHash: string
+  databaseId: string
+  quarantinedPath: string
+  repairedAt: number
+}
+
+interface WorkerFaultTrace {
+  event: string
+  point?: string
+  source?: string
+  destination?: string
+  artifactPath?: string
+  target?: string
+}
+
+interface BootstrapFaultBoundary {
+  label: string
+  operation: InjectedIoOperation
+  target(path: string): string
+}
+
+const initialHighWaterMarkerName = '0000000000000000.json'
+const bootstrapFaultBoundaries: readonly BootstrapFaultBoundary[] = [
+  {
+    label: 'authority-key file create',
+    operation: 'open',
+    target: (path) => `${path}.repair-authority.key`
+  },
+  {
+    label: 'authority-key write',
+    operation: 'write',
+    target: (path) => `${path}.repair-authority.key`
+  },
+  {
+    label: 'authority-key fsync',
+    operation: 'fsync',
+    target: (path) => `${path}.repair-authority.key`
+  },
+  {
+    label: 'high-water A directory create',
+    operation: 'mkdir',
+    target: (path) => `${path}.repair-high-water-a`
+  },
+  {
+    label: 'high-water A marker create',
+    operation: 'open',
+    target: (path) => join(
+      `${path}.repair-high-water-a`,
+      `${initialHighWaterMarkerName}.pending`
+    )
+  },
+  {
+    label: 'high-water A marker write',
+    operation: 'write',
+    target: (path) => join(
+      `${path}.repair-high-water-a`,
+      `${initialHighWaterMarkerName}.pending`
+    )
+  },
+  {
+    label: 'high-water A marker fsync',
+    operation: 'fsync',
+    target: (path) => join(
+      `${path}.repair-high-water-a`,
+      `${initialHighWaterMarkerName}.pending`
+    )
+  },
+  {
+    label: 'high-water A marker rename',
+    operation: 'rename',
+    target: (path) => join(`${path}.repair-high-water-a`, initialHighWaterMarkerName)
+  },
+  {
+    label: 'high-water B directory create',
+    operation: 'mkdir',
+    target: (path) => `${path}.repair-high-water-b`
+  },
+  {
+    label: 'high-water B marker create',
+    operation: 'open',
+    target: (path) => join(
+      `${path}.repair-high-water-b`,
+      `${initialHighWaterMarkerName}.pending`
+    )
+  },
+  {
+    label: 'high-water B marker write',
+    operation: 'write',
+    target: (path) => join(
+      `${path}.repair-high-water-b`,
+      `${initialHighWaterMarkerName}.pending`
+    )
+  },
+  {
+    label: 'high-water B marker fsync',
+    operation: 'fsync',
+    target: (path) => join(
+      `${path}.repair-high-water-b`,
+      `${initialHighWaterMarkerName}.pending`
+    )
+  },
+  {
+    label: 'high-water B marker rename',
+    operation: 'rename',
+    target: (path) => join(`${path}.repair-high-water-b`, initialHighWaterMarkerName)
+  },
+  {
+    label: 'authority-state file create',
+    operation: 'open',
+    target: (path) => `${path}.repair-authority.json.pending`
+  },
+  {
+    label: 'authority-state write',
+    operation: 'write',
+    target: (path) => `${path}.repair-authority.json.pending`
+  },
+  {
+    label: 'authority-state fsync',
+    operation: 'fsync',
+    target: (path) => `${path}.repair-authority.json.pending`
+  },
+  {
+    label: 'authority-state rename',
+    operation: 'rename',
+    target: (path) => `${path}.repair-authority.json`
+  }
+]
+
+const bootstrapFaultCases: ReadonlyArray<readonly [
+  label: string,
+  code: InjectedIoCode,
+  operation: InjectedIoOperation,
+  target: (path: string) => string
+]> = bootstrapFaultBoundaries.flatMap((boundary) =>
+  (['ENOSPC', 'EIO'] as const).map((code) => [
+    boundary.label,
+    code,
+    boundary.operation,
+    boundary.target
+  ] as const)
+)
+
+function readRepairAuthorityState(path: string): RepairAuthorityTestState {
+  return JSON.parse(
+    readFileSync(`${path}.repair-authority.json`, 'utf8')
+  ) as RepairAuthorityTestState
+}
+
+function readCurrentRepairHighWater(path: string): RepairHighWaterTestState {
+  const left = readFileSync(lastHighWaterMarker(path, 'a'))
+  const right = readFileSync(lastHighWaterMarker(path, 'b'))
+  expect(left).toEqual(right)
+  return JSON.parse(left.toString('utf8')) as RepairHighWaterTestState
+}
+
+function readRepairReceiptState(path: string): RepairReceiptTestState {
+  return JSON.parse(
+    readFileSync(`${path}.repair-receipt.json`, 'utf8')
+  ) as RepairReceiptTestState
+}
+
+function expectInitialRepairSecurity(
+  path: string,
+  databaseId: string
+): void {
+  const key = readFileSync(`${path}.repair-authority.key`, 'utf8')
+  expect(key).toMatch(/^[a-f0-9]{64}\n$/)
+  expect(existsSync(`${path}.repair-authority.json.pending`)).toBe(false)
+
+  const authority = readRepairAuthorityState(path)
+  const highWater = readCurrentRepairHighWater(path)
+  expect(authority).toMatchObject({
+    authorityId: expect.stringMatching(/^[a-f0-9]{48}$/),
+    profileBinding: expect.stringMatching(/^[a-f0-9]{64}$/),
+    completedEpoch: 0,
+    highWaterRevision: 0,
+    currentDatabaseId: databaseId,
+    signature: expect.stringMatching(/^[a-f0-9]{64}$/)
+  })
+  expect(authority.lastCompleted).toBeUndefined()
+  expect(highWater).toMatchObject({
+    authorityId: authority.authorityId,
+    profileBinding: authority.profileBinding,
+    revision: 0,
+    repairEpoch: 0,
+    phase: 'idle',
+    databaseId,
+    signature: expect.stringMatching(/^[a-f0-9]{64}$/)
+  })
+  expect(readdirSync(`${path}.repair-high-water-a`).sort())
+    .toEqual([initialHighWaterMarkerName])
+  expect(readdirSync(`${path}.repair-high-water-b`).sort())
+    .toEqual([initialHighWaterMarkerName])
+  expect(snapshotFiles(`${path}.repair-high-water-a`))
+    .toEqual(snapshotFiles(`${path}.repair-high-water-b`))
+  for (const suffix of [
+    '.repair-journal.json',
+    '.repair-journal.json.pending',
+    '.repair-journal.json.cleanup',
+    '.repair-receipt.json',
+    '.repair-receipt.json.pending'
+  ]) {
+    expect(existsSync(`${path}${suffix}`)).toBe(false)
+  }
+}
+
+function snapshotTree(
+  path: string,
+  key: string,
+  result: Record<string, string>
+): void {
+  const entries = readdirSync(path, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+  for (const entry of entries) {
+    const entryPath = join(path, entry.name)
+    const entryKey = `${key}/${entry.name}`
+    if (entry.isDirectory()) {
+      snapshotTree(entryPath, entryKey, result)
+    } else {
+      result[entryKey] = readFileSync(entryPath).toString('base64')
+    }
+  }
+}
+
+function snapshotRepairArtifactTree(path: string): Record<string, string> {
+  const directory = dirname(path)
+  const prefix = `${basename(path)}.repair-`
+  const result: Record<string, string> = {}
+  for (const entry of readdirSync(directory, { withFileTypes: true })
+    .filter((candidate) => candidate.name.startsWith(prefix))
+    .sort((left, right) => left.name.localeCompare(right.name))) {
+    const entryPath = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      snapshotTree(entryPath, entry.name, result)
+    } else {
+      result[entry.name] = readFileSync(entryPath).toString('base64')
+    }
+  }
+  return result
+}
+
+async function createPristineWorkerProfile(path: string): Promise<WorkerDatabaseSnapshot> {
+  const worker = spawnWorker()
+  await expect(rpc(worker, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+  await worker.terminate()
+  const snapshot = readWorkerDatabaseSnapshot(path, 'none')
+  expect(snapshot.databaseId).toMatch(/^[a-f0-9]{48}$/)
+  expect(snapshot.passportJson).toBeUndefined()
+  expect(JSON.parse(snapshot.privacyJson)).toMatchObject({
+    identityPersistenceOptIn: false
+  })
+  return snapshot
+}
+
+function markWorkerDatabaseCorrupt(path: string): void {
+  const database = new DatabaseSync(path)
+  try {
+    database.prepare(
+      "UPDATE passport_meta SET value = 'corrupt' WHERE key = 'integrity_state'"
+    ).run()
+    database.exec('PRAGMA wal_checkpoint(FULL)')
+  } finally {
+    database.close()
+  }
+}
+
+async function captureReceiptStagedRepairForExistingDatabase(
+  path: string,
+  operationId: string
+): Promise<{ journal: string; repairToken: string }> {
+  markWorkerDatabaseCorrupt(path)
+  const crashingRepair = spawnWorker()
+  await expect(rpc(crashingRepair, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+  const integrity = await rpc(crashingRepair, 'getIntegrity')
+  const repairToken = (integrity.result as { repairToken?: string }).repairToken ?? ''
+  expect(repairToken).toMatch(/^[a-f0-9]+$/)
+  await rpc(crashingRepair, 'configureCrashBoundary', [{
+    operation: 'repairPersistence',
+    checkpoint: 'after-repair-receipt-promotion'
+  }])
+  await expect(rpc(crashingRepair, 'repairPersistence', [repairToken, operationId]))
+    .rejects.toThrow(/exited/i)
+  const journal = readFileSync(`${path}.repair-journal.json`, 'utf8')
+  expect(JSON.parse(journal)).toMatchObject({
+    operationId,
+    phase: 'receipt-staged'
+  })
+  return { journal, repairToken }
+}
+
+async function finishReceiptStagedRepair(path: string): Promise<void> {
+  const finisher = spawnWorker()
+  await expect(rpc(finisher, 'initialize', [path], 10_000))
+    .resolves.toMatchObject({ ok: true })
+  await expect(rpc(finisher, 'getAuthoritativeState')).resolves.toMatchObject({
+    ok: true,
+    result: {
+      privacy: { identityPersistenceOptIn: false },
+      roster: [],
+      passports: []
+    }
+  })
+  await finisher.terminate()
+}
+
+function removeRepairSecurityComponent(
+  path: string,
+  component: 'key' | 'high-water' | 'authority'
+): void {
+  if (component === 'key') {
+    rmSync(`${path}.repair-authority.key`, { force: true })
+    return
+  }
+  if (component === 'high-water') {
+    rmSync(`${path}.repair-high-water-a`, { recursive: true, force: true })
+    rmSync(`${path}.repair-high-water-b`, { recursive: true, force: true })
+    return
+  }
+  rmSync(`${path}.repair-authority.json`, { force: true })
+  rmSync(`${path}.repair-authority.json.pending`, { force: true })
+}
+
+function readWorkerFaultTrace(path: string): WorkerFaultTrace[] {
+  if (!existsSync(path)) return []
+  return readFileSync(path, 'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as WorkerFaultTrace)
+}
+
+async function crashCompletedJournalCleanup(
+  path: string,
+  point: CleanupFaultPoint,
+  label: string
+): Promise<{ artifactPath?: string; trace: WorkerFaultTrace[] }> {
+  const tracePath = `${path}.fault-${label}.jsonl`
+  rmSync(tracePath, { force: true })
+  const crashing = spawnWorker({
+    kind: 'cleanup',
+    point,
+    journalPath: `${path}.repair-journal.json`,
+    authorityPath: `${path}.repair-authority.json`,
+    tracePath
+  })
+  await expect(rpc(crashing, 'initialize', [path], 10_000)).rejects.toThrow(/exited/i)
+  const trace = readWorkerFaultTrace(tracePath)
+  const artifactPath = [...trace].reverse()
+    .find((entry) => entry.artifactPath)?.artifactPath
+  if (point !== 'after-completed-authority-promotion') {
+    expect(artifactPath).toEqual(expect.any(String))
+  }
+  return { artifactPath, trace }
+}
+
+function expectMatchingCompletedCleanupProof(
+  path: string,
+  artifactPath: string
+): WorkerDatabaseSnapshot {
+  const authority = readRepairAuthorityState(path)
+  const highWater = readCurrentRepairHighWater(path)
+  const receipt = readRepairReceiptState(path)
+  const snapshot = readWorkerDatabaseSnapshot(path, 'none')
+  expect(authority.lastCompleted).toMatchObject({
+    repairEpoch: authority.completedEpoch,
+    operationId: receipt.operationId,
+    tokenHash: receipt.tokenHash,
+    databaseId: receipt.databaseId,
+    journalCleanupPending: true
+  })
+  expect(highWater).toMatchObject({
+    authorityId: authority.authorityId,
+    profileBinding: authority.profileBinding,
+    revision: authority.highWaterRevision,
+    repairEpoch: authority.completedEpoch,
+    phase: 'completed',
+    databaseId: receipt.databaseId,
+    operationId: receipt.operationId,
+    tokenHash: receipt.tokenHash,
+    journalSignature: authority.lastCompleted?.finalJournalSignature
+  })
+  expect(authority.currentDatabaseId).toBe(receipt.databaseId)
+  expect(snapshot.databaseId).toBe(receipt.databaseId)
+  expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+  expect(existsSync(artifactPath)).toBe(true)
+  return snapshot
+}
+
+function restoreDatabaseBundle(snapshotRoot: string, path: string): void {
+  const databaseName = basename(path)
+  for (const suffix of [
+    '',
+    '-wal',
+    '-shm',
+    '.anchor.key',
+    '.anchor.json',
+    '.anchor.pending.json'
+  ]) {
+    const source = join(snapshotRoot, `${databaseName}${suffix}`)
+    const destination = `${path}${suffix}`
+    rmSync(destination, { force: true })
+    if (existsSync(source)) copyFileSync(source, destination)
   }
 }
 
@@ -1572,4 +2277,596 @@ describe('packaged Passport persistence worker', () => {
     },
     30_000
   )
+
+  it.each(bootstrapFaultCases)(
+    '[blocker-bootstrap] resumes fresh repair security after %s returns %s',
+    async (label, code, operation, target) => {
+      const path = tempDatabase(
+        `bootstrap-${label}-${code}`.replace(/[^a-z0-9-]+/gi, '-').toLowerCase()
+      )
+      const failed = spawnWorker({
+        kind: 'io',
+        operation,
+        path: target(path),
+        code
+      })
+      await expect(rpc(failed, 'initialize', [path])).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringMatching(new RegExp(code, 'i'))
+      })
+      await failed.terminate()
+
+      const before = readWorkerDatabaseSnapshot(path, 'none')
+      const keyPath = `${path}.repair-authority.key`
+      const priorKey = existsSync(keyPath) ? readFileSync(keyPath, 'utf8') : undefined
+      const priorKeyIsComplete = priorKey !== undefined && /^[a-f0-9]{64}\n$/.test(priorKey)
+      expect(before.databaseId).toMatch(/^[a-f0-9]{48}$/)
+      expect(before.passportJson).toBeUndefined()
+      expect(JSON.parse(before.privacyJson)).toMatchObject({
+        identityPersistenceOptIn: false
+      })
+      expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+      expect(existsSync(`${path}.repair-receipt.json`)).toBe(false)
+
+      const recovered = spawnWorker()
+      await expect(rpc(recovered, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+      await expect(rpc(recovered, 'getAuthoritativeState')).resolves.toMatchObject({
+        ok: true,
+        result: {
+          privacy: { identityPersistenceOptIn: false },
+          roster: [],
+          passports: []
+        }
+      })
+      await recovered.terminate()
+
+      expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(before)
+      expectInitialRepairSecurity(path, before.databaseId)
+      if (priorKeyIsComplete) {
+        expect(readFileSync(keyPath, 'utf8')).toBe(priorKey)
+      }
+    },
+    30_000
+  )
+
+  it.each([
+    'key-only',
+    'high-water-only',
+    'authority-only'
+  ] as const)(
+    '[blocker-bootstrap] reconstructs an initial %s partial state only for an unmodified pristine database',
+    async (partialState) => {
+      const path = tempDatabase(`bootstrap-partial-${partialState}`)
+      const database = await createPristineWorkerProfile(path)
+      const originalKey = readFileSync(`${path}.repair-authority.key`)
+      const originalAuthority = readRepairAuthorityState(path)
+      const originalHighWater = readCurrentRepairHighWater(path)
+      expect(originalAuthority.completedEpoch).toBe(0)
+      expect(originalHighWater).toMatchObject({ revision: 0, repairEpoch: 0, phase: 'idle' })
+      expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+
+      if (partialState === 'key-only') {
+        removeRepairSecurityComponent(path, 'high-water')
+        removeRepairSecurityComponent(path, 'authority')
+      } else if (partialState === 'high-water-only') {
+        removeRepairSecurityComponent(path, 'authority')
+      } else {
+        removeRepairSecurityComponent(path, 'high-water')
+      }
+      expect(existsSync(`${path}.repair-authority.key`)).toBe(true)
+      expect(existsSync(`${path}.repair-authority.json`))
+        .toBe(partialState === 'authority-only')
+      expect(existsSync(`${path}.repair-high-water-a`))
+        .toBe(partialState === 'high-water-only')
+      expect(existsSync(`${path}.repair-high-water-b`))
+        .toBe(partialState === 'high-water-only')
+
+      const recovered = spawnWorker()
+      await expect(rpc(recovered, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+      await recovered.terminate()
+
+      expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(database)
+      expect(readFileSync(`${path}.repair-authority.key`)).toEqual(originalKey)
+      expectInitialRepairSecurity(path, database.databaseId)
+      if (partialState === 'high-water-only') {
+        expect(readRepairAuthorityState(path).authorityId).toBe(originalHighWater.authorityId)
+      }
+      if (partialState === 'authority-only') {
+        expect(readCurrentRepairHighWater(path).authorityId).toBe(originalAuthority.authorityId)
+      }
+    },
+    30_000
+  )
+
+  it('[blocker-bootstrap] refuses bootstrap regeneration for a valid but modified database', async () => {
+    const path = tempDatabase('bootstrap-modified-database')
+    await createPristineWorkerProfile(path)
+    const writer = spawnWorker()
+    await expect(rpc(writer, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+    await expect(rpc(writer, 'setPrivacy', [privacy(true)])).resolves.toMatchObject({
+      ok: true,
+      result: expect.objectContaining({ identityPersistenceOptIn: true })
+    })
+    await writer.terminate()
+    const modified = readWorkerDatabaseSnapshot(path, 'none')
+    const key = readFileSync(`${path}.repair-authority.key`)
+    removeRepairSecurityComponent(path, 'high-water')
+    removeRepairSecurityComponent(path, 'authority')
+    const before = snapshotRepairArtifactTree(path)
+
+    const restarted = spawnWorker()
+    await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/repair|authority|high-water|bootstrap|modified|default/i)
+    })
+    await restarted.terminate()
+
+    expect(snapshotRepairArtifactTree(path)).toEqual(before)
+    expect(readFileSync(`${path}.repair-authority.key`)).toEqual(key)
+    expect(existsSync(`${path}.repair-authority.json`)).toBe(false)
+    expect(existsSync(`${path}.repair-high-water-a`)).toBe(false)
+    expect(existsSync(`${path}.repair-high-water-b`)).toBe(false)
+    expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(modified)
+  }, 30_000)
+
+  it('[blocker-bootstrap] refuses bootstrap regeneration for an unreadable database', async () => {
+    const path = tempDatabase('bootstrap-unreadable-database')
+    await createPristineWorkerProfile(path)
+    removeRepairSecurityComponent(path, 'high-water')
+    removeRepairSecurityComponent(path, 'authority')
+    const invalidDatabase = Buffer.from('not-a-passport-sqlite-database')
+    writeFileSync(path, invalidDatabase)
+    const before = snapshotRepairArtifactTree(path)
+
+    const restarted = spawnWorker()
+    await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/database|sqlite|file|repair|authority/i)
+    })
+    await restarted.terminate()
+
+    expect(readFileSync(path)).toEqual(invalidDatabase)
+    expect(snapshotRepairArtifactTree(path)).toEqual(before)
+    expect(existsSync(`${path}.repair-authority.json`)).toBe(false)
+    expect(existsSync(`${path}.repair-high-water-a`)).toBe(false)
+    expect(existsSync(`${path}.repair-high-water-b`)).toBe(false)
+  }, 30_000)
+
+  it('[blocker-bootstrap] never regenerates missing security around an active repair journal', async () => {
+    const path = tempDatabase('bootstrap-active-repair')
+    const captured = await captureAuthorizedRepairJournal(
+      path,
+      'bootstrap-active-repair',
+      'repair:bootstrap-active-repair'
+    )
+    const root = dirname(path)
+    const baseline = cloneDirectory(root, 'bootstrap-active-repair-baseline')
+
+    for (const component of ['key', 'high-water', 'authority'] as const) {
+      restoreDirectory(baseline, root)
+      removeRepairSecurityComponent(path, component)
+      const beforeArtifacts = snapshotRepairArtifactTree(path)
+      const beforeDatabase = readWorkerDatabaseSnapshot(path, 'bootstrap-active-repair')
+      expect(readFileSync(`${path}.repair-journal.json`, 'utf8')).toBe(captured.journal)
+
+      const restarted = spawnWorker()
+      await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/repair|journal|authority|high-water|missing/i)
+      })
+      await restarted.terminate()
+
+      expect(snapshotRepairArtifactTree(path)).toEqual(beforeArtifacts)
+      expect(readWorkerDatabaseSnapshot(path, 'bootstrap-active-repair')).toEqual(beforeDatabase)
+      expect(readFileSync(`${path}.repair-journal.json`, 'utf8')).toBe(captured.journal)
+    }
+  }, 60_000)
+
+  it('[blocker-bootstrap] never resets an active high-water revision when its journal is missing', async () => {
+    const path = tempDatabase('bootstrap-active-high-water')
+    const pristine = await createPristineWorkerProfile(path)
+    const root = dirname(path)
+    const pristineFiles = cloneDirectory(root, 'bootstrap-active-high-water-pristine')
+    markWorkerDatabaseCorrupt(path)
+
+    const crashingRepair = spawnWorker()
+    await expect(rpc(crashingRepair, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+    const integrity = await rpc(crashingRepair, 'getIntegrity')
+    const repairToken = (integrity.result as { repairToken?: string }).repairToken ?? ''
+    expect(repairToken).toMatch(/^[a-f0-9]+$/)
+    await rpc(crashingRepair, 'configureCrashBoundary', [{
+      operation: 'repairPersistence',
+      checkpoint: 'before-repair-database-header-write'
+    }])
+    await expect(rpc(crashingRepair, 'repairPersistence', [
+      repairToken,
+      'repair:bootstrap-active-high-water'
+    ])).rejects.toThrow(/exited/i)
+    const activeHighWater = readCurrentRepairHighWater(path)
+    expect(activeHighWater).toMatchObject({
+      phase: 'erasing-database',
+      repairEpoch: 1,
+      revision: expect.any(Number)
+    })
+    expect(activeHighWater.revision).toBeGreaterThan(0)
+
+    rmSync(`${path}.repair-journal.json`, { force: true })
+    rmSync(`${path}.repair-journal.json.pending`, { force: true })
+    removeRepairSecurityComponent(path, 'authority')
+    restoreDatabaseBundle(pristineFiles, path)
+    const before = snapshotRepairArtifactTree(path)
+    expect(existsSync(`${path}.repair-authority.key`)).toBe(true)
+    expect(existsSync(`${path}.repair-authority.json`)).toBe(false)
+    expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+    expect(readCurrentRepairHighWater(path).revision).toBe(activeHighWater.revision)
+
+    const restarted = spawnWorker()
+    await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/repair|authority|high-water|missing/i)
+    })
+    await restarted.terminate()
+
+    expect(snapshotRepairArtifactTree(path)).toEqual(before)
+    expect(readCurrentRepairHighWater(path)).toEqual(activeHighWater)
+    expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(pristine)
+  }, 60_000)
+
+  it('[blocker-bootstrap] never regenerates missing security from a completed binding or high-water history', async () => {
+    const path = tempDatabase('bootstrap-completed-repair')
+    await seedWorkerDatabase(
+      path,
+      'bootstrap-completed-repair',
+      'BOOTSTRAP-COMPLETED-REPAIR'
+    )
+    await captureReceiptStagedRepairForExistingDatabase(
+      path,
+      'repair:bootstrap-completed-repair'
+    )
+    await finishReceiptStagedRepair(path)
+    const completedAuthority = readRepairAuthorityState(path)
+    const completedHighWater = readCurrentRepairHighWater(path)
+    expect(completedAuthority).toMatchObject({
+      completedEpoch: 1,
+      highWaterRevision: expect.any(Number),
+      lastCompleted: { journalCleanupPending: false }
+    })
+    expect(completedHighWater).toMatchObject({
+      revision: completedAuthority.highWaterRevision,
+      repairEpoch: 1,
+      phase: 'completed'
+    })
+    expect(completedHighWater.revision).toBeGreaterThan(0)
+    const root = dirname(path)
+    const baseline = cloneDirectory(root, 'bootstrap-completed-repair-baseline')
+
+    for (const component of ['key', 'high-water', 'authority'] as const) {
+      restoreDirectory(baseline, root)
+      removeRepairSecurityComponent(path, component)
+      const beforeArtifacts = snapshotRepairArtifactTree(path)
+      const beforeDatabase = readWorkerDatabaseSnapshot(path, 'none')
+
+      const restarted = spawnWorker()
+      await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/repair|authority|high-water|completed|missing/i)
+      })
+      await restarted.terminate()
+
+      expect(snapshotRepairArtifactTree(path)).toEqual(beforeArtifacts)
+      expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(beforeDatabase)
+    }
+  }, 90_000)
+
+  it('[blocker-bootstrap] never regenerates key-only security over a completed database binding', async () => {
+    const path = tempDatabase('bootstrap-completed-binding-key-only')
+    await seedWorkerDatabase(
+      path,
+      'bootstrap-completed-binding-key-only',
+      'BOOTSTRAP-COMPLETED-BINDING-KEY-ONLY'
+    )
+    await captureReceiptStagedRepairForExistingDatabase(
+      path,
+      'repair:bootstrap-completed-binding-key-only'
+    )
+    await finishReceiptStagedRepair(path)
+    const completedDatabase = readWorkerDatabaseSnapshot(path, 'none')
+    const key = readFileSync(`${path}.repair-authority.key`)
+    removeRepairSecurityComponent(path, 'high-water')
+    removeRepairSecurityComponent(path, 'authority')
+    rmSync(`${path}.repair-receipt.json`, { force: true })
+    rmSync(`${path}.repair-receipt.json.pending`, { force: true })
+    const before = snapshotRepairArtifactTree(path)
+
+    const restarted = spawnWorker()
+    await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/repair|bootstrap|binding|pristine|database/i)
+    })
+    await restarted.terminate()
+
+    expect(snapshotRepairArtifactTree(path)).toEqual(before)
+    expect(readFileSync(`${path}.repair-authority.key`)).toEqual(key)
+    expect(existsSync(`${path}.repair-authority.json`)).toBe(false)
+    expect(existsSync(`${path}.repair-high-water-a`)).toBe(false)
+    expect(existsSync(`${path}.repair-high-water-b`)).toBe(false)
+    expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(completedDatabase)
+  }, 60_000)
+
+  it.each([
+    'after-cleanup-rename',
+    'during-cleanup-overwrite',
+    'before-cleanup-unlink'
+  ] as const)(
+    '[blocker-cleanup] recovers a completed repair after crashing %s',
+    async (point) => {
+      const path = tempDatabase(`completed-cleanup-${point}`)
+      const operationId = `repair:completed-cleanup:${point}`
+      const authenticatedJournal = await captureReceiptStagedRepairJournal(
+        path,
+        `completed-cleanup-${point}`,
+        operationId
+      )
+      const crashed = await crashCompletedJournalCleanup(path, point, point)
+      const artifactPath = crashed.artifactPath
+      if (!artifactPath) throw new Error(`Cleanup fault ${point} did not expose its artifact.`)
+
+      const renameIndex = crashed.trace.findIndex((entry) =>
+        entry.event === 'cleanup-rename' &&
+        entry.source === `${path}.repair-journal.json` &&
+        entry.artifactPath === artifactPath
+      )
+      const exitIndex = crashed.trace.findIndex((entry) =>
+        entry.event === 'fault-exit' && entry.point === point
+      )
+      expect(renameIndex).toBeGreaterThanOrEqual(0)
+      expect(exitIndex).toBeGreaterThan(renameIndex)
+      expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+
+      const artifactBytes = readFileSync(artifactPath)
+      if (point === 'after-cleanup-rename') {
+        expect(crashed.trace.slice(renameIndex + 1, exitIndex).some((entry) =>
+          entry.event === 'write' && entry.target === artifactPath
+        )).toBe(false)
+        expect(artifactBytes.toString('utf8')).toBe(authenticatedJournal)
+        expect(JSON.parse(artifactBytes.toString('utf8'))).toMatchObject({
+          operationId,
+          phase: 'receipt-staged'
+        })
+      } else if (point === 'during-cleanup-overwrite') {
+        expect(artifactBytes).not.toEqual(Buffer.from(authenticatedJournal))
+        expect(artifactBytes.includes(0)).toBe(true)
+        expect(artifactBytes.some((byte) => byte !== 0)).toBe(true)
+        expect(() => JSON.parse(artifactBytes.toString('utf8'))).toThrow()
+      } else {
+        const artifactFsyncIndex = crashed.trace.findIndex((entry) =>
+          entry.event === 'fsync' && entry.target === artifactPath
+        )
+        expect(artifactFsyncIndex).toBeGreaterThan(renameIndex)
+        expect(exitIndex).toBeGreaterThan(artifactFsyncIndex)
+        expect(artifactBytes.every((byte) => byte === 0)).toBe(true)
+        expect(() => JSON.parse(artifactBytes.toString('utf8'))).toThrow()
+      }
+
+      const repairedDatabase = expectMatchingCompletedCleanupProof(path, artifactPath)
+      const recovered = spawnWorker()
+      await expect(rpc(recovered, 'initialize', [path])).resolves.toMatchObject({ ok: true })
+      await expect(rpc(recovered, 'getAuthoritativeState')).resolves.toMatchObject({
+        ok: true,
+        result: {
+          privacy: { identityPersistenceOptIn: false },
+          roster: [],
+          passports: []
+        }
+      })
+      await recovered.terminate()
+
+      expect(existsSync(artifactPath)).toBe(false)
+      expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+      expect(existsSync(`${path}.repair-journal.json.pending`)).toBe(false)
+      expect(readRepairAuthorityState(path).lastCompleted)
+        .toMatchObject({ journalCleanupPending: false })
+      expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(repairedDatabase)
+      expect(readRepairReceiptState(path)).toMatchObject({
+        operationId,
+        databaseId: repairedDatabase.databaseId
+      })
+    },
+    60_000
+  )
+
+  it.each([
+    ['corrupt', (journal: string) => Buffer.from('{"version":3')],
+    ['forged', (journal: string) => {
+      const forged = JSON.parse(journal) as Record<string, unknown>
+      forged.operationId = 'repair:forged-cleanup-journal'
+      forged.signature = '0'.repeat(64)
+      return Buffer.from(`${JSON.stringify(forged)}\n`)
+    }]
+  ] as const)(
+    '[blocker-cleanup] does not move or erase a %s live journal under completed-cleanup authority',
+    async (_kind, tamper) => {
+      const path = tempDatabase(`completed-cleanup-${_kind}-live`)
+      const originalJournal = await captureReceiptStagedRepairJournal(
+        path,
+        `completed-cleanup-${_kind}-live`,
+        `repair:completed-cleanup-${_kind}-live`
+      )
+      const staged = await crashCompletedJournalCleanup(
+        path,
+        'after-completed-authority-promotion',
+        `completed-authority-${_kind}`
+      )
+      expect(staged.artifactPath).toBeUndefined()
+      expect(existsSync(`${path}.repair-journal.json`)).toBe(true)
+      const authority = readRepairAuthorityState(path)
+      expect(authority.lastCompleted).toMatchObject({ journalCleanupPending: true })
+      expect(readCurrentRepairHighWater(path)).toMatchObject({
+        phase: 'completed',
+        revision: authority.highWaterRevision
+      })
+      const repairedDatabase = readWorkerDatabaseSnapshot(path, 'none')
+
+      const hostileJournal = tamper(originalJournal)
+      writeFileSync(`${path}.repair-journal.json`, hostileJournal)
+      const before = snapshotRepairArtifactTree(path)
+      const restarted = spawnWorker()
+      await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/journal|auth|invalid|syntax|repair|json|expected/i)
+      })
+      await restarted.terminate()
+
+      expect(snapshotRepairArtifactTree(path)).toEqual(before)
+      expect(readFileSync(`${path}.repair-journal.json`)).toEqual(hostileJournal)
+      expect(readRepairAuthorityState(path).lastCompleted)
+        .toMatchObject({ journalCleanupPending: true })
+      expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(repairedDatabase)
+    },
+    60_000
+  )
+
+  it('[blocker-cleanup] never erases a syntactically valid forged cleanup artifact', async () => {
+    const path = tempDatabase('completed-cleanup-forged-artifact')
+    const authenticatedJournal = await captureReceiptStagedRepairJournal(
+      path,
+      'completed-cleanup-forged-artifact',
+      'repair:completed-cleanup-forged-artifact'
+    )
+    await crashCompletedJournalCleanup(
+      path,
+      'after-completed-authority-promotion',
+      'completed-cleanup-forged-artifact'
+    )
+    const journalPath = `${path}.repair-journal.json`
+    const artifactPath = `${journalPath}.cleanup`
+    renameSync(journalPath, artifactPath)
+    const forged = JSON.parse(authenticatedJournal) as Record<string, unknown>
+    forged.operationId = 'repair:forged-cleanup-artifact'
+    forged.signature = '0'.repeat(64)
+    const forgedBytes = Buffer.from(`${JSON.stringify(forged)}\n`)
+    writeFileSync(artifactPath, forgedBytes)
+    const before = snapshotRepairArtifactTree(path)
+    const repairedDatabase = readWorkerDatabaseSnapshot(path, 'none')
+
+    const restarted = spawnWorker()
+    await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/cleanup|journal|authentication|repair/i)
+    })
+    await restarted.terminate()
+
+    expect(snapshotRepairArtifactTree(path)).toEqual(before)
+    expect(readFileSync(artifactPath)).toEqual(forgedBytes)
+    expect(readRepairAuthorityState(path).lastCompleted)
+      .toMatchObject({ journalCleanupPending: true })
+    expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(repairedDatabase)
+  }, 60_000)
+
+  it('[blocker-cleanup] discards an unreadable cleanup artifact only with matching completed proof', async () => {
+    const path = tempDatabase('completed-cleanup-proof')
+    await seedWorkerDatabase(
+      path,
+      'completed-cleanup-proof',
+      'COMPLETED-CLEANUP-PROOF-EPOCH-ZERO'
+    )
+    await captureReceiptStagedRepairForExistingDatabase(
+      path,
+      'repair:completed-cleanup-proof-one'
+    )
+    await finishReceiptStagedRepair(path)
+    const firstAuthority = readRepairAuthorityState(path)
+    expect(firstAuthority).toMatchObject({
+      completedEpoch: 1,
+      lastCompleted: { journalCleanupPending: false }
+    })
+    const root = dirname(path)
+    const firstCompletion = cloneDirectory(root, 'completed-cleanup-proof-first')
+
+    await captureReceiptStagedRepairForExistingDatabase(
+      path,
+      'repair:completed-cleanup-proof-two'
+    )
+    const crashed = await crashCompletedJournalCleanup(
+      path,
+      'during-cleanup-overwrite',
+      'completed-cleanup-proof-two'
+    )
+    const artifactPath = crashed.artifactPath
+    if (!artifactPath) throw new Error('Cleanup overwrite did not leave an artifact.')
+    const unreadableArtifact = readFileSync(artifactPath)
+    expect(unreadableArtifact.includes(0)).toBe(true)
+    expect(() => JSON.parse(unreadableArtifact.toString('utf8'))).toThrow()
+    expectMatchingCompletedCleanupProof(path, artifactPath)
+    const secondCompletion = cloneDirectory(root, 'completed-cleanup-proof-second')
+    const databaseName = basename(path)
+
+    const mismatches: ReadonlyArray<readonly [string, () => void]> = [
+      ['authority', () => {
+        copyFileSync(
+          join(firstCompletion, `${databaseName}.repair-authority.json`),
+          `${path}.repair-authority.json`
+        )
+      }],
+      ['high-water A history', () => {
+        restoreFiles(
+          `${path}.repair-high-water-a`,
+          snapshotFiles(join(firstCompletion, `${databaseName}.repair-high-water-a`))
+        )
+      }],
+      ['high-water B history', () => {
+        restoreFiles(
+          `${path}.repair-high-water-b`,
+          snapshotFiles(join(firstCompletion, `${databaseName}.repair-high-water-b`))
+        )
+      }],
+      ['receipt', () => {
+        copyFileSync(
+          join(firstCompletion, `${databaseName}.repair-receipt.json`),
+          `${path}.repair-receipt.json`
+        )
+      }],
+      ['current database binding', () => {
+        restoreDatabaseBundle(firstCompletion, path)
+      }]
+    ]
+
+    for (const [proof, introduceMismatch] of mismatches) {
+      restoreDirectory(secondCompletion, root)
+      introduceMismatch()
+      const authority = readRepairAuthorityState(path)
+      const highWaterA = JSON.parse(
+        readFileSync(lastHighWaterMarker(path, 'a'), 'utf8')
+      ) as RepairHighWaterTestState
+      const highWaterB = JSON.parse(
+        readFileSync(lastHighWaterMarker(path, 'b'), 'utf8')
+      ) as RepairHighWaterTestState
+      const receipt = readRepairReceiptState(path)
+      const database = readWorkerDatabaseSnapshot(path, 'none')
+      const allProofMatches =
+        highWaterA.signature === highWaterB.signature &&
+        authority.highWaterRevision === highWaterA.revision &&
+        authority.completedEpoch === highWaterA.repairEpoch &&
+        authority.currentDatabaseId === highWaterA.databaseId &&
+        authority.lastCompleted?.operationId === receipt.operationId &&
+        authority.lastCompleted?.tokenHash === receipt.tokenHash &&
+        authority.lastCompleted?.databaseId === receipt.databaseId &&
+        receipt.databaseId === database.databaseId
+      expect(allProofMatches, `${proof} must actually be mismatched`).toBe(false)
+      expect(readFileSync(artifactPath)).toEqual(unreadableArtifact)
+
+      const restarted = spawnWorker()
+      await expect(rpc(restarted, 'initialize', [path])).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringMatching(
+          /cleanup|repair|authority|high-water|receipt|database|binding|completed/i
+        )
+      })
+      await restarted.terminate()
+
+      expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+      expect(existsSync(artifactPath)).toBe(true)
+      expect(readFileSync(artifactPath)).toEqual(unreadableArtifact)
+    }
+  }, 120_000)
 })

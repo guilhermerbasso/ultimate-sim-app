@@ -218,6 +218,7 @@ function secureErase(path: string): void {
     closeSync(descriptor)
   }
   rmSync(path, { force: true })
+  fsyncParent(path)
 }
 
 function secureEraseDatabase(path: string): void {
@@ -260,6 +261,10 @@ function repairReceiptPath(databasePath: string): string {
 
 function repairJournalPath(databasePath: string): string {
   return `${databasePath}.repair-journal.json`
+}
+
+function repairJournalCleanupPath(databasePath: string): string {
+  return `${repairJournalPath(databasePath)}.cleanup`
 }
 
 function repairAuthorityPath(databasePath: string): string {
@@ -583,14 +588,17 @@ class TornRepairHighWaterMarkerError extends Error {
 function readRepairHighWaterCopy(
   databasePath: string,
   copy: 'a' | 'b',
-  key: Buffer
+  key: Buffer,
+  removePending = true
 ): RepairHighWaterCopy | undefined {
   const directory = repairHighWaterDirectory(databasePath, copy)
   if (!existsSync(directory)) return undefined
   const entries = readdirSync(directory).sort()
   const pendingPattern = /^\d{16}\.json\.pending$/
-  for (const name of entries) {
-    if (pendingPattern.test(name)) rmSync(resolve(directory, name), { force: true })
+  if (removePending) {
+    for (const name of entries) {
+      if (pendingPattern.test(name)) rmSync(resolve(directory, name), { force: true })
+    }
   }
   const names = entries.filter((name) => !pendingPattern.test(name))
   if (names.some((name) => !/^\d{16}\.json$/.test(name))) {
@@ -750,6 +758,40 @@ function readRepairHighWater(
   return { records: longest, current: longest[longest.length - 1] }
 }
 
+function readCompletedRepairHighWaterProof(
+  databasePath: string,
+  key: Buffer
+): RepairHighWaterState {
+  for (const copy of ['a', 'b'] as const) {
+    const directory = repairHighWaterDirectory(databasePath, copy)
+    if (
+      !existsSync(directory) ||
+      readdirSync(directory).some((name) => name.endsWith('.pending'))
+    ) {
+      throw new Error('Passport completed repair high-water proof is incomplete.')
+    }
+  }
+  const left = readRepairHighWaterCopy(databasePath, 'a', key, false)
+  const right = readRepairHighWaterCopy(databasePath, 'b', key, false)
+  if (
+    !left ||
+    !right ||
+    left.tornTrailingPath ||
+    right.tornTrailingPath ||
+    left.records.length === 0 ||
+    left.records.length !== right.records.length ||
+    left.records.some((record, index) =>
+      record.signature !== right.records[index].signature
+    )
+  ) {
+    throw new Error('Passport completed repair high-water copies do not agree.')
+  }
+  return {
+    records: left.records,
+    current: left.records[left.records.length - 1]
+  }
+}
+
 function appendRepairHighWater(
   databasePath: string,
   state: RepairHighWaterState,
@@ -797,6 +839,205 @@ function createInitialRepairHighWater(
   writeRepairHighWaterCopy(databasePath, 'a', record, key)
   writeRepairHighWaterCopy(databasePath, 'b', record, key)
   return { records: [record], current: record }
+}
+
+function assertInitialRepairBootstrapDatabase(
+  databasePath: string,
+  databaseId: string
+): void {
+  for (const path of [
+    repairJournalPath(databasePath),
+    `${repairJournalPath(databasePath)}.pending`,
+    repairJournalCleanupPath(databasePath),
+    repairReceiptPath(databasePath),
+    `${repairReceiptPath(databasePath)}.pending`
+  ]) {
+    if (existsSync(path)) {
+      throw new Error('Passport repair security bootstrap found existing repair state.')
+    }
+  }
+  const probe = probeDatabase(databasePath)
+  if (
+    probe.state !== 'readable' ||
+    !probe.pristine ||
+    probe.databaseId !== databaseId ||
+    probe.repairEpoch !== undefined ||
+    probe.repairBinding !== undefined
+  ) {
+    throw new Error(
+      'Passport repair security bootstrap requires an unmodified pristine database.'
+    )
+  }
+}
+
+function inspectInitialRepairAuthority(
+  databasePath: string,
+  databaseId: string,
+  key: Buffer
+): RepairAuthority | undefined {
+  const path = repairAuthorityPath(databasePath)
+  const pendingPath = `${path}.pending`
+  const current = existsSync(path)
+    ? parseRepairAuthority(databasePath, path, key)
+    : undefined
+  let pending: RepairAuthority | undefined
+  if (existsSync(pendingPath)) {
+    try {
+      pending = parseRepairAuthority(databasePath, pendingPath, key)
+    } catch {
+      pending = undefined
+    }
+  }
+  for (const authority of [current, pending]) {
+    if (
+      authority &&
+      (
+        authority.completedEpoch !== 0 ||
+        authority.highWaterRevision !== 0 ||
+        authority.currentDatabaseId !== databaseId ||
+        authority.lastCompleted !== undefined
+      )
+    ) {
+      throw new Error(
+        'Passport repair security bootstrap cannot replace non-initial authority state.'
+      )
+    }
+  }
+  if (
+    current &&
+    pending &&
+    (
+      current.authorityId !== pending.authorityId ||
+      current.signature !== pending.signature
+    )
+  ) {
+    throw new Error('Passport initial repair authority candidates diverged.')
+  }
+  return pending ?? current
+}
+
+function inspectInitialRepairHighWater(
+  databasePath: string,
+  databaseId: string,
+  key: Buffer
+): RepairHighWater | undefined {
+  const copies = (['a', 'b'] as const).map((copy) => {
+    const directory = repairHighWaterDirectory(databasePath, copy)
+    if (existsSync(directory)) {
+      const pendingNames = readdirSync(directory)
+        .filter((name) => name.endsWith('.pending'))
+      if (
+        pendingNames.some((name) =>
+          name !== `${repairHighWaterMarkerName(0)}.pending`
+        )
+      ) {
+        throw new Error(
+          'Passport repair security bootstrap found a non-initial pending high-water marker.'
+        )
+      }
+    }
+    return readRepairHighWaterCopy(databasePath, copy, key, false)
+  })
+  const records = copies
+    .filter((copy): copy is RepairHighWaterCopy => copy !== undefined)
+    .map((copy) => {
+      if (copy.tornTrailingPath || copy.records.length > 1) {
+        throw new Error(
+          'Passport repair security bootstrap found non-initial high-water history.'
+        )
+      }
+      return copy.records[0]
+    })
+    .filter((record): record is RepairHighWater => record !== undefined)
+  for (const record of records) {
+    if (
+      record.revision !== 0 ||
+      record.repairEpoch !== 0 ||
+      record.phase !== 'idle' ||
+      record.databaseId !== databaseId ||
+      record.operationId !== undefined ||
+      record.tokenHash !== undefined ||
+      record.originalDatabaseId !== undefined ||
+      record.journalSignature !== undefined ||
+      record.previousSignature !== undefined
+    ) {
+      throw new Error(
+        'Passport repair security bootstrap cannot replace active or completed high-water state.'
+      )
+    }
+  }
+  if (
+    records.length === 2 &&
+    records[0].signature !== records[1].signature
+  ) {
+    throw new Error('Passport initial repair high-water copies diverged.')
+  }
+  return records[0]
+}
+
+function resumeInitialRepairSecurityBootstrap(
+  databasePath: string,
+  databaseId: string
+): RepairSecurityState {
+  assertInitialRepairBootstrapDatabase(databasePath, databaseId)
+  const keyPath = repairAuthorityKeyPath(databasePath)
+  const stateExists =
+    existsSync(repairAuthorityPath(databasePath)) ||
+    existsSync(`${repairAuthorityPath(databasePath)}.pending`)
+  const highWaterExists =
+    existsSync(repairHighWaterDirectory(databasePath, 'a')) ||
+    existsSync(repairHighWaterDirectory(databasePath, 'b'))
+  let key: Buffer | undefined
+  if (existsSync(keyPath)) {
+    try {
+      key = readRepairAuthorityKey(databasePath)
+    } catch (error) {
+      if (stateExists || highWaterExists) throw error
+      rmSync(keyPath, { force: true })
+      fsyncParent(keyPath)
+    }
+  } else if (stateExists || highWaterExists) {
+    throw new Error(
+      'Passport repair authority key is missing from an existing security bootstrap.'
+    )
+  }
+  key ??= createRepairAuthorityKey(databasePath)
+  const authority = inspectInitialRepairAuthority(databasePath, databaseId, key)
+  const highWater = inspectInitialRepairHighWater(databasePath, databaseId, key)
+  if (
+    authority &&
+    highWater &&
+    authority.authorityId !== highWater.authorityId
+  ) {
+    throw new Error('Passport initial repair security components diverged.')
+  }
+  const authorityId =
+    authority?.authorityId ??
+    highWater?.authorityId ??
+    randomBytes(24).toString('hex')
+  rmSync(repairHighWaterDirectory(databasePath, 'a'), { recursive: true, force: true })
+  rmSync(repairHighWaterDirectory(databasePath, 'b'), { recursive: true, force: true })
+  const rebuiltHighWater = createInitialRepairHighWater(
+    databasePath,
+    authorityId,
+    databaseId,
+    key
+  )
+  rmSync(repairAuthorityPath(databasePath), { force: true })
+  rmSync(`${repairAuthorityPath(databasePath)}.pending`, { force: true })
+  const rebuiltAuthority = writeRepairAuthority(databasePath, {
+    version: 2,
+    authorityId,
+    profileBinding: profileBindingFor(databasePath),
+    completedEpoch: 0,
+    highWaterRevision: rebuiltHighWater.current.revision,
+    currentDatabaseId: databaseId
+  }, key)
+  return {
+    authority: rebuiltAuthority,
+    key,
+    highWater: rebuiltHighWater
+  }
 }
 
 function parseRepairAuthority(
@@ -980,7 +1221,9 @@ function validateSettledRepairAuthority(
 
 function readExistingRepairSecurity(databasePath: string): RepairSecurityState {
   const loaded = readExistingRepairAuthority(databasePath)
-  const highWater = readRepairHighWater(databasePath, loaded.key)
+  const highWater = loaded.authority.lastCompleted?.journalCleanupPending
+    ? readCompletedRepairHighWaterProof(databasePath, loaded.key)
+    : readRepairHighWater(databasePath, loaded.key)
   if (!highWater) {
     throw new Error('Passport repair monotonic high-water history is missing.')
   }
@@ -1004,34 +1247,23 @@ function loadOrCreateRepairSecurity(
   const highWaterExists =
     existsSync(repairHighWaterDirectory(databasePath, 'a')) ||
     existsSync(repairHighWaterDirectory(databasePath, 'b'))
-  if (!keyExists && !stateExists && !highWaterExists) {
-    const key = createRepairAuthorityKey(databasePath)
-    const authorityId = randomBytes(24).toString('hex')
-    const highWater = createInitialRepairHighWater(
-      databasePath,
-      authorityId,
-      databaseId,
-      key
-    )
-    const authority = writeRepairAuthority(databasePath, {
-      version: 2,
-      authorityId,
-      profileBinding: profileBindingFor(databasePath),
-      completedEpoch: 0,
-      highWaterRevision: highWater.current.revision,
-      currentDatabaseId: databaseId
-    }, key)
-    return { authority, key, highWater }
+  if (keyExists && stateExists && highWaterExists) {
+    try {
+      const loaded = readExistingRepairSecurity(databasePath)
+      validateSettledRepairAuthority(loaded.authority, loaded.highWater.current)
+      if (loaded.highWater.current.databaseId !== databaseId) {
+        throw new Error('Passport database identity does not match its repair authority.')
+      }
+      return loaded
+    } catch (error) {
+      try {
+        return resumeInitialRepairSecurityBootstrap(databasePath, databaseId)
+      } catch {
+        throw error
+      }
+    }
   }
-  if (!keyExists || !stateExists || !highWaterExists) {
-    throw new Error('Passport repair authority or monotonic high-water files are incomplete.')
-  }
-  const loaded = readExistingRepairSecurity(databasePath)
-  validateSettledRepairAuthority(loaded.authority, loaded.highWater.current)
-  if (loaded.highWater.current.databaseId !== databaseId) {
-    throw new Error('Passport database identity does not match its repair authority.')
-  }
-  return loaded
+  return resumeInitialRepairSecurityBootstrap(databasePath, databaseId)
 }
 
 function parseRepairJournal(
@@ -1753,15 +1985,109 @@ function isCompletedRepairReceipt(
     isFreshRepairDatabase(current, receipt, authority, key)
 }
 
+function repairJournalMatchesCompletion(
+  journal: RepairJournal,
+  authority: RepairAuthority
+): boolean {
+  const completed = authority.lastCompleted
+  return completed !== undefined &&
+    journal.phase === 'receipt-staged' &&
+    journal.authorityId === authority.authorityId &&
+    journal.profileBinding === authority.profileBinding &&
+    journal.repairEpoch === completed.repairEpoch &&
+    journal.operationId === completed.operationId &&
+    journal.tokenHash === completed.tokenHash &&
+    journal.originalDatabaseId === completed.originalDatabaseId &&
+    journal.databaseId === completed.databaseId &&
+    journal.signature === completed.finalJournalSignature
+}
+
+function validateCompletedRepairCleanupProof(
+  databasePath: string,
+  authority: RepairAuthority,
+  key: Buffer
+): void {
+  const completed = authority.lastCompleted
+  if (!completed?.journalCleanupPending) {
+    throw new Error('Passport repair journal cleanup has no pending completion authority.')
+  }
+  const highWater = readCompletedRepairHighWaterProof(databasePath, key)
+  validateSettledRepairAuthority(authority, highWater.current)
+  if (highWater.current.phase !== 'completed') {
+    throw new Error('Passport repair journal cleanup high-water proof is not completed.')
+  }
+  const receipt = readRepairReceipt(databasePath)
+  if (
+    !receipt ||
+    receipt.operationId !== completed.operationId ||
+    receipt.tokenHash !== completed.tokenHash ||
+    receipt.databaseId !== completed.databaseId
+  ) {
+    throw new Error('Passport repair journal cleanup receipt proof is inconsistent.')
+  }
+  const probe = probeDatabase(databasePath)
+  if (
+    !probe.pristine ||
+    !probeMatchesCompletedRepairDatabase(probe, authority, key)
+  ) {
+    throw new Error('Passport repair journal cleanup database proof is inconsistent.')
+  }
+}
+
+function readCompletedRepairCleanupArtifact(
+  databasePath: string,
+  key: Buffer
+): RepairJournal | undefined {
+  const path = repairJournalCleanupPath(databasePath)
+  const bytes = readFileSync(path)
+  try {
+    JSON.parse(bytes.toString('utf8'))
+  } catch {
+    return undefined
+  }
+  return parseRepairJournal(databasePath, path, key)
+}
+
 function finalizeRepairJournalCleanup(
   databasePath: string,
   authority: RepairAuthority,
   key: Buffer
 ): RepairAuthority {
   const completed = authority.lastCompleted
-  if (!completed?.journalCleanupPending) return authority
-  secureErase(repairJournalPath(databasePath))
-  secureErase(`${repairJournalPath(databasePath)}.pending`)
+  const journalPath = repairJournalPath(databasePath)
+  const pendingPath = `${journalPath}.pending`
+  const cleanupPath = repairJournalCleanupPath(databasePath)
+  if (!completed?.journalCleanupPending) {
+    if (
+      existsSync(cleanupPath) ||
+      existsSync(journalPath) ||
+      existsSync(pendingPath)
+    ) {
+      throw new Error('Passport repair journal cleanup artifact replay was quarantined.')
+    }
+    return authority
+  }
+  validateCompletedRepairCleanupProof(databasePath, authority, key)
+  const hasLiveJournal = existsSync(journalPath) || existsSync(pendingPath)
+  if (hasLiveJournal && existsSync(cleanupPath)) {
+    throw new Error('Passport repair journal cleanup has conflicting live artifacts.')
+  }
+  if (hasLiveJournal) {
+    const journal = readRepairJournal(databasePath, key)
+    if (!journal || !repairJournalMatchesCompletion(journal, authority)) {
+      throw new Error('Passport completed repair journal cleanup authentication failed.')
+    }
+    if (!existsSync(journalPath)) {
+      throw new Error('Passport completed repair journal cleanup promotion failed.')
+    }
+    promoteDurable(journalPath, cleanupPath)
+  } else if (existsSync(cleanupPath)) {
+    const journal = readCompletedRepairCleanupArtifact(databasePath, key)
+    if (journal && !repairJournalMatchesCompletion(journal, authority)) {
+      throw new Error('Passport repair journal cleanup artifact is not authoritative.')
+    }
+  }
+  if (existsSync(cleanupPath)) secureErase(cleanupPath)
   return writeRepairAuthority(databasePath, {
     ...repairAuthorityPayload(authority),
     lastCompleted: {
@@ -2200,33 +2526,21 @@ async function execute(request: Request): Promise<unknown> {
           )
         }
       } else {
-        const hasSecurityState =
-          existsSync(repairAuthorityKeyPath(path)) ||
-          existsSync(repairAuthorityPath(path)) ||
-          existsSync(`${repairAuthorityPath(path)}.pending`) ||
-          existsSync(repairHighWaterDirectory(path, 'a')) ||
-          existsSync(repairHighWaterDirectory(path, 'b'))
-        if (hasSecurityState) {
-          const existing = readExistingRepairSecurity(path)
-          validateSettledRepairAuthority(existing.authority, existing.highWater.current)
-          engine = new PassportPersistenceEngine({ path })
-          if (engine.databaseIdentity !== existing.highWater.current.databaseId) {
-            throw new Error('Passport database identity is below its monotonic repair high-water mark.')
-          }
-          if (
-            existing.highWater.current.phase === 'completed' &&
-            !probeMatchesCompletedRepairDatabase(
-              probeDatabase(path),
-              existing.authority,
-              existing.key
-            )
-          ) {
-            throw new Error('Passport database does not match its completed repair binding.')
-          }
-        } else {
-          engine = new PassportPersistenceEngine({ path })
-        }
+        engine = new PassportPersistenceEngine({ path })
         const loaded = loadOrCreateRepairSecurity(path, engine.databaseIdentity)
+        if (engine.databaseIdentity !== loaded.highWater.current.databaseId) {
+          throw new Error('Passport database identity is below its monotonic repair high-water mark.')
+        }
+        if (
+          loaded.highWater.current.phase === 'completed' &&
+          !probeMatchesCompletedRepairDatabase(
+            probeDatabase(path),
+            loaded.authority,
+            loaded.key
+          )
+        ) {
+          throw new Error('Passport database does not match its completed repair binding.')
+        }
         repairAuthority = finalizeRepairJournalCleanup(path, loaded.authority, loaded.key)
         repairAuthorityKey = loaded.key
       }

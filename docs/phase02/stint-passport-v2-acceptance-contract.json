@@ -2,7 +2,7 @@
   "contractVersion": 1,
   "id": "AC-PASSPORT-V2",
   "branch": "feat/phase2-stint-passport-v2",
-  "baseCommit": "8e60f95e839acc81b0ba4a7d8e50a39633bf9093",
+  "baseCommit": "48956c6261f1b19b5f72c99287ad8b7f4a3a6f05",
   "autonomousOverride": true,
   "humanTokenRequired": false,
   "scope": "Endurance Stint Passport only; Decision Flight Recorder excluded",
@@ -52,7 +52,9 @@
     "Every repair phase advances two HMAC-chained, append-only high-water copies outside the replaceable database, anchor and journal set; either current copy rejects restored older journal-authority pairs and populated replacement databases fail closed",
     "Database repair durably enters an authenticated erasing-database phase before its first header write, then safely resumes absent or raw-header-corrupt originals without opening SQLite while wrong identities and unreadable databases outside that active phase are never erased",
     "Fresh repair creation durably assigns and HMAC-binds an exact database identity and repair epoch before schema creation; only that pristine identity can resume, and every persisted table, metadata key, clock and non-default setting is checked before adoption",
-    "Each high-water marker is written through a fsynced temporary file and atomic durable rename; copies are parsed independently so one torn trailing copy is rebuilt from the intact authenticated chain while both-torn and divergent valid chains fail closed"
+    "Each high-water marker is written through a fsynced temporary file and atomic durable rename; copies are parsed independently so one torn trailing copy is rebuilt from the intact authenticated chain while both-torn and divergent valid chains fail closed",
+    "Fresh-profile repair security bootstrap is a resumable epoch-zero transaction: partial key, dual high-water or authority writes are reconstructed only while no repair journal, receipt, completed database binding or post-zero high-water exists and the database remains pristine and unmodified",
+    "Completed repair journal cleanup atomically renames the authenticated live journal to a cleanup artifact before secure erase; crash recovery removes unreadable cleanup artifacts only when matching authority, dual high-water, receipt and current database binding prove the same completed repair"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",
