@@ -6843,6 +6843,11 @@ type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
   'pt-BR': {
+    'raceops-blueprints': {
+      label: 'Blueprints RaceOps',
+      eyebrow: 'Declarativo',
+      description: 'Manifests assinados, dry-runs restritos, evidência de compatibilidade e rollback.'
+    },
     'rig-preflight': { label: 'Preflight do Rig', eyebrow: 'Evidência', description: 'Readiness local com desejado/reportado/delta, certificados com prazo, dispensas e testes de falha.' },
     'setup-experiment': { label: 'Experimento de Setup', eyebrow: 'A-B-A', description: 'Blocos locais de uma variável com gates ambientais, bootstrap, repetição e abstenção.' }
   },
@@ -6873,6 +6878,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'dashboard-adaptive': { label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'A single dashboard that reorganizes by session phase and lap moment.' },
     biometrics: { label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress vs pace, and AR HUD.' },
     community: { label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files.' },
+    'raceops-blueprints': { label: 'RaceOps Blueprints', eyebrow: 'Declarative', description: 'Signed manifests, constrained dry-runs, compatibility evidence, and rollback.' },
     'steward-desk': { label: 'Steward Desk', eyebrow: 'Human decision', description: 'Local evidence cases with rule versions, dissent, appeals, and anonymized export.' },
     'haptics-zonal': { label: 'Zonal Haptics', eyebrow: 'Zones', description: 'Events to zones plus visual simulator.' },
     haptics: { label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style tactile feedback: bass shaker audio plus haptics.' },
