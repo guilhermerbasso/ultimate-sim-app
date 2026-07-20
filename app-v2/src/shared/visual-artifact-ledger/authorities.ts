@@ -21,6 +21,7 @@ const INTRINSIC_GET_PROTOTYPE_OF = Object.getPrototypeOf
 const INTRINSIC_IS_EXTENSIBLE = Object.isExtensible
 const INTRINSIC_IS_ASYNC_FUNCTION = utilTypes.isAsyncFunction
 const INTRINSIC_IS_PROMISE = utilTypes.isPromise
+const INTRINSIC_IS_PROXY = utilTypes.isProxy
 const INTRINSIC_SPECIES = Symbol.species
 const NATIVE_FUNCTION_SOURCE =
   /^\s*function(?:\s+[^(]*)?\([^)]*\)\s*\{\s*\[native code\]\s*\}\s*$/
@@ -185,12 +186,18 @@ export function invokeSynchronousVerifier<TArgs extends unknown[]>(
   args: TArgs,
   label: string
 ): void {
-  const verifierSource =
-    typeof verifier === 'function'
-      ? INTRINSIC_APPLY(INTRINSIC_FUNCTION_TO_STRING, verifier, [])
-      : ''
+  if (typeof verifier !== 'function' || INTRINSIC_IS_PROXY(verifier)) {
+    fail(
+      'TRUST',
+      `${label} must be a direct user-defined synchronous verifier function.`
+    )
+  }
+  const verifierSource = INTRINSIC_APPLY(
+    INTRINSIC_FUNCTION_TO_STRING,
+    verifier,
+    []
+  )
   if (
-    typeof verifier !== 'function' ||
     INTRINSIC_IS_ASYNC_FUNCTION(verifier) ||
     INTRINSIC_APPLY(INTRINSIC_REGEXP_TEST, NATIVE_FUNCTION_SOURCE, [
       verifierSource

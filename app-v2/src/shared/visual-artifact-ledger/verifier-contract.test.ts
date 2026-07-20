@@ -291,6 +291,27 @@ describe('external verifier return contract', () => {
     expect(proxiedExecuted).toBe(false)
   })
 
+  it('rejects proxied synchronous verifiers before traps despite proxy-detector poisoning', () => {
+    const originalIsProxy = utilTypes.isProxy
+    const mutableTypes = utilTypes as unknown as Record<string, unknown>
+    let applyTraps = 0
+    const proxied = new Proxy(() => true, {
+      apply: () => {
+        applyTraps += 1
+        return true
+      }
+    })
+    try {
+      mutableTypes.isProxy = () => false
+      expect(() =>
+        invokeSynchronousVerifier(proxied, undefined, [], 'Proxied verifier')
+      ).toThrow(/direct user-defined synchronous verifier function/i)
+      expect(applyTraps).toBe(0)
+    } finally {
+      mutableTypes.isProxy = originalIsProxy
+    }
+  })
+
   it('uses captured verifier and Promise primordials after global poisoning', async () => {
     const originalIsAsyncFunction = utilTypes.isAsyncFunction
     const originalIsPromise = utilTypes.isPromise
