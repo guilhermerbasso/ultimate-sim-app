@@ -4,6 +4,7 @@ import { tt } from './i18n'
 import {
   ACCESSIBILITY_CUE_ALL_KEYS
 } from './i18n-extra/accessibility-cues'
+import stintDebriefHistory from './i18n-extra/stint-debrief-history'
 
 describe('i18n-extra merge', () => {
   it('merges per-zone modules into UI_TEXT', () => {
@@ -75,5 +76,30 @@ describe('i18n-extra merge', () => {
     })).toContain('2 Runden')
     expect(tt('zh', 'accessibilityCues.persistentCaptions')).toContain('字幕')
     expect(tt('ja', 'accessibilityCues.live.alert.blueFlag')).toContain('青旗')
+  })
+
+  it('localizes every historical debrief control and state for all supported locales', () => {
+    const languages = ['en', 'pt-BR', 'es', 'fr', 'de', 'zh', 'ja'] as const
+    const english = stintDebriefHistory.en
+    expect(english).toBeDefined()
+    const keys = Object.keys(english ?? {}).sort()
+    expect(keys.length).toBeGreaterThan(40)
+    for (const language of languages) {
+      const localized = stintDebriefHistory[language]
+      expect(localized, language).toBeDefined()
+      expect(Object.keys(localized ?? {}).sort(), language).toEqual(keys)
+      for (const key of keys) {
+        expect(localized?.[key]?.trim(), `${language}:${key}`).toBeTruthy()
+        expect(tt(language, key), `${language}:${key}`).not.toBe(key)
+      }
+    }
+    for (const language of ['pt-BR', 'es', 'fr', 'de', 'zh', 'ja'] as const) {
+      expect(tt(language, 'debrief.history.selectorLabel')).not.toBe(
+        tt('en', 'debrief.history.selectorLabel')
+      )
+      expect(tt(language, 'debrief.history.setupInsufficientBody')).not.toBe(
+        tt('en', 'debrief.history.setupInsufficientBody')
+      )
+    }
   })
 })

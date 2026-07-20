@@ -176,7 +176,7 @@ function StintDebriefSeam({ language }: { language: AppViewProps['language'] }):
   return (
     <section style={panel}>
       <h2 style={sectionTitle}>{tt(language, 'coach.stintDebrief')}</h2>
-      <StintDebrief />
+      <StintDebrief language={language} />
     </section>
   )
 }

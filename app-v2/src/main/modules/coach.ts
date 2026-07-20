@@ -839,7 +839,7 @@ export class LapCoachAnalyzer {
     this.latestReport = report
     this.latestReportLiveContext = this.liveContext ? { ...this.liveContext } : null
     this.latestSetup = setup
-    this.latestReportContext = lapCoachFindingsContext(snapshot)
+    this.latestReportContext = lapCoachFindingsContext(snapshot, this.liveContext)
     this.reports.push(report)
     this.reports = this.reports.slice(-MAX_REPORTS)
     this.deps.broadcast(COACH_CHANNELS.report, this.payload())
@@ -849,15 +849,24 @@ export class LapCoachAnalyzer {
     return { report: this.latestReport, setup: this.latestSetup }
   }
 
-  lastFindings(context?: LapCoachFindingsContext | null): { findings: CoachFinding[]; setup: SetupReport | null } {
+  analysisForContext(
+    context?: LapCoachFindingsContext | null
+  ): { findings: CoachFinding[]; setup: SetupReport | null } | null {
+    if (!this.latestReport) return null
     if (
       context &&
-      this.latestReportContext &&
-      !sameLapCoachFindingsContext(this.latestReportContext, context)
+      (
+        !this.latestReportContext ||
+        !sameLapCoachFindingsContext(this.latestReportContext, context)
+      )
     ) {
-      return { findings: [], setup: null }
+      return null
     }
-    return { findings: this.latestReport?.findings ?? [], setup: this.latestSetup }
+    return { findings: this.latestReport.findings, setup: this.latestSetup }
+  }
+
+  lastFindings(context?: LapCoachFindingsContext | null): { findings: CoachFinding[]; setup: SetupReport | null } {
+    return this.analysisForContext(context) ?? { findings: [], setup: null }
   }
 
   private findFinding(req: CoachExplainRequest): CoachFinding | null {
@@ -1185,9 +1194,13 @@ export interface LapCoachFindingsContext {
   sessionUniqueId?: number
   sessionIdentity?: string
   connectionEpoch?: number
+  liveContext?: LiveTelemetryContext
 }
 
-function lapCoachFindingsContext(snapshot: TelemetrySnapshot): LapCoachFindingsContext {
+function lapCoachFindingsContext(
+  snapshot: TelemetrySnapshot,
+  liveContext?: LiveTelemetryContext | null
+): LapCoachFindingsContext {
   return {
     trackName: snapshot.trackName,
     trackConfigName: snapshot.trackConfigName,
@@ -1196,7 +1209,8 @@ function lapCoachFindingsContext(snapshot: TelemetrySnapshot): LapCoachFindingsC
     sessionType: snapshot.sessionType,
     sessionUniqueId: snapshot.sessionUniqueId,
     sessionIdentity: snapshot.replayContext?.sessionIdentity,
-    connectionEpoch: snapshot.replayContext?.connectionEpoch
+    connectionEpoch: snapshot.replayContext?.connectionEpoch,
+    ...(liveContext ? { liveContext: { ...liveContext } } : {})
   }
 }
 
@@ -1204,6 +1218,12 @@ function sameLapCoachFindingsContext(
   left: LapCoachFindingsContext,
   right: LapCoachFindingsContext
 ): boolean {
+  if (
+    right.liveContext &&
+    !sameLiveTelemetryContext(left.liveContext, right.liveContext)
+  ) {
+    return false
+  }
   const textKeys: Array<keyof LapCoachFindingsContext> = [
     'trackName',
     'trackConfigName',
@@ -1244,7 +1264,14 @@ function sameLapCoachFindingsContext(
 }
 
 export function getLatestLapCoachFindings(context?: LapCoachFindingsContext | null): CoachFinding[] {
-  return analyzer?.lastFindings(context).findings ?? []
+  return getLatestLapCoachAnalysis(context)?.findings ?? []
+}
+
+/** Context-fenced findings and setup from the exact same completed lap report. */
+export function getLatestLapCoachAnalysis(
+  context?: LapCoachFindingsContext | null
+): { findings: CoachFinding[]; setup: SetupReport | null } | null {
+  return analyzer?.analysisForContext(context) ?? null
 }
 
 // Lazy, fault-tolerant access to the app-wide LLM singletons. The coach module

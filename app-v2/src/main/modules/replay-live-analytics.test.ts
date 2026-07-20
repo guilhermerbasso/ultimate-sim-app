@@ -18,6 +18,7 @@ import { DEBRIEF_CHANNELS, type DebriefTriggerPayload } from '../../shared/stint
 import { TIRE_CHANNELS } from '../../shared/tire-strategy'
 import { BIO_CHANNELS } from '../../shared/biometrics'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import type { SetupReport } from '../../shared/setup-advisor'
 import { planAdaptiveDashboard, resolveAdaptivePhase } from '../../shared/dashboard-adaptive'
 import { detectActiveMoments, resolveRaceMoment } from '../../shared/race-moment'
 import { createEngineerOrchestrator } from './ai-engineer'
@@ -247,6 +248,71 @@ describe('canonical replay boundaries for live analytics', () => {
       carName: 'GT3 R',
       sessionType: 'Practice',
       sessionUniqueId: 7
+    })).toEqual({ findings: [], setup: null })
+  })
+
+  it('returns findings and setup only when the exact live/replay epoch matches', () => {
+    const analyzer = new LapCoachAnalyzer({ broadcast: vi.fn() })
+    const measured = snap('live', 4, { trackName: 'Track A' }, 'session-a', 3)
+    const liveContext = captureLiveTelemetryContext(measured)
+    if (!liveContext) throw new Error('Expected live context')
+    const measuredSetup: SetupReport = {
+      generatedAt: 1_000,
+      summary: 'Measured setup.',
+      suggestions: []
+    }
+    Object.assign(analyzer as unknown as Record<string, unknown>, {
+      latestReport: { findings: [finding()] },
+      latestReportContext: {
+        trackName: measured.trackName,
+        trackConfigName: measured.trackConfigName,
+        carName: measured.carName,
+        sessionType: measured.sessionType,
+        sessionIdentity: measured.replayContext?.sessionIdentity,
+        connectionEpoch: measured.replayContext?.connectionEpoch,
+        liveContext
+      },
+      latestSetup: measuredSetup
+    })
+
+    expect(analyzer.lastFindings({
+      trackName: measured.trackName,
+      trackConfigName: measured.trackConfigName,
+      carName: measured.carName,
+      sessionType: measured.sessionType,
+      sessionIdentity: measured.replayContext?.sessionIdentity,
+      connectionEpoch: measured.replayContext?.connectionEpoch,
+      liveContext
+    })).toEqual({ findings: [finding()], setup: measuredSetup })
+    expect(analyzer.lastFindings({
+      trackName: measured.trackName,
+      trackConfigName: measured.trackConfigName,
+      carName: measured.carName,
+      sessionType: measured.sessionType,
+      sessionIdentity: measured.replayContext?.sessionIdentity,
+      connectionEpoch: measured.replayContext?.connectionEpoch,
+      liveContext: { ...liveContext, token: 'different-replay-epoch' }
+    })).toEqual({ findings: [], setup: null })
+
+    Object.assign(analyzer as unknown as Record<string, unknown>, {
+      latestReport: { findings: [] }
+    })
+    expect(analyzer.analysisForContext({
+      trackName: measured.trackName,
+      trackConfigName: measured.trackConfigName,
+      carName: measured.carName,
+      sessionType: measured.sessionType,
+      sessionIdentity: measured.replayContext?.sessionIdentity,
+      connectionEpoch: measured.replayContext?.connectionEpoch,
+      liveContext
+    })).toEqual({ findings: [], setup: measuredSetup })
+
+    Object.assign(analyzer as unknown as Record<string, unknown>, {
+      latestReportContext: null
+    })
+    expect(analyzer.lastFindings({
+      trackName: measured.trackName,
+      liveContext
     })).toEqual({ findings: [], setup: null })
   })
 
@@ -640,14 +706,20 @@ describe('canonical replay boundaries for live analytics', () => {
     const ctx = { broadcast } as unknown as ModuleContext
     const engine = new PredictionsEngine(ctx)
     engine.start()
-    engine.onSnapshot(snap('live', 0, {
+    const firstLive = snap('live', 0, {
       fuelLiters: 40,
       fuelPerLap: 3,
       lapsRemaining: 10,
       lastLapTimeSec: 90
-    }))
+    })
+    engine.onSnapshot(firstLive)
     vi.advanceTimersByTime(1_000)
     expect(engine.getSnapshot()).not.toBeNull()
+    expect(engine.getSnapshot(captureLiveTelemetryContext(firstLive))).not.toBeNull()
+    expect(engine.getSnapshot({
+      ...(captureLiveTelemetryContext(firstLive) as NonNullable<ReturnType<typeof captureLiveTelemetryContext>>),
+      token: 'unrelated-session-token'
+    })).toBeNull()
 
     engine.onSnapshot(snap('replay', 1, { fuelLiters: 1, currentLap: 50 }))
     vi.advanceTimersByTime(2_000)

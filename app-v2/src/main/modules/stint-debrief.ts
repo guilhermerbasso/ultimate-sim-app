@@ -2,7 +2,8 @@
 //
 // register(ctx) detects stint/session boundaries, snapshots the ended session's
 // deterministic Coach + Predictions facts, composes the debrief in main, and
-// persists it independently of whether the Coach view is mounted. The immutable
+// persists the automatic last debrief plus a bounded immutable analysis archive,
+// independently of whether the Coach view is mounted. The immutable
 // `debrief:trigger` broadcast remains available for diagnostics/compatibility.
 //
 // The composition itself is fully deterministic (`composeDebrief` in
@@ -12,14 +13,25 @@
 // from the telemetry loop, and ALWAYS falls back to the deterministic text.
 
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { UnitSystem } from '../../shared/units'
 import {
+  DEBRIEF_ARCHIVE_RECORD_SCHEMA,
+  DEBRIEF_ARCHIVE_MAX_RECORD_BYTES,
+  DEBRIEF_ARCHIVE_VERSION,
   DEBRIEF_CHANNELS,
   composeDebrief,
+  debriefAnalysisStatus,
   debriefLlmFacts,
+  debriefSetupStatus,
+  normalizeDebriefArchiveGenerateRequest,
+  normalizeDebriefArchiveRecord,
+  normalizeStintDebrief,
+  type DebriefArchiveGenerateResult,
+  type DebriefArchiveRecord,
   type DebriefGenerateRequest,
   type DebriefReason,
   type DebriefTriggerPayload,
@@ -29,18 +41,24 @@ import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
-import { LiveTelemetryGate } from '../../shared/replay'
+import { LiveTelemetryGate, type LiveTelemetryContext } from '../../shared/replay'
 import { speechLanguageFromAppLanguage, type SpeechLanguage } from '../../shared/tts-voice'
 import { coachComparableIdentityFromSnapshot } from '../../shared/coach-racecraft'
 import { getLatestPredictions } from './predictions'
 import {
-  getLatestLapCoachFindings,
+  getLatestLapCoachAnalysis,
   type LapCoachFindingsContext
 } from './coach'
 import {
   getLatestCoachFindingsForContext,
   type FindingsContext
 } from './proactive-engineer'
+import type { SetupReport } from '../../shared/setup-advisor'
+import type { AppLanguage } from '../../shared/settings'
+import {
+  StintDebriefArchiveStore,
+  type StintDebriefArchivePersistence
+} from './stint-debrief-archive'
 
 const LOG_AREA = 'ai'
 // Hard cap so an optional LLM phrasing stays a SHORT debrief, never an essay.
@@ -48,12 +66,22 @@ const PHRASE_MAX_TOKENS = 160
 // Only treat a pit-in as a stint boundary once the driver has actually run laps.
 const MIN_STINT_LAPS = 2
 const LAST_DEBRIEF_FILE = 'stint-debrief.json'
+const DEBRIEF_ARCHIVE_FILE = 'stint-debrief-archive.json'
 
 export interface StintDebriefDependencies {
   phrase?(system: string, prompt: string): Promise<string | null>
   loadPersisted?(filePath: string): Promise<unknown>
   writePersisted?(filePath: string, payload: string): Promise<void>
   getFindings?(snapshot?: LapCoachFindingsContext | null): DebriefTriggerPayload['findings']
+  getAnalysis?(snapshot?: LapCoachFindingsContext | null): {
+    findings: DebriefTriggerPayload['findings']
+    setup: SetupReport | null
+  }
+  getPredictions?(context?: LiveTelemetryContext | null): DebriefTriggerPayload['predictions']
+  loadArchive?: StintDebriefArchivePersistence['load']
+  writeArchive?: StintDebriefArchivePersistence['write']
+  createArchiveId?(): string
+  now?(): number
 }
 
 type DebriefVisibilityState = 'pending' | 'durable' | 'failed' | 'superseded'
@@ -114,6 +142,31 @@ function phrasePrompt(
   return { system, prompt: `${facts}\n\n${pt ? 'Resumo' : 'Debrief'}:` }
 }
 
+/**
+ * Historical phrasing is accepted only when its normalized content is unchanged.
+ * Any attempted omission, reordering, or addition falls back to the persisted
+ * deterministic paragraph, so a model cannot synthesize a setup recommendation.
+ */
+function safeHistoricalPhrase(source: string, candidate: string): string | null {
+  const text = candidate.trim()
+  if (!text || text.length > 16_384) return null
+  const normalize = (value: string): string =>
+    value.normalize('NFKC').replace(/\s+/gu, ' ').trim()
+  return normalize(text) === normalize(source) ? text : null
+}
+
+function historicalPhrasePrompt(
+  paragraph: string,
+  unitSystem: UnitSystem,
+  language: SpeechLanguage
+): { system: string; prompt: string } {
+  const base = phrasePrompt(paragraph, unitSystem, language)
+  const extractive = language === 'pt-BR'
+    ? 'Retorne o parágrafo fornecido exatamente como está, sem acrescentar, omitir ou reordenar conteúdo.'
+    : 'Return the supplied paragraph exactly as written, without adding, omitting, or reordering content.'
+  return { ...base, system: `${base.system} ${extractive}` }
+}
+
 // ─── stint/session boundary detection (telemetry-driven) ──────────────────────
 
 interface BoundaryState {
@@ -126,6 +179,8 @@ interface BoundaryState {
 }
 
 interface DebriefSnapshotMetadata extends LapCoachFindingsContext, FindingsContext {
+  sim?: TelemetrySnapshot['sim']
+  trackId?: string | number
   trackName?: string
   trackConfigName?: string
   carName?: string
@@ -140,6 +195,21 @@ interface DebriefSnapshotMetadata extends LapCoachFindingsContext, FindingsConte
   completedLaps?: number
   currentLap?: number
   bestLapTimeSec?: number
+  liveContext?: LiveTelemetryContext
+}
+
+interface CapturedDebriefMetadata {
+  language: SpeechLanguage
+  unitSystem: UnitSystem
+  appLanguage: AppLanguage
+  locale: string
+}
+
+interface CapturedBoundary {
+  capturedAt: number
+  trigger: DebriefTriggerPayload
+  setup: SetupReport | null
+  metadata: CapturedDebriefMetadata
 }
 
 function newBoundaryState(): BoundaryState {
@@ -207,39 +277,23 @@ function cloneJson<T>(value: T): T {
 
 function normalizePersistedStintDebrief(value: unknown): StintDebrief | null {
   if (!value || typeof value !== 'object') return null
-  const candidate = value as Partial<StintDebrief>
-  if (
-    !finite(candidate.generatedAt) ||
-    typeof candidate.text !== 'string' ||
-    !Array.isArray(candidate.bullets) ||
-    !candidate.bullets.every((bullet) => typeof bullet === 'string') ||
-    (candidate.source !== 'deterministic' && candidate.source !== 'llm') ||
-    (candidate.reason !== 'manual' && candidate.reason !== 'stint-end' && candidate.reason !== 'session-end')
-  ) {
-    return null
-  }
-  if (
-    candidate.language !== undefined &&
-    candidate.language !== 'pt-BR' &&
-    candidate.language !== 'en-US'
-  ) {
-    return null
-  }
-  return {
-    ...(cloneJson(candidate) as StintDebrief),
+  const candidate = cloneJson(value as Partial<StintDebrief>)
+  return normalizeStintDebrief({
+    ...candidate,
     language: candidate.language ?? 'en-US'
-  }
+  })
 }
 
 function triggerPayload(
   reason: Exclude<DebriefReason, 'manual'>,
   snapshot: DebriefSnapshotMetadata | null,
-  findings: DebriefTriggerPayload['findings']
+  findings: DebriefTriggerPayload['findings'],
+  predictions: DebriefTriggerPayload['predictions']
 ): DebriefTriggerPayload {
   return {
     reason,
     findings: cloneJson(findings),
-    predictions: cloneJson(getLatestPredictions()),
+    predictions: cloneJson(predictions),
     sessionInfo: {
       trackName: snapshot?.trackName,
       carName: snapshot?.carName,
@@ -251,8 +305,13 @@ function triggerPayload(
   }
 }
 
-function debriefSnapshotMetadata(snapshot: TelemetrySnapshot): DebriefSnapshotMetadata {
+function debriefSnapshotMetadata(
+  snapshot: TelemetrySnapshot,
+  liveContext: LiveTelemetryContext | null
+): DebriefSnapshotMetadata {
   return {
+    sim: snapshot.sim,
+    trackId: snapshot.trackId,
     trackName: snapshot.trackName,
     trackConfigName: snapshot.trackConfigName,
     carName: snapshot.carName,
@@ -267,17 +326,97 @@ function debriefSnapshotMetadata(snapshot: TelemetrySnapshot): DebriefSnapshotMe
     weatherDeclaredWet: snapshot.weatherDeclaredWet,
     completedLaps: snapshot.completedLaps,
     currentLap: snapshot.currentLap,
-    bestLapTimeSec: snapshot.bestLapTimeSec
+    bestLapTimeSec: snapshot.bestLapTimeSec,
+    ...(liveContext ? { liveContext: { ...liveContext } } : {})
   }
 }
 
-function getAutomaticDebriefFindings(
+function getAutomaticDebriefAnalysis(
   snapshot?: DebriefSnapshotMetadata | null
-): DebriefTriggerPayload['findings'] {
-  const coachFindings = getLatestLapCoachFindings(snapshot)
-  return coachFindings.length > 0
-    ? coachFindings
-    : getLatestCoachFindingsForContext(snapshot)
+): { findings: DebriefTriggerPayload['findings']; setup: SetupReport | null } {
+  const lapAnalysis = getLatestLapCoachAnalysis(snapshot)
+  if (lapAnalysis) return lapAnalysis
+  return { findings: getLatestCoachFindingsForContext(snapshot), setup: null }
+}
+
+function normalizedLocale(locale: string | null | undefined, fallback: SpeechLanguage): string {
+  const value = locale?.trim()
+  return value ? value.slice(0, 64) : fallback
+}
+
+function createOpaqueArchiveId(factory?: () => string): string {
+  const candidate = factory
+    ? factory()
+    : `debrief_${randomUUID().replaceAll('-', '')}`
+  if (!/^debrief_[A-Za-z0-9_-]{16,96}$/.test(candidate)) {
+    throw new Error('Stint debrief archive ID factory returned an invalid opaque ID.')
+  }
+  return candidate
+}
+
+function legacyArchiveId(debrief: StintDebrief): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify(debrief))
+    .digest('hex')
+    .slice(0, 32)
+  return `debrief_legacy_${digest}`
+}
+
+function archiveRecordFromBoundary(
+  capture: CapturedBoundary,
+  debrief: StintDebrief,
+  id: string
+): DebriefArchiveRecord {
+  const record = normalizeDebriefArchiveRecord({
+    schema: DEBRIEF_ARCHIVE_RECORD_SCHEMA,
+    version: DEBRIEF_ARCHIVE_VERSION,
+    id,
+    capturedAt: capture.capturedAt,
+    reason: capture.trigger.reason,
+    sessionInfo: capture.trigger.sessionInfo,
+    findings: capture.trigger.findings,
+    predictions: capture.trigger.predictions,
+    setup: capture.setup,
+    debrief,
+    language: capture.metadata.language,
+    unitSystem: capture.metadata.unitSystem,
+    appLanguage: capture.metadata.appLanguage,
+    locale: capture.metadata.locale,
+    captureSource: 'boundary',
+    metadataQuality: 'captured'
+  })
+  if (!record) throw new Error('Captured stint debrief archive record failed strict validation.')
+  return record
+}
+
+function archiveRecordFromLegacy(debrief: StintDebrief): DebriefArchiveRecord {
+  const sessionInfo = {
+    ...(debrief.sessionInfo ?? {}),
+    reason: debrief.reason
+  }
+  const record = normalizeDebriefArchiveRecord({
+    schema: DEBRIEF_ARCHIVE_RECORD_SCHEMA,
+    version: DEBRIEF_ARCHIVE_VERSION,
+    id: legacyArchiveId(debrief),
+    capturedAt: debrief.generatedAt,
+    reason: debrief.reason,
+    sessionInfo,
+    findings: [],
+    predictions: null,
+    setup: null,
+    debrief: {
+      ...debrief,
+      sessionInfo
+    },
+    language: debrief.language,
+    unitSystem: 'metric',
+    appLanguage: debrief.language === 'pt-BR' ? 'pt-BR' : 'en',
+    locale: debrief.language,
+    captureSource: 'legacy-last-debrief',
+    metadataQuality: 'legacy-defaults'
+  })
+  if (!record) throw new Error('Legacy stint debrief could not be migrated safely.')
+  return record
 }
 
 // ─── registration ─────────────────────────────────────────────────────────────
@@ -288,6 +427,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   let latestAcceptedVersion = 0
   let unitSystem: UnitSystem = 'metric'
   let language: SpeechLanguage = 'en-US'
+  let appLanguage: AppLanguage = 'auto'
   let intakeClosed = false
   let closing = false
   let writeSequence = 0
@@ -301,8 +441,25 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   let latestAcceptedVisibility: DebriefVisibility | null = null
   const inFlightCompositions = new Set<Promise<StintDebrief>>()
   const filePath = join(ctx.app.getPath('userData'), LAST_DEBRIEF_FILE)
-  settingsEvents.onChanged((settings) => {
+  const archivePath = join(ctx.app.getPath('userData'), DEBRIEF_ARCHIVE_FILE)
+  const archiveStore = new StintDebriefArchiveStore(archivePath, {
+    load: dependencies.loadArchive,
+    write: dependencies.writeArchive
+  })
+  const now = dependencies.now ?? Date.now
+  const phrase = async (system: string, prompt: string): Promise<string | null> => {
+    try {
+      return await (dependencies.phrase ?? tryLlmPhrase)(system, prompt)
+    } catch (error) {
+      logger.warn(LOG_AREA, 'debrief phrase LLM failed; using deterministic fallback', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+  const offSettings = settingsEvents.onChanged((settings) => {
     unitSystem = settings.unitSystem
+    appLanguage = settings.language
     language = speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
   })
 
@@ -342,7 +499,12 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   const loadPromise = (
     dependencies.loadPersisted
       ? dependencies.loadPersisted(filePath)
-      : readFile(filePath, 'utf8').then((raw) => JSON.parse(raw) as unknown)
+      : readFile(filePath, 'utf8').then((raw) => {
+          if (Buffer.byteLength(raw, 'utf8') > DEBRIEF_ARCHIVE_MAX_RECORD_BYTES) {
+            throw new Error('Persisted stint debrief exceeds its local storage size cap.')
+          }
+          return JSON.parse(raw) as unknown
+        })
   )
     .then((parsed) => {
       const persisted = normalizePersistedStintDebrief(parsed)
@@ -351,6 +513,18 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     .catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return
       logger.warn(LOG_AREA, 'failed to load persisted stint debrief', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+
+  const archiveInitialization = Promise.all([loadPromise, archiveStore.ready()])
+    .then(async () => {
+      if (latest && await archiveStore.wasMissingOnLoad()) {
+        await archiveStore.migrate(archiveRecordFromLegacy(latest))
+      }
+    })
+    .catch((error: unknown) => {
+      logger.warn(LOG_AREA, 'failed to initialize persisted stint debrief archive', {
         message: error instanceof Error ? error.message : String(error)
       })
     })
@@ -446,15 +620,18 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     immutableRequest: DebriefGenerateRequest,
     automatic: boolean,
     acceptedVersion: number,
-    visibility: DebriefVisibility
+    visibility: DebriefVisibility,
+    capturedMetadata?: CapturedDebriefMetadata,
+    capturedAt?: number
   ): Promise<StintDebrief> => {
     const reason: DebriefReason = immutableRequest.sessionInfo?.reason ?? 'manual'
-    const compositionLanguage = language
+    const compositionLanguage = capturedMetadata?.language ?? language
+    const compositionUnitSystem = capturedMetadata?.unitSystem ?? unitSystem
     const composition = composeDebrief(
       immutableRequest.findings,
       immutableRequest.predictions,
       immutableRequest.sessionInfo,
-      unitSystem,
+      compositionUnitSystem,
       compositionLanguage
     )
 
@@ -464,8 +641,8 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     if (!automatic && immutableRequest.useLlm === true) {
       const facts = debriefLlmFacts(composition)
       if (facts.trim().length > 0) {
-        const { system, prompt } = phrasePrompt(facts, unitSystem, compositionLanguage)
-        const llmText = await (dependencies.phrase ?? tryLlmPhrase)(system, prompt)
+        const { system, prompt } = phrasePrompt(facts, compositionUnitSystem, compositionLanguage)
+        const llmText = await phrase(system, prompt)
         if (llmText) {
           text = llmText
           source = 'llm'
@@ -474,7 +651,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     }
 
     const next: StintDebrief = {
-      generatedAt: Date.now(),
+      generatedAt: capturedAt ?? now(),
       text,
       bullets: [...composition.bullets],
       source,
@@ -494,7 +671,9 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
 
   const acceptComposition = (
     request: DebriefGenerateRequest = {},
-    automatic = false
+    automatic = false,
+    capturedMetadata?: CapturedDebriefMetadata,
+    capturedAt?: number
   ): Promise<StintDebrief> => {
     if (intakeClosed) return Promise.reject(new Error('Stint debrief lifecycle is shutting down.'))
     const acceptedVersion = ++latestAcceptedVersion
@@ -502,7 +681,14 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     const visibility = createVisibility(acceptedVersion)
     const operation = Promise.resolve().then(async () => {
       await loadPromise
-      return composeAndPersist(immutableRequest, automatic, acceptedVersion, visibility)
+      return composeAndPersist(
+        immutableRequest,
+        automatic,
+        acceptedVersion,
+        visibility,
+        capturedMetadata,
+        capturedAt
+      )
     }).catch((error: unknown) => {
       if (visibility.state === 'pending') {
         const failedDebrief = latestFailedWrite?.visibility === visibility
@@ -548,24 +734,104 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   const boundary = newBoundaryState()
   const liveGate = new LiveTelemetryGate()
   let lastLiveSnapshot: DebriefSnapshotMetadata | null = null
-  let suspendedTrigger: DebriefTriggerPayload | null = null
-  const getFindings = dependencies.getFindings ?? getAutomaticDebriefFindings
-  const createTriggerPayload = (
+  let suspendedTrigger: CapturedBoundary | null = null
+  const inFlightArchiveWrites = new Set<Promise<void>>()
+  const getAnalysis = dependencies.getAnalysis ?? (
+    dependencies.getFindings
+      ? (snapshot?: DebriefSnapshotMetadata | null) => ({
+          findings: dependencies.getFindings?.(snapshot) ?? [],
+          setup: null
+        })
+      : getAutomaticDebriefAnalysis
+  )
+  const getPredictions = dependencies.getPredictions ?? getLatestPredictions
+  const captureMetadata = (): CapturedDebriefMetadata => ({
+    language,
+    unitSystem,
+    appLanguage,
+    locale: normalizedLocale(ctx.app.getLocale(), language)
+  })
+  const createCapturedBoundary = (
     reason: Exclude<DebriefReason, 'manual'>,
     snapshot: DebriefSnapshotMetadata | null
-  ): DebriefTriggerPayload => triggerPayload(reason, snapshot, getFindings(snapshot))
-  const emitTrigger = (payload: DebriefTriggerPayload): void => {
+  ): CapturedBoundary => {
+    const analysis = getAnalysis(snapshot)
+    return {
+      capturedAt: now(),
+      trigger: triggerPayload(
+        reason,
+        snapshot,
+        analysis.findings,
+        getPredictions(snapshot?.liveContext)
+      ),
+      setup: cloneJson(analysis.setup),
+      metadata: captureMetadata()
+    }
+  }
+  const composeCapturedDebrief = (capture: CapturedBoundary): StintDebrief => {
+    const composition = composeDebrief(
+      capture.trigger.findings,
+      capture.trigger.predictions,
+      capture.trigger.sessionInfo,
+      capture.metadata.unitSystem,
+      capture.metadata.language
+    )
+    return {
+      generatedAt: capture.capturedAt,
+      text: composition.text,
+      bullets: [...composition.bullets],
+      source: 'deterministic',
+      language: capture.metadata.language,
+      reason: capture.trigger.reason,
+      sessionInfo: cloneJson(capture.trigger.sessionInfo)
+    }
+  }
+  const emitTrigger = (capture: CapturedBoundary): void => {
     if (intakeClosed) return
-    const immutable = cloneJson(payload)
-    ctx.broadcast(DEBRIEF_CHANNELS.trigger, immutable)
+    const immutable = cloneJson(capture)
+    ctx.broadcast(DEBRIEF_CHANNELS.trigger, immutable.trigger)
+    try {
+      const archivedDebrief = composeCapturedDebrief(immutable)
+      const archiveRecord = archiveRecordFromBoundary(
+        immutable,
+        archivedDebrief,
+        createOpaqueArchiveId(dependencies.createArchiveId)
+      )
+      const archiveOperation = (async () => {
+        await archiveInitialization
+        const result = await archiveStore.append(archiveRecord)
+        if (result.inserted && !intakeClosed && !closing) {
+          ctx.broadcast(DEBRIEF_CHANNELS.archiveUpdated, {
+            latest: result.summary,
+            count: result.count
+          })
+        }
+      })()
+      inFlightArchiveWrites.add(archiveOperation)
+      void archiveOperation.then(
+        () => inFlightArchiveWrites.delete(archiveOperation),
+        (error: unknown) => {
+          inFlightArchiveWrites.delete(archiveOperation)
+          logger.warn(LOG_AREA, 'automatic stint debrief archive persistence failed', {
+            message: error instanceof Error ? error.message : String(error)
+          })
+        }
+      )
+    } catch (error) {
+      logger.warn(LOG_AREA, 'automatic stint debrief archive capture failed', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
     void acceptComposition(
       {
-        findings: immutable.findings,
-        predictions: immutable.predictions,
-        sessionInfo: immutable.sessionInfo,
+        findings: immutable.trigger.findings,
+        predictions: immutable.trigger.predictions,
+        sessionInfo: immutable.trigger.sessionInfo,
         useLlm: false
       },
-      true
+      true,
+      immutable.metadata,
+      immutable.capturedAt
     ).catch((error: unknown) => {
       logger.warn(LOG_AREA, 'automatic stint debrief persistence failed', {
         message: error instanceof Error ? error.message : String(error)
@@ -579,11 +845,11 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     if (!live.live) {
       if (live.state === 'disconnected') {
         const reason = detectBoundary(boundary, null)
-        if (reason) emitTrigger(createTriggerPayload(reason, lastLiveSnapshot))
+        if (reason) emitTrigger(createCapturedBoundary(reason, lastLiveSnapshot))
         else if (suspendedTrigger) emitTrigger(suspendedTrigger)
         suspendedTrigger = null
       } else if (live.boundary && boundary.prevConnected && lastLiveSnapshot) {
-        suspendedTrigger = createTriggerPayload('session-end', lastLiveSnapshot)
+        suspendedTrigger = createCapturedBoundary('session-end', lastLiveSnapshot)
       }
       if (live.boundary) Object.assign(boundary, newBoundaryState())
       return
@@ -593,7 +859,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
       if (live.sessionChanged) {
         if (suspendedTrigger) emitTrigger(suspendedTrigger)
         else if (boundary.prevConnected && lastLiveSnapshot) {
-          emitTrigger(createTriggerPayload('session-end', lastLiveSnapshot))
+          emitTrigger(createCapturedBoundary('session-end', lastLiveSnapshot))
         }
         Object.assign(boundary, newBoundaryState())
       }
@@ -601,12 +867,14 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     }
     const reason = detectBoundary(boundary, snapshot)
     if (reason) {
-      emitTrigger(createTriggerPayload(
+      emitTrigger(createCapturedBoundary(
         reason,
-        reason === 'session-end' ? lastLiveSnapshot : debriefSnapshotMetadata(snapshot)
+        reason === 'session-end'
+          ? lastLiveSnapshot
+          : debriefSnapshotMetadata(snapshot, live.context)
       ))
     }
-    lastLiveSnapshot = debriefSnapshotMetadata(snapshot)
+    lastLiveSnapshot = debriefSnapshotMetadata(snapshot, live.context)
   })
 
   ctx.ipcMain.handle(
@@ -616,17 +884,78 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   )
 
   ctx.ipcMain.handle(DEBRIEF_CHANNELS.last, () => readLatestAcceptedVisibility())
+  ctx.ipcMain.handle(DEBRIEF_CHANNELS.archiveList, async () => {
+    await archiveInitialization
+    return archiveStore.list()
+  })
+  ctx.ipcMain.handle(
+    DEBRIEF_CHANNELS.archiveGenerate,
+    async (_event, rawRequest: unknown): Promise<DebriefArchiveGenerateResult> => {
+      if (intakeClosed) {
+        throw new Error('Stint debrief archive lifecycle is shutting down.')
+      }
+      const request = normalizeDebriefArchiveGenerateRequest(rawRequest)
+      if (!request) throw new Error('Historical debrief request or session ID is invalid.')
+      await archiveInitialization
+      const record = await archiveStore.get(request.sessionId)
+      let debrief = cloneJson(record.debrief)
+      if (request.useLlm === true && record.debrief.source === 'deterministic') {
+        const { system, prompt } = historicalPhrasePrompt(
+          record.debrief.text,
+          record.unitSystem,
+          record.language
+        )
+        const phrased = await phrase(system, prompt)
+        const safePhrase = phrased
+          ? safeHistoricalPhrase(record.debrief.text, phrased)
+          : null
+        if (safePhrase) {
+          const validated = normalizeStintDebrief({
+            ...record.debrief,
+            generatedAt: now(),
+            text: safePhrase,
+            source: 'llm'
+          })
+          if (validated) debrief = validated
+        }
+      }
+      return {
+        sessionId: record.id,
+        debrief,
+        setup: cloneJson(record.setup),
+        captureSource: record.captureSource,
+        setupStatus: debriefSetupStatus(record),
+        analysisStatus: debriefAnalysisStatus(record)
+      }
+    }
+  )
   ctx.registerGracefulTeardown(() => {
     intakeClosed = true
     closing = true
+    offSettings()
   }, 'quiesce')
   ctx.registerGracefulTeardown(async () => {
     await loadPromise
+    await archiveInitialization
     while (inFlightCompositions.size > 0) {
       await Promise.allSettled([...inFlightCompositions])
     }
+    while (inFlightArchiveWrites.size > 0) {
+      await Promise.allSettled([...inFlightArchiveWrites])
+    }
+    archiveStore.quiesce()
     await writeQueue
-    await retryLatestFailedWrite()
+    const durability = await Promise.allSettled([
+      retryLatestFailedWrite(),
+      archiveStore.dispose()
+    ])
+    const failures = durability
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason)
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Stint debrief persistence failed during teardown.')
+    }
     await readLatestAcceptedVisibility()
   }, 'persistence')
 }
