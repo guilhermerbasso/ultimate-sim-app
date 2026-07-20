@@ -693,6 +693,11 @@ interface Candidate {
   entry: RaceOpsBlueprintFeedEntry
 }
 
+interface PreparedRegistryMutation<T> {
+  result: T
+  runtimeStatus?: ReadonlyMap<string, FeedRuntimeStatus>
+}
+
 export class RaceOpsBlueprintRegistry {
   private readonly storage: RaceOpsRegistryStorage
   private readonly appVersion: string
@@ -702,7 +707,7 @@ export class RaceOpsBlueprintRegistry {
   private readonly fetchFeed: (pin: CuratedRaceOpsFeedPin) => Promise<unknown>
   private readonly now: () => number
   private readonly runtimeVersion: number
-  private readonly runtimeStatus = new Map<string, FeedRuntimeStatus>()
+  private runtimeStatus = new Map<string, FeedRuntimeStatus>()
   private state: RaceOpsRegistryState | null = null
   private initialized = false
   private loadPromise: Promise<void> | null = null
@@ -735,8 +740,14 @@ export class RaceOpsBlueprintRegistry {
     }
     try {
       const raw = await this.fetchFeed(pin)
-      const verified = verifyPinnedRaceOpsFeed(pin, raw, this.trustedKeys, this.now())
+      const fetched = verifyPinnedRaceOpsFeed(pin, raw, this.trustedKeys, this.now())
       return this.commitMutation((candidateState) => {
+        const verified = verifyPinnedRaceOpsFeed(
+          pin,
+          fetched.envelope,
+          this.trustedKeys,
+          this.now()
+        )
         assertFeedSequenceNotRolledBack(
           candidateState,
           feedId,
@@ -754,21 +765,30 @@ export class RaceOpsBlueprintRegistry {
           feedId,
           verified.envelope.payload.sequence
         )
-        return () => {
-          this.runtimeStatus.set(feedId, { fromCache: false, offline: false })
-          return this.buildSnapshot(candidateState)
+        const runtimeStatus = new Map(this.runtimeStatus)
+        runtimeStatus.set(feedId, { fromCache: false, offline: false })
+        return {
+          result: this.buildSnapshot(candidateState, runtimeStatus),
+          runtimeStatus
         }
       })
     } catch (error) {
       if (!(error instanceof RaceOpsFeedTransportError)) throw error
       return this.runExclusive(() => {
-        const state = this.requireState()
-        const cached = state.feeds[feedId]
+        const candidateState = cloneRaceOpsRegistryState(this.requireState())
+        const cached = candidateState.feeds[feedId]
         if (!cached) throw error
         const verified = verifyPinnedRaceOpsFeed(pin, cached.envelope, this.trustedKeys, this.now())
-        assertFeedSequenceNotRolledBack(state, feedId, verified.envelope.payload.sequence)
-        this.runtimeStatus.set(feedId, { fromCache: true, offline: true })
-        return this.buildSnapshot(state)
+        assertFeedSequenceNotRolledBack(
+          candidateState,
+          feedId,
+          verified.envelope.payload.sequence
+        )
+        const runtimeStatus = new Map(this.runtimeStatus)
+        runtimeStatus.set(feedId, { fromCache: true, offline: true })
+        const snapshot = this.buildSnapshot(candidateState, runtimeStatus)
+        this.runtimeStatus = runtimeStatus
+        return snapshot
       })
     }
   }
@@ -780,7 +800,7 @@ export class RaceOpsBlueprintRegistry {
       const candidate = this.findCandidate(validatedRequest, candidateState)
       const response = this.evaluate(candidate, validatedRequest, 'dry-run')
       this.appendEvidence(candidateState, response.evidence)
-      return () => response
+      return { result: response }
     })
   }
 
@@ -792,7 +812,7 @@ export class RaceOpsBlueprintRegistry {
       const evaluated = this.evaluate(candidate, validatedRequest, 'stage')
       this.appendEvidence(candidateState, evaluated.evidence)
       if (!evaluated.ok || !evaluated.result) {
-        return () => ({ ...evaluated, installed: false })
+        return { result: { ...evaluated, installed: false } }
       }
 
       const staged: RaceOpsInstalledBlueprint = {
@@ -824,7 +844,7 @@ export class RaceOpsBlueprintRegistry {
         }
         existing.active = staged
       }
-      return () => ({ ...evaluated, installed: true, staged })
+      return { result: { ...evaluated, installed: true, staged } }
     })
   }
 
@@ -880,7 +900,7 @@ export class RaceOpsBlueprintRegistry {
       const evaluated = this.evaluate(candidate, rollbackRequest, 'rollback')
       this.appendEvidence(candidateState, evaluated.evidence)
       if (!evaluated.ok || !evaluated.result) {
-        return () => ({ ...evaluated, installed: false })
+        return { result: { ...evaluated, installed: false } }
       }
 
       install.history.pop()
@@ -891,7 +911,7 @@ export class RaceOpsBlueprintRegistry {
         stagedAt: new Date(this.now()).toISOString()
       }
       const staged = install.active
-      return () => ({ ...evaluated, installed: true, staged })
+      return { result: { ...evaluated, installed: true, staged } }
     })
   }
 
@@ -1129,10 +1149,11 @@ export class RaceOpsBlueprintRegistry {
       changed = true
     }
 
-    if (changed) await this.storage.write(candidateState)
-    this.state = candidateState
-    this.runtimeStatus.clear()
-    for (const [feedId, status] of runtimeStatus) this.runtimeStatus.set(feedId, status)
+    const persistedState = cloneRaceOpsRegistryState(candidateState)
+    const liveState = cloneRaceOpsRegistryState(candidateState)
+    if (changed) await this.storage.write(persistedState)
+    this.state = liveState
+    this.runtimeStatus = runtimeStatus
     this.initialized = true
   }
 
@@ -1174,14 +1195,21 @@ export class RaceOpsBlueprintRegistry {
   }
 
   private commitMutation<T>(
-    mutate: (candidateState: RaceOpsRegistryState) => (() => T) | Promise<() => T>
+    mutate: (
+      candidateState: RaceOpsRegistryState
+    ) => PreparedRegistryMutation<T> | Promise<PreparedRegistryMutation<T>>
   ): Promise<T> {
     return this.runExclusive(async () => {
       const candidateState = cloneRaceOpsRegistryState(this.requireState())
-      const complete = await mutate(candidateState)
-      await this.storage.write(candidateState)
-      this.state = candidateState
-      return complete()
+      const prepared = await mutate(candidateState)
+      const persistedState = cloneRaceOpsRegistryState(candidateState)
+      const liveState = cloneRaceOpsRegistryState(candidateState)
+      const runtimeStatus = new Map(prepared.runtimeStatus ?? this.runtimeStatus)
+      const result = prepared.result
+      await this.storage.write(persistedState)
+      this.state = liveState
+      this.runtimeStatus = runtimeStatus
+      return result
     })
   }
 
@@ -1261,14 +1289,17 @@ export class RaceOpsBlueprintRegistry {
     )
   }
 
-  private buildSnapshot(state: RaceOpsRegistryState): RaceOpsBlueprintRegistrySnapshot {
+  private buildSnapshot(
+    state: RaceOpsRegistryState,
+    runtimeStatus: ReadonlyMap<string, FeedRuntimeStatus> = this.runtimeStatus
+  ): RaceOpsBlueprintRegistrySnapshot {
     const feeds = this.verifiedFeeds(state)
     const evidence = [...state.evidence].sort(
       (left, right) =>
         parseRaceOpsRfc3339(right.publishedAt) - parseRaceOpsRfc3339(left.publishedAt)
     )
     const feedStatuses: RaceOpsFeedStatus[] = feeds.map((feed) => {
-      const runtime = this.runtimeStatus.get(feed.feedId) ?? { fromCache: true, offline: false }
+      const runtime = runtimeStatus.get(feed.feedId) ?? { fromCache: true, offline: false }
       const pin = this.pins.get(feed.feedId)
       if (!pin) {
         throw new RaceOpsBlueprintError('TAMPERED', `Cached feed ${feed.feedId} is no longer curated.`)

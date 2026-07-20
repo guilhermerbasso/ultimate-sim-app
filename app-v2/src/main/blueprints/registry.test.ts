@@ -72,6 +72,8 @@ function makeSignedFeed(
     appMin?: string
     appMax?: string
     sequence?: number
+    issuedAt?: string
+    expiresAt?: string
   }
 ): {
   envelope: SignedRaceOpsBlueprintFeed
@@ -91,8 +93,8 @@ function makeSignedFeed(
     feedId: options.feedId,
     title: `Feed ${options.feedId}`,
     sequence: options.sequence ?? 1,
-    issuedAt: '2026-07-17T14:00:00.000Z',
-    expiresAt: '2027-07-17T14:00:00.000Z',
+    issuedAt: options.issuedAt ?? '2026-07-17T14:00:00.000Z',
+    expiresAt: options.expiresAt ?? '2027-07-17T14:00:00.000Z',
     source,
     entries: [
       {
@@ -166,6 +168,30 @@ function createFailingStorage(seed?: unknown): RaceOpsRegistryStorage & {
     },
     failNextWrite(error = new Error('injected registry write failure')) {
       nextWriteError = error
+    }
+  }
+}
+
+function createPostWriteStorage(afterWrite: () => void): RaceOpsRegistryStorage & {
+  dump(): unknown
+  writeCount(): number
+} {
+  let value: unknown
+  let writes = 0
+  return {
+    async read() {
+      return value === undefined ? undefined : structuredClone(value)
+    },
+    async write(next) {
+      value = structuredClone(next)
+      writes += 1
+      afterWrite()
+    },
+    dump() {
+      return value === undefined ? undefined : structuredClone(value)
+    },
+    writeCount() {
+      return writes
     }
   }
 }
@@ -540,6 +566,153 @@ describe('signed curated RaceOps feeds', () => {
     })
 
     await expect(migrated.getSnapshot()).rejects.toMatchObject({ code: 'TAMPERED' })
+  })
+
+  it('returns a prebuilt refresh snapshot when the clock advances after durable write', async () => {
+    const signer = createSigner()
+    const expiresAtMs = NOW + 1_000
+    const feed = makeSignedFeed(signer, {
+      feedId: 'post-write-clock-advance',
+      sequence: 2,
+      expiresAt: new Date(expiresAtMs).toISOString()
+    })
+    let now = NOW
+    let advanceClock = true
+    const storage = createPostWriteStorage(() => {
+      if (!advanceClock) return
+      advanceClock = false
+      now = expiresAtMs + 1
+    })
+    const registry = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      fetchFeed: async () => feed.envelope,
+      now: () => now
+    })
+
+    const refreshed = await registry.refreshFeed(feed.pin.feedId)
+    expect(refreshed.feeds[0]).toMatchObject({
+      sequence: 2,
+      fromCache: false,
+      offline: false
+    })
+    expect(storage.writeCount()).toBe(1)
+    expect(now).toBeGreaterThan(expiresAtMs)
+    const persisted = storage.dump() as {
+      feedSequenceHighWaterMarks: Record<string, number>
+    }
+    expect(persisted.feedSequenceHighWaterMarks[feed.pin.feedId]).toBe(2)
+    await expect(registry.getSnapshot()).rejects.toMatchObject({ code: 'TAMPERED' })
+
+    now = NOW
+    const restarted = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      now: () => now
+    })
+    expect((await restarted.getSnapshot()).feeds[0].sequence).toBe(2)
+  })
+
+  it('rolls refresh memory, disk, and high-water mark back when persistence fails', async () => {
+    const signer = createSigner()
+    const feed = makeSignedFeed(signer, {
+      feedId: 'refresh-persistence-failure',
+      sequence: 4
+    })
+    const storage = createFailingStorage()
+    const options = {
+      storage,
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      fetchFeed: async () => feed.envelope,
+      now: () => NOW
+    }
+    const registry = new RaceOpsBlueprintRegistry(options)
+    storage.failNextWrite()
+
+    await expect(registry.refreshFeed(feed.pin.feedId)).rejects.toThrow(
+      'injected registry write failure'
+    )
+    expect((await registry.getSnapshot()).feeds).toEqual([])
+    expect(storage.dump()).toBeUndefined()
+
+    expect((await registry.refreshFeed(feed.pin.feedId)).feeds[0].sequence).toBe(4)
+    const persisted = storage.dump() as {
+      feedSequenceHighWaterMarks: Record<string, number>
+    }
+    expect(persisted.feedSequenceHighWaterMarks[feed.pin.feedId]).toBe(4)
+    const restarted = new RaceOpsBlueprintRegistry(options)
+    expect((await restarted.getSnapshot()).feeds[0].sequence).toBe(4)
+  })
+
+  it('revalidates queued concurrent refreshes before a second persistence commit', async () => {
+    const signer = createSigner()
+    const expiresAtMs = NOW + 1_000
+    const feed = makeSignedFeed(signer, {
+      feedId: 'concurrent-expiry-revalidation',
+      sequence: 2,
+      expiresAt: new Date(expiresAtMs).toISOString()
+    })
+    const storage = createGatedStorage()
+    let now = NOW
+    let nowReads = 0
+    let fetchCount = 0
+    let releaseSecondFetch: (() => void) | undefined
+    const registry = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      fetchFeed: async () => {
+        fetchCount += 1
+        if (fetchCount === 2) {
+          await new Promise<void>((resolve) => {
+            releaseSecondFetch = resolve
+          })
+        }
+        return feed.envelope
+      },
+      now: () => {
+        nowReads += 1
+        return now
+      }
+    })
+
+    const first = registry.refreshFeed(feed.pin.feedId)
+    await vi.waitFor(() => expect(storage.pendingWrites()).toBe(1))
+    const readsBeforeSecond = nowReads
+    const second = registry.refreshFeed(feed.pin.feedId)
+    await vi.waitFor(() => expect(releaseSecondFetch).toBeDefined())
+    const release = releaseSecondFetch
+    if (!release) throw new Error('Second refresh fetch was not waiting.')
+    release()
+    await vi.waitFor(() => expect(nowReads).toBeGreaterThan(readsBeforeSecond))
+
+    now = expiresAtMs + 1
+    storage.releaseNextWrite()
+    expect((await first).feeds[0].sequence).toBe(2)
+    await expect(second).rejects.toMatchObject({ code: 'TAMPERED' })
+    expect(storage.pendingWrites()).toBe(0)
+    expect(storage.maxConcurrentWrites()).toBe(1)
+
+    const persisted = storage.dump() as {
+      feedSequenceHighWaterMarks: Record<string, number>
+    }
+    expect(persisted.feedSequenceHighWaterMarks[feed.pin.feedId]).toBe(2)
+    now = NOW
+    const restarted = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      now: () => now
+    })
+    expect((await restarted.getSnapshot()).feeds[0].sequence).toBe(2)
   })
 
   it('serializes concurrent refresh commits without losing the high-water mark', async () => {
