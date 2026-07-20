@@ -27,7 +27,11 @@
     "Post-COMMIT anchor-promotion failures reconcile to the committed authoritative state through a signed pending anchor instead of reporting rollback semantics",
     "Persistence process restart exhaustion opens the circuit and rejects current and queued work within bounded deadlines without initialize responses resetting crash history",
     "Disconnect, null and replay lifecycle boundaries survive source and subscriber telemetry pressure without FIFO eviction while redundant boundary frames coalesce within bounded queues",
-    "Pre-build worker tests bundle the production worker source into isolated fixtures and never depend on ignored packaged output"
+    "Pre-build worker tests bundle the production worker source into isolated fixtures and never depend on ignored packaged output",
+    "A durable privacy mutation generation fences D1, D2 and D3 deletion against queued or in-flight writes before durable publication and live-state swap",
+    "Durable roster generation compare-and-swap makes explicit roster intent authoritative over stale automatic driver seeding across restart",
+    "Readiness refreshes fence stint identity, lifecycle, revision, event and generation after every await so close boundaries cannot be resurrected",
+    "Circuit-bypass privacy deletion and repair requests have bounded queue and execution deadlines and settle when recovery exhausts or crashes"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",

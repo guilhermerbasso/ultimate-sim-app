@@ -601,11 +601,42 @@ export class PassportPersistenceEngine {
     return parse(this.settingsRow()?.privacy_json, { ...DEFAULT_PASSPORT_PRIVACY })
   }
 
-  setPrivacy(privacy: PassportPrivacySettings): PassportPrivacySettings {
+  getPrivacyMutationGeneration(): number {
+    return this.metaGeneration('privacy_mutation_generation')
+  }
+
+  getRosterMutationGeneration(): number {
+    return this.metaGeneration('roster_mutation_generation')
+  }
+
+  setPrivacy(
+    privacy: PassportPrivacySettings,
+    privacyMutationGeneration?: number
+  ): PassportPrivacySettings {
     this.assertWritable()
     const next = sanitizePrivacy(privacy, this.now())
     const current = this.settingsRow()
+    const currentPrivacy = parse(current?.privacy_json, DEFAULT_PASSPORT_PRIVACY)
+    const currentGeneration = this.getPrivacyMutationGeneration()
+    const disablesPersistence =
+      currentPrivacy.identityPersistenceOptIn && !next.identityPersistenceOptIn
+    const expectedGeneration = privacyMutationGeneration ?? (
+      disablesPersistence ? currentGeneration + 1 : currentGeneration
+    )
+    if (expectedGeneration !== currentGeneration + (disablesPersistence ? 1 : 0)) {
+      throw persistenceDomainError('Passport privacy mutation generation conflict.')
+    }
     return this.transaction(() => {
+      this.assertMetaGeneration(
+        'privacy_mutation_generation',
+        currentGeneration,
+        'Passport privacy mutation generation conflict.'
+      )
+      if (disablesPersistence) {
+        this.writeMetaGeneration('privacy_mutation_generation', expectedGeneration)
+        const rosterGeneration = this.getRosterMutationGeneration()
+        this.writeMetaGeneration('roster_mutation_generation', rosterGeneration + 1)
+      }
       this.writeSettingsInTransaction(
         parse(current?.config_json, DEFAULT_PASSPORT_CONFIG),
         next,
@@ -661,13 +692,22 @@ export class PassportPersistenceEngine {
     }))
   }
 
-  saveRoster(roster: readonly PassportRosterMember[]): PassportRosterMember[] {
+  saveRoster(
+    roster: readonly PassportRosterMember[],
+    expectedGeneration?: number
+  ): PassportRosterMember[] {
     this.assertWritable()
     if (!this.getPrivacy().identityPersistenceOptIn) {
       throw persistenceDomainError('Identity persistence opt-in is required before storing roster data.')
     }
     const normalized = roster.map(sanitizeRosterMember)
+    const expected = expectedGeneration ?? this.getRosterMutationGeneration()
     return this.transaction(() => {
+      this.assertMetaGeneration(
+        'roster_mutation_generation',
+        expected,
+        'Roster mutation generation conflict.'
+      )
       this.db.exec('DELETE FROM passport_roster')
       const insert = this.db.prepare(`
         INSERT INTO passport_roster (
@@ -682,15 +722,26 @@ export class PassportPersistenceEngine {
           member.active ? 1 : 0
         )
       }
+      this.writeMetaGeneration('roster_mutation_generation', expected + 1)
       return normalized
     })
   }
 
-  persistPassport(passport: StintPassport, event: PassportStoreEvent): StintPassport {
+  persistPassport(
+    passport: StintPassport,
+    event: PassportStoreEvent,
+    expectedPrivacyGeneration?: number
+  ): StintPassport {
     this.assertWritable()
     if (!this.getPrivacy().identityPersistenceOptIn) {
       throw persistenceDomainError('Identity persistence opt-in is required before storing a stint passport.')
     }
+    const privacyGeneration = expectedPrivacyGeneration ?? this.getPrivacyMutationGeneration()
+    this.assertMetaGeneration(
+      'privacy_mutation_generation',
+      privacyGeneration,
+      'Passport privacy mutation generation conflict.'
+    )
     const persisted: StintPassport = { ...passport, persisted: true, durability: 'durable' }
     const dedupeKey = event.canonicalEvent.dedupeKey
     const semanticHash = semanticOperationHash(persisted, event)
@@ -709,6 +760,11 @@ export class PassportPersistenceEngine {
       return persisted
     }
     return this.transaction(() => {
+      this.assertMetaGeneration(
+        'privacy_mutation_generation',
+        privacyGeneration,
+        'Passport privacy mutation generation conflict.'
+      )
       this.upsertPassportInTransaction(persisted)
       this.appendEventInTransaction(persisted, event, semanticHash)
       return persisted
@@ -903,8 +959,16 @@ export class PassportPersistenceEngine {
     return results
   }
 
-  deleteByClass(dataClass: PassportDataClass): PassportDeleteResult {
+  deleteByClass(
+    dataClass: PassportDataClass,
+    privacyMutationGeneration?: number
+  ): PassportDeleteResult {
     this.assertWritable()
+    const currentPrivacyGeneration = this.getPrivacyMutationGeneration()
+    const nextPrivacyGeneration = privacyMutationGeneration ?? currentPrivacyGeneration + 1
+    if (nextPrivacyGeneration !== currentPrivacyGeneration + 1) {
+      throw persistenceDomainError('Passport privacy deletion generation conflict.')
+    }
     if (dataClass === 'D3') {
       const rows = this.db.prepare('SELECT stint_id FROM stint_passport').all() as Row[]
       const ids = rows.map((row) => text(row.stint_id))
@@ -915,6 +979,14 @@ export class PassportPersistenceEngine {
         updatedAt: this.now()
       }, this.now())
       this.transaction(() => {
+        this.assertMetaGeneration(
+          'privacy_mutation_generation',
+          currentPrivacyGeneration,
+          'Passport privacy deletion generation conflict.'
+        )
+        this.writeMetaGeneration('privacy_mutation_generation', nextPrivacyGeneration)
+        const rosterGeneration = this.getRosterMutationGeneration()
+        this.writeMetaGeneration('roster_mutation_generation', rosterGeneration + 1)
         if (ids.length > 0) this.appendDeletionTombstone('D3', ids)
         this.db.exec('DELETE FROM passport_roster')
         this.db.exec('DELETE FROM stint_passport')
@@ -926,6 +998,14 @@ export class PassportPersistenceEngine {
       })
       return { deletedStints: ids.length, redactedEvidence: 0, dataClass }
     }
+    this.transaction(() => {
+      this.assertMetaGeneration(
+        'privacy_mutation_generation',
+        currentPrivacyGeneration,
+        'Passport privacy deletion generation conflict.'
+      )
+      this.writeMetaGeneration('privacy_mutation_generation', nextPrivacyGeneration)
+    })
     return {
       deletedStints: 0,
       redactedEvidence: this.redactEvidenceByClass(dataClass, Number.MAX_SAFE_INTEGER) +
@@ -1240,6 +1320,30 @@ export class PassportPersistenceEngine {
     const value = factory()
     this.db.prepare('INSERT INTO passport_meta(key, value) VALUES (?, ?)').run(key, value)
     return value
+  }
+
+  private metaGeneration(key: string): number {
+    const value = Number(this.readOrCreateMeta(key, () => '0'))
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw persistenceDomainError(`Passport metadata generation is invalid: ${key}.`)
+    }
+    return value
+  }
+
+  private assertMetaGeneration(key: string, expected: number, message: string): void {
+    if (!Number.isSafeInteger(expected) || expected < 0 || this.metaGeneration(key) !== expected) {
+      throw persistenceDomainError(message)
+    }
+  }
+
+  private writeMetaGeneration(key: string, generation: number): void {
+    if (!Number.isSafeInteger(generation) || generation < 0) {
+      throw persistenceDomainError(`Passport metadata generation is invalid: ${key}.`)
+    }
+    this.db.prepare(`
+      INSERT INTO passport_meta(key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(key, String(generation))
   }
 
   private initializeAnchor(): void {

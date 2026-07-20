@@ -645,6 +645,62 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     ])
   })
 
+  it('[blocker-B9-a] restart exhaustion plus a crashing recovery worker still settles bypass delete/repair requests bounded with queued=0', async () => {
+    const crashAfterInitialize = (worker: FakeWorker, request: Request) => {
+      if (request.method === 'initialize') worker.respond(request)
+      else worker.crash(97)
+    }
+    const { client, workers } = createClient([
+      crashAfterInitialize,
+      crashAfterInitialize,
+      crashAfterInitialize,
+      crashAfterInitialize,
+      crashAfterInitialize
+    ])
+    await waitUntil(() => workers.length === 1 && workers[0].requests.some(
+      (request) => request.method === 'initialize'
+    ))
+
+    for (let index = 0; index < 3; index += 1) {
+      await expect(client.getConfig()).rejects.toThrow(/exited/i)
+      await waitUntil(() => workers.length === index + 2)
+    }
+
+    const exhaustionResults = await Promise.race([
+      Promise.allSettled([
+        client.getConfig(),
+        client.getPrivacy(),
+        client.listRoster()
+      ]),
+      new Promise<never>((_, reject) => setTimeout(
+        () => reject(new Error('restart exhaustion deadline exceeded')),
+        250
+      ))
+    ])
+    expect(exhaustionResults.every((outcome) => outcome.status === 'rejected')).toBe(true)
+    await waitUntil(() => client.status().state === 'open-circuit')
+    const bypassRequests = Promise.allSettled([
+      client.deleteByClass('D3'),
+      client.repairPersistence('repair-token')
+    ])
+    await waitUntil(() => workers.length === 5)
+
+    const outcomes = await Promise.race([
+      bypassRequests,
+      new Promise<never>((_, reject) => setTimeout(
+        () => reject(new Error('circuit-bypass settlement deadline exceeded')),
+        250
+      ))
+    ])
+
+    expect(outcomes.every((outcome) => outcome.status === 'rejected')).toBe(true)
+    expect(client.status()).toMatchObject({
+      state: 'open-circuit',
+      queued: 0,
+      inFlight: false
+    })
+  })
+
   it('[spec-gap] drains accepted lifecycle, audit, and deletion work before a worker flush acknowledgement', async () => {
     const { client, workers } = createClient([
       (worker, request) => {

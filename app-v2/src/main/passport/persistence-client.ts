@@ -115,6 +115,7 @@ interface QueueEntry {
   deadlineMs: number
   bypassKill: boolean
   bypassCircuit: boolean
+  queueTimer: ReturnType<typeof setTimeout> | null
   resolve(value: unknown): void
   reject(error: Error): void
 }
@@ -182,7 +183,10 @@ export class PassportPersistenceClient {
     if (enabled) {
       const retained = this.queue.filter((entry) => entry.bypassKill)
       for (const entry of this.queue) {
-        if (!entry.bypassKill) entry.reject(new Error('Passport persistence kill switch is active.'))
+        if (!entry.bypassKill) {
+          this.clearQueueTimer(entry)
+          entry.reject(new Error('Passport persistence kill switch is active.'))
+        }
       }
       this.queue.length = 0
       this.queue.push(...retained)
@@ -238,7 +242,10 @@ export class PassportPersistenceClient {
       this.restartTimer = null
       if (this.inFlightTimer) clearTimeout(this.inFlightTimer)
       this.inFlightTimer = null
-      for (const entry of this.queue.splice(0)) entry.reject(new Error('Passport persistence client closed.'))
+      for (const entry of this.queue.splice(0)) {
+        this.clearQueueTimer(entry)
+        entry.reject(new Error('Passport persistence client closed.'))
+      }
       this.queuedBytes = 0
       if (this.inFlight) {
         this.inFlight.reject(new Error('Passport persistence client closed.'))
@@ -273,15 +280,37 @@ export class PassportPersistenceClient {
   getConfig(): Promise<PassportConfig> { return this.request('getConfig') }
   setConfig(value: PassportConfig): Promise<PassportConfig> { return this.request('setConfig', [value]) }
   getPrivacy(): Promise<PassportPrivacySettings> { return this.request('getPrivacy') }
-  setPrivacy(value: PassportPrivacySettings): Promise<PassportPrivacySettings> {
-    return this.request('setPrivacy', [value], { bypassKill: true, bypassCircuit: true })
+  getPrivacyMutationGeneration(): Promise<number> {
+    return this.request('getPrivacyMutationGeneration')
+  }
+  getRosterMutationGeneration(): Promise<number> {
+    return this.request('getRosterMutationGeneration')
+  }
+  setPrivacy(
+    value: PassportPrivacySettings,
+    privacyMutationGeneration?: number
+  ): Promise<PassportPrivacySettings> {
+    return this.request(
+      'setPrivacy',
+      [value, privacyMutationGeneration],
+      { bypassKill: true, bypassCircuit: true }
+    )
   }
   getKillSwitch(): Promise<boolean> { return this.request('getKillSwitch') }
   setWorkerKillSwitch(value: boolean): Promise<boolean> { return this.request('setKillSwitch', [value], { bypassKill: true }) }
   listRoster(): Promise<PassportRosterMember[]> { return this.request('listRoster') }
-  saveRoster(value: PassportRosterMember[]): Promise<PassportRosterMember[]> { return this.request('saveRoster', [value]) }
-  persistPassport(passport: StintPassport, event: PassportStoreEvent): Promise<StintPassport> {
-    return this.request('persistPassport', [passport, event])
+  saveRoster(
+    value: PassportRosterMember[],
+    expectedGeneration?: number
+  ): Promise<PassportRosterMember[]> {
+    return this.request('saveRoster', [value, expectedGeneration])
+  }
+  persistPassport(
+    passport: StintPassport,
+    event: PassportStoreEvent,
+    expectedPrivacyGeneration?: number
+  ): Promise<StintPassport> {
+    return this.request('persistPassport', [passport, event, expectedPrivacyGeneration])
   }
   listPassports(limit = 50): Promise<StintPassport[]> { return this.request('listPassports', [limit]) }
   getPassport(stintId: string): Promise<StintPassport | null> { return this.request('getPassport', [stintId]) }
@@ -300,8 +329,15 @@ export class PassportPersistenceClient {
   purgeRetention(): Promise<PassportDeleteResult[]> {
     return this.request('purgeRetention', [], { bypassKill: true, bypassCircuit: true })
   }
-  deleteByClass(value: PassportDataClass): Promise<PassportDeleteResult> {
-    return this.request('deleteByClass', [value], { bypassKill: true, bypassCircuit: true })
+  deleteByClass(
+    value: PassportDataClass,
+    privacyMutationGeneration?: number
+  ): Promise<PassportDeleteResult> {
+    return this.request(
+      'deleteByClass',
+      [value, privacyMutationGeneration],
+      { bypassKill: true, bypassCircuit: true }
+    )
   }
   exportPackage(
     profile: PassportExportProfile,
@@ -325,8 +361,16 @@ export class PassportPersistenceClient {
   }
   eventHeaders(stintId: string): Promise<PassportEventHeader[]> { return this.request('eventHeaders', [stintId]) }
   metricsSnapshot(): Promise<PassportStoreMetrics> { return this.request('metricsSnapshot') }
-  persistLifecycle(passport: StintPassport, event: PassportStoreEvent): Promise<StintPassport> {
-    return this.request('persistPassport', [passport, event], { bypassKill: true })
+  persistLifecycle(
+    passport: StintPassport,
+    event: PassportStoreEvent,
+    expectedPrivacyGeneration?: number
+  ): Promise<StintPassport> {
+    return this.request(
+      'persistPassport',
+      [passport, event, expectedPrivacyGeneration],
+      { bypassKill: true }
+    )
   }
   simulateWorkerCrash(): Promise<void> {
     return this.request('simulateCrash', [], { bypassKill: true, deadlineMs: 500 })
@@ -367,7 +411,12 @@ export class PassportPersistenceClient {
     const bypassKill = options.bypassKill === true
     const bypassCircuit = options.bypassCircuit === true
     if (this.killed && !bypassKill) return Promise.reject(new Error('Passport persistence kill switch is active.'))
-    if (bypassCircuit && !this.worker) this.startWorker()
+    if (bypassCircuit && !this.worker) {
+      this.startWorker()
+      if (!this.worker) {
+        return Promise.reject(new Error('Passport persistence recovery worker is unavailable.'))
+      }
+    }
     const request: RpcRequest = { id: ++this.requestId, method, args }
     const bytes = Buffer.byteLength(JSON.stringify(request))
     if (!options.bypassBackpressure &&
@@ -381,9 +430,18 @@ export class PassportPersistenceClient {
         deadlineMs: options.deadlineMs ?? DEFAULT_DEADLINE_MS,
         bypassKill,
         bypassCircuit,
+        queueTimer: null,
         resolve: (value) => resolve(value as T),
         reject
       }
+      entry.queueTimer = setTimeout(() => {
+        const index = this.queue.indexOf(entry)
+        if (index < 0) return
+        this.queue.splice(index, 1)
+        this.queuedBytes -= entry.bytes
+        entry.queueTimer = null
+        entry.reject(new Error(`Passport persistence request timed out in queue: ${method}`))
+      }, entry.deadlineMs)
       if (options.front) this.queue.unshift(entry)
       else this.queue.push(entry)
       this.queuedBytes += bytes
@@ -427,6 +485,7 @@ export class PassportPersistenceClient {
     if (index < 0) return
     const [entry] = this.queue.splice(index, 1)
     this.queuedBytes -= entry.bytes
+    this.clearQueueTimer(entry)
     this.inFlight = entry
     this.inFlightTimer = setTimeout(() => {
       if (this.inFlight !== entry) return
@@ -487,6 +546,11 @@ export class PassportPersistenceClient {
     }
     this.failures += 1
     this.lastError = error.message
+    if (this.circuitOpen) {
+      const unavailable = new Error(`Passport persistence recovery failed: ${error.message}`)
+      this.rejectQueued(unavailable)
+      return
+    }
     if (!this.closing && !this.circuitOpen) {
       if (this.restartAttempts < MAX_RESTARTS && !this.restartTimer) {
         this.restartAttempts += 1
@@ -499,9 +563,7 @@ export class PassportPersistenceClient {
         this.circuitOpen = true
         const exhausted = new Error('Passport persistence restart budget exhausted; circuit opened.')
         this.lastError = exhausted.message
-        for (const entry of this.queue) entry.reject(exhausted)
-        this.queue.length = 0
-        this.queuedBytes = 0
+        this.rejectQueued(exhausted)
       }
     }
   }
@@ -513,13 +575,31 @@ export class PassportPersistenceClient {
       this.circuitOpen = true
       const retained = this.queue.filter((entry) => entry.bypassCircuit)
       for (const entry of this.queue) {
-        if (!entry.bypassCircuit) entry.reject(new Error('Passport persistence circuit opened.'))
+        if (!entry.bypassCircuit) {
+          this.clearQueueTimer(entry)
+          entry.reject(new Error('Passport persistence circuit opened.'))
+        }
       }
       this.queue.length = 0
       this.queue.push(...retained)
       this.queuedBytes = retained.reduce((total, entry) => total + entry.bytes, 0)
       this.pump()
     }
+  }
+
+  private clearQueueTimer(entry: QueueEntry): void {
+    if (!entry.queueTimer) return
+    clearTimeout(entry.queueTimer)
+    entry.queueTimer = null
+  }
+
+  private rejectQueued(error: Error): void {
+    for (const entry of this.queue) {
+      this.clearQueueTimer(entry)
+      entry.reject(error)
+    }
+    this.queue.length = 0
+    this.queuedBytes = 0
   }
 
   private terminateWorker(worker: WorkerLike): Promise<void> {
