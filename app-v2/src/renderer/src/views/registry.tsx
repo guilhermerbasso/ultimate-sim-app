@@ -39,6 +39,7 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const RaceOpsBlueprintsView = lazy(() => import('./RaceOpsBlueprintsView'))
 const AccessibilityCuesView = lazy(() => import('./AccessibilityCuesView'))
 const RigPreflightView = lazy(() => import('./RigPreflightView'))
 const CollaborationView = lazy(() => import('./CollaborationView'))
@@ -89,6 +90,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'dashboard-adaptive', group: 'Sim Racing', label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'Single panel that reorganizes itself by session phase and lap moment.', shortcut: 'TN', Component: AdaptiveDashboardView },
   { id: 'biometrics', group: 'Sim Racing', label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress × pace, and AR HUD.', shortcut: 'TJ', Component: BiometricsView },
   { id: 'community', group: 'Sim Racing', label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files; compare where you gain/lose.', shortcut: 'TK', Component: CommunityView },
+  { id: 'raceops-blueprints', group: 'Sim Racing', label: 'RaceOps Blueprints', eyebrow: 'Declarative', description: 'Signed blueprint manifests, constrained dry-runs, compatibility evidence, and rollback.', shortcut: 'TP', Component: RaceOpsBlueprintsView },
   { id: 'steward-desk', group: 'League Ops', label: 'Steward Desk', eyebrow: 'Human decision', description: 'Local evidence cases with rule versions, dissent, appeals, and anonymized export.', shortcut: 'TO', Component: StewardDeskView },
   { id: 'haptics-zonal', group: 'Sim Racing', label: 'Haptics Zonal', eyebrow: 'Zones', description: 'Events→zones (seat/pedals/wheel) + visual simulator.', shortcut: 'TL', Component: HapticsZonalView },
   { id: 'spotter-3d', group: 'Sim Racing', label: '3D Spotter', eyebrow: 'Spatial audio', description: 'Positional HRTF cues for nearby cars.', shortcut: 'TM', Component: Spotter3DView },
