@@ -614,7 +614,11 @@ describe('createEngineerOrchestrator.ask', () => {
     'Explique quando trocar pneus.',
     'Explique cuándo cambiar neumáticos.',
     'Explique quand changer les pneus.',
-    'Können Sie mir erklären, wann Reifen wechseln?'
+    'Können Sie mir erklären, wann Reifen wechseln?',
+    'Explique qual pneu usar.',
+    'Explique qué neumático usar.',
+    'Explique quel composé choisir.',
+    'Erklären Sie, welche Reifen wir verwenden.'
   ])('does not bypass caution safety through ordinary words: %s', async (question) => {
     const harness = makeHarness({
       racecraftContext: {

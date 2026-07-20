@@ -361,7 +361,11 @@ describe('racecraft question routing', () => {
     'Explique quando trocar pneus.',
     'Explique cuándo cambiar neumáticos.',
     'Explique quand changer les pneus.',
-    'Können Sie mir erklären, wann Reifen wechseln?'
+    'Können Sie mir erklären, wann Reifen wechseln?',
+    'Explique qual pneu usar.',
+    'Explique qué neumático usar.',
+    'Explique quel composé choisir.',
+    'Erklären Sie, welche Reifen wir verwenden.'
   ])('does not mistake ordinary words for definition markers: %s', (question) => {
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
