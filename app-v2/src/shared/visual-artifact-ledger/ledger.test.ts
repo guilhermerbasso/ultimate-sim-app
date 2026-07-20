@@ -1,5 +1,15 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { canonicalStringify } from './canonical'
+import { canonicalStringify, sha256Hex } from './canonical'
+import type { LedgerAppendOperation } from './authorities'
+import {
+  DurableLedgerFinalizationAuthority,
+  computeLedgerAppendOperationHash,
+  computeLedgerPublicationAuthorityRootHash,
+  type LedgerAuthorityCommitBinding
+} from './finalization-authority'
 import {
   computeArtifactEventHash,
   computeVisualArtifactLedgerRootHash,
@@ -14,6 +24,7 @@ import {
   MAX_LEDGER_EVENTS,
   MAX_REVISIONS_PER_ARTIFACT,
   MAX_SERIALIZED_CHARACTERS,
+  VISUAL_ARTIFACT_LEDGER_VERSION,
   ZERO_HASH
 } from './constants'
 import {
@@ -35,6 +46,96 @@ import {
   type TestGovernance
 } from './test-fixtures'
 
+const DURABLE_LEDGER_AUTHORITY_ID = 'ledger-rollback-test-authority'
+
+function durableCommitAttestation(
+  binding: LedgerAuthorityCommitBinding
+): { readonly token: string } {
+  return {
+    token: `ledger:${sha256Hex({
+      domain: 'ledger-rollback-test-attestation',
+      binding
+    })}`.padEnd(88, 'x')
+  }
+}
+
+function durableAuthority(
+  directoryPath: string,
+  failBeforeCommit = false
+): DurableLedgerFinalizationAuthority {
+  return new DurableLedgerFinalizationAuthority({
+    authorityId: DURABLE_LEDGER_AUTHORITY_ID,
+    directoryPath,
+    issueCommitAttestation: durableCommitAttestation,
+    verifyCommitAttestation: (attestation, binding) =>
+      attestation.token === durableCommitAttestation(binding).token,
+    ...(failBeforeCommit
+      ? {
+          faultInjector: (fault: { point: string }) => {
+            if (fault.point === 'before-commit') {
+              throw new Error('forced pre-commit publication failure')
+            }
+          }
+        }
+      : {})
+  })
+}
+
+function durableAuthorityDatabase(
+  subject: DurableLedgerFinalizationAuthority
+): DatabaseSync {
+  return (
+    subject as unknown as {
+      database: DatabaseSync
+    }
+  ).database
+}
+
+function forceDurableRollbackError(
+  subject: DurableLedgerFinalizationAuthority
+): {
+  readonly database: DatabaseSync
+  observedInTransaction(): boolean | undefined
+} {
+  const database = durableAuthorityDatabase(subject)
+  const originalExec = database.exec
+  let observedInTransaction: boolean | undefined
+  Object.defineProperty(database, 'exec', {
+    configurable: true,
+    value: (sql: string): void => {
+      if (sql.trim().toUpperCase() === 'ROLLBACK') {
+        observedInTransaction = database.isTransaction
+        throw new Error('forced SQLite ROLLBACK failure')
+      }
+      Reflect.apply(originalExec, database, [sql])
+    }
+  })
+  return {
+    database,
+    observedInTransaction: () => observedInTransaction
+  }
+}
+
+function forceDurableCommitResponseLoss(
+  subject: DurableLedgerFinalizationAuthority
+): DatabaseSync {
+  const database = durableAuthorityDatabase(subject)
+  const originalExec = database.exec
+  let loseCommitResponse = true
+  Object.defineProperty(database, 'exec', {
+    configurable: true,
+    value: (sql: string): void => {
+      if (sql.trim().toUpperCase() === 'COMMIT' && loseCommitResponse) {
+        loseCommitResponse = false
+        Reflect.apply(originalExec, database, [sql])
+        throw new Error('forced SQLite COMMIT response loss')
+      }
+      Reflect.apply(originalExec, database, [sql])
+    }
+  })
+  return database
+}
+
 function setup(triggerFamilyCount = 10) {
   const governance = makeGovernance()
   const scheduler = makeScheduler(governance)
@@ -49,6 +150,142 @@ function setup(triggerFamilyCount = 10) {
     clock: new TestClock(1_000_000),
     hashes: new HashPool()
   }
+}
+
+function seedLedgerForDurableFinalization(
+  ledger: VisualArtifactLedger,
+  authority: DurableLedgerFinalizationAuthority
+): {
+  readonly occurredAt: string
+  readonly eventHash: string
+  readonly rootHash: string
+  readonly sequence: number
+} {
+  const internal = ledger as unknown as {
+    readonly expectedIds: readonly string[]
+    readonly artifacts: Map<
+      string,
+      { revisions: Array<{ status: 'accepted' }> }
+    >
+    readonly eventLog: ArtifactEvent[]
+    acceptedCurrentCount: number
+    hasAcceptedHistory: boolean
+    lastEventHash: string
+    lastTimestamp: string
+    cachedLocalRootHash?: string
+  }
+  for (const artifactId of internal.expectedIds) {
+    internal.artifacts.set(artifactId, {
+      revisions: [{ status: 'accepted' }]
+    })
+  }
+  internal.acceptedCurrentCount = internal.expectedIds.length
+  internal.hasAcceptedHistory = true
+
+  const sequence = 149_409
+  const previousEventHash = hashNumber(910_001)
+  const occurredAt = '2026-01-03T00:00:00.000Z'
+  const eventWithoutHash = {
+    sequence,
+    type: 'artifact-accepted',
+    occurredAt,
+    actorId: 'image-reviewer',
+    previousEventHash
+  }
+  const eventHash = computeArtifactEventHash(
+    eventWithoutHash as Omit<ArtifactEvent, 'eventHash'>
+  )
+  const event = {
+    ...eventWithoutHash,
+    eventHash
+  } as ArtifactEvent
+  internal.eventLog.length = sequence
+  internal.eventLog[sequence - 1] = event
+  internal.lastEventHash = eventHash
+  internal.lastTimestamp = occurredAt
+  internal.cachedLocalRootHash = undefined
+
+  const expectedLedgerRootHash = computeVisualArtifactLedgerRootHash(
+    ledger.plan.planHash,
+    sequence - 1,
+    previousEventHash
+  )
+  const rootHash = computeVisualArtifactLedgerRootHash(
+    ledger.plan.planHash,
+    sequence,
+    eventHash
+  )
+  const operationWithoutHash = {
+    authorityId: DURABLE_LEDGER_AUTHORITY_ID,
+    expectedLedgerSequence: sequence - 1,
+    expectedLedgerRootHash,
+    expectedLedgerEventHash: previousEventHash,
+    expectedAcceptedArtifactCount: internal.expectedIds.length - 1,
+    planHash: ledger.plan.planHash,
+    registryHash: ledger.plan.registryHash,
+    nextLedgerSequence: sequence,
+    nextLedgerRootHash: rootHash,
+    nextLedgerEventHash: eventHash,
+    nextAcceptedArtifactCount: internal.expectedIds.length,
+    event
+  }
+  const operation: LedgerAppendOperation = {
+    ...operationWithoutHash,
+    operationHash: computeLedgerAppendOperationHash(operationWithoutHash)
+  }
+  const unsigned = {
+    authorityId: DURABLE_LEDGER_AUTHORITY_ID,
+    version: 1 as const,
+    committedAt: occurredAt,
+    previousRootHash: hashNumber(910_002),
+    rootHash: ZERO_HASH,
+    operationHash: operation.operationHash
+  }
+  const commitBinding = {
+    ...unsigned,
+    rootHash: computeLedgerPublicationAuthorityRootHash('append', unsigned)
+  }
+  const commit = {
+    ...commitBinding,
+    attestation: durableCommitAttestation(commitBinding)
+  }
+  const database = durableAuthorityDatabase(authority)
+  database
+    .prepare(`
+      INSERT INTO ledger_heads(
+        plan_hash, registry_hash, ledger_sequence, ledger_root_hash,
+        ledger_event_hash, accepted_artifact_count, authority_root_hash,
+        finalized, finalization_operation_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)
+    `)
+    .run(
+      ledger.plan.planHash,
+      ledger.plan.registryHash,
+      sequence,
+      rootHash,
+      eventHash,
+      internal.expectedIds.length,
+      commit.rootHash
+    )
+  database
+    .prepare(`
+      INSERT INTO append_records(
+        plan_hash, ledger_sequence, operation_hash, operation_json, commit_json
+      ) VALUES (?, ?, ?, ?, ?)
+    `)
+    .run(
+      ledger.plan.planHash,
+      sequence,
+      operation.operationHash,
+      canonicalStringify(operation),
+      canonicalStringify(commit)
+    )
+  expect(authority.head(ledger.plan.planHash)).toMatchObject({
+    ledgerSequence: sequence,
+    acceptedArtifactCount: internal.expectedIds.length,
+    ledgerRootHash: rootHash
+  })
+  return { occurredAt, eventHash, rootHash, sequence }
 }
 
 function startArtifact(
@@ -594,6 +831,121 @@ describe('externally attested visual artifact ledger', () => {
     expect(ledger.eventCount).toBe(2)
     expect(ledger.rootHash).toBe(peer.rootHash)
     expect(ledger.getArtifact(ids[1])?.revisions[0].status).toBe('started')
+  })
+
+  it('fails ledger append closed when SQLite rollback is poisoned', () => {
+    const directory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    const governance = makeGovernance()
+    const scheduler = makeScheduler(governance)
+    const plan = makePlan(10)
+    const authority = durableAuthority(directory, true)
+    try {
+      const ledger = VisualArtifactLedger.create(plan, {
+        ...governance.ledgerDependencies(scheduler),
+        finalizationAuthority: authority
+      })
+      const ids = expectedArtifactIds(plan)
+      const probe = forceDurableRollbackError(authority)
+      expect(() =>
+        startArtifact(
+          ledger,
+          governance,
+          ids[0],
+          new HashPool(),
+          new TestClock(1_000_000)
+        )
+      ).toThrow(/rollback failed or did not restore confirmed autocommit/i)
+      expect(probe.observedInTransaction()).toBe(true)
+      expect(probe.database.isOpen).toBe(false)
+      expect(ledger.eventCount).toBe(0)
+      expect(ledger.getArtifact(ids[0])).toBeUndefined()
+      authority.close()
+
+      const restarted = durableAuthority(directory)
+      try {
+        expect(restarted.head(plan.planHash)).toBeUndefined()
+      } finally {
+        restarted.close()
+      }
+    } finally {
+      authority.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('finalizes through fresh SQLite recovery after a committed response is lost', () => {
+    const directory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    const governance = makeGovernance()
+    const plan = makePlan(45)
+    const authority = durableAuthority(directory)
+    try {
+      const ledger = VisualArtifactLedger.create(plan, {
+        ...governance.ledgerDependencies(),
+        finalizationAuthority: authority
+      })
+      const seeded = seedLedgerForDurableFinalization(ledger, authority)
+      const checkpoint = {
+        schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
+        sequence: seeded.sequence,
+        eventHash: seeded.eventHash,
+        rootHash: seeded.rootHash,
+        planHash: plan.planHash,
+        registryHash: plan.registryHash
+      }
+      const trustedCheckpointAttestation =
+        governance.attestations.issueRoot({
+          domain: 'visual-artifact-ledger',
+          purpose: 'finalization-checkpoint',
+          rootHash: checkpoint.rootHash,
+          version: checkpoint.sequence,
+          contextHash: plan.planHash
+        })
+      const finalization = {
+        occurredAt: '2026-01-03T00:00:01.000Z',
+        actorId: 'release-owner',
+        planHash: plan.planHash,
+        registryHash: plan.registryHash,
+        trustedCheckpoint: checkpoint,
+        trustedCheckpointAttestation
+      }
+      const principal = governance.attestations.issuePrincipal(
+        ledger.finalizationPrincipalBindingFor(finalization)
+      )
+      const failedDatabase = forceDurableCommitResponseLoss(authority)
+      const finalized = (
+        ledger as unknown as {
+          appendFinalization(
+            value: typeof finalization,
+            principalAttestation: typeof principal,
+            skipFullReplay: boolean
+          ): ArtifactEvent
+        }
+      ).appendFinalization(finalization, principal, true)
+      expect(failedDatabase.isOpen).toBe(false)
+      expect(durableAuthorityDatabase(authority) === failedDatabase).toBe(false)
+      expect(finalized.type).toBe('ledger-finalized')
+      expect(ledger.isFinalized).toBe(true)
+      authority.close()
+
+      const restarted = durableAuthority(directory)
+      try {
+        expect(restarted.current(plan.planHash)).toBeDefined()
+        expect(restarted.head(plan.planHash)).toMatchObject({
+          ledgerSequence: seeded.sequence,
+          acceptedArtifactCount: 16_600,
+          finalized: true
+        })
+      } finally {
+        restarted.close()
+      }
+    } finally {
+      authority.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it('rejects an in-flight stale append after a competing instance publishes', () => {

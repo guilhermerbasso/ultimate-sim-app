@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   LedgerAppendAuthorityCommit,
   LedgerAppendOperation,
+  LedgerFinalizationAuthorityCommit,
   LedgerFinalizationOperation,
   LedgerPublicationHead,
   OpaqueAttestation
@@ -74,6 +75,95 @@ function authority(
           }
         })
   })
+}
+
+function authorityDatabase(
+  subject: DurableLedgerFinalizationAuthority
+): DatabaseSync {
+  return (
+    subject as unknown as {
+      database: DatabaseSync
+    }
+  ).database
+}
+
+function forceRollbackError(subject: DurableLedgerFinalizationAuthority): {
+  readonly database: DatabaseSync
+  observedInTransaction(): boolean | undefined
+} {
+  const database = authorityDatabase(subject)
+  const originalExec = database.exec
+  let observedInTransaction: boolean | undefined
+  Object.defineProperty(database, 'exec', {
+    configurable: true,
+    value: (sql: string): void => {
+      if (sql.trim().toUpperCase() === 'ROLLBACK') {
+        observedInTransaction = database.isTransaction
+        throw new Error('forced SQLite ROLLBACK failure')
+      }
+      Reflect.apply(originalExec, database, [sql])
+    }
+  })
+  return {
+    database,
+    observedInTransaction: () => observedInTransaction
+  }
+}
+
+function forceRollbackWithoutAutocommit(
+  subject: DurableLedgerFinalizationAuthority
+): {
+  readonly database: DatabaseSync
+  observedInTransaction(): boolean | undefined
+} {
+  const database = authorityDatabase(subject)
+  const originalExec = database.exec
+  let observedInTransaction: boolean | undefined
+  Object.defineProperty(database, 'exec', {
+    configurable: true,
+    value: (sql: string): void => {
+      if (sql.trim().toUpperCase() === 'ROLLBACK') {
+        observedInTransaction = database.isTransaction
+        return
+      }
+      Reflect.apply(originalExec, database, [sql])
+    }
+  })
+  return {
+    database,
+    observedInTransaction: () => observedInTransaction
+  }
+}
+
+function forceCommittedResponseLoss(
+  subject: DurableLedgerFinalizationAuthority
+): {
+  readonly database: DatabaseSync
+  rollbackObservedInTransaction(): boolean | undefined
+} {
+  const database = authorityDatabase(subject)
+  const originalExec = database.exec
+  let loseCommitResponse = true
+  let rollbackObservedInTransaction: boolean | undefined
+  Object.defineProperty(database, 'exec', {
+    configurable: true,
+    value: (sql: string): void => {
+      const statement = sql.trim().toUpperCase()
+      if (statement === 'COMMIT' && loseCommitResponse) {
+        loseCommitResponse = false
+        Reflect.apply(originalExec, database, [sql])
+        throw new Error('forced SQLite COMMIT response loss')
+      }
+      if (statement === 'ROLLBACK') {
+        rollbackObservedInTransaction = database.isTransaction
+      }
+      Reflect.apply(originalExec, database, [sql])
+    }
+  })
+  return {
+    database,
+    rollbackObservedInTransaction: () => rollbackObservedInTransaction
+  }
 }
 
 function event(
@@ -377,6 +467,193 @@ function parsedWorkerResult(result: {
 }
 
 describe('durable shared ledger publication authority', () => {
+  it('poisons a rollback-error connection and confirms absence only through a fresh connection', () => {
+    const directory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    try {
+      const subject = authority(directory, 'before-commit')
+      const operation = appendOperation()
+      const probe = forceRollbackError(subject)
+      try {
+        expect(() => subject.commitAppend(operation)).toThrow(
+          /rollback failed or did not restore confirmed autocommit/i
+        )
+        expect(probe.observedInTransaction()).toBe(true)
+        expect(probe.database.isOpen).toBe(false)
+        expect(authorityDatabase(subject) === probe.database).toBe(false)
+        expect(authorityDatabase(subject).isTransaction).toBe(false)
+        expect(() => subject.head(operation.planHash)).toThrow(
+          /exact fresh-connection recovery is required/i
+        )
+        expect(() => subject.recoverAppend(appendOperation(undefined, 1))).toThrow(
+          /only for the exact failed operation/i
+        )
+        expect(subject.recoverAppend(operation)).toBeUndefined()
+        expect(subject.head(operation.planHash)).toBeUndefined()
+      } finally {
+        subject.close()
+      }
+
+      const restarted = authority(directory)
+      try {
+        expect(restarted.head(operation.planHash)).toBeUndefined()
+        expect(restarted.recoverAppend(operation)).toBeUndefined()
+      } finally {
+        restarted.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('does not recover an uncommitted finalization from a poisoned connection or restart', () => {
+    const directory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    try {
+      const seed = certifiedSeed()
+      seedHead(directory, seed)
+      const subject = authority(directory, 'before-commit')
+      const operation = finalizationOperation(seed.head)
+      const probe = forceRollbackError(subject)
+      try {
+        expect(() => subject.commit(operation)).toThrow(
+          /rollback failed or did not restore confirmed autocommit/i
+        )
+        expect(probe.observedInTransaction()).toBe(true)
+        expect(probe.database.isOpen).toBe(false)
+        expect(() => subject.current(seed.head.planHash)).toThrow(
+          /exact fresh-connection recovery is required/i
+        )
+        expect(subject.recover(operation)).toBeUndefined()
+        expect(subject.current(seed.head.planHash)).toBeUndefined()
+        expect(subject.head(seed.head.planHash)).toMatchObject({
+          ledgerSequence: seed.head.ledgerSequence,
+          finalized: false
+        })
+      } finally {
+        subject.close()
+      }
+
+      const restarted = authority(directory)
+      try {
+        expect(restarted.current(seed.head.planHash)).toBeUndefined()
+        expect(restarted.head(seed.head.planHash)).toMatchObject({
+          ledgerSequence: seed.head.ledgerSequence,
+          finalized: false
+        })
+      } finally {
+        restarted.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('poisons a connection when rollback returns without restoring autocommit', () => {
+    const directory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    try {
+      const subject = authority(directory, 'before-commit')
+      const operation = appendOperation()
+      const probe = forceRollbackWithoutAutocommit(subject)
+      try {
+        expect(() => subject.commitAppend(operation)).toThrow(
+          /rollback failed or did not restore confirmed autocommit/i
+        )
+        expect(probe.observedInTransaction()).toBe(true)
+        expect(probe.database.isOpen).toBe(false)
+        expect(authorityDatabase(subject).isTransaction).toBe(false)
+        expect(subject.recoverAppend(operation)).toBeUndefined()
+      } finally {
+        subject.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers committed append and finalization responses only after replacing the connection', () => {
+    const appendDirectory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    const finalizeDirectory = mkdtempSync(
+      join(process.cwd(), '.visual-ledger-publication-test-')
+    )
+    try {
+      const appendSubject = authority(appendDirectory)
+      const append = appendOperation()
+      const appendProbe = forceCommittedResponseLoss(appendSubject)
+      let appendCommit: LedgerAppendAuthorityCommit | undefined
+      try {
+        expect(() => appendSubject.commitAppend(append)).toThrow(
+          /rollback failed or did not restore confirmed autocommit/i
+        )
+        expect(appendProbe.rollbackObservedInTransaction()).toBe(false)
+        expect(appendProbe.database.isOpen).toBe(false)
+        expect(authorityDatabase(appendSubject) === appendProbe.database).toBe(
+          false
+        )
+        appendCommit = appendSubject.recoverAppend(append)
+        expect(appendCommit).toBeDefined()
+        expect(appendSubject.head(append.planHash)).toMatchObject({
+          ledgerSequence: append.nextLedgerSequence,
+          ledgerRootHash: append.nextLedgerRootHash,
+          finalized: false
+        })
+      } finally {
+        appendSubject.close()
+      }
+      const appendRestart = authority(appendDirectory)
+      try {
+        expect(appendRestart.recoverAppend(append)).toEqual(appendCommit)
+      } finally {
+        appendRestart.close()
+      }
+
+      const seed = certifiedSeed()
+      seedHead(finalizeDirectory, seed)
+      const finalizeSubject = authority(finalizeDirectory)
+      const finalization = finalizationOperation(seed.head)
+      const finalizeProbe = forceCommittedResponseLoss(finalizeSubject)
+      let finalizationCommit: LedgerFinalizationAuthorityCommit | undefined
+      try {
+        expect(() => finalizeSubject.commit(finalization)).toThrow(
+          /rollback failed or did not restore confirmed autocommit/i
+        )
+        expect(finalizeProbe.rollbackObservedInTransaction()).toBe(false)
+        expect(finalizeProbe.database.isOpen).toBe(false)
+        expect(
+          authorityDatabase(finalizeSubject) === finalizeProbe.database
+        ).toBe(false)
+        finalizationCommit = finalizeSubject.recover(finalization)
+        expect(finalizationCommit).toBeDefined()
+        expect(finalizeSubject.current(seed.head.planHash)).toEqual({
+          operation: finalization,
+          commit: finalizationCommit
+        })
+      } finally {
+        finalizeSubject.close()
+      }
+      const finalizeRestart = authority(finalizeDirectory)
+      try {
+        expect(finalizeRestart.recover(finalization)).toEqual(
+          finalizationCommit
+        )
+        expect(() => finalizeRestart.commitAppend(appendOperation(seed.head))).toThrow(
+          /stale or finalized shared ledger append CAS/i
+        )
+      } finally {
+        finalizeRestart.close()
+      }
+    } finally {
+      rmSync(appendDirectory, { recursive: true, force: true })
+      rmSync(finalizeDirectory, { recursive: true, force: true })
+    }
+  })
+
   it('serializes append CAS across instances, rejects ABA, and recovers after restart', () => {
     const directory = mkdtempSync(
       join(process.cwd(), '.visual-ledger-publication-test-')

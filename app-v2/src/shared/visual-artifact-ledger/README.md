@@ -40,7 +40,10 @@ in Node's built-in SQLite backend. It requires WAL mode, `synchronous=FULL`, for
 `BEGIN IMMEDIATE` writer transactions; unsupported durability fails closed during construction.
 SQLite commit/rollback boundaries provide Windows-capable crash and restart recovery without
 claiming success after an ignored directory-sync error. Exact operation hashes recover responses
-lost after commit, while pre-commit process loss leaves no published head.
+lost after commit, while pre-commit process loss leaves no published head. A rollback exception or
+transaction that remains active poisons and closes that connection; only the exact failed operation
+may recover through a newly opened, confirmed-autocommit connection. Failure to close or reopen
+fails the authority permanently closed.
 
 Each revision must proceed through research, prompt draft, independent prompt QA, scheduler-backed
 image generation, independent image QA, implementation, independent render QA, and acceptance.

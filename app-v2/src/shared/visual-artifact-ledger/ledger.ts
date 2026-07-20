@@ -1668,6 +1668,7 @@ export class VisualArtifactLedger {
       operationHash: computeLedgerAppendOperationHash(operationWithoutHash)
     })
     let commit: LedgerAppendAuthorityCommit
+    let recoveredAfterCommitFailure = false
     try {
       commit = normalizeLedgerAppendCommit(
         Reflect.apply(
@@ -1687,6 +1688,7 @@ export class VisualArtifactLedger {
         fail('CAS', `Ledger publication authority rejected atomic append: ${message}`)
       }
       commit = normalizeLedgerAppendCommit(recovered)
+      recoveredAfterCommitFailure = true
     }
     if (
       commit.authorityId !== this.dependencies.finalizationAuthorityId ||
@@ -1702,6 +1704,28 @@ export class VisualArtifactLedger {
       [commit, operation],
       'Ledger publication authority append commit verifier'
     )
+    if (recoveredAfterCommitFailure) {
+      const durableRecords = Reflect.apply(
+        this.dependencies.publicationEventsAfter,
+        this.dependencies.finalizationAuthority,
+        [operation.planHash, operation.expectedLedgerSequence]
+      ) as readonly LedgerAppendRecord[]
+      const durableRecord =
+        durableRecords.length > 0
+          ? this.normalizeAppendRecord(durableRecords[0])
+          : undefined
+      if (
+        !durableRecord ||
+        canonicalStringify(durableRecord.operation) !==
+          canonicalStringify(operation) ||
+        canonicalStringify(durableRecord.commit) !== canonicalStringify(commit)
+      ) {
+        fail(
+          'CAS',
+          'Recovered ledger append is not present in durable authoritative history.'
+        )
+      }
+    }
     this.cachedPublicationHeadSource = undefined
     this.cachedPublicationHead = undefined
     this.hasLocallyCommittedPublicationHead = true

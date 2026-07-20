@@ -475,7 +475,10 @@ export interface LedgerFinalizationAuthority {
   readonly authorityId: string
   /** Atomically advance the shared durable ledger head while it remains writable. */
   commitAppend(operation: LedgerAppendOperation): LedgerAppendAuthorityCommit
-  /** Recover only the exact append whose durable response was lost. */
+  /**
+   * Recover only the exact append whose durable response was lost. If rollback
+   * was uncertain, implementations must use a fresh confirmed-autocommit connection.
+   */
   recoverAppend(operation: LedgerAppendOperation): LedgerAppendAuthorityCommit | undefined
   /** Read and verify committed append records after a local sequence. */
   eventsAfter(planHash: string, sequence: number): readonly LedgerAppendRecord[]
@@ -487,7 +490,10 @@ export interface LedgerFinalizationAuthority {
   ): unknown
   /** Atomically finalize the same shared durable head used by ordinary appends. */
   commit(operation: LedgerFinalizationOperation): LedgerFinalizationAuthorityCommit
-  /** Recover only the exact operation whose durable response was lost. */
+  /**
+   * Recover only the exact operation whose durable response was lost. If rollback
+   * was uncertain, implementations must use a fresh confirmed-autocommit connection.
+   */
   recover(operation: LedgerFinalizationOperation): LedgerFinalizationAuthorityCommit | undefined
   /** Read the unique authoritative record for a plan after restart or on a stale fork. */
   current(planHash: string): LedgerFinalizationRecord | undefined

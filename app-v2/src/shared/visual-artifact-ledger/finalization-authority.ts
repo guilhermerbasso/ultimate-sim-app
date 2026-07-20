@@ -156,6 +156,19 @@ interface RecordRow {
   commit_json: string
 }
 
+interface RecoveryFence {
+  readonly kind: LedgerAuthorityOperationKind
+  readonly operationHash: string
+  readonly failedDatabase: DatabaseSync
+}
+
+function sqliteInTransaction(database: DatabaseSync): boolean {
+  const compatible = database as DatabaseSync & {
+    readonly inTransaction?: boolean
+  }
+  return database.isTransaction || compatible.inTransaction === true
+}
+
 function computeLedgerRootHash(
   planHash: string,
   sequence: number,
@@ -714,7 +727,8 @@ export class DurableLedgerFinalizationAuthority
 {
   readonly authorityId: string
 
-  private readonly database: DatabaseSync
+  private database: DatabaseSync
+  private readonly databasePath: string
   private readonly issueCommitAttestation:
     DurableLedgerFinalizationAuthorityOptions['issueCommitAttestation']
   private readonly verifyCommitAttestation:
@@ -723,6 +737,7 @@ export class DurableLedgerFinalizationAuthority
     DurableLedgerFinalizationAuthorityOptions['faultInjector']
   >
   private closed = false
+  private recoveryFence?: RecoveryFence
 
   constructor(optionsValue: DurableLedgerFinalizationAuthorityOptions) {
     assertPlainObject(
@@ -793,41 +808,56 @@ export class DurableLedgerFinalizationAuthority
         >
       | undefined
     mkdirSync(directoryPath, { recursive: true })
-    this.database = new DatabaseSync(
-      join(directoryPath, 'visual-artifact-ledger-authority.sqlite3'),
-      {
-        allowExtension: false,
-        enableDoubleQuotedStringLiterals: false,
-        enableForeignKeyConstraints: true,
-        timeout: SQLITE_BUSY_TIMEOUT_MS
-      }
+    this.databasePath = join(
+      directoryPath,
+      'visual-artifact-ledger-authority.sqlite3'
     )
-    try {
-      this.configureDurability()
-      this.initializeSchema()
-      this.verifyAuthorityIdentity()
-    } catch (error) {
-      this.database.close()
-      this.closed = true
-      throw error
-    }
+    this.database = this.openDatabaseConnection()
   }
 
-  private configureDurability(): void {
-    const journal = this.database
+  private openDatabaseConnection(): DatabaseSync {
+    const database = new DatabaseSync(this.databasePath, {
+      allowExtension: false,
+      enableDoubleQuotedStringLiterals: false,
+      enableForeignKeyConstraints: true,
+      timeout: SQLITE_BUSY_TIMEOUT_MS
+    })
+    try {
+      this.configureDurability(database)
+      this.initializeSchema(database)
+      this.verifyAuthorityIdentity(database)
+      if (sqliteInTransaction(database)) {
+        fail(
+          'TRUST',
+          'SQLite publication recovery connection did not enter confirmed autocommit.'
+        )
+      }
+    } catch (error) {
+      try {
+        database.close()
+      } catch {
+        // The failed connection remains unusable and is never published.
+      }
+      throw error
+    }
+    return database
+  }
+
+  private configureDurability(database: DatabaseSync): void {
+    const journal = database
       .prepare('PRAGMA journal_mode = WAL')
       .get() as Record<string, unknown> | undefined
     const journalMode = journal?.journal_mode
-    this.database.exec(`
+    database.exec(`
       PRAGMA synchronous = FULL;
       PRAGMA foreign_keys = ON;
       PRAGMA trusted_schema = OFF;
       PRAGMA wal_autocheckpoint = 1000;
     `)
-    const synchronous = this.database
+    const synchronous = database
       .prepare('PRAGMA synchronous')
       .get() as Record<string, unknown> | undefined
-    const foreignKeys = this.database
+    const foreignKeys = database
       .prepare('PRAGMA foreign_keys')
       .get() as Record<string, unknown> | undefined
     if (
@@ -842,8 +872,8 @@ export class DurableLedgerFinalizationAuthority
     }
   }
 
-  private initializeSchema(): void {
-    this.database.exec(`
+  private initializeSchema(database: DatabaseSync): void {
+    database.exec(`
       CREATE TABLE IF NOT EXISTS authority_meta (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
         schema_version INTEGER NOT NULL,
@@ -883,13 +913,13 @@ export class DurableLedgerFinalizationAuthority
           DEFERRABLE INITIALLY DEFERRED
       ) STRICT;
     `)
-    const existing = this.database
+    const existing = database
       .prepare(
         'SELECT schema_version, authority_id FROM authority_meta WHERE singleton = 1'
       )
       .get() as Record<string, unknown> | undefined
     if (!existing) {
-      this.database
+      database
         .prepare(
           'INSERT INTO authority_meta(singleton, schema_version, authority_id) VALUES (1, ?, ?)'
         )
@@ -897,8 +927,8 @@ export class DurableLedgerFinalizationAuthority
     }
   }
 
-  private verifyAuthorityIdentity(): void {
-    const row = this.database
+  private verifyAuthorityIdentity(database: DatabaseSync): void {
+    const row = database
       .prepare(
         'SELECT schema_version, authority_id FROM authority_meta WHERE singleton = 1'
       )
@@ -913,7 +943,7 @@ export class DurableLedgerFinalizationAuthority
         'Durable ledger publication database belongs to another authority or schema.'
       )
     }
-    const quickCheck = this.database
+    const quickCheck = database
       .prepare('PRAGMA quick_check')
       .get() as Record<string, unknown> | undefined
     if (quickCheck?.quick_check !== 'ok') {
@@ -923,12 +953,115 @@ export class DurableLedgerFinalizationAuthority
 
   private assertOpen(): void {
     if (this.closed) fail('TRUST', 'Ledger publication authority is closed.')
+    if (this.recoveryFence) {
+      fail(
+        'TRUST',
+        'Ledger publication authority connection is poisoned; exact fresh-connection recovery is required.'
+      )
+    }
+    if (sqliteInTransaction(this.database)) {
+      const database = this.database
+      this.closed = true
+      try {
+        database.close()
+      } catch {
+        // The authority remains permanently closed.
+      }
+      fail(
+        'TRUST',
+        'Ledger publication authority detected a transaction outside atomic publication and failed closed.'
+      )
+    }
   }
 
   close(): void {
     if (this.closed) return
-    this.database.close()
     this.closed = true
+    this.recoveryFence = undefined
+    this.database.close()
+  }
+
+  private poisonTransactionConnection(
+    database: DatabaseSync,
+    kind: LedgerAuthorityOperationKind,
+    operationHash: string,
+    reason: string
+  ): never {
+    if (this.closed || this.database !== database) {
+      fail('TRUST', reason)
+    }
+    let closeError: unknown
+    try {
+      database.close()
+    } catch (error) {
+      closeError = error
+    }
+    if (closeError !== undefined) {
+      this.closed = true
+      fail(
+        'TRUST',
+        `${reason} The poisoned SQLite connection could not be confirmed closed; recovery is disabled.`
+      )
+    }
+    let freshDatabase: DatabaseSync
+    try {
+      freshDatabase = this.openDatabaseConnection()
+    } catch {
+      this.closed = true
+      fail(
+        'TRUST',
+        `${reason} A fresh durable SQLite recovery connection could not be established.`
+      )
+    }
+    this.database = freshDatabase
+    this.recoveryFence = {
+      kind,
+      operationHash,
+      failedDatabase: database
+    }
+    fail(
+      'TRUST',
+      `${reason} The connection was poisoned and replaced; exact fresh-connection recovery is required.`
+    )
+  }
+
+  private assertRecoveryConnection(
+    kind: LedgerAuthorityOperationKind,
+    operationHash: string
+  ): boolean {
+    if (this.closed) fail('TRUST', 'Ledger publication authority is closed.')
+    const fence = this.recoveryFence
+    if (!fence) {
+      this.assertOpen()
+      return false
+    }
+    if (fence.kind !== kind || fence.operationHash !== operationHash) {
+      fail(
+        'TRUST',
+        'Poisoned ledger publication authority permits recovery only for the exact failed operation.'
+      )
+    }
+    if (
+      this.database === fence.failedDatabase ||
+      sqliteInTransaction(this.database)
+    ) {
+      const database = this.database
+      this.closed = true
+      try {
+        database.close()
+      } catch {
+        // The authority remains permanently closed.
+      }
+      fail(
+        'TRUST',
+        'Ledger publication recovery did not use a fresh confirmed-autocommit SQLite connection.'
+      )
+    }
+    return true
+  }
+
+  private completeRecovery(usedFreshConnection: boolean): void {
+    if (usedFreshConnection) this.recoveryFence = undefined
   }
 
   private injectFault(
@@ -948,22 +1081,76 @@ export class DurableLedgerFinalizationAuthority
     body: () => T
   ): T {
     this.assertOpen()
-    this.database.exec('BEGIN IMMEDIATE')
+    const database = this.database
+    let transactionStarted = false
     let committed = false
     try {
+      database.exec('BEGIN IMMEDIATE')
+      transactionStarted = true
       const result = body()
       this.injectFault('before-commit', kind, operationHash)
-      this.database.exec('COMMIT')
+      database.exec('COMMIT')
+      if (sqliteInTransaction(database)) {
+        this.poisonTransactionConnection(
+          database,
+          kind,
+          operationHash,
+          'SQLite COMMIT returned while the publication transaction remained active.'
+        )
+      }
       committed = true
       this.injectFault('after-commit', kind, operationHash)
       return result
     } catch (error) {
-      if (!committed) {
-        try {
-          this.database.exec('ROLLBACK')
-        } catch {
-          // The original transaction failure is authoritative.
+      if (this.closed || this.database !== database) throw error
+      if (committed) {
+        if (sqliteInTransaction(database)) {
+          this.poisonTransactionConnection(
+            database,
+            kind,
+            operationHash,
+            'Committed SQLite publication did not remain in confirmed autocommit.'
+          )
         }
+        throw error
+      }
+      let transactionStateError: unknown
+      let inTransaction = true
+      try {
+        inTransaction = sqliteInTransaction(database)
+      } catch (stateError) {
+        transactionStateError = stateError
+      }
+      if (
+        !transactionStarted &&
+        !inTransaction &&
+        transactionStateError === undefined
+      ) {
+        throw error
+      }
+      let rollbackError: unknown
+      try {
+        database.exec('ROLLBACK')
+      } catch (rollbackFailure) {
+        rollbackError = rollbackFailure
+      }
+      let remainsInTransaction = true
+      try {
+        remainsInTransaction = sqliteInTransaction(database)
+      } catch (stateError) {
+        transactionStateError = stateError
+      }
+      if (
+        rollbackError !== undefined ||
+        transactionStateError !== undefined ||
+        remainsInTransaction
+      ) {
+        this.poisonTransactionConnection(
+          database,
+          kind,
+          operationHash,
+          'SQLite publication rollback failed or did not restore confirmed autocommit.'
+        )
       }
       throw error
     }
@@ -1342,9 +1529,12 @@ export class DurableLedgerFinalizationAuthority
   recoverAppend(
     operationValue: LedgerAppendOperation
   ): LedgerAppendAuthorityCommit | undefined {
-    this.assertOpen()
     const operation = normalizeLedgerAppendOperation(operationValue)
     if (operation.authorityId !== this.authorityId) return undefined
+    const usedFreshConnection = this.assertRecoveryConnection(
+      'append',
+      operation.operationHash
+    )
     this.readHeadRow(operation.planHash)
     const record = this.readAppendRecord(
       operation.planHash,
@@ -1356,6 +1546,7 @@ export class DurableLedgerFinalizationAuthority
     ) {
       fail('CAS', 'Ledger append recovery operation does not match durable state.')
     }
+    this.completeRecovery(usedFreshConnection)
     return record?.commit
   }
 
@@ -1500,12 +1691,9 @@ export class DurableLedgerFinalizationAuthority
     return deepFreeze({ operation, commit })
   }
 
-  current(planHashValue: string): LedgerFinalizationRecord | undefined {
-    this.assertOpen()
-    const planHash = assertSha256(
-      planHashValue,
-      'Ledger finalization authority planHash'
-    )
+  private readCurrentFinalizationRecord(
+    planHash: string
+  ): LedgerFinalizationRecord | undefined {
     const record = this.readFinalizationRecord(planHash)
     if (!record) return undefined
     const head = this.readHeadRow(planHash)
@@ -1518,6 +1706,15 @@ export class DurableLedgerFinalizationAuthority
       fail('INTEGRITY', 'Ledger finalization record is not the authoritative head.')
     }
     return record
+  }
+
+  current(planHashValue: string): LedgerFinalizationRecord | undefined {
+    this.assertOpen()
+    const planHash = assertSha256(
+      planHashValue,
+      'Ledger finalization authority planHash'
+    )
+    return this.readCurrentFinalizationRecord(planHash)
   }
 
   commit(
@@ -1615,18 +1812,26 @@ export class DurableLedgerFinalizationAuthority
   recover(
     operationValue: LedgerFinalizationOperation
   ): LedgerFinalizationAuthorityCommit | undefined {
-    this.assertOpen()
     const operation = normalizeLedgerFinalizationOperation(operationValue)
-    const current = this.current(operation.planHash)
+    if (operation.authorityId !== this.authorityId) return undefined
+    const usedFreshConnection = this.assertRecoveryConnection(
+      'finalize',
+      operation.operationHash
+    )
+    const current = this.readCurrentFinalizationRecord(operation.planHash)
     if (
       current &&
       canonicalStringify(current.operation) !== canonicalStringify(operation)
     ) {
+      this.completeRecovery(usedFreshConnection)
       return undefined
     }
-    return current?.operation.operationHash === operation.operationHash
+    const recovered =
+      current?.operation.operationHash === operation.operationHash
       ? current.commit
       : undefined
+    this.completeRecovery(usedFreshConnection)
+    return recovered
   }
 
   verifyCommit(
