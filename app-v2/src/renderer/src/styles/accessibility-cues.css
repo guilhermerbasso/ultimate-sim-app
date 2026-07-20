@@ -81,6 +81,63 @@
   width: 100%;
 }
 
+.accessibility-cues-view select {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  appearance: auto;
+  color-scheme: dark;
+  background-color: var(--surface-sunken);
+  color: var(--text-primary);
+  -webkit-text-fill-color: currentColor;
+  font: inherit;
+}
+
+.accessibility-cues-view select option {
+  background-color: var(--surface-overlay);
+  color: var(--text-primary);
+  -webkit-text-fill-color: currentColor;
+}
+
+.accessibility-cues-view select:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  color: var(--text-muted);
+  -webkit-text-fill-color: var(--text-muted);
+}
+
+.accessibility-cues-view[data-high-contrast="true"] select {
+  border-color: #fff;
+  background-color: #000;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+.accessibility-cues-view[data-high-contrast="true"] select option {
+  background-color: #000;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+.accessibility-cues-view[data-high-contrast="true"] select:disabled {
+  opacity: 0.75;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+@media (forced-colors: active) {
+  .accessibility-cues-view select,
+  .accessibility-cues-view select option {
+    forced-color-adjust: auto;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  .accessibility-cues-view select:disabled {
+    opacity: 1;
+  }
+}
+
 .accessibility-cues-switch {
   display: flex;
   gap: 10px;
