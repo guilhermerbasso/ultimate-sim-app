@@ -258,12 +258,10 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
         tree: 'resolved-from-git-at-runtime'
       }
     })
-    const sourceBranch = process.env.GITHUB_HEAD_REF?.trim() || git('branch', '--show-current')
-    if (sourceBranch) {
-      expect.soft(current.branch).toBe(sourceBranch)
-    } else {
-      expect.soft(current.branch).toMatch(/^[A-Za-z0-9._/-]+$/)
-    }
+    const contract = JSON.parse(readFileSync(acceptancePath, 'utf8')) as { branch: string }
+    expect.soft(current.branch).toBe(contract.branch)
+    expect.soft(current.branch).toMatch(/^[A-Za-z0-9._/-]+$/)
+    expect(current.sourceBinding).not.toHaveProperty('branch')
     expect(current.baseCommit).toMatch(/^[0-9a-f]{40}$/)
     expect(current).not.toHaveProperty('implementationHead')
     expect(current).not.toHaveProperty('implementationTree')
@@ -334,6 +332,9 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
     expect(step(app, 'Install dependencies')?.run).toBe(
       'npm ci --ignore-scripts --no-audit --no-fund'
     )
+    expect(step(app, 'Install Electron test runtime')?.run).toBe(
+      'node node_modules/electron/install.js'
+    )
     expect(step(app, 'Typecheck')?.run).toBe('npm run typecheck')
     expect(step(app, 'Test')?.run).toBe('npm test')
     expect(step(app, 'Build')?.run).toBe('npm run build')
@@ -347,6 +348,10 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
       contents: 'read',
       'id-token': 'write',
       attestations: 'write'
+    })
+    expect(step(acceptance, 'Install Electron test runtime')).toMatchObject({
+      'working-directory': 'app-v2',
+      run: 'node node_modules/electron/install.js'
     })
     expect(step(acceptance, 'Run source-bound acceptance')?.run).toBe(
       'node scripts/run-passport-v2-acceptance.mjs'
