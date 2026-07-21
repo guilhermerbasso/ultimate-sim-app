@@ -44,4 +44,17 @@ describe('fallback live session identity', () => {
       (hotlap.context?.connectionEpoch ?? 0) + 1
     )
   })
+
+  it('preserves a validated provider connection epoch', () => {
+    const gate = new LiveTelemetryGate()
+    const firstSnapshot = snapshot({ connectionEpoch: 41 })
+    const first = gate.observe(firstSnapshot)
+    expect(first.context).toEqual(captureLiveTelemetryContext(firstSnapshot))
+
+    gate.observe(snapshot({ connected: false, connectionEpoch: 41 }))
+    const reconnectedSnapshot = snapshot({ connectionEpoch: 42 })
+    const reconnected = gate.observe(reconnectedSnapshot)
+    expect(reconnected.context).toEqual(captureLiveTelemetryContext(reconnectedSnapshot))
+    expect(reconnected.context?.connectionEpoch).toBe(42)
+  })
 })

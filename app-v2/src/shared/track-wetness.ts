@@ -19,9 +19,12 @@ export function classifyTrackWetness(input: TrackWetnessInput): TrackWetnessStat
   const wetness = hasWetness
     ? Math.max(0, Math.min(1, input.trackWetnessPct as number))
     : 0
+  const previousWetness = finite(input.previousTrackWetnessPct)
+    ? Math.max(0, Math.min(1, input.previousTrackWetnessPct))
+    : undefined
   const wasWetter =
-    finite(input.previousTrackWetnessPct) &&
-    input.previousTrackWetnessPct - wetness >= 0.03
+    previousWetness !== undefined &&
+    previousWetness - wetness >= 0.03
   if (
     input.isRaining !== true &&
     wetness > 0.03 &&

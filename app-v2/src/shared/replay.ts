@@ -200,7 +200,10 @@ export class LiveTelemetryGate {
     const state = liveTelemetryState(snapshot)
     const raw = snapshot?.replayContext
     let context = captureLiveTelemetryContext(snapshot)
-    if (!raw && state === 'live' && context) {
+    const hasProviderConnectionEpoch =
+      Number.isSafeInteger(snapshot?.connectionEpoch) &&
+      (snapshot?.connectionEpoch as number) >= 0
+    if (!raw && !hasProviderConnectionEpoch && state === 'live' && context) {
       if (this.previousState !== undefined && this.previousState !== 'live') {
         this.fallbackConnectionEpoch += 1
       }

@@ -120,6 +120,8 @@ describe('piperSupportsLanguage', () => {
   it('uses OS speech for app languages without a bundled Piper model', () => {
     expect(piperSupportsLanguage('en-US')).toBe(true)
     expect(piperSupportsLanguage('pt-BR')).toBe(true)
+    expect(piperSupportsLanguage('en_US_POSIX')).toBe(true)
+    expect(piperSupportsLanguage('pt_BR_formal')).toBe(true)
     for (const language of ['es', 'fr', 'de', 'zh', 'ja']) {
       expect(piperSupportsLanguage(language)).toBe(false)
     }

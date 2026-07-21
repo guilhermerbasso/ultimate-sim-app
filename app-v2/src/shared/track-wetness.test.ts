@@ -24,4 +24,14 @@ describe('classifyTrackWetness', () => {
       })
     ).toBe('drying')
   })
+
+  it('clamps previous surface wetness before detecting a drying trend', () => {
+    expect(
+      classifyTrackWetness({
+        trackWetnessPct: 0.98,
+        previousTrackWetnessPct: 2,
+        isRaining: false
+      })
+    ).toBe('wet')
+  })
 })

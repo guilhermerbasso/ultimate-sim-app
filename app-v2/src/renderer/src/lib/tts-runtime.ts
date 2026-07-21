@@ -837,7 +837,7 @@ export async function speakViaIsolatedTts(
 }
 
 export function piperSupportsLanguage(language: string | null | undefined): boolean {
-  const normalized = (language ?? '').trim().toLowerCase().replace('_', '-')
+  const normalized = (language ?? '').trim().toLowerCase().replace(/_/g, '-')
   return (
     normalized === '' ||
     normalized === 'en' ||
