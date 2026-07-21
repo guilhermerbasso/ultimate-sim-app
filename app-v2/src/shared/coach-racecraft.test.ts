@@ -382,6 +382,9 @@ describe('racecraft question routing', () => {
     ['pt-BR', 'Por favor, diga se o composto duro seria melhor.'],
     ['pt-BR', 'Você pode explicar se o melhor é o pneu macio?'],
     ['pt-BR', 'Por favor, diga se os melhores seriam os compostos macios.'],
+    ['pt-BR', 'se o pneu macio é superior'],
+    ['pt-BR', 'Por favor, diga se extraordinário é o composto duro.'],
+    ['pt-BR', 'Explique se o pneu médio não é vantajoso.'],
     ['es', '¿Qué neumáticos debo usar?'],
     ['es', 'Por favor, ¿cuáles compuestos recomendaría?'],
     ['es', '¿Podría explicarme cuáles son los mejores neumáticos?'],
@@ -391,6 +394,9 @@ describe('racecraft question routing', () => {
     ['es', 'Por favor, dime si el compuesto duro sería mejor.'],
     ['es', '¿Podría explicar si el mejor es el neumático blando?'],
     ['es', 'Por favor, dime si los mejores serían los compuestos blandos.'],
+    ['es', 'si el neumático blando es superior'],
+    ['es', 'Por favor, dime si sobresaliente es el compuesto duro.'],
+    ['es', 'Explique si el neumático medio no conviene.'],
     ['fr', 'Quels pneus dois-je utiliser ?'],
     ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?'],
     ['fr', 'Expliquez-moi quels sont les meilleurs pneus.'],
@@ -400,6 +406,9 @@ describe('racecraft question routing', () => {
     ['fr', 'Pourriez-vous dire si la gomme dure serait meilleure ?'],
     ['fr', 'Expliquez-moi si le meilleur est le pneu tendre.'],
     ['fr', 'Dites-moi, s’il vous plaît, si les meilleurs seraient les composés tendres.'],
+    ['fr', 'si le pneu tendre est supérieur'],
+    ['fr', 'Dites-moi si remarquable est la gomme dure.'],
+    ['fr', 'Expliquez si le pneu moyen n’est guère avantageux.'],
     ['de', 'Welchen Reifen soll ich verwenden?'],
     ['de', 'Welche Reifen würden Sie bitte empfehlen?'],
     ['de', 'Erkläre mir, welche die besten Reifen sind.'],
@@ -408,7 +417,10 @@ describe('racecraft question routing', () => {
     ['de', 'Erkläre mir bitte, ob die weichen Reifen besser wären.'],
     ['de', 'Könnten Sie sagen, ob die harte Mischung besser wäre?'],
     ['de', 'Erkläre mir, ob der beste der weiche Reifen ist.'],
-    ['de', 'Sagen Sie mir bitte, ob die besten die weichen Mischungen sind.']
+    ['de', 'Sagen Sie mir bitte, ob die besten die weichen Mischungen sind.'],
+    ['de', 'ob der weiche Reifen überlegen ist'],
+    ['de', 'Sagen Sie bitte, ob außergewöhnlich die harte Mischung ist.'],
+    ['de', 'Erklären Sie, ob der mittlere Reifen keineswegs taugt.']
   ] as const)('default-denies localized tyre-choice structure: %s — %s', (language, question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
@@ -420,7 +432,11 @@ describe('racecraft question routing', () => {
     '¿Cuáles son las presiones de los neumáticos?',
     'Quelles sont les pressions des pneus ?',
     'Wie hoch sind die Reifendrücke?',
-    'What are the tyre pressures?'
+    'What are the tyre pressures?',
+    'Se a pressão dos pneus está em 180 kPa?',
+    'Si la presión de los neumáticos es 180 kPa?',
+    'Si la pression des pneus est de 180 kPa ?',
+    'Ob der Reifendruck 180 kPa beträgt?'
   ])('does not mistake read-only tyre status for compound selection: %s', (question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
   })
@@ -431,6 +447,17 @@ describe('racecraft question routing', () => {
     ['fr', 'Que signifie pneu ?'],
     ['de', 'Was bedeutet Reifen?']
   ] as const)('preserves factual localized tyre definitions: %s — %s', (language, question) => {
+    expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
+    expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
+    expect(controlledDefinitionResponse(question, language)).not.toBeNull()
+  })
+
+  it.each([
+    ['pt-BR', 'O que significa a frase "se o pneu macio é superior"?'],
+    ['es', '¿Qué significa la frase "si el neumático blando es superior"?'],
+    ['fr', 'Que signifie la phrase « si le pneu tendre est supérieur » ?'],
+    ['de', 'Was bedeutet der Satz „ob der weiche Reifen überlegen ist“?']
+  ] as const)('keeps narrow quoted phrase-meaning requests controlled: %s — %s', (language, question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
     expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
     expect(controlledDefinitionResponse(question, language)).not.toBeNull()

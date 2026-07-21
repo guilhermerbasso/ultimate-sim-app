@@ -658,8 +658,8 @@ interface TyreSelectionPattern {
   directChoice: RegExp
   boundedChoice: RegExp
   selectionMarker: RegExp
-  conditionalComparison: RegExp
-  conditionalComparatorFirst: RegExp
+  conditionalEnvelope: RegExp
+  status: RegExp
   action: RegExp
 }
 
@@ -675,8 +675,8 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     directChoice: /\b(?:(?:qual|quais)\s+(?:(?:tipo|jogo)\s+de\s+)?|que\s+)(?:pneu|compost)\p{L}*\b/u,
     boundedChoice: /\b(?:qual|quais|que)\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compost)\p{L}*\b/u,
     selectionMarker: /\b(?:melhor\p{L}*|pior\p{L}*|mais\s+(?:adequad|apropriad|rapid|segur)\p{L}*|devo|deveria|usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u,
-    conditionalComparison: /\b(?:se|caso)\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compost)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:melhor|pior|mais\s+(?:adequad|apropriad|rapid|segur))\p{L}*\b/u,
-    conditionalComparatorFirst: /\b(?:se|caso)\b(?:\s+\p{L}+){0,12}\s+(?:melhor|pior|mais\s+(?:adequad|apropriad|rapid|segur))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compost)\p{L}*\b/u,
+    conditionalEnvelope: /\b(?:se|caso)\b/u,
+    status: /\b(?:pressao|temperatur\p{L}*|desgast\p{L}*|calibrag\p{L}*|estado)\b/u,
     action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
   },
   {
@@ -685,8 +685,8 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     directChoice: /\b(?:que|cual\p{L}*)\s+(?:(?:tipo|juego)\s+de\s+)?(?:neumatic|compuest)\p{L}*\b/u,
     boundedChoice: /\b(?:que|cual\p{L}*)\b(?:\s+\p{L}+){0,8}\s+(?:neumatic|compuest)\p{L}*\b/u,
     selectionMarker: /\b(?:mejor\p{L}*|peor\p{L}*|mas\s+(?:adecuad|apropiad|rapid|segur)\p{L}*|debo|deberia|usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u,
-    conditionalComparison: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:neumatic|compuest)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:mejor|peor|mas\s+(?:adecuad|apropiad|rapid|segur))\p{L}*\b/u,
-    conditionalComparatorFirst: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:mejor|peor|mas\s+(?:adecuad|apropiad|rapid|segur))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:neumatic|compuest)\p{L}*\b/u,
+    conditionalEnvelope: /\bsi\b/u,
+    status: /\b(?:presion|temperatur\p{L}*|desgast\p{L}*|estado)\b/u,
     action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -695,18 +695,18 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     directChoice: /\bquel\p{L}*\s+(?:(?:type|jeu)\s+de\s+)?(?:pneu|compos|gomm)\p{L}*\b/u,
     boundedChoice: /\bquel\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
     selectionMarker: /\b(?:meilleur\p{L}*|pire\p{L}*|plus\s+(?:adapte|approprie|rapide|sur)\p{L}*|devrais|devrait|utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u,
-    conditionalComparison: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compos|gomm)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:meilleur|pire|plus\s+(?:adapte|approprie|rapide|sur))\p{L}*\b/u,
-    conditionalComparatorFirst: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:meilleur|pire|plus\s+(?:adapte|approprie|rapide|sur))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
+    conditionalEnvelope: /\bsi\b/u,
+    status: /\b(?:pression|temperatur\p{L}*|usure|etat)\b/u,
     action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
   },
   {
     language: 'de',
-    domain: /\b(?:reifen|misch)\p{L}*\b/u,
-    directChoice: /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|misch)\p{L}*\b/u,
-    boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|misch)\p{L}*\b/u,
+    domain: /\b(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
+    directChoice: /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
+    boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
     selectionMarker: /\b(?:best\p{L}*|besser\p{L}*|schlechter\p{L}*|geeignet\p{L}*|soll\p{L}*|mus\p{L}*|verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u,
-    conditionalComparison: /\b(?:ob|wenn)\b(?:\s+\p{L}+){0,12}\s+(?:reifen|misch)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:besser|schlechter|geeignet|am\s+besten)\p{L}*\b/u,
-    conditionalComparatorFirst: /\b(?:ob|wenn)\b(?:\s+\p{L}+){0,12}\s+(?:best|besser|schlechter|geeignet)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:reifen|misch)\p{L}*\b/u,
+    conditionalEnvelope: /\b(?:ob|wenn|falls)\b/u,
+    status: /\b(?:reifendruck\p{L}*|reifentemperatur\p{L}*|reifenverschleiss\p{L}*|druck|temperatur|verschleiss|zustand)\b/u,
     action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
   },
   {
@@ -715,11 +715,69 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     directChoice: /\b(?:which|what)\s+(?:(?:type|set)\s+of\s+)?(?:tyre|tire|compound)\p{L}*\b/u,
     boundedChoice: /\b(?:which|what)\b(?:\s+\p{L}+){0,8}\s+(?:tyre|tire|compound)\p{L}*\b/u,
     selectionMarker: /\b(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick)|should|use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u,
-    conditionalComparison: /\b(?:if|whether)\b(?:\s+\p{L}+){0,12}\s+(?:tyre|tire|compound)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick))\p{L}*\b/u,
-    conditionalComparatorFirst: /\b(?:if|whether)\b(?:\s+\p{L}+){0,12}\s+(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:tyre|tire|compound)\p{L}*\b/u,
+    conditionalEnvelope: /\b(?:if|whether)\b/u,
+    status: /\b(?:pressure|temperatur\p{L}*|temp|wear|status|condition)\b/u,
     action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
   }
 ]
+
+const CONDITIONAL_STRUCTURE_WORDS = new Set([
+  'a', 'an', 'the', 'o', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+  'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
+  'le', 'les', 'des', 'du', 'une',
+  'der', 'die', 'das', 'den', 'dem', 'ein', 'eine', 'einer',
+  'de', 'do', 'da', 'dos', 'das', 'del', 'von',
+  'e', 'es', 'son', 'est', 'sont', 'ist', 'sind', 'is', 'are',
+  'seria', 'seriam', 'serait', 'seraient', 'ware', 'waren', 'would', 'be',
+  'nao', 'no', 'ne', 'pas', 'nicht', 'not'
+])
+
+const NARROW_PHRASE_LABEL =
+  /\b(?:phrase|frase|expressao|expresion|expression|satz|ausdruck|formulierung)\b/u
+const NARROW_MEANING_ENVELOPE =
+  /\b(?:meaning|mean\p{L}*|signific\p{L}*|signifi\p{L}*|sens|bedeut\p{L}*|definition|defin\p{L}*)\b/u
+const QUOTED_PHRASE_MARKER = /["“”„«»‹›]/u
+
+function hasNarrowPhraseMarker(value: string): boolean {
+  return QUOTED_PHRASE_MARKER.test(value) ||
+    NARROW_PHRASE_LABEL.test(normalize(value))
+}
+
+function hasChoiceOrSessionSemantics(value: string): boolean {
+  const q = normalize(value)
+  return DEFINITION_PERSONAL_CONTEXT.test(q) ||
+    DEFINITION_RECOMMENDATION_CLAUSE.test(q)
+}
+
+function isNarrowPhraseMeaningRequest(value: string): boolean {
+  const q = normalize(value)
+  return hasNarrowPhraseMarker(value) &&
+    NARROW_MEANING_ENVELOPE.test(q) &&
+    !hasChoiceOrSessionSemantics(value)
+}
+
+function isNarrowPhraseDefinitionBody(value: string): boolean {
+  return hasNarrowPhraseMarker(value) && !hasChoiceOrSessionSemantics(value)
+}
+
+function hasConditionalTyreProposition(
+  q: string,
+  pattern: TyreSelectionPattern
+): boolean {
+  const conditional = pattern.conditionalEnvelope.exec(q)
+  if (!conditional) return false
+  const clause = q.slice(conditional.index + conditional[0].length).trim()
+  if (!clause || !pattern.domain.test(clause)) return false
+  if (
+    pattern.status.test(clause) &&
+    !pattern.action.test(clause)
+  ) return false
+
+  const tokens = clause.match(/\p{L}+/gu) ?? []
+  return tokens.some((token) =>
+    !CONDITIONAL_STRUCTURE_WORDS.has(token) &&
+    !pattern.domain.test(token))
+}
 
 function normalizedTyreSelectionQuestion(question: string): string {
   return normalize(question)
@@ -730,22 +788,22 @@ function normalizedTyreSelectionQuestion(question: string): string {
 }
 
 function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
+  if (isNarrowPhraseMeaningRequest(question)) return null
   const q = normalizedTyreSelectionQuestion(question)
   if (!q) return null
 
   const meaningOnly =
     /\b(?:definition|meaning|explanation|mean\p{L}*|significad\p{L}*|signification|sens|definicao|definicion|definit\p{L}*|bedeut\p{L}*|erklarung)\b/u.test(q)
 
-  // Choice grammar is evaluated before any definition exemption. In particular,
-  // polite "explain which are the best tyres" wording remains a selection request.
+  // Choice and conditional proposition grammar is evaluated before definitions.
+  // Conditional safety is structural and does not depend on comparator wording.
   for (const pattern of TYRE_SELECTION_PATTERNS) {
     if (!pattern.domain.test(q)) continue
     const boundedChoice = pattern.boundedChoice.test(q)
     if (
       pattern.directChoice.test(q) ||
       (boundedChoice && pattern.selectionMarker.test(q)) ||
-      pattern.conditionalComparison.test(q) ||
-      pattern.conditionalComparatorFirst.test(q)
+      hasConditionalTyreProposition(q, pattern)
     ) {
       return { language: pattern.language, choice: true }
     }
@@ -785,6 +843,7 @@ function isPureDefinitionBody(
   const tyreSelection = detectTyreSelectionMatch(body)
   if (
     tyreSelection !== null &&
+    !(explicitMeaningEnvelope && isNarrowPhraseDefinitionBody(body)) &&
     (!explicitMeaningEnvelope || tyreSelection.choice)
   ) return false
   return explicitMeaningEnvelope || !DEFINITION_ACTION_PHRASE.test(body)
