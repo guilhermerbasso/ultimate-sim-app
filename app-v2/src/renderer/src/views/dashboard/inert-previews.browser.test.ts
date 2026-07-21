@@ -206,7 +206,24 @@ describe('inert gallery previews (Electron Chromium)', () => {
           response.setHeader('Content-Type', 'text/html'); response.end(await devServer.transformIndexHtml(request.url, raw))
         })
       }
-    }], server: { host: '127.0.0.1', port: 0 } })
+    }],
+    optimizeDeps: {
+      // Keep dependency discovery from reloading Electron while the harness is evaluating.
+      noDiscovery: true,
+      include: [
+        '@react-three/fiber',
+        'd3-shape',
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'react/jsx-dev-runtime',
+        'react/jsx-runtime',
+        'three',
+        'three/examples/jsm/controls/OrbitControls.js'
+      ]
+    },
+    server: { host: '127.0.0.1', port: 0 }
+  })
     let electronApp
     let tempDirectory
     try {
@@ -220,24 +237,8 @@ describe('inert gallery previews (Electron Chromium)', () => {
       electronApp = await _electron.launch({ executablePath, args: ['--no-sandbox', main], env: { ...process.env, INERT_PREVIEW_URL: 'http://127.0.0.1:' + address.port + '/__inert-preview' } })
       const page = await electronApp.firstWindow()
       page.on('pageerror', (error) => console.error(error))
-      let result
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        await page.waitForFunction(() => Boolean((window as typeof window & { __inertPreviewApi?: unknown }).__inertPreviewApi))
-        try {
-          result = await page.evaluate(() => (window as typeof window & { __inertPreviewApi: { run(): Promise<any> } }).__inertPreviewApi.run())
-          break
-        } catch (error) {
-          if (
-            attempt === 0 &&
-            error instanceof Error &&
-            /execution context was destroyed/i.test(error.message)
-          ) {
-            continue
-          }
-          throw error
-        }
-      }
-      if (!result) throw new Error('The inert-preview browser harness did not return a result.')
+      await page.waitForFunction(() => Boolean((window as typeof window & { __inertPreviewApi?: unknown }).__inertPreviewApi))
+      const result = await page.evaluate(() => (window as typeof window & { __inertPreviewApi: { run(): Promise<any> } }).__inertPreviewApi.run())
       expect(result.frameworkCount).toBe(423)
       expect(result.catalogFrameworkCount).toBe(423)
       expect(result.oneToOne).toBe(true)
