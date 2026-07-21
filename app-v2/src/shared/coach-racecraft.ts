@@ -697,7 +697,7 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
   },
   {
     language: 'de',
-    domain: /\b(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
+    domain: /\b(?:reifen\p{L}*|misch\p{L}*)\b/u,
     directChoice: /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
     boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
     selectionMarker: /\b(?:best\p{L}*|besser\p{L}*|schlechter\p{L}*|geeignet\p{L}*|soll\p{L}*|mus\p{L}*|verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u,
@@ -772,29 +772,6 @@ function hasConditionalTyreProposition(
     !pattern.domain.test(token))
 }
 
-const DETERMINISTIC_CURRENT_TYRE_READING_QUERIES: readonly RegExp[] = [
-  /^how are (?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/,
-  /^what (?:is|are) (?:(?:my|the) )?(?:tyre|tyres|tire|tires) (?:pressure|pressures|temperature|temperatures|wear|condition)$/,
-  /^what (?:is|are) (?:(?:my|the) )?(?:pressure|pressures|temperature|temperatures|wear|condition) (?:(?:of|on) )?(?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/,
-  /^(?:current )?(?:tyre|tyres|tire|tires) (?:pressure|pressures|temperature|temperatures|wear|condition)$/,
-  /^como estao (?:(?:os|meus) )?pneus$/,
-  /^qual (?:e )?a (?:pressao|temperatura|condicao) (?:atual )?(?:(?:dos|nos) )?pneus$/,
-  /^qual (?:e )?o desgaste (?:atual )?(?:(?:dos|nos) )?pneus$/,
-  /^qual (?:e )?a temperatura e (?:o )?desgaste (?:(?:dos|nos) )?pneus$/,
-  /^estado (?:atual )?(?:(?:dos|dos meus) )?pneus$/,
-  /^como estao (?:(?:los|mis) )?neumaticos$/,
-  /^cual es (?:la (?:presion|temperatura|condicion)|el desgaste) actual de los neumaticos$/,
-  /^comment sont (?:(?:les|mes) )?pneus$/,
-  /^quelle est la (?:pression|temperature|condition|usure) actuelle des pneus$/,
-  /^wie (?:hoch|warm|abgenutzt) sind die reifen$/,
-  /^wie ist der aktuelle (?:reifendruck|reifenverschleiss|reifenzustand)$/
-]
-
-function isDeterministicCurrentTyreReadingQuery(q: string): boolean {
-  return DETERMINISTIC_CURRENT_TYRE_READING_QUERIES.some((pattern) =>
-    pattern.test(q))
-}
-
 function normalizedTyreSelectionQuestion(question: string): string {
   return normalize(question)
     .replace(/[’']/g, ' ')
@@ -803,11 +780,95 @@ function normalizedTyreSelectionQuestion(question: string): string {
     .trim()
 }
 
+export type AnchoredTyreStatusMetric =
+  | 'overview'
+  | 'pressure'
+  | 'temperature'
+  | 'wear'
+  | 'condition'
+  | 'temperature-wear'
+
+export type AnchoredTyreStatusLanguage = Extract<
+  CoachAdviceLanguage,
+  'en-US' | 'pt-BR' | 'es' | 'fr' | 'de'
+>
+
+export interface AnchoredTyreStatusQuery {
+  readonly language: AnchoredTyreStatusLanguage
+  readonly metric: AnchoredTyreStatusMetric
+}
+
+interface AnchoredTyreStatusPattern extends AnchoredTyreStatusQuery {
+  readonly pattern: RegExp
+}
+
+const ANCHORED_TYRE_STATUS_PATTERNS: readonly AnchoredTyreStatusPattern[] = [
+  { language: 'en-US', metric: 'overview', pattern: /^how are (?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/u },
+  { language: 'en-US', metric: 'pressure', pattern: /^what (?:is|are) (?:(?:my|the) )?(?:tyre|tyres|tire|tires) pressures?$/u },
+  { language: 'en-US', metric: 'pressure', pattern: /^what (?:is|are) (?:(?:my|the) )?pressures? (?:(?:of|on) )?(?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/u },
+  { language: 'en-US', metric: 'pressure', pattern: /^(?:current )?(?:tyre|tyres|tire|tires) pressures?$/u },
+  { language: 'en-US', metric: 'temperature', pattern: /^what (?:is|are) (?:(?:my|the) )?(?:tyre|tyres|tire|tires) temperatures?$/u },
+  { language: 'en-US', metric: 'temperature', pattern: /^what (?:is|are) (?:(?:my|the) )?temperatures? (?:(?:of|on) )?(?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/u },
+  { language: 'en-US', metric: 'temperature', pattern: /^(?:current )?(?:tyre|tyres|tire|tires) temperatures?$/u },
+  { language: 'en-US', metric: 'wear', pattern: /^what (?:is|are) (?:(?:my|the) )?(?:tyre|tyres|tire|tires) wear$/u },
+  { language: 'en-US', metric: 'wear', pattern: /^what (?:is|are) (?:(?:my|the) )?wear (?:(?:of|on) )?(?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/u },
+  { language: 'en-US', metric: 'wear', pattern: /^(?:current )?(?:tyre|tyres|tire|tires) wear$/u },
+  { language: 'en-US', metric: 'condition', pattern: /^what (?:is|are) (?:(?:my|the) )?(?:tyre|tyres|tire|tires) condition$/u },
+  { language: 'en-US', metric: 'condition', pattern: /^what (?:is|are) (?:(?:my|the) )?condition (?:(?:of|on) )?(?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/u },
+  { language: 'en-US', metric: 'condition', pattern: /^(?:current )?(?:tyre|tyres|tire|tires) condition$/u },
+
+  { language: 'pt-BR', metric: 'overview', pattern: /^como estao (?:(?:os|meus) )?pneus$/u },
+  { language: 'pt-BR', metric: 'pressure', pattern: /^qual (?:e )?a pressao (?:atual )?(?:(?:dos|nos) )?pneus$/u },
+  { language: 'pt-BR', metric: 'pressure', pattern: /^quais sao as pressoes (?:atuais )?(?:dos|nos) pneus$/u },
+  { language: 'pt-BR', metric: 'temperature', pattern: /^qual (?:e )?a temperatura (?:atual )?(?:(?:dos|nos) )?pneus$/u },
+  { language: 'pt-BR', metric: 'temperature', pattern: /^quais sao as temperaturas (?:atuais )?(?:dos|nos) pneus$/u },
+  { language: 'pt-BR', metric: 'wear', pattern: /^qual (?:e )?o desgaste (?:atual )?(?:(?:dos|nos) )?pneus$/u },
+  { language: 'pt-BR', metric: 'condition', pattern: /^qual (?:e )?a condicao (?:atual )?(?:(?:dos|nos) )?pneus$/u },
+  { language: 'pt-BR', metric: 'condition', pattern: /^estado (?:atual )?(?:(?:dos|dos meus) )?pneus$/u },
+  { language: 'pt-BR', metric: 'temperature-wear', pattern: /^qual (?:e )?a temperatura e (?:o )?desgaste (?:(?:dos|nos) )?pneus$/u },
+
+  { language: 'es', metric: 'overview', pattern: /^como estan (?:(?:los|mis) )?neumaticos$/u },
+  { language: 'es', metric: 'pressure', pattern: /^cual es la presion (?:actual )?de los neumaticos$/u },
+  { language: 'es', metric: 'pressure', pattern: /^cuales son las presiones (?:actuales )?de los neumaticos$/u },
+  { language: 'es', metric: 'temperature', pattern: /^cual es la temperatura (?:actual )?de los neumaticos$/u },
+  { language: 'es', metric: 'temperature', pattern: /^cuales son las temperaturas (?:actuales )?de los neumaticos$/u },
+  { language: 'es', metric: 'wear', pattern: /^cual es el desgaste (?:actual )?de los neumaticos$/u },
+  { language: 'es', metric: 'condition', pattern: /^cual es la condicion (?:actual )?de los neumaticos$/u },
+
+  { language: 'fr', metric: 'overview', pattern: /^comment sont (?:(?:les|mes) )?pneus$/u },
+  { language: 'fr', metric: 'pressure', pattern: /^quelle est la pression (?:actuelle )?des pneus$/u },
+  { language: 'fr', metric: 'pressure', pattern: /^quelles sont les pressions (?:actuelles )?des pneus$/u },
+  { language: 'fr', metric: 'temperature', pattern: /^quelle est la temperature (?:actuelle )?des pneus$/u },
+  { language: 'fr', metric: 'temperature', pattern: /^quelles sont les temperatures (?:actuelles )?des pneus$/u },
+  { language: 'fr', metric: 'wear', pattern: /^quelle est l usure (?:actuelle )?des pneus$/u },
+  { language: 'fr', metric: 'condition', pattern: /^quelle est la condition (?:actuelle )?des pneus$/u },
+
+  { language: 'de', metric: 'overview', pattern: /^wie sind die reifen$/u },
+  { language: 'de', metric: 'pressure', pattern: /^wie ist der aktuelle reifendruck$/u },
+  { language: 'de', metric: 'pressure', pattern: /^wie hoch sind die (?:reifen|reifendrucke)$/u },
+  { language: 'de', metric: 'temperature', pattern: /^wie ist die aktuelle reifentemperatur$/u },
+  { language: 'de', metric: 'temperature', pattern: /^wie warm sind die reifen$/u },
+  { language: 'de', metric: 'wear', pattern: /^wie ist der aktuelle reifenverschlei(?:ss|ß)$/u },
+  { language: 'de', metric: 'wear', pattern: /^wie abgenutzt sind die reifen$/u },
+  { language: 'de', metric: 'condition', pattern: /^wie ist der aktuelle reifenzustand$/u }
+]
+
+export function recognizeAnchoredTyreStatusQuery(
+  question: string
+): AnchoredTyreStatusQuery | null {
+  const q = normalizedTyreSelectionQuestion(question)
+  const match = ANCHORED_TYRE_STATUS_PATTERNS.find(({ pattern }) =>
+    pattern.test(q))
+  return match
+    ? { language: match.language, metric: match.metric }
+    : null
+}
+
 function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
   if (isNarrowPhraseMeaningRequest(question)) return null
   const q = normalizedTyreSelectionQuestion(question)
   if (!q) return null
-  if (isDeterministicCurrentTyreReadingQuery(q)) return null
+  if (recognizeAnchoredTyreStatusQuery(question)) return null
 
   const meaningOnly =
     /\b(?:definition|meaning|explanation|mean\p{L}*|significad\p{L}*|signification|sens|definicao|definicion|definit\p{L}*|bedeut\p{L}*|erklarung)\b/u.test(q)

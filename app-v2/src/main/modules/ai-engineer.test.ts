@@ -242,8 +242,11 @@ describe('engineerSafetyAllowsIntent', () => {
     for (const reason of reasons) {
       for (const intent of intents) {
         const expected =
-          (reason === 'yellow-flag' || reason === 'caution' || reason === 'pacing') &&
-          intent !== 'other'
+          (
+            (reason === 'yellow-flag' || reason === 'caution' || reason === 'pacing') &&
+            intent !== 'other'
+          ) ||
+          (reason === 'race-control-unknown' && intent === 'tyres')
         expect(engineerSafetyAllowsIntent(reason, intent), `${reason}/${intent}`).toBe(expected)
       }
     }
@@ -491,34 +494,134 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
-    'How are my tyres?',
-    'What are my tyre pressures?',
-    'What is the wear of my tyres?',
-    'Current tyre temperature'
-  ])('answers anchored current tyre readings deterministically under yellow: %s', async (question) => {
-    const harness = makeHarness({
-      snapshot: {
-        sim: 'iracing',
-        connected: true,
-        timestamp: 1000,
-        sessionType: 'Race',
-        tyres: {
-          lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 },
-          rf: { pressureKpa: 181, tempC: 95, wearPct: 0.85 }
-        }
-      } as TelemetrySnapshot,
-      racecraftContext: {
-        safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
+    ['en-US', 'How are my tyres?', 'Tyres', '180 kPa'],
+    ['en-US', 'What are my tyre pressures?', 'Tyre pressures', '180 kPa'],
+    ['en-US', 'Current tyre temperature', 'Tyre temperatures', '88 °C'],
+    ['en-US', 'What is the wear of my tyres?', 'Tyre wear', '92%'],
+    ['en-US', 'What is the condition of my tyres?', 'Tyre condition', '180 kPa'],
+    ['pt-BR', 'Como estão os pneus?', 'Pneus', '180 kPa'],
+    ['pt-BR', 'Qual é a pressão atual dos pneus?', 'Pressões dos pneus', '180 kPa'],
+    ['pt-BR', 'Qual é a temperatura atual dos pneus?', 'Temperaturas dos pneus', '88 °C'],
+    ['pt-BR', 'Qual é o desgaste atual dos pneus?', 'Desgaste dos pneus', '92%'],
+    ['pt-BR', 'Qual é a condição atual dos pneus?', 'Condição dos pneus', '180 kPa'],
+    ['es', '¿Cómo están los neumáticos?', 'Neumáticos', '180 kPa'],
+    ['es', '¿Cuál es la presión actual de los neumáticos?', 'Presiones de los neumáticos', '180 kPa'],
+    ['es', '¿Cuál es la temperatura actual de los neumáticos?', 'Temperaturas de los neumáticos', '88 °C'],
+    ['es', '¿Cuál es el desgaste actual de los neumáticos?', 'Desgaste de los neumáticos', '92%'],
+    ['es', '¿Cuál es la condición actual de los neumáticos?', 'Estado de los neumáticos', '180 kPa'],
+    ['fr', 'Comment sont les pneus ?', 'Pneus', '180 kPa'],
+    ['fr', 'Quelle est la pression actuelle des pneus ?', 'Pressions des pneus', '180 kPa'],
+    ['fr', 'Quelle est la température actuelle des pneus ?', 'Températures des pneus', '88 °C'],
+    ['fr', 'Quelle est l’usure actuelle des pneus ?', 'Usure des pneus', '92%'],
+    ['fr', 'Quelle est la condition actuelle des pneus ?', 'État des pneus', '180 kPa'],
+    ['de', 'Wie ist der aktuelle Reifenzustand?', 'Reifenzustand', '180 kPa'],
+    ['de', 'Wie ist der aktuelle Reifendruck?', 'Reifendrücke', '180 kPa'],
+    ['de', 'Wie ist die aktuelle Reifentemperatur?', 'Reifentemperaturen', '88 °C'],
+    ['de', 'Wie ist der aktuelle Reifenverschleiß?', 'Reifenverschleiß', '92%']
+  ] as const)(
+    'answers localized current tyre readings without a model: %s — %s',
+    async (language, question, heading, reading) => {
+      for (const [safetyLabel, safety] of [
+        ['green', KNOWN_SAFE_RACE],
+        ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }],
+        [
+          'unknown',
+          {
+            connected: true,
+            onTrack: true,
+            flagsKnown: false,
+            pitStateKnown: false,
+            paceStateKnown: false
+          }
+        ]
+      ] as const) {
+        const harness = makeHarness({
+          config: {
+            language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
+          },
+          racecraftLanguage: language,
+          snapshot: {
+            sim: 'iracing',
+            connected: true,
+            timestamp: 1000,
+            sessionType: 'Race',
+            tyres: {
+              lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 },
+              rf: { pressureKpa: 181, tempC: 95, wearPct: 0.85 },
+              lr: { pressureKpa: 178, tempC: 86, wearPct: 0.9 },
+              rr: { pressureKpa: 179, tempC: 90, wearPct: 0.89 }
+            }
+          } as TelemetrySnapshot,
+          racecraftContext: { safety }
+        })
+
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.source, `${safetyLabel}:${question}`).toBe('intent')
+        expect(answer.lang, `${safetyLabel}:${question}`).toBe(language)
+        expect(answer.text, `${safetyLabel}:${question}`).toContain(heading)
+        expect(answer.text, `${safetyLabel}:${question}`).toContain(reading)
+        expect(harness.runtime.generateWithTools, `${safetyLabel}:${question}`).not.toHaveBeenCalled()
+        expect(harness.modelManager.ensureModel, `${safetyLabel}:${question}`).not.toHaveBeenCalled()
       }
-    })
+    }
+  )
 
-    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+  it.each([
+    ['en-US', 'What are my tyre pressures?', 'Current tyre readings are unavailable', 'Some tyre readings are unavailable'],
+    ['pt-BR', 'Qual é a pressão atual dos pneus?', 'As leituras atuais dos pneus estão indisponíveis', 'Algumas leituras dos pneus estão indisponíveis'],
+    ['es', '¿Cuál es la presión actual de los neumáticos?', 'Las lecturas actuales de los neumáticos no están disponibles', 'Algunas lecturas de los neumáticos no están disponibles'],
+    ['fr', 'Quelle est la pression actuelle des pneus ?', 'Les mesures actuelles des pneus sont indisponibles', 'Certaines mesures des pneus sont indisponibles'],
+    ['de', 'Wie ist der aktuelle Reifendruck?', 'Aktuelle Reifenmesswerte sind nicht verfügbar', 'Einige Reifenmesswerte sind nicht verfügbar']
+  ] as const)(
+    'keeps unavailable localized tyre readings deterministic under unknown safety: %s',
+    async (language, question, unavailable, partial) => {
+      for (const [label, tyres, marker] of [
+        ['missing', undefined, unavailable],
+        [
+          'partial',
+          {
+            lf: { pressureKpa: 180 },
+            rf: {},
+            lr: {},
+            rr: {}
+          },
+          partial
+        ]
+      ] as const) {
+        const harness = makeHarness({
+          config: {
+            language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
+          },
+          racecraftLanguage: language,
+          snapshot: {
+            sim: 'iracing',
+            connected: true,
+            timestamp: 1000,
+            sessionType: 'Race',
+            tyres
+          } as TelemetrySnapshot,
+          racecraftContext: {
+            safety: {
+              connected: true,
+              onTrack: true,
+              flagsKnown: false,
+              pitStateKnown: false,
+              paceStateKnown: false
+            }
+          }
+        })
 
-    expect(answer.source).toBe('intent')
-    expect(answer.text).not.toContain('TACTICS PAUSED')
-    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
-    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
-  })
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.source, `${label}:${question}`).toBe('intent')
+        expect(answer.lang, `${label}:${question}`).toBe(language)
+        expect(answer.text, `${label}:${question}`).toContain(marker)
+        expect(harness.runtime.generateWithTools, `${label}:${question}`).not.toHaveBeenCalled()
+        expect(harness.modelManager.ensureModel, `${label}:${question}`).not.toHaveBeenCalled()
+      }
+    }
+  )
 
   it.each([
     'Tenho combustível para terminar?',
@@ -1048,8 +1151,8 @@ describe('createEngineerOrchestrator.ask', () => {
     ['black', { ...KNOWN_SAFE_RACE, flagBlack: true }, 'safety or penalty flag'],
     ['meatball', { ...KNOWN_SAFE_RACE, flagMeatball: true }, 'safety or penalty flag']
   ] as const)(
-    'blocks every category bypass during %s',
-    async (_label, safety, marker) => {
+    'blocks non-exempt category bypasses during %s',
+    async (label, safety, marker) => {
       const snapshot = {
         sim: 'iracing',
         connected: true,
@@ -1073,9 +1176,15 @@ describe('createEngineerOrchestrator.ask', () => {
 
         const answer = await createEngineerOrchestrator(harness.deps).ask(question)
 
-        expect(answer.text, question).toContain(marker)
-        expect(answer.speak, question).toBe(false)
+        if (label === 'unknown' && question === 'How are the tires?') {
+          expect(answer.text, question).toContain('Tyres')
+          expect(answer.text, question).not.toContain(marker)
+        } else {
+          expect(answer.text, question).toContain(marker)
+          expect(answer.speak, question).toBe(false)
+        }
         expect(harness.runtime.generateWithTools, question).not.toHaveBeenCalled()
+        expect(harness.modelManager.ensureModel, question).not.toHaveBeenCalled()
       }
     }
   )

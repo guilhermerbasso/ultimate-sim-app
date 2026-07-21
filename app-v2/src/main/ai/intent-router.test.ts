@@ -239,6 +239,135 @@ describe('routeIntent -- PT-BR questions', () => {
     expect(r.text).not.toContain('NaN')
   })
 
+  it.each([
+    ['What are my tyre pressures?', 'en', 'Tyre pressures', '180 kPa'],
+    ['Current tyre temperature', 'en', 'Tyre temperatures', '88 °C'],
+    ['What is the wear of my tyres?', 'en', 'Tyre wear', '92%'],
+    ['How are my tyres?', 'en', 'Tyres', '180 kPa'],
+    ['What is the condition of my tyres?', 'en', 'Tyre condition', '180 kPa'],
+    ['Qual é a pressão atual dos pneus?', 'pt', 'Pressões dos pneus', '180 kPa'],
+    ['Qual é a temperatura atual dos pneus?', 'pt', 'Temperaturas dos pneus', '88 °C'],
+    ['Qual é o desgaste atual dos pneus?', 'pt', 'Desgaste dos pneus', '92%'],
+    ['Como estão os pneus?', 'pt', 'Pneus', '180 kPa'],
+    ['Qual é a condição atual dos pneus?', 'pt', 'Condição dos pneus', '180 kPa'],
+    ['¿Cuál es la presión actual de los neumáticos?', 'es', 'Presiones de los neumáticos', '180 kPa'],
+    ['¿Cuál es la temperatura actual de los neumáticos?', 'es', 'Temperaturas de los neumáticos', '88 °C'],
+    ['¿Cuál es el desgaste actual de los neumáticos?', 'es', 'Desgaste de los neumáticos', '92%'],
+    ['¿Cómo están los neumáticos?', 'es', 'Neumáticos', '180 kPa'],
+    ['¿Cuál es la condición actual de los neumáticos?', 'es', 'Estado de los neumáticos', '180 kPa'],
+    ['Quelle est la pression actuelle des pneus ?', 'fr', 'Pressions des pneus', '180 kPa'],
+    ['Quelle est la température actuelle des pneus ?', 'fr', 'Températures des pneus', '88 °C'],
+    ['Quelle est l’usure actuelle des pneus ?', 'fr', 'Usure des pneus', '92%'],
+    ['Comment sont les pneus ?', 'fr', 'Pneus', '180 kPa'],
+    ['Quelle est la condition actuelle des pneus ?', 'fr', 'État des pneus', '180 kPa'],
+    ['Wie ist der aktuelle Reifendruck?', 'de', 'Reifendrücke', '180 kPa'],
+    ['Wie ist die aktuelle Reifentemperatur?', 'de', 'Reifentemperaturen', '88 °C'],
+    ['Wie ist der aktuelle Reifenverschleiß?', 'de', 'Reifenverschleiß', '92%'],
+    ['Wie ist der aktuelle Reifenzustand?', 'de', 'Reifenzustand', '180 kPa']
+  ] as const)(
+    'routes localized tyre telemetry deterministically: %s',
+    (question, language, heading, reading) => {
+      const result = routeIntent(
+        question,
+        ctx(snapshot({
+          tyres: {
+            lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 },
+            rf: { pressureKpa: 181, tempC: 95, wearPct: 0.85 },
+            lr: { pressureKpa: 178, tempC: 86, wearPct: 0.9 },
+            rr: { pressureKpa: 179, tempC: 90, wearPct: 0.89 }
+          }
+        }))
+      )
+
+      expect(result.type).toBe('answer')
+      if (result.type !== 'answer') return
+      expect(result.category).toBe('tyres')
+      expect(result.lang).toBe(language)
+      expect(result.text).toContain(heading)
+      expect(result.text).toContain(reading)
+    }
+  )
+
+  it.each([
+    ['What are my tyre pressures?', 'psi'],
+    ['Qual é a temperatura atual dos pneus?', '°F'],
+    ['¿Cuál es la presión actual de los neumáticos?', 'psi'],
+    ['Quelle est la température actuelle des pneus ?', '°F'],
+    ['Wie ist der aktuelle Reifendruck?', 'psi']
+  ])('preserves requested unit system for localized tyre telemetry: %s', (question, unit) => {
+    const result = routeIntent(
+      question,
+      ctx(snapshot({
+        tyres: {
+          lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 },
+          rf: { pressureKpa: 181, tempC: 95, wearPct: 0.85 },
+          lr: { pressureKpa: 178, tempC: 86, wearPct: 0.9 },
+          rr: { pressureKpa: 179, tempC: 90, wearPct: 0.89 }
+        }
+      })),
+      'en',
+      'imperial'
+    )
+
+    expect(result.type).toBe('answer')
+    if (result.type !== 'answer') return
+    expect(result.text).toContain(unit)
+  })
+
+  it.each([
+    [
+      'What are my tyre pressures?',
+      'Current tyre readings are unavailable',
+      'Some tyre readings are unavailable'
+    ],
+    [
+      'Qual é a pressão atual dos pneus?',
+      'As leituras atuais dos pneus estão indisponíveis',
+      'Algumas leituras dos pneus estão indisponíveis'
+    ],
+    [
+      '¿Cuál es la presión actual de los neumáticos?',
+      'Las lecturas actuales de los neumáticos no están disponibles',
+      'Algunas lecturas de los neumáticos no están disponibles'
+    ],
+    [
+      'Quelle est la pression actuelle des pneus ?',
+      'Les mesures actuelles des pneus sont indisponibles',
+      'Certaines mesures des pneus sont indisponibles'
+    ],
+    [
+      'Wie ist der aktuelle Reifendruck?',
+      'Aktuelle Reifenmesswerte sind nicht verfügbar',
+      'Einige Reifenmesswerte sind nicht verfügbar'
+    ]
+  ] as const)(
+    'keeps missing and partial tyre telemetry deterministic: %s',
+    (question, unavailable, partial) => {
+      const missing = routeIntent(
+        question,
+        ctx(snapshot({ tyres: undefined }))
+      )
+      const incomplete = routeIntent(
+        question,
+        ctx(snapshot({
+          tyres: {
+            lf: { pressureKpa: 180 },
+            rf: {},
+            lr: {},
+            rr: {}
+          }
+        }))
+      )
+
+      expect(missing.type).toBe('answer')
+      expect(incomplete.type).toBe('answer')
+      if (missing.type !== 'answer' || incomplete.type !== 'answer') return
+      expect(missing.text).toContain(unavailable)
+      expect(incomplete.text).toContain('LF 180 kPa')
+      expect(incomplete.text).toContain(partial)
+    }
+  )
+
   it('answers weather (is it raining?)', () => {
     const r = routeIntent('Is it raining?', ctx())
     expect(r.type).toBe('answer')
@@ -279,7 +408,7 @@ describe('routeIntent -- PT-BR questions', () => {
     expect(r.type).toBe('answer')
     if (r.type !== 'answer') return
     expect(r.category).toBe('tyres')
-    expect(r.text).toContain('Pneus')
+    expect(r.text.toLowerCase()).toContain('pneus')
   })
 
   it.each([

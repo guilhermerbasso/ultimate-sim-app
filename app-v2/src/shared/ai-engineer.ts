@@ -195,6 +195,7 @@ export type IntentCategory =
   | 'laps'
 
 export type IntentLang = 'pt' | 'en'
+export type IntentAnswerLang = IntentLang | 'es' | 'fr' | 'de'
 
 export type IntentCommandKind =
   | 'dashboard.next'
@@ -209,7 +210,7 @@ export type IntentCommandKind =
 export interface IntentAnswer {
   type: 'answer'
   category: IntentCategory
-  lang: IntentLang
+  lang: IntentAnswerLang
   text: string
 }
 

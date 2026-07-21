@@ -18,6 +18,7 @@ import {
   MAX_RACECRAFT_ADVICE_LENGTH,
   MAX_RACECRAFT_SPEECH_LENGTH,
   parseDefinitionQuestion,
+  recognizeAnchoredTyreStatusQuery,
   isCoachHistorySessionKind,
   racecraftSafetyFromSnapshot,
   racecraftSafetyReason,
@@ -446,22 +447,60 @@ describe('racecraft question routing', () => {
     ['de', 'Wäre der harte Reifen überlegen, falls sein aktueller Druck niedrig ist?'],
     ['de', 'Ist die mittlere Mischung nicht geeignet, wenn ihr aktueller Verschleiß hoch ist?']
   ] as const)('default-denies localized tyre-choice structure: %s — %s', (language, question) => {
+    expect(recognizeAnchoredTyreStatusQuery(question)).toBeNull()
     expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, language)).toBeNull()
   })
 
   it.each([
-    'Quais são as pressões dos pneus?',
-    '¿Cuáles son las presiones de los neumáticos?',
-    'Quelles sont les pressions des pneus ?',
-    'Wie hoch sind die Reifendrücke?',
-    'What are the tyre pressures?',
-    'Cuál es la presión actual de los neumáticos?',
-    'Quelle est la température actuelle des pneus ?',
-    'Wie ist der aktuelle Reifendruck?'
-  ])('does not mistake read-only tyre status for compound selection: %s', (question) => {
-    expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
+    ['en-US', 'overview', 'How are my tyres?'],
+    ['en-US', 'pressure', 'What are the tyre pressures?'],
+    ['en-US', 'temperature', 'Current tyre temperature'],
+    ['en-US', 'wear', 'What is the wear of my tyres?'],
+    ['en-US', 'condition', 'What is the condition of my tyres?'],
+    ['pt-BR', 'overview', 'Como estão os pneus?'],
+    ['pt-BR', 'pressure', 'Qual é a pressão atual dos pneus?'],
+    ['pt-BR', 'pressure', 'Quais são as pressões dos pneus?'],
+    ['pt-BR', 'temperature', 'Qual é a temperatura atual dos pneus?'],
+    ['pt-BR', 'wear', 'Qual é o desgaste atual dos pneus?'],
+    ['pt-BR', 'condition', 'Qual é a condição atual dos pneus?'],
+    ['pt-BR', 'temperature-wear', 'Qual é a temperatura e o desgaste dos pneus?'],
+    ['es', 'overview', '¿Cómo están los neumáticos?'],
+    ['es', 'pressure', '¿Cuál es la presión actual de los neumáticos?'],
+    ['es', 'pressure', '¿Cuáles son las presiones de los neumáticos?'],
+    ['es', 'temperature', '¿Cuál es la temperatura actual de los neumáticos?'],
+    ['es', 'wear', '¿Cuál es el desgaste actual de los neumáticos?'],
+    ['es', 'condition', '¿Cuál es la condición actual de los neumáticos?'],
+    ['fr', 'overview', 'Comment sont les pneus ?'],
+    ['fr', 'pressure', 'Quelle est la pression actuelle des pneus ?'],
+    ['fr', 'pressure', 'Quelles sont les pressions des pneus ?'],
+    ['fr', 'temperature', 'Quelle est la température actuelle des pneus ?'],
+    ['fr', 'wear', 'Quelle est l’usure actuelle des pneus ?'],
+    ['fr', 'condition', 'Quelle est la condition actuelle des pneus ?'],
+    ['de', 'overview', 'Wie sind die Reifen?'],
+    ['de', 'pressure', 'Wie ist der aktuelle Reifendruck?'],
+    ['de', 'pressure', 'Wie hoch sind die Reifendrücke?'],
+    ['de', 'temperature', 'Wie ist die aktuelle Reifentemperatur?'],
+    ['de', 'temperature', 'Wie warm sind die Reifen?'],
+    ['de', 'wear', 'Wie ist der aktuelle Reifenverschleiß?'],
+    ['de', 'condition', 'Wie ist der aktuelle Reifenzustand?']
+  ] as const)(
+    'recognizes only anchored deterministic tyre status: %s %s — %s',
+    (language, metric, question) => {
+      expect(recognizeAnchoredTyreStatusQuery(question)).toEqual({ language, metric })
+      expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
+    }
+  )
+
+  it.each([
+    'Se a pressão dos pneus está em 180 kPa?',
+    'Si la presión de los neumáticos es 180 kPa?',
+    'Si la pression des pneus est de 180 kPa ?',
+    'Ob der Reifendruck 180 kPa beträgt?'
+  ])('does not exempt non-anchored tyre status propositions: %s', (question) => {
+    expect(recognizeAnchoredTyreStatusQuery(question)).toBeNull()
+    expect(detectTyreSelectionQuestionLanguage(question)).not.toBeNull()
   })
 
   it.each([

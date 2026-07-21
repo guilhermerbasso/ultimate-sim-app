@@ -32,6 +32,7 @@ import {
 import type {
   EngineerContext,
   EngineerToolset,
+  IntentAnswerLang,
   IntentCategory,
   IntentCommandKind
 } from '../../shared/ai-engineer'
@@ -47,6 +48,7 @@ import {
   racecraftSafetyFromSnapshot,
   racecraftSafetyMessage,
   racecraftSafetyReason,
+  recognizeAnchoredTyreStatusQuery,
   safeInformationalDefinition,
   type CoachAdviceLanguage,
   type RacecraftAdviceContext,
@@ -90,6 +92,14 @@ const LOG_AREA = 'ai'
 const CONFIG_FILE = 'engineer.json'
 const MODELS_DIR = 'models'
 
+function engineerMessageLanguageForIntent(
+  language: IntentAnswerLang
+): EngineerMessageLanguage {
+  if (language === 'en') return 'en-US'
+  if (language === 'pt') return 'pt-BR'
+  return language
+}
+
 // Token budget for the rendered context block (kept well under the model's window so
 // the persona + tools + answer all fit). The pack itself targets < 400 tokens.
 const CONTEXT_MAX_TOKENS = 380
@@ -102,7 +112,6 @@ const MAX_LOG_ENTRIES = 50
 let liveContextRejectionSeq = 0
 const SAFE_DETERMINISTIC_INTENT_CATEGORIES = new Set<IntentCategory>([
   'position',
-  'tyres',
   'weather',
   'laps'
 ])
@@ -120,6 +129,7 @@ export function engineerSafetyAllowsIntent(
   intent: EngineerSafetyIntent
 ): boolean {
   if (reason === undefined) return true
+  if (reason === 'race-control-unknown') return intent === 'tyres'
   if (reason !== 'yellow-flag' && reason !== 'caution' && reason !== 'pacing') {
     return false
   }
@@ -162,9 +172,9 @@ function isSafeDeterministicAnswer(
   category: IntentCategory,
   question: string
 ): boolean {
-  return category === 'fuel'
-    ? isReadOnlyFuelQuantityQuestion(question)
-    : SAFE_DETERMINISTIC_INTENT_CATEGORIES.has(category)
+  if (category === 'fuel') return isReadOnlyFuelQuantityQuestion(question)
+  if (category === 'tyres') return recognizeAnchoredTyreStatusQuery(question) !== null
+  return SAFE_DETERMINISTIC_INTENT_CATEGORIES.has(category)
 }
 
 function safetyIntentForAnswer(
@@ -174,9 +184,11 @@ function safetyIntentForAnswer(
   if (category === 'fuel') {
     return isReadOnlyFuelQuantityQuestion(question) ? 'fuel-quantity' : 'other'
   }
+  if (category === 'tyres') {
+    return recognizeAnchoredTyreStatusQuery(question) ? 'tyres' : 'other'
+  }
   if (
     category === 'position' ||
-    category === 'tyres' ||
     category === 'weather' ||
     category === 'laps'
   ) return category
@@ -955,7 +967,15 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         intent.category === 'fuel'
           ? fuelQuantityAnswer(deps.context, config.language, unitSystem)
           : intent.text
-      return finalize(question, text, 'answer', 'intent', undefined, context)
+      return finalize(
+        question,
+        text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        engineerMessageLanguageForIntent(intent.lang)
+      )
     }
     if (freeFormSafetyReason) {
       const text = racecraftSafetyMessage(freeFormSafetyReason, adviceLanguage)
@@ -985,7 +1005,15 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       )
     }
     if (intent.type === 'answer') {
-      return finalize(question, intent.text, 'answer', 'intent', undefined, context)
+      return finalize(
+        question,
+        intent.text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        engineerMessageLanguageForIntent(intent.lang)
+      )
     }
     return llmAnswer(question, context)
   }
