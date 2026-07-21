@@ -385,6 +385,9 @@ describe('racecraft question routing', () => {
     ['pt-BR', 'se o pneu macio é superior'],
     ['pt-BR', 'Por favor, diga se extraordinário é o composto duro.'],
     ['pt-BR', 'Explique se o pneu médio não é vantajoso.'],
+    ['pt-BR', 'Explique se o composto macio é melhor na temperatura atual dos pneus.'],
+    ['pt-BR', 'Por favor, diga se superior é o pneu duro com a pressão atual dos pneus.'],
+    ['pt-BR', 'Explique se o composto médio não convém com o desgaste atual dos pneus.'],
     ['es', '¿Qué neumáticos debo usar?'],
     ['es', 'Por favor, ¿cuáles compuestos recomendaría?'],
     ['es', '¿Podría explicarme cuáles son los mejores neumáticos?'],
@@ -397,6 +400,9 @@ describe('racecraft question routing', () => {
     ['es', 'si el neumático blando es superior'],
     ['es', 'Por favor, dime si sobresaliente es el compuesto duro.'],
     ['es', 'Explique si el neumático medio no conviene.'],
+    ['es', 'Explique si el compuesto blando es mejor a la temperatura actual de los neumáticos.'],
+    ['es', 'Por favor, diga si superior es el neumático duro con la presión actual.'],
+    ['es', 'Explique si el compuesto medio no conviene con el desgaste actual de los neumáticos.'],
     ['fr', 'Quels pneus dois-je utiliser ?'],
     ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?'],
     ['fr', 'Expliquez-moi quels sont les meilleurs pneus.'],
@@ -409,6 +415,9 @@ describe('racecraft question routing', () => {
     ['fr', 'si le pneu tendre est supérieur'],
     ['fr', 'Dites-moi si remarquable est la gomme dure.'],
     ['fr', 'Expliquez si le pneu moyen n’est guère avantageux.'],
+    ['fr', 'Expliquez si le composé tendre est meilleur à la température actuelle des pneus.'],
+    ['fr', 'Dites-moi, s’il vous plaît, si supérieur est le pneu dur avec la pression actuelle.'],
+    ['fr', 'Expliquez si la gomme moyenne ne convient pas avec l’usure actuelle des pneus.'],
     ['de', 'Welchen Reifen soll ich verwenden?'],
     ['de', 'Welche Reifen würden Sie bitte empfehlen?'],
     ['de', 'Erkläre mir, welche die besten Reifen sind.'],
@@ -420,7 +429,10 @@ describe('racecraft question routing', () => {
     ['de', 'Sagen Sie mir bitte, ob die besten die weichen Mischungen sind.'],
     ['de', 'ob der weiche Reifen überlegen ist'],
     ['de', 'Sagen Sie bitte, ob außergewöhnlich die harte Mischung ist.'],
-    ['de', 'Erklären Sie, ob der mittlere Reifen keineswegs taugt.']
+    ['de', 'Erklären Sie, ob der mittlere Reifen keineswegs taugt.'],
+    ['de', 'Erklären Sie, ob die weiche Mischung bei der aktuellen Reifentemperatur besser ist.'],
+    ['de', 'Sagen Sie bitte, ob überlegen der harte Reifen beim aktuellen Reifendruck ist.'],
+    ['de', 'Erklären Sie, ob die mittlere Mischung beim aktuellen Reifenverschleiß nicht taugt.']
   ] as const)('default-denies localized tyre-choice structure: %s — %s', (language, question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
@@ -433,10 +445,9 @@ describe('racecraft question routing', () => {
     'Quelles sont les pressions des pneus ?',
     'Wie hoch sind die Reifendrücke?',
     'What are the tyre pressures?',
-    'Se a pressão dos pneus está em 180 kPa?',
-    'Si la presión de los neumáticos es 180 kPa?',
-    'Si la pression des pneus est de 180 kPa ?',
-    'Ob der Reifendruck 180 kPa beträgt?'
+    'Cuál es la presión actual de los neumáticos?',
+    'Quelle est la température actuelle des pneus ?',
+    'Wie ist der aktuelle Reifendruck?'
   ])('does not mistake read-only tyre status for compound selection: %s', (question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
   })

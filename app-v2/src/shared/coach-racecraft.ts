@@ -659,7 +659,6 @@ interface TyreSelectionPattern {
   boundedChoice: RegExp
   selectionMarker: RegExp
   conditionalEnvelope: RegExp
-  status: RegExp
   action: RegExp
 }
 
@@ -676,7 +675,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:qual|quais|que)\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compost)\p{L}*\b/u,
     selectionMarker: /\b(?:melhor\p{L}*|pior\p{L}*|mais\s+(?:adequad|apropriad|rapid|segur)\p{L}*|devo|deveria|usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u,
     conditionalEnvelope: /\b(?:se|caso)\b/u,
-    status: /\b(?:pressao|temperatur\p{L}*|desgast\p{L}*|calibrag\p{L}*|estado)\b/u,
     action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
   },
   {
@@ -686,7 +684,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:que|cual\p{L}*)\b(?:\s+\p{L}+){0,8}\s+(?:neumatic|compuest)\p{L}*\b/u,
     selectionMarker: /\b(?:mejor\p{L}*|peor\p{L}*|mas\s+(?:adecuad|apropiad|rapid|segur)\p{L}*|debo|deberia|usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u,
     conditionalEnvelope: /\bsi\b/u,
-    status: /\b(?:presion|temperatur\p{L}*|desgast\p{L}*|estado)\b/u,
     action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -696,7 +693,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\bquel\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
     selectionMarker: /\b(?:meilleur\p{L}*|pire\p{L}*|plus\s+(?:adapte|approprie|rapide|sur)\p{L}*|devrais|devrait|utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u,
     conditionalEnvelope: /\bsi\b/u,
-    status: /\b(?:pression|temperatur\p{L}*|usure|etat)\b/u,
     action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -706,7 +702,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
     selectionMarker: /\b(?:best\p{L}*|besser\p{L}*|schlechter\p{L}*|geeignet\p{L}*|soll\p{L}*|mus\p{L}*|verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u,
     conditionalEnvelope: /\b(?:ob|wenn|falls)\b/u,
-    status: /\b(?:reifendruck\p{L}*|reifentemperatur\p{L}*|reifenverschleiss\p{L}*|druck|temperatur|verschleiss|zustand)\b/u,
     action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
   },
   {
@@ -716,7 +711,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:which|what)\b(?:\s+\p{L}+){0,8}\s+(?:tyre|tire|compound)\p{L}*\b/u,
     selectionMarker: /\b(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick)|should|use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u,
     conditionalEnvelope: /\b(?:if|whether)\b/u,
-    status: /\b(?:pressure|temperatur\p{L}*|temp|wear|status|condition)\b/u,
     action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
   }
 ]
@@ -768,15 +762,34 @@ function hasConditionalTyreProposition(
   if (!conditional) return false
   const clause = q.slice(conditional.index + conditional[0].length).trim()
   if (!clause || !pattern.domain.test(clause)) return false
-  if (
-    pattern.status.test(clause) &&
-    !pattern.action.test(clause)
-  ) return false
 
   const tokens = clause.match(/\p{L}+/gu) ?? []
   return tokens.some((token) =>
     !CONDITIONAL_STRUCTURE_WORDS.has(token) &&
     !pattern.domain.test(token))
+}
+
+const DETERMINISTIC_CURRENT_TYRE_READING_QUERIES: readonly RegExp[] = [
+  /^how are (?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/,
+  /^what (?:is|are) (?:(?:my|the) )?(?:tyre|tyres|tire|tires) (?:pressure|pressures|temperature|temperatures|wear|condition)$/,
+  /^what (?:is|are) (?:(?:my|the) )?(?:pressure|pressures|temperature|temperatures|wear|condition) (?:(?:of|on) )?(?:(?:my|the) )?(?:tyre|tyres|tire|tires)$/,
+  /^(?:current )?(?:tyre|tyres|tire|tires) (?:pressure|pressures|temperature|temperatures|wear|condition)$/,
+  /^como estao (?:(?:os|meus) )?pneus$/,
+  /^qual (?:e )?a (?:pressao|temperatura|condicao) (?:atual )?(?:(?:dos|nos) )?pneus$/,
+  /^qual (?:e )?o desgaste (?:atual )?(?:(?:dos|nos) )?pneus$/,
+  /^qual (?:e )?a temperatura e (?:o )?desgaste (?:(?:dos|nos) )?pneus$/,
+  /^estado (?:atual )?(?:(?:dos|dos meus) )?pneus$/,
+  /^como estao (?:(?:los|mis) )?neumaticos$/,
+  /^cual es (?:la (?:presion|temperatura|condicion)|el desgaste) actual de los neumaticos$/,
+  /^comment sont (?:(?:les|mes) )?pneus$/,
+  /^quelle est la (?:pression|temperature|condition|usure) actuelle des pneus$/,
+  /^wie (?:hoch|warm|abgenutzt) sind die reifen$/,
+  /^wie ist der aktuelle (?:reifendruck|reifenverschleiss|reifenzustand)$/
+]
+
+function isDeterministicCurrentTyreReadingQuery(q: string): boolean {
+  return DETERMINISTIC_CURRENT_TYRE_READING_QUERIES.some((pattern) =>
+    pattern.test(q))
 }
 
 function normalizedTyreSelectionQuestion(question: string): string {
@@ -791,6 +804,7 @@ function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
   if (isNarrowPhraseMeaningRequest(question)) return null
   const q = normalizedTyreSelectionQuestion(question)
   if (!q) return null
+  if (isDeterministicCurrentTyreReadingQuery(q)) return null
 
   const meaningOnly =
     /\b(?:definition|meaning|explanation|mean\p{L}*|significad\p{L}*|signification|sens|definicao|definicion|definit\p{L}*|bedeut\p{L}*|erklarung)\b/u.test(q)
