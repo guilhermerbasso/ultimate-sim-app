@@ -60,6 +60,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Install Electron test runtime
+        run: node node_modules/electron/install.js
+
       - name: Verify action pins
         shell: pwsh
         run: |
@@ -144,6 +147,10 @@ jobs:
       - name: Install dependencies
         working-directory: app-v2
         run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Electron test runtime
+        working-directory: app-v2
+        run: node node_modules/electron/install.js
 
       - name: Run source-bound acceptance
         env:

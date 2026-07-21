@@ -24,36 +24,6 @@ const ipc = {
 Object.defineProperty(window, 'ipc', { configurable: true, value: ipc })
 Object.defineProperty(window, 'IntersectionObserver', { configurable: true, value: undefined })
 
-const [React, ReactDom, catalogUi, presetUi, catalogData, dashboardUi, theme, hifiHost, registry, units, binding] = await Promise.all([
-  import('react'), import('react-dom/client'),
-  import('/src/renderer/src/views/dashboard/widget-catalog.tsx'),
-  import('/src/renderer/src/views/dashboard/preset-gallery.tsx'),
-  import('/src/renderer/src/views/dashboard/widget-catalog-data.ts'),
-  import('/src/renderer/src/dashboard/DashboardRoot.tsx'),
-  import('/src/renderer/src/dashboard/widgets/gt3-theme.ts'),
-  import('/src/renderer/src/overlay/widgets/HifiWidgetHost.tsx'),
-  import('/src/renderer/src/hifi/widgets/registry.ts'),
-  import('/src/renderer/src/lib/units.tsx'),
-  import('/src/renderer/src/dashboard/binding.ts')
-])
-const { createElement: h, Fragment } = React
-const { createRoot } = ReactDom
-const { WidgetGallery } = catalogUi
-const { PresetGallery } = presetUi
-const { ALL_VARIANTS, variantToElement } = catalogData
-const { renderDashboardElement } = dashboardUi
-const { PREVIEW_SNAPSHOT } = theme
-const { PREVIEW_COACH_REPORT } = hifiHost
-const { HIFI_WIDGETS } = registry
-const { UnitSystemProvider } = units
-const { retainBindingIpc } = binding
-const importActivity = activity.slice()
-const host = document.getElementById('root')
-const root = createRoot(host)
-const framework = HIFI_WIDGETS.filter((module) => module.tags.includes('telemetry-framework'))
-const frameworkIds = framework.map((module) => 'hifi-' + module.id)
-const catalogById = new Map(ALL_VARIANTS.map((variant) => [variant.id, variant]))
-
 async function settle(frames = 3) {
   for (let index = 0; index < frames; index += 1) await new Promise((resolve) => setTimeout(resolve, 0))
 }
@@ -67,17 +37,46 @@ function inputValue(input, value) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value)
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
-function elementFor(id, x = 0) {
-  const variant = catalogById.get(id)
-  if (!variant) throw new Error('Missing catalog variant ' + id)
-  return { ...variantToElement(variant, x, 0), id: 'test-' + id }
-}
-function liveWidgets(snapshot) {
-  const elements = [elementFor('hifi-coachTip'), elementFor('hifi-engineerRadio', 320), elementFor('hifi-speed', 640)]
-  return h(Fragment, null, ...elements.map((element) => h(Fragment, { key: element.id }, renderDashboardElement({ element, snapshot }))))
-}
 
 async function run() {
+  const [React, ReactDom, catalogUi, presetUi, catalogData, dashboardUi, theme, hifiHost, registry, units, binding] = await Promise.all([
+    import('react'), import('react-dom/client'),
+    import('/src/renderer/src/views/dashboard/widget-catalog.tsx'),
+    import('/src/renderer/src/views/dashboard/preset-gallery.tsx'),
+    import('/src/renderer/src/views/dashboard/widget-catalog-data.ts'),
+    import('/src/renderer/src/dashboard/DashboardRoot.tsx'),
+    import('/src/renderer/src/dashboard/widgets/gt3-theme.ts'),
+    import('/src/renderer/src/overlay/widgets/HifiWidgetHost.tsx'),
+    import('/src/renderer/src/hifi/widgets/registry.ts'),
+    import('/src/renderer/src/lib/units.tsx'),
+    import('/src/renderer/src/dashboard/binding.ts')
+  ])
+  const { createElement: h, Fragment } = React
+  const { createRoot } = ReactDom
+  const { WidgetGallery } = catalogUi
+  const { PresetGallery } = presetUi
+  const { ALL_VARIANTS, variantToElement } = catalogData
+  const { renderDashboardElement } = dashboardUi
+  const { PREVIEW_SNAPSHOT } = theme
+  const { PREVIEW_COACH_REPORT } = hifiHost
+  const { HIFI_WIDGETS } = registry
+  const { UnitSystemProvider } = units
+  const { retainBindingIpc } = binding
+  const importActivity = activity.slice()
+  const host = document.getElementById('root')
+  const root = createRoot(host)
+  const framework = HIFI_WIDGETS.filter((module) => module.tags.includes('telemetry-framework'))
+  const frameworkIds = framework.map((module) => 'hifi-' + module.id)
+  const catalogById = new Map(ALL_VARIANTS.map((variant) => [variant.id, variant]))
+  function elementFor(id, x = 0) {
+    const variant = catalogById.get(id)
+    if (!variant) throw new Error('Missing catalog variant ' + id)
+    return { ...variantToElement(variant, x, 0), id: 'test-' + id }
+  }
+  function liveWidgets(snapshot) {
+    const elements = [elementFor('hifi-coachTip'), elementFor('hifi-engineerRadio', 320), elementFor('hifi-speed', 640)]
+    return h(Fragment, null, ...elements.map((element) => h(Fragment, { key: element.id }, renderDashboardElement({ element, snapshot }))))
+  }
   const lastModule = framework.at(-1)
   const lastCatalogId = 'hifi-' + lastModule.id
   const catalogFrameworkIds = ALL_VARIANTS.filter((variant) => variant.tags?.includes('telemetry-framework')).map((variant) => variant.id)
@@ -207,7 +206,24 @@ describe('inert gallery previews (Electron Chromium)', () => {
           response.setHeader('Content-Type', 'text/html'); response.end(await devServer.transformIndexHtml(request.url, raw))
         })
       }
-    }], server: { host: '127.0.0.1', port: 0 } })
+    }],
+    optimizeDeps: {
+      // Keep dependency discovery and concurrent test churn from reloading Electron during evaluation.
+      noDiscovery: true,
+      include: [
+        '@react-three/fiber',
+        'd3-shape',
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'react/jsx-dev-runtime',
+        'react/jsx-runtime',
+        'three',
+        'three/examples/jsm/controls/OrbitControls.js'
+      ]
+    },
+    server: { host: '127.0.0.1', hmr: false, port: 0, watch: null }
+  })
     let electronApp
     let tempDirectory
     try {
