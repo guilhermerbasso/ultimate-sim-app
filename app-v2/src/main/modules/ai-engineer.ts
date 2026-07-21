@@ -52,6 +52,7 @@ import {
   recognizeAnchoredTyreStatusQuery,
   safeInformationalDefinition,
   tyrePressureSetupAdviceUnavailableText,
+  type AnchoredTyreStatusLanguage,
   type CoachAdviceLanguage,
   type RacecraftAdviceContext,
   type RacecraftSafetyContext,
@@ -72,6 +73,7 @@ import {
   resolveCommandDirective
 } from '../../shared/engineer-ipc'
 import type { Logger } from '../../shared/logger'
+import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { speechLanguageFromAppLanguage } from '../../shared/tts-voice'
 import { buildContextPack, deriveFuel, renderContextText } from '../ai/context-pack'
 import {
@@ -484,12 +486,17 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     }
   }
 
-  function generationSafetyContext(): RacecraftSafetyContext {
-    const snapshot = deps.context.getSnapshot()
+  function safetyContextForSnapshot(
+    snapshot: TelemetrySnapshot | null
+  ): RacecraftSafetyContext {
     if (snapshot) return racecraftSafetyFromSnapshot(snapshot)
     const published = deps.racecraftContext?.()
     return published?.safety ??
       { connected: false, onTrack: false, replayState: 'unknown' }
+  }
+
+  function generationSafetyContext(): RacecraftSafetyContext {
+    return safetyContextForSnapshot(deps.context.getSnapshot())
   }
 
   function generationSafetyKey(safety: RacecraftSafetyContext): string {
@@ -522,12 +529,14 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     ])
   }
 
-  function observeGenerationSafety(): {
+  function observeGenerationSafety(
+    observedSafety: RacecraftSafetyContext = generationSafetyContext()
+  ): {
     key: string
     revision: number
     reason?: RacecraftSafetyReason
   } {
-    const safety = generationSafetyContext()
+    const safety = observedSafety
     const key = generationSafetyKey(safety)
     if (lastSafetyKey === undefined) {
       lastSafetyKey = key
@@ -541,6 +550,154 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       revision: safetyRevision,
       reason: racecraftSafetyReason(safety)
     }
+  }
+
+  interface AnchoredTyreStatusFence {
+    context: LiveTelemetryContext | null
+    providerKey: string
+    configRevision: number
+    languageRevision: number
+    unitSystem: UnitSystem
+    racecraftLanguage: CoachAdviceLanguage | undefined
+    safety: {
+      key: string
+      revision: number
+      reason?: RacecraftSafetyReason
+    }
+  }
+
+  function telemetryProviderKey(snapshot: TelemetrySnapshot | null): string {
+    const replay = snapshot?.replayContext
+    return JSON.stringify([
+      snapshot?.sim,
+      snapshot?.connected,
+      snapshot?.connectionEpoch,
+      snapshot?.sessionUniqueId,
+      snapshot?.sessionKind,
+      snapshot?.sessionType,
+      snapshot?.trackId,
+      snapshot?.trackName,
+      snapshot?.trackConfigName,
+      snapshot?.carPath,
+      snapshot?.carName,
+      replay?.state,
+      replay?.revision,
+      replay?.token,
+      replay?.connectionEpoch,
+      replay?.sessionIdentity
+    ])
+  }
+
+  function liveContextMatches(
+    current: LiveTelemetryContext | null,
+    captured: LiveTelemetryContext | null
+  ): boolean {
+    return current === null && captured === null
+      ? true
+      : sameLiveTelemetryContext(current, captured)
+  }
+
+  function snapshotMatchesLiveContext(
+    snapshot: TelemetrySnapshot | null,
+    context: LiveTelemetryContext | null
+  ): boolean {
+    return liveContextMatches(captureLiveTelemetryContext(snapshot), context)
+  }
+
+  function finalizeAnchoredTyreStatus(
+    question: string,
+    text: string,
+    language: EngineerMessageLanguage,
+    fence: AnchoredTyreStatusFence,
+    speechText?: string,
+    speakOverride?: boolean
+  ): EngineerAnswer {
+    if (!deps.getLiveContext) return rejectedAnswer(question)
+    const currentContext = deps.getLiveContext()
+    const currentSnapshot = deps.context.getSnapshot()
+    if (
+      !liveContextMatches(currentContext, fence.context) ||
+      !snapshotMatchesLiveContext(currentSnapshot, currentContext) ||
+      telemetryProviderKey(currentSnapshot) !== fence.providerKey
+    ) return rejectedAnswer(question)
+    if (
+      configRevision !== fence.configRevision ||
+      languageRevision !== fence.languageRevision ||
+      (deps.getUnitSystem?.() ?? 'metric') !== fence.unitSystem ||
+      deps.getRacecraftLanguage?.() !== fence.racecraftLanguage
+    ) return cancelledForConfigChange(question)
+    const currentSafety = observeGenerationSafety(
+      safetyContextForSnapshot(currentSnapshot)
+    )
+    if (
+      currentSafety.revision !== fence.safety.revision ||
+      currentSafety.key !== fence.safety.key ||
+      currentSafety.reason !== fence.safety.reason
+    ) return safetyChangedAnswer(question)
+    return publishAnswer(
+      question,
+      text,
+      'answer',
+      'intent',
+      undefined,
+      language,
+      speechText,
+      speakOverride
+    )
+  }
+
+  function answerAnchoredTyrePressure(
+    question: string,
+    language: AnchoredTyreStatusLanguage,
+    context: LiveTelemetryContext | null,
+    snapshot: TelemetrySnapshot | null,
+    unitSystem: UnitSystem,
+    racecraftLanguage: CoachAdviceLanguage | undefined
+  ): EngineerAnswer {
+    if (
+      !deps.getLiveContext ||
+      !snapshotMatchesLiveContext(snapshot, context)
+    ) return rejectedAnswer(question)
+
+    const safety = observeGenerationSafety(
+      safetyContextForSnapshot(snapshot)
+    )
+    const fence: AnchoredTyreStatusFence = {
+      context: context ? { ...context } : null,
+      providerKey: telemetryProviderKey(snapshot),
+      configRevision,
+      languageRevision,
+      unitSystem,
+      racecraftLanguage,
+      safety
+    }
+    if (!engineerSafetyAllowsIntent(safety.reason, 'tyres')) {
+      const text = racecraftSafetyMessage(
+        safety.reason ?? 'race-control-unknown',
+        language
+      )
+      return finalizeAnchoredTyreStatus(
+        question,
+        text,
+        language,
+        fence,
+        text,
+        false
+      )
+    }
+    if (!context) return rejectedAnswer(question)
+
+    const intent = routeAnchoredTyreStatusQuery(
+      { language, metric: 'pressure' },
+      { getSnapshot: () => snapshot },
+      unitSystem
+    )
+    return finalizeAnchoredTyreStatus(
+      question,
+      intent.text,
+      engineerMessageLanguageForIntent(intent.lang),
+      fence
+    )
   }
 
   function safetyChangedAnswer(question: string): EngineerAnswer {
@@ -785,25 +942,6 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
     const tyrePressureQuery = classifyTyrePressureQuery(question)
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
-    if (tyrePressureQuery?.kind === 'current-reading') {
-      const intent = routeAnchoredTyreStatusQuery(
-        {
-          language: tyrePressureQuery.language,
-          metric: 'pressure'
-        },
-        deps.context,
-        unitSystem
-      )
-      return publishAnswer(
-        question,
-        intent.text,
-        'answer',
-        'intent',
-        undefined,
-        engineerMessageLanguageForIntent(intent.lang)
-      )
-    }
-
     const context = deps.getLiveContext?.() ?? null
     const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
     const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
@@ -812,12 +950,23 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         ? tyrePressureQuery.language
         : null
     const tyreSelectionLanguage = detectTyreSelectionQuestionLanguage(question)
+    const requestRacecraftLanguage = deps.getRacecraftLanguage?.()
     const adviceLanguage =
-      deps.getRacecraftLanguage?.() ??
+      requestRacecraftLanguage ??
       detectedRacecraft?.language ??
       racecraftLikeLanguage ??
       coachAdviceLanguageFromAppLanguage(config.language)
     const snapshot = deps.context.getSnapshot()
+    if (tyrePressureQuery?.kind === 'current-reading') {
+      return answerAnchoredTyrePressure(
+        question,
+        tyrePressureQuery.language,
+        context,
+        snapshot,
+        unitSystem,
+        requestRacecraftLanguage
+      )
+    }
     const fallbackGapSample = snapshot
       ? {
           at: snapshot.timestamp,
