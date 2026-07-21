@@ -8,7 +8,7 @@ export const navSections: NavSection[] = [
   { title: 'Drive', viewIds: ['dashboards', 'streaming', 'touch-controls', 'dashboard-adaptive', 'oled-dash', 'overlays', 'spotter-3d', 'sounds', 'haptics', 'haptics-zonal', 'biometrics'] },
   { title: 'Streaming', viewIds: ['streaming-mobile-editor'] },
   { title: 'IA & Coaching', viewIds: ['engineer', 'coach', 'mission-rehearsal', 'dashboard-builder', 'voice', 'search'] },
-  { title: 'Strategy', viewIds: ['fuel', 'tire', 'strategy'] },
+  { title: 'Strategy', viewIds: ['fuel', 'tire', 'strategy', 'stint-passport'] },
   { title: 'Broadcast', viewIds: ['social-connectors'] },
   { title: 'Garage', viewIds: ['setups', 'setup-experiment', 'race-profiles', 'community', 'raceops-blueprints'] },
   { title: 'League Ops', viewIds: ['steward-desk'] },

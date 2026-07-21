@@ -104,6 +104,7 @@ describe('migrated view i18n coverage', () => {
       'FuelStrategyView.tsx',
       'TireStrategyView.tsx',
       'StrategyView.tsx',
+      'StintPassportView.tsx',
       'SettingsView.tsx',
       'AlertsView.tsx',
       'DevicesView.tsx',

@@ -1,0 +1,29 @@
+{
+  "contractVersion": 0,
+  "identity": {
+    "stintId": "stint-n-1",
+    "sessionRef": "session:n-1",
+    "trackRef": "track:n-1",
+    "trackLabel": "Legacy Circuit",
+    "carRef": "car:n-1",
+    "carLabel": "Legacy GT3",
+    "driverRef": "driver:n-1",
+    "driverLabel": "Legacy Driver",
+    "startedAtMs": "500"
+  },
+  "items": [
+    {
+      "itemId": "PASSPORT_ITEM_ID_SESSION_IDENTITY",
+      "status": "PASSPORT_ITEM_STATUS_VERIFIED",
+      "detail": "Legacy session identity.",
+      "capturedAtMs": "500"
+    },
+    {
+      "itemId": "PASSPORT_ITEM_ID_INCOMING_DRIVER",
+      "status": "PASSPORT_ITEM_STATUS_UNKNOWN",
+      "detail": "Legacy driver pending.",
+      "capturedAtMs": "500"
+    }
+  ],
+  "ready": false
+}

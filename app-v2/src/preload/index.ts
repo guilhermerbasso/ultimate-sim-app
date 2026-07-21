@@ -12,6 +12,10 @@ import type {
   ProfileRecord,
   ProfileSummary
 } from '../shared/ipc'
+import {
+  isMainPassportInvokeAllowed,
+  isMainPassportSubscribeAllowed
+} from './ipc-allowlists'
 
 const api: ButtonBoxApi = {
   // Device protocol (SIM-X / SimHub) ──────────────────────────────────────────
@@ -138,17 +142,23 @@ const ALLOWED_PREFIXES = [
   'bug:'
 ]
 
-function isAllowed(channel: string): boolean {
-  return ALLOWED_PREFIXES.some((prefix) => channel.startsWith(prefix))
+function isAllowedInvoke(channel: string): boolean {
+  return isMainPassportInvokeAllowed(channel) ||
+    ALLOWED_PREFIXES.some((prefix) => channel.startsWith(prefix))
+}
+
+function isAllowedSubscribe(channel: string): boolean {
+  return isMainPassportSubscribeAllowed(channel) ||
+    ALLOWED_PREFIXES.some((prefix) => channel.startsWith(prefix))
 }
 
 const ipc = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
-    if (!isAllowed(channel)) return Promise.reject(new Error(`Canal IPC não permitido: ${channel}`))
+    if (!isAllowedInvoke(channel)) return Promise.reject(new Error(`Canal IPC não permitido: ${channel}`))
     return ipcRenderer.invoke(channel, ...args)
   },
   subscribe(channel: string, callback: (payload: unknown) => void): () => void {
-    if (!isAllowed(channel)) return () => {}
+    if (!isAllowedSubscribe(channel)) return () => {}
     const listener = (_event: IpcRendererEvent, payload: unknown): void => callback(payload)
     ipcRenderer.on(channel, listener)
     return () => {
