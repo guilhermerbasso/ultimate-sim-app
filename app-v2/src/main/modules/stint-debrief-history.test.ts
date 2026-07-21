@@ -265,13 +265,27 @@ describe('historical stint debrief integration', () => {
     expect(phrase.mock.calls[0][1]).not.toContain('Reduce rear wing')
     expect(phrase.mock.calls[0][1]).not.toContain('setup')
 
+    // Reordered text preserves all numeric measurement tokens → accepted under the
+    // token-based guard (word order is not a safety concern; numbers are).
     phrase.mockResolvedValueOnce(generated.debrief.text.split(/\s+/u).reverse().join(' '))
-    const rejectedReorder = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
+    const reorderedAccepted = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
       undefined,
       { sessionId: summary.id, useLlm: true }
     ) as DebriefArchiveGenerateResult
-    expect(rejectedReorder.debrief.source).toBe('deterministic')
-    expect(rejectedReorder.debrief.text).toContain('Historical Track')
+    expect(reorderedAccepted.debrief.source).toBe('llm')
+    // Reversed text puts "Historical" and "Track" in separate positions; verify each
+    // word is still present even though the original phrase order is gone.
+    expect(reorderedAccepted.debrief.text).toContain('Historical')
+    expect(reorderedAccepted.debrief.text).toContain('Track')
+
+    // Candidate missing numeric measurement tokens present in the source → rejected.
+    phrase.mockResolvedValueOnce('Good stint overall, nice pace, braking was a touch late.')
+    const rejectedMissingTokens = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
+      undefined,
+      { sessionId: summary.id, useLlm: true }
+    ) as DebriefArchiveGenerateResult
+    expect(rejectedMissingTokens.debrief.source).toBe('deterministic')
+    expect(rejectedMissingTokens.debrief.text).not.toContain('overall')
 
     phrase.mockResolvedValueOnce('Reduce rear wing five clicks.')
     const rejectedRewrite = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(

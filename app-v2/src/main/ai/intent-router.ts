@@ -97,6 +97,9 @@ export function routeIntent(rawText: string, ctx: EngineerContext, forcedLang?: 
     forcedLang &&
     (recognizedTyreStatus.language === 'en-US' ||
       recognizedTyreStatus.language === 'pt-BR')
+      // forcedLang is IntentLang ('en' | 'pt'), which can only map to 'en-US' / 'pt-BR'.
+      // Patterns recognised as 'es', 'fr', or 'de' carry an unambiguous language and
+      // are returned unchanged — no override is needed or meaningful for those locales.
       ? {
           ...recognizedTyreStatus,
           language: forcedLang === 'pt' ? 'pt-BR' as const : 'en-US' as const
