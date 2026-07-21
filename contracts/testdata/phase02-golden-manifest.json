@@ -7,7 +7,7 @@
       "type": "ultimate.sim.raceops.v1.RaceOpsEvent",
       "producerVersion": 1,
       "binarySha256": "efa06160ee2ddd28a075d3370d50410358f71e4133acaf4278c03d0dcba5c91a",
-      "jsonSha256": "9823b87c16cf7dea7b85da6267ab6aad5c719db2c1a5de36b670b2be448636fb",
+      "jsonSha256": "d51658c6a418537e18a4442edaea7ed3f18ee73cc8adab5aa60cb08e38c75850",
       "bytes": 1059
     },
     {
@@ -16,7 +16,7 @@
       "type": "ultimate.sim.raceops.v1.StintPassport",
       "producerVersion": 1,
       "binarySha256": "8367b94acf6cc245b54b0f90cf2f1948e73d0d33d3f04fdb94efb69b31dd4104",
-      "jsonSha256": "1a2e5c35a1ca17939d6ad4a53e6f5cf80694f59c7c2ad17c593eb20a24ea629b",
+      "jsonSha256": "801bb460100fb495b0bf2796ee71ce85669bd3fc9f3800fce09b4200a2e9ed9e",
       "bytes": 1031
     },
     {
@@ -25,7 +25,7 @@
       "type": "ultimate.sim.raceops.n1.v1.StintPassport",
       "producerVersion": 0,
       "binarySha256": "dcf0175ed13e0daba27cfced9ba79345e68c78fff757fe9d4ed8f36b8c3175a6",
-      "jsonSha256": "383f8088df184cebcad2d6d98075d1848e7ad0084f7cfc5220b633c9e9721dc3",
+      "jsonSha256": "736df50d3dbc84a7f91d2bbdc9b7c7b7c207751a1ef05d118d0271d18f4029b5",
       "bytes": 176
     }
   ]

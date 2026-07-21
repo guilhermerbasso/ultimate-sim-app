@@ -61,6 +61,11 @@ const fixtures = [
 const testdata = join(repoRoot, 'contracts', 'testdata')
 const manifest = []
 
+function normalizedTextSha256(path) {
+  const source = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+  return createHash('sha256').update(source, 'utf8').digest('hex')
+}
+
 for (const fixture of fixtures) {
   const schema = fixture.registry.getMessage(fixture.type)
   if (!schema) throw new Error(`Descriptor is missing ${fixture.type}`)
@@ -75,7 +80,7 @@ for (const fixture of fixtures) {
     type: fixture.type,
     producerVersion: fixture.producerVersion,
     binarySha256: createHash('sha256').update(bytes).digest('hex'),
-    jsonSha256: createHash('sha256').update(readFileSync(jsonPath)).digest('hex'),
+    jsonSha256: normalizedTextSha256(jsonPath),
     bytes: bytes.length
   })
 }

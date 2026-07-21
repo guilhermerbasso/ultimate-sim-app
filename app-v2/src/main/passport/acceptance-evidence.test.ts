@@ -503,6 +503,24 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
     expect(evidence.descriptorSha256).toMatch(/^[0-9a-f]{64}$/)
     expect(evidence.n1DescriptorSha256).toMatch(/^[0-9a-f]{64}$/)
 
+    const jsonGolden = join(
+      harness.root,
+      'contracts',
+      'testdata',
+      'race-ops-event-v1.json'
+    )
+    writeFileSync(
+      jsonGolden,
+      readFileSync(jsonGolden, 'utf8').replace(/\r?\n/g, '\r\n'),
+      'utf8'
+    )
+    const crlfVerified = runNode(harness.script, harness.root, {
+      ...process.env,
+      CONTRACT_BASE_REF: '',
+      FAKE_BREAKING_ACCEPT: ''
+    })
+    expect(crlfVerified.status, crlfVerified.stderr).toBe(0)
+
     const falseNegative = runNode(harness.script, harness.root, {
       ...process.env,
       CONTRACT_BASE_REF: '',

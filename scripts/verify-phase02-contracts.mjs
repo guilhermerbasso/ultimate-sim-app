@@ -104,6 +104,11 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
+function normalizedTextSha256(path) {
+  const source = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+  return createHash('sha256').update(source, 'utf8').digest('hex')
+}
+
 function validateEditionSources() {
   for (const path of [raceOpsPath, provenancePath, passportPath]) {
     const source = readFileSync(path, 'utf8')
@@ -304,7 +309,7 @@ function validateGoldenManifest() {
   for (const fixture of manifest.fixtures) {
     const jsonPath = join(contractsRoot, 'testdata', fixture.json)
     const binaryPath = join(contractsRoot, 'testdata', fixture.binary)
-    if (sha256(jsonPath) !== fixture.jsonSha256) {
+    if (normalizedTextSha256(jsonPath) !== fixture.jsonSha256) {
       throw new Error(`Phase 02 golden JSON hash mismatch: ${fixture.json}`)
     }
     if (sha256(binaryPath) !== fixture.binarySha256) {
