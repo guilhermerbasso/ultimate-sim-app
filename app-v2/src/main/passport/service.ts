@@ -732,7 +732,8 @@ export class StintPassportService {
       existingItem.owner?.memberId === input.owner.memberId &&
       existingItem.owner.role === input.owner.role &&
       (existingItem.reasonCode ?? '') === reasonCode &&
-      existingItem.evidence?.summary === desiredEvidenceSummary
+      existingItem.evidence?.summary === desiredEvidenceSummary &&
+      (definition.dataClass !== 'D3' || !this.privacy.identityPersistenceOptIn || retainedText !== '')
     ) {
       return current
     }

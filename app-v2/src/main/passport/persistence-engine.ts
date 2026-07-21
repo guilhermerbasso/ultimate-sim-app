@@ -1326,18 +1326,19 @@ export class PassportPersistenceEngine {
         'Passport privacy deletion generation conflict.'
       )
       this.writeMetaGeneration('privacy_mutation_generation', nextPrivacyGeneration)
+      const redactedEvidence = this.redactEvidenceByClass(
+        dataClass,
+        Number.MAX_SAFE_INTEGER,
+        false,
+        true
+      ) + (dataClass === 'D1' ? this.deleteRuntimeLogs(Number.MAX_SAFE_INTEGER) : 0)
       this.rebasePersistenceMigrationAfterDeletionInTransaction(
         dataClass,
         nextPrivacyGeneration
       )
       const result: PassportDeleteResult = {
         deletedStints: 0,
-        redactedEvidence: this.redactEvidenceByClass(
-          dataClass,
-          Number.MAX_SAFE_INTEGER,
-          false,
-          true
-        ) + (dataClass === 'D1' ? this.deleteRuntimeLogs(Number.MAX_SAFE_INTEGER) : 0),
+        redactedEvidence,
         dataClass
       }
       if (mutationId) {
@@ -1724,24 +1725,17 @@ export class PassportPersistenceEngine {
     const deletedEvidenceHashes = new Set<string>()
     const passport = migration.passport
       ? (() => {
-          const items = migration.passport.items.map((item): PassportItem => {
-            if (itemDataClass(item.id) !== dataClass) return item
-            if (item.evidence?.contentHash) deletedEvidenceHashes.add(item.evidence.contentHash)
-            return {
-              ...item,
-              status: 'unknown',
-              detail: 'Evidence removed by data-class deletion.',
-              verifiedAt: undefined,
-              expiresAt: undefined,
-              evidence: undefined,
-              revision: item.revision + 1
+          for (const item of migration.passport.items) {
+            if (itemDataClass(item.id) === dataClass && item.evidence?.contentHash) {
+              deletedEvidenceHashes.add(item.evidence.contentHash)
             }
-          })
-          return coherentAfterPrivacyRedaction({
-            ...migration.passport,
-            items,
-            ...calculatePassportCoverage(items)
-          })
+          }
+          // If the migration passport was already committed to stint_passport (crash after
+          // persistPassport but before advancePersistenceMigration), the DB holds the
+          // authoritative post-deletion state (redactEvidenceByClass ran earlier in this
+          // transaction). Use it directly to avoid a revision/item-revision mismatch that
+          // would cause a dedupe conflict on recovery.
+          return this.getPassport(migration.passport.identity.stintId) ?? migration.passport
         })()
       : undefined
     const event = migration.event
