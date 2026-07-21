@@ -258,7 +258,12 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
         tree: 'resolved-from-git-at-runtime'
       }
     })
-    expect.soft(current.branch).toBe(git('branch', '--show-current'))
+    const sourceBranch = process.env.GITHUB_HEAD_REF?.trim() || git('branch', '--show-current')
+    if (sourceBranch) {
+      expect.soft(current.branch).toBe(sourceBranch)
+    } else {
+      expect.soft(current.branch).toMatch(/^[A-Za-z0-9._/-]+$/)
+    }
     expect(current.baseCommit).toMatch(/^[0-9a-f]{40}$/)
     expect(current).not.toHaveProperty('implementationHead')
     expect(current).not.toHaveProperty('implementationTree')
