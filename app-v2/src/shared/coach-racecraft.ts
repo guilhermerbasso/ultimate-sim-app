@@ -659,6 +659,7 @@ interface TyreSelectionPattern {
   boundedChoice: RegExp
   selectionMarker: RegExp
   conditionalComparison: RegExp
+  conditionalComparatorFirst: RegExp
   action: RegExp
 }
 
@@ -675,6 +676,7 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:qual|quais|que)\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compost)\p{L}*\b/u,
     selectionMarker: /\b(?:melhor\p{L}*|pior\p{L}*|mais\s+(?:adequad|apropriad|rapid|segur)\p{L}*|devo|deveria|usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u,
     conditionalComparison: /\b(?:se|caso)\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compost)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:melhor|pior|mais\s+(?:adequad|apropriad|rapid|segur))\p{L}*\b/u,
+    conditionalComparatorFirst: /\b(?:se|caso)\b(?:\s+\p{L}+){0,12}\s+(?:melhor|pior|mais\s+(?:adequad|apropriad|rapid|segur))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compost)\p{L}*\b/u,
     action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
   },
   {
@@ -684,6 +686,7 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:que|cual\p{L}*)\b(?:\s+\p{L}+){0,8}\s+(?:neumatic|compuest)\p{L}*\b/u,
     selectionMarker: /\b(?:mejor\p{L}*|peor\p{L}*|mas\s+(?:adecuad|apropiad|rapid|segur)\p{L}*|debo|deberia|usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u,
     conditionalComparison: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:neumatic|compuest)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:mejor|peor|mas\s+(?:adecuad|apropiad|rapid|segur))\p{L}*\b/u,
+    conditionalComparatorFirst: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:mejor|peor|mas\s+(?:adecuad|apropiad|rapid|segur))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:neumatic|compuest)\p{L}*\b/u,
     action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -693,6 +696,7 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\bquel\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
     selectionMarker: /\b(?:meilleur\p{L}*|pire\p{L}*|plus\s+(?:adapte|approprie|rapide|sur)\p{L}*|devrais|devrait|utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u,
     conditionalComparison: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compos|gomm)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:meilleur|pire|plus\s+(?:adapte|approprie|rapide|sur))\p{L}*\b/u,
+    conditionalComparatorFirst: /\bsi\b(?:\s+\p{L}+){0,12}\s+(?:meilleur|pire|plus\s+(?:adapte|approprie|rapide|sur))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
     action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -702,6 +706,7 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|misch)\p{L}*\b/u,
     selectionMarker: /\b(?:best\p{L}*|besser\p{L}*|schlechter\p{L}*|geeignet\p{L}*|soll\p{L}*|mus\p{L}*|verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u,
     conditionalComparison: /\b(?:ob|wenn)\b(?:\s+\p{L}+){0,12}\s+(?:reifen|misch)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:besser|schlechter|geeignet|am\s+besten)\p{L}*\b/u,
+    conditionalComparatorFirst: /\b(?:ob|wenn)\b(?:\s+\p{L}+){0,12}\s+(?:best|besser|schlechter|geeignet)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:reifen|misch)\p{L}*\b/u,
     action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
   },
   {
@@ -711,6 +716,7 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:which|what)\b(?:\s+\p{L}+){0,8}\s+(?:tyre|tire|compound)\p{L}*\b/u,
     selectionMarker: /\b(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick)|should|use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u,
     conditionalComparison: /\b(?:if|whether)\b(?:\s+\p{L}+){0,12}\s+(?:tyre|tire|compound)\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick))\p{L}*\b/u,
+    conditionalComparatorFirst: /\b(?:if|whether)\b(?:\s+\p{L}+){0,12}\s+(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick))\p{L}*\b(?:\s+\p{L}+){0,12}\s+(?:tyre|tire|compound)\p{L}*\b/u,
     action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
   }
 ]
@@ -738,7 +744,8 @@ function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
     if (
       pattern.directChoice.test(q) ||
       (boundedChoice && pattern.selectionMarker.test(q)) ||
-      pattern.conditionalComparison.test(q)
+      pattern.conditionalComparison.test(q) ||
+      pattern.conditionalComparatorFirst.test(q)
     ) {
       return { language: pattern.language, choice: true }
     }

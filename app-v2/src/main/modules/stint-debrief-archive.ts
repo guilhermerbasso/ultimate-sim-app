@@ -1,5 +1,5 @@
 import type { Dirent } from 'node:fs'
-import { lstat, mkdir, open, readFile, readdir, rename, rm, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, opendir, readFile, rename, rm, unlink } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   DEBRIEF_ARCHIVE_MAX_BYTES,
@@ -24,6 +24,10 @@ interface ArchiveDirectorySyncHandle {
   close(): Promise<void>
 }
 
+interface ArchiveDirectoryEntryStream extends AsyncIterable<Dirent> {
+  close(): Promise<void>
+}
+
 export interface StintDebriefArchivePersistence {
   load?(filePath: string): Promise<unknown>
   write?(filePath: string, payload: string): Promise<void>
@@ -32,6 +36,7 @@ export interface StintDebriefArchivePersistence {
   scheduleCleanup?(callback: () => Promise<void>, delayMs: number): unknown
   cancelCleanup?(timer: unknown): void
   yieldCleanup?(): Promise<void>
+  openTempDirectory?(directory: string): Promise<ArchiveDirectoryEntryStream>
   openDirectory?(directory: string): Promise<ArchiveDirectorySyncHandle>
   platform?: NodeJS.Platform
 }
@@ -130,6 +135,9 @@ export class StintDebriefArchiveStore {
   ) => unknown
   private readonly cancelCleanup: (timer: unknown) => void
   private readonly yieldCleanup: () => Promise<void>
+  private readonly openTempDirectory: (
+    directory: string
+  ) => Promise<ArchiveDirectoryEntryStream>
   private readonly openDirectory: (
     directory: string
   ) => Promise<ArchiveDirectorySyncHandle>
@@ -157,6 +165,8 @@ export class StintDebriefArchiveStore {
     })
     this.yieldCleanup = persistence.yieldCleanup ?? (() =>
       new Promise<void>((resolveYield) => setImmediate(resolveYield)))
+    this.openTempDirectory = persistence.openTempDirectory ?? ((directory) =>
+      opendir(directory))
     this.openDirectory = persistence.openDirectory ?? ((directory) =>
       open(directory, 'r'))
     this.platform = persistence.platform ?? process.platform
@@ -343,9 +353,9 @@ export class StintDebriefArchiveStore {
       }
     }
 
-    let entries: Dirent[]
+    let directoryStream: ArchiveDirectoryEntryStream
     try {
-      entries = await readdir(directory, { withFileTypes: true })
+      directoryStream = await this.openTempDirectory(directory)
     } catch (error) {
       if (errorCode(error) === 'ENOENT') return 0
       throw error
@@ -353,15 +363,23 @@ export class StintDebriefArchiveStore {
 
     let followUpDelayMs = 0
     let scannedInBatch = 0
-    for (const entry of entries) {
-      followUpDelayMs = Math.max(
-        followUpDelayMs,
-        await this.inspectTempEntry(directory, entry, writerTempPattern)
-      )
-      scannedInBatch += 1
-      if (scannedInBatch >= DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE) {
-        scannedInBatch = 0
-        await this.yieldCleanup()
+    try {
+      for await (const entry of directoryStream) {
+        followUpDelayMs = Math.max(
+          followUpDelayMs,
+          await this.inspectTempEntry(directory, entry, writerTempPattern)
+        )
+        scannedInBatch += 1
+        if (scannedInBatch >= DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE) {
+          scannedInBatch = 0
+          await this.yieldCleanup()
+        }
+      }
+    } finally {
+      try {
+        await directoryStream.close()
+      } catch (error) {
+        if (errorCode(error) !== 'ERR_DIR_CLOSED') throw error
       }
     }
     return followUpDelayMs

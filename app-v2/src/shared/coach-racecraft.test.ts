@@ -380,6 +380,8 @@ describe('racecraft question routing', () => {
     ['pt-BR', 'Você poderia explicar quais compostos seriam melhores?'],
     ['pt-BR', 'Você pode me explicar se os pneus macios seriam melhores?'],
     ['pt-BR', 'Por favor, diga se o composto duro seria melhor.'],
+    ['pt-BR', 'Você pode explicar se o melhor é o pneu macio?'],
+    ['pt-BR', 'Por favor, diga se os melhores seriam os compostos macios.'],
     ['es', '¿Qué neumáticos debo usar?'],
     ['es', 'Por favor, ¿cuáles compuestos recomendaría?'],
     ['es', '¿Podría explicarme cuáles son los mejores neumáticos?'],
@@ -387,6 +389,8 @@ describe('racecraft question routing', () => {
     ['es', '¿Me explica qué compuestos serían mejores?'],
     ['es', '¿Podría explicarme si los neumáticos blandos serían mejores?'],
     ['es', 'Por favor, dime si el compuesto duro sería mejor.'],
+    ['es', '¿Podría explicar si el mejor es el neumático blando?'],
+    ['es', 'Por favor, dime si los mejores serían los compuestos blandos.'],
     ['fr', 'Quels pneus dois-je utiliser ?'],
     ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?'],
     ['fr', 'Expliquez-moi quels sont les meilleurs pneus.'],
@@ -394,13 +398,17 @@ describe('racecraft question routing', () => {
     ['fr', 'Quels composés seraient meilleurs, s’il vous plaît ?'],
     ['fr', 'Expliquez-moi si les pneus tendres seraient meilleurs.'],
     ['fr', 'Pourriez-vous dire si la gomme dure serait meilleure ?'],
+    ['fr', 'Expliquez-moi si le meilleur est le pneu tendre.'],
+    ['fr', 'Dites-moi, s’il vous plaît, si les meilleurs seraient les composés tendres.'],
     ['de', 'Welchen Reifen soll ich verwenden?'],
     ['de', 'Welche Reifen würden Sie bitte empfehlen?'],
     ['de', 'Erkläre mir, welche die besten Reifen sind.'],
     ['de', 'Könnten Sie mir erklären, welcher Reifen besser wäre?'],
     ['de', 'Welchem Reifen sollte ich bitte den Vorzug geben?'],
     ['de', 'Erkläre mir bitte, ob die weichen Reifen besser wären.'],
-    ['de', 'Könnten Sie sagen, ob die harte Mischung besser wäre?']
+    ['de', 'Könnten Sie sagen, ob die harte Mischung besser wäre?'],
+    ['de', 'Erkläre mir, ob der beste der weiche Reifen ist.'],
+    ['de', 'Sagen Sie mir bitte, ob die besten die weichen Mischungen sind.']
   ] as const)('default-denies localized tyre-choice structure: %s — %s', (language, question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)

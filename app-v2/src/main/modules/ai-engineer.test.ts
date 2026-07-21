@@ -700,6 +700,8 @@ describe('createEngineerOrchestrator.ask', () => {
     ['pt-BR', 'Você poderia explicar quais compostos seriam melhores?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
     ['pt-BR', 'Você pode me explicar se os pneus macios seriam melhores?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
     ['pt-BR', 'Por favor, diga se o composto duro seria melhor.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
+    ['pt-BR', 'se o melhor é o pneu macio', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
+    ['pt-BR', 'Por favor, diga se os melhores seriam os compostos macios.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
     ['es', '¿Qué neumáticos debo usar?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', 'Por favor, ¿cuáles compuestos recomendaría?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', '¿Podría explicarme cuáles son los mejores neumáticos?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
@@ -707,6 +709,8 @@ describe('createEngineerOrchestrator.ask', () => {
     ['es', '¿Me explica qué compuestos serían mejores?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', '¿Podría explicarme si los neumáticos blandos serían mejores?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', 'Por favor, dime si el compuesto duro sería mejor.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
+    ['es', 'si el mejor es el neumático blando', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
+    ['es', 'Por favor, dime si los mejores serían los compuestos blandos.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['fr', 'Quels pneus dois-je utiliser ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'Expliquez-moi quels sont les meilleurs pneus.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
@@ -714,13 +718,17 @@ describe('createEngineerOrchestrator.ask', () => {
     ['fr', 'Quels composés seraient meilleurs, s’il vous plaît ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'Expliquez-moi si les pneus tendres seraient meilleurs.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'Pourriez-vous dire si la gomme dure serait meilleure ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
+    ['fr', 'si le meilleur est le pneu tendre', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
+    ['fr', 'Dites-moi, s’il vous plaît, si les meilleurs seraient les composés tendres.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['de', 'Welchen Reifen soll ich verwenden?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Welche Reifen würden Sie bitte empfehlen?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Erkläre mir, welche die besten Reifen sind.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Könnten Sie mir erklären, welcher Reifen besser wäre?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Welchem Reifen sollte ich bitte den Vorzug geben?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Erkläre mir bitte, ob die weichen Reifen besser wären.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
-    ['de', 'Könnten Sie sagen, ob die harte Mischung besser wäre?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR']
+    ['de', 'Könnten Sie sagen, ob die harte Mischung besser wäre?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
+    ['de', 'ob der beste der weiche Reifen ist', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
+    ['de', 'Sagen Sie mir bitte, ob die besten die weichen Mischungen sind.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR']
   ] as const)(
     'default-denies natural localized tyre selection under yellow and unknown: %s — %s',
     async (language, question, pausedMarker, unknownMarker) => {

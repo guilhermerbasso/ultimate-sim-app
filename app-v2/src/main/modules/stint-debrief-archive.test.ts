@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import {
   existsSync,
   mkdirSync,
@@ -9,7 +10,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   DEBRIEF_ARCHIVE_MAX_BYTES,
@@ -90,6 +91,13 @@ function record(
 
 function errno(code: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`simulated ${code}`), { code })
+}
+
+function syntheticDirent(name: string, symbolicLink = false): Dirent {
+  return {
+    name,
+    isSymbolicLink: () => symbolicLink
+  } as Dirent
 }
 
 describe('StintDebriefArchiveStore', () => {
@@ -288,6 +296,91 @@ describe('StintDebriefArchiveStore', () => {
     await store.dispose()
     expect(existsSync(liveTemp)).toBe(false)
     expect(yielded).toBeGreaterThanOrEqual(4)
+  })
+
+  it('streams a large synthetic directory and yields before enumeration completes', async () => {
+    const root = scratch('streaming-directory-probe')
+    const file = join(root, 'archive.json')
+    const deadTemp = `${file}.1900000014.1.tmp`
+    writeFileSync(deadTemp, 'dead private history', 'utf8')
+    const totalEntries = DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE * 5 + 17
+    let pulls = 0
+    let opens = 0
+    let closes = 0
+    const pullsAtYield: number[] = []
+    const store = new StintDebriefArchiveStore(file, {
+      isProcessAlive: () => false,
+      openTempDirectory: async () => {
+        opens += 1
+        let index = 0
+        return {
+          [Symbol.asyncIterator](): AsyncIterator<Dirent> {
+            return {
+              next: async () => {
+                pulls += 1
+                if (index >= totalEntries) {
+                  return { done: true, value: undefined }
+                }
+                const name =
+                  index === totalEntries - 1
+                    ? basename(deadTemp)
+                    : `unrelated-${String(index).padStart(6, '0')}.txt`
+                index += 1
+                return { done: false, value: syntheticDirent(name) }
+              }
+            }
+          },
+          close: async () => {
+            closes += 1
+          }
+        }
+      },
+      yieldCleanup: async () => {
+        pullsAtYield.push(pulls)
+      }
+    })
+
+    await store.ready()
+
+    expect(existsSync(deadTemp)).toBe(false)
+    expect(opens).toBe(1)
+    expect(closes).toBe(1)
+    expect(pullsAtYield).toHaveLength(5)
+    expect(pullsAtYield[0]).toBe(DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE)
+    expect(pullsAtYield[0]).toBeLessThan(totalEntries)
+    expect(pulls).toBe(totalEntries + 1)
+
+    store.quiesce()
+    await store.dispose()
+    expect(opens).toBe(2)
+    expect(closes).toBe(2)
+  })
+
+  it('closes the streaming directory handle when iteration fails', async () => {
+    const root = scratch('streaming-directory-error')
+    const file = join(root, 'archive.json')
+    let closes = 0
+    const store = new StintDebriefArchiveStore(file, {
+      openTempDirectory: async () => ({
+        [Symbol.asyncIterator](): AsyncIterator<Dirent> {
+          return {
+            next: async () => {
+              throw new Error('synthetic directory iteration failure')
+            }
+          }
+        },
+        close: async () => {
+          closes += 1
+        }
+      })
+    })
+
+    await store.ready()
+    await expect(store.list()).rejects.toThrow('synthetic directory iteration failure')
+    expect(closes).toBe(1)
+    store.quiesce()
+    await expect(store.dispose()).rejects.toThrow('synthetic directory iteration failure')
+    expect(closes).toBe(2)
   })
 
   it('cleans dedicated writer temps without deleting unrelated files or following links', async () => {
