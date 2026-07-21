@@ -378,21 +378,29 @@ describe('racecraft question routing', () => {
     ['pt-BR', 'Você pode me explicar quais são os melhores pneus?'],
     ['pt-BR', 'Poderia me dizer qual seria o pneu mais adequado?'],
     ['pt-BR', 'Você poderia explicar quais compostos seriam melhores?'],
+    ['pt-BR', 'Você pode me explicar se os pneus macios seriam melhores?'],
+    ['pt-BR', 'Por favor, diga se o composto duro seria melhor.'],
     ['es', '¿Qué neumáticos debo usar?'],
     ['es', 'Por favor, ¿cuáles compuestos recomendaría?'],
     ['es', '¿Podría explicarme cuáles son los mejores neumáticos?'],
     ['es', 'Por favor, ¿cuál sería el neumático más adecuado?'],
     ['es', '¿Me explica qué compuestos serían mejores?'],
+    ['es', '¿Podría explicarme si los neumáticos blandos serían mejores?'],
+    ['es', 'Por favor, dime si el compuesto duro sería mejor.'],
     ['fr', 'Quels pneus dois-je utiliser ?'],
     ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?'],
     ['fr', 'Expliquez-moi quels sont les meilleurs pneus.'],
     ['fr', 'Pourriez-vous me dire quel serait le pneu le plus adapté ?'],
     ['fr', 'Quels composés seraient meilleurs, s’il vous plaît ?'],
+    ['fr', 'Expliquez-moi si les pneus tendres seraient meilleurs.'],
+    ['fr', 'Pourriez-vous dire si la gomme dure serait meilleure ?'],
     ['de', 'Welchen Reifen soll ich verwenden?'],
     ['de', 'Welche Reifen würden Sie bitte empfehlen?'],
     ['de', 'Erkläre mir, welche die besten Reifen sind.'],
     ['de', 'Könnten Sie mir erklären, welcher Reifen besser wäre?'],
-    ['de', 'Welchem Reifen sollte ich bitte den Vorzug geben?']
+    ['de', 'Welchem Reifen sollte ich bitte den Vorzug geben?'],
+    ['de', 'Erkläre mir bitte, ob die weichen Reifen besser wären.'],
+    ['de', 'Könnten Sie sagen, ob die harte Mischung besser wäre?']
   ] as const)('default-denies localized tyre-choice structure: %s — %s', (language, question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
@@ -407,6 +415,17 @@ describe('racecraft question routing', () => {
     'What are the tyre pressures?'
   ])('does not mistake read-only tyre status for compound selection: %s', (question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
+  })
+
+  it.each([
+    ['pt-BR', 'O que significa pneu?'],
+    ['es', '¿Qué significa neumático?'],
+    ['fr', 'Que signifie pneu ?'],
+    ['de', 'Was bedeutet Reifen?']
+  ] as const)('preserves factual localized tyre definitions: %s — %s', (language, question) => {
+    expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
+    expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
+    expect(controlledDefinitionResponse(question, language)).not.toBeNull()
   })
 
   it.each([

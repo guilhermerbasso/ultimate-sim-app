@@ -1,5 +1,6 @@
-import { lstat, mkdir, open, opendir, readFile, rename, rm, unlink } from 'node:fs/promises'
-import { basename, dirname, resolve } from 'node:path'
+import type { Dirent } from 'node:fs'
+import { lstat, mkdir, open, readFile, readdir, rename, rm, unlink } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   DEBRIEF_ARCHIVE_MAX_BYTES,
   createDebriefArchive,
@@ -14,7 +15,8 @@ import {
 
 const MISSING_SESSION_MESSAGE = 'Historical debrief session was not found or was deleted.'
 export const DEBRIEF_ARCHIVE_STALE_TEMP_MS = 5 * 60 * 1_000
-const DEBRIEF_ARCHIVE_TEMP_SCAN_LIMIT = 2_048
+export const DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE = 2_048
+export const DEBRIEF_ARCHIVE_TEMP_DIRECTORY_SUFFIX = '.archive-tmp'
 const MAX_PROCESS_ID = 2_147_483_647
 
 interface ArchiveDirectorySyncHandle {
@@ -29,6 +31,7 @@ export interface StintDebriefArchivePersistence {
   isProcessAlive?(pid: number): boolean
   scheduleCleanup?(callback: () => Promise<void>, delayMs: number): unknown
   cancelCleanup?(timer: unknown): void
+  yieldCleanup?(): Promise<void>
   openDirectory?(directory: string): Promise<ArchiveDirectorySyncHandle>
   platform?: NodeJS.Platform
 }
@@ -67,12 +70,12 @@ function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | null)?.code
 }
 
-function isUnsupportedWindowsDirectoryOperation(
+function isUnsupportedWindowsDirectorySync(
   error: unknown,
   platform: NodeJS.Platform
 ): boolean {
-  // Node exposes unsupported Windows directory fsync/open as EPERM. Anything
-  // else may represent real I/O or integrity loss and must fail publication.
+  // Node exposes unsupported Windows directory fsync as EPERM after the
+  // directory handle has opened. Open failures and every other code are real.
   return platform === 'win32' && errorCode(error) === 'EPERM'
 }
 
@@ -126,6 +129,7 @@ export class StintDebriefArchiveStore {
     delayMs: number
   ) => unknown
   private readonly cancelCleanup: (timer: unknown) => void
+  private readonly yieldCleanup: () => Promise<void>
   private readonly openDirectory: (
     directory: string
   ) => Promise<ArchiveDirectorySyncHandle>
@@ -151,6 +155,8 @@ export class StintDebriefArchiveStore {
     this.cancelCleanup = persistence.cancelCleanup ?? ((timer) => {
       clearTimeout(timer as ReturnType<typeof setTimeout>)
     })
+    this.yieldCleanup = persistence.yieldCleanup ?? (() =>
+      new Promise<void>((resolveYield) => setImmediate(resolveYield)))
     this.openDirectory = persistence.openDirectory ?? ((directory) =>
       open(directory, 'r'))
     this.platform = persistence.platform ?? process.platform
@@ -159,38 +165,64 @@ export class StintDebriefArchiveStore {
     this.loadPromise = this.load(persistence.load)
   }
 
+  private tempDirectoryPath(targetPath = this.filePath): string {
+    const directory = resolve(dirname(targetPath))
+    const tempDirectory = resolve(
+      directory,
+      `${basename(targetPath)}${DEBRIEF_ARCHIVE_TEMP_DIRECTORY_SUFFIX}`
+    )
+    if (dirname(tempDirectory) !== directory) {
+      throw new Error('Stint debrief archive temp directory escaped its parent.')
+    }
+    return tempDirectory
+  }
+
+  private async ensureTempDirectory(targetPath: string): Promise<string> {
+    const tempDirectory = this.tempDirectoryPath(targetPath)
+    try {
+      await mkdir(tempDirectory, { mode: 0o700 })
+    } catch (error) {
+      if (errorCode(error) !== 'EEXIST') throw error
+    }
+    const info = await lstat(tempDirectory)
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new Error('Stint debrief archive temp directory is not a safe directory.')
+    }
+    return tempDirectory
+  }
+
   private async atomicWrite(targetPath: string, payload: string): Promise<void> {
-    const tempPath = `${targetPath}.${process.pid}.${++this.writeSequence}.tmp`
+    let tempPath: string | null = null
     let handle: Awaited<ReturnType<typeof open>> | null = null
     try {
       const directory = dirname(targetPath)
       await mkdir(directory, { recursive: true })
+      const tempDirectory = await this.ensureTempDirectory(targetPath)
+      tempPath = join(
+        tempDirectory,
+        `${process.pid}.${++this.writeSequence}.tmp`
+      )
       handle = await open(tempPath, 'wx', 0o600)
       await handle.writeFile(payload, 'utf8')
       await handle.sync()
       await handle.close()
       handle = null
       await rename(tempPath, targetPath)
+      await this.syncDirectory(tempDirectory)
       await this.syncDirectory(directory)
     } catch (error) {
       await handle?.close().catch(() => undefined)
-      await rm(tempPath, { force: true }).catch(() => undefined)
+      if (tempPath) await rm(tempPath, { force: true }).catch(() => undefined)
       throw error
     }
   }
 
   private async syncDirectory(directory: string): Promise<void> {
-    let handle: ArchiveDirectorySyncHandle
-    try {
-      handle = await this.openDirectory(directory)
-    } catch (error) {
-      if (isUnsupportedWindowsDirectoryOperation(error, this.platform)) return
-      throw error
-    }
+    const handle = await this.openDirectory(directory)
     try {
       await handle.sync()
     } catch (error) {
-      if (!isUnsupportedWindowsDirectoryOperation(error, this.platform)) {
+      if (!isUnsupportedWindowsDirectorySync(error, this.platform)) {
         throw error
       }
     } finally {
@@ -249,70 +281,111 @@ export class StintDebriefArchiveStore {
     await this.cleanupInFlight
   }
 
-  private async cleanupStaleTempFiles(scheduleFollowUp = true): Promise<void> {
-    const directory = resolve(dirname(this.filePath))
-    const archiveName = basename(this.filePath)
-    const writerTempPattern = new RegExp(
-      `^${escapedRegExp(archiveName)}\\.([1-9]\\d{0,9})\\.[1-9]\\d{0,9}\\.tmp$`
-    )
-    let directoryHandle: Awaited<ReturnType<typeof opendir>> | null = null
+  private async inspectTempEntry(
+    directory: string,
+    entry: Dirent,
+    writerTempPattern: RegExp
+  ): Promise<number> {
+    const match = writerTempPattern.exec(entry.name)
+    if (!match || entry.isSymbolicLink()) return 0
+    const ownerPid = Number(match[1])
+    if (
+      !Number.isSafeInteger(ownerPid) ||
+      ownerPid < 1 ||
+      ownerPid > MAX_PROCESS_ID
+    ) return 0
+
+    const candidatePath = resolve(directory, entry.name)
+    if (
+      dirname(candidatePath) !== directory ||
+      basename(candidatePath) !== entry.name
+    ) return 0
+
+    let info: Awaited<ReturnType<typeof lstat>>
     try {
-      directoryHandle = await opendir(directory)
+      info = await lstat(candidatePath)
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      if (errorCode(error) === 'ENOENT') return 0
+      throw error
+    }
+    if (info.isSymbolicLink() || !info.isFile()) return 0
+    if (this.ownerIsAlive(ownerPid)) {
+      const ageMs = Math.max(0, this.now() - info.mtimeMs)
+      return Math.max(
+        1,
+        DEBRIEF_ARCHIVE_STALE_TEMP_MS -
+          Math.min(DEBRIEF_ARCHIVE_STALE_TEMP_MS, ageMs)
+      )
+    }
+    try {
+      await unlink(candidatePath)
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') throw error
+    }
+    return 0
+  }
+
+  private async scanTempDirectory(
+    directory: string,
+    writerTempPattern: RegExp,
+    dedicated: boolean
+  ): Promise<number> {
+    if (dedicated) {
+      let directoryInfo: Awaited<ReturnType<typeof lstat>>
+      try {
+        directoryInfo = await lstat(directory)
+      } catch (error) {
+        if (errorCode(error) === 'ENOENT') return 0
+        throw error
+      }
+      if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
+        throw new Error('Stint debrief archive temp directory is not a safe directory.')
+      }
+    }
+
+    let entries: Dirent[]
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return 0
       throw error
     }
 
-    let scanned = 0
     let followUpDelayMs = 0
-    try {
-      for await (const entry of directoryHandle) {
-        scanned += 1
-        if (scanned > DEBRIEF_ARCHIVE_TEMP_SCAN_LIMIT) break
-        const match = writerTempPattern.exec(entry.name)
-        if (!match || entry.isSymbolicLink()) continue
-        const ownerPid = Number(match[1])
-        if (
-          !Number.isSafeInteger(ownerPid) ||
-          ownerPid < 1 ||
-          ownerPid > MAX_PROCESS_ID
-        ) continue
-
-        const candidatePath = resolve(directory, entry.name)
-        if (
-          dirname(candidatePath) !== directory ||
-          basename(candidatePath) !== entry.name
-        ) {
-          continue
-        }
-
-        let info: Awaited<ReturnType<typeof lstat>>
-        try {
-          info = await lstat(candidatePath)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-          throw error
-        }
-        if (info.isSymbolicLink() || !info.isFile()) continue
-        if (this.ownerIsAlive(ownerPid)) {
-          const ageMs = Math.max(0, this.now() - info.mtimeMs)
-          const remainingGraceMs = Math.max(
-            1,
-            DEBRIEF_ARCHIVE_STALE_TEMP_MS -
-              Math.min(DEBRIEF_ARCHIVE_STALE_TEMP_MS, ageMs)
-          )
-          followUpDelayMs = Math.max(followUpDelayMs, remainingGraceMs)
-          continue
-        }
-        try {
-          await unlink(candidatePath)
-        } catch (error) {
-          if (errorCode(error) !== 'ENOENT') throw error
-        }
+    let scannedInBatch = 0
+    for (const entry of entries) {
+      followUpDelayMs = Math.max(
+        followUpDelayMs,
+        await this.inspectTempEntry(directory, entry, writerTempPattern)
+      )
+      scannedInBatch += 1
+      if (scannedInBatch >= DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE) {
+        scannedInBatch = 0
+        await this.yieldCleanup()
       }
-    } finally {
-      await directoryHandle.close().catch(() => undefined)
     }
+    return followUpDelayMs
+  }
+
+  private async cleanupStaleTempFiles(scheduleFollowUp = true): Promise<void> {
+    const directory = resolve(dirname(this.filePath))
+    const archiveName = basename(this.filePath)
+    const dedicatedTempPattern =
+      /^([1-9]\d{0,9})\.[1-9]\d{0,9}\.tmp$/
+    const legacyTempPattern = new RegExp(
+      `^${escapedRegExp(archiveName)}\\.([1-9]\\d{0,9})\\.[1-9]\\d{0,9}\\.tmp$`
+    )
+    const dedicatedDelay = await this.scanTempDirectory(
+      this.tempDirectoryPath(),
+      dedicatedTempPattern,
+      true
+    )
+    const legacyDelay = await this.scanTempDirectory(
+      directory,
+      legacyTempPattern,
+      false
+    )
+    const followUpDelayMs = Math.max(dedicatedDelay, legacyDelay)
     if (scheduleFollowUp && followUpDelayMs > 0) {
       this.scheduleFollowUpCleanup(followUpDelayMs)
     }

@@ -22,6 +22,8 @@ import {
 } from '../../shared/stint-debrief'
 import {
   DEBRIEF_ARCHIVE_STALE_TEMP_MS,
+  DEBRIEF_ARCHIVE_TEMP_DIRECTORY_SUFFIX,
+  DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE,
   StintDebriefArchiveStore
 } from './stint-debrief-archive'
 
@@ -106,7 +108,12 @@ describe('StintDebriefArchiveStore', () => {
     first.quiesce()
     await first.dispose()
 
-    expect(readdirSync(root).filter((name) => name.endsWith('.tmp'))).toEqual([])
+    const tempDirectory = `${file}${DEBRIEF_ARCHIVE_TEMP_DIRECTORY_SUFFIX}`
+    expect(readdirSync(tempDirectory)).toEqual([])
+    expect(
+      readdirSync(root).filter((name) =>
+        /^stint-debrief-archive\.json\.\d+\.\d+\.tmp$/.test(name))
+    ).toEqual([])
     const second = new StintDebriefArchiveStore(file)
     await expect(second.list()).resolves.toEqual([
       expect.objectContaining({ id: legacy.id, captureSource: 'legacy-last-debrief' })
@@ -241,6 +248,116 @@ describe('StintDebriefArchiveStore', () => {
     await store.dispose()
   })
 
+  it('continues legacy cleanup across batches past 2,048+ unrelated prefix entries', async () => {
+    const root = scratch('legacy-temp-multiple-batches')
+    const file = join(root, 'archive.json')
+    const unrelatedCount = DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE * 2 + 17
+    const unrelated = Array.from({ length: unrelatedCount }, (_, index) =>
+      join(root, `unrelated-${String(index).padStart(5, '0')}.txt`))
+    for (const path of unrelated) writeFileSync(path, 'unrelated', 'utf8')
+
+    const deadTemp = `${file}.1900000010.1.tmp`
+    const liveTemp = `${file}.1900000011.2.tmp`
+    writeFileSync(deadTemp, 'dead private history', 'utf8')
+    writeFileSync(liveTemp, 'live private history', 'utf8')
+    let liveOwner = true
+    let yielded = 0
+    const scheduled: Array<() => Promise<void>> = []
+    const store = new StintDebriefArchiveStore(file, {
+      isProcessAlive: (pid) => pid === 1_900_000_011 && liveOwner,
+      yieldCleanup: async () => {
+        yielded += 1
+      },
+      scheduleCleanup: (callback) => {
+        scheduled.push(callback)
+        return scheduled.length
+      },
+      cancelCleanup: () => undefined
+    })
+
+    await store.ready()
+    expect(existsSync(deadTemp)).toBe(false)
+    expect(existsSync(liveTemp)).toBe(true)
+    expect(existsSync(unrelated[0])).toBe(true)
+    expect(existsSync(unrelated.at(-1)!)).toBe(true)
+    expect(yielded).toBeGreaterThanOrEqual(2)
+    expect(scheduled).toHaveLength(1)
+
+    liveOwner = false
+    store.quiesce()
+    await store.dispose()
+    expect(existsSync(liveTemp)).toBe(false)
+    expect(yielded).toBeGreaterThanOrEqual(4)
+  })
+
+  it('cleans dedicated writer temps without deleting unrelated files or following links', async () => {
+    const root = scratch('dedicated-temp-safety')
+    const file = join(root, 'archive.json')
+    const tempDirectory = `${file}${DEBRIEF_ARCHIVE_TEMP_DIRECTORY_SUFFIX}`
+    const outside = join(root, 'outside')
+    mkdirSync(tempDirectory)
+    mkdirSync(outside)
+    const deadTemp = join(tempDirectory, '1900000012.1.tmp')
+    const unrelated = join(tempDirectory, 'unrelated.tmp')
+    const outsideMarker = join(outside, 'private-history.txt')
+    writeFileSync(deadTemp, 'dead private history', 'utf8')
+    writeFileSync(unrelated, 'do not delete', 'utf8')
+    writeFileSync(outsideMarker, 'do not delete', 'utf8')
+    const linkedTemp = join(tempDirectory, '1900000013.2.tmp')
+    let linkCreated = false
+    try {
+      symlinkSync(outside, linkedTemp, 'junction')
+      linkCreated = true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+    }
+
+    const store = new StintDebriefArchiveStore(file, {
+      isProcessAlive: () => false
+    })
+    await store.ready()
+
+    expect(existsSync(deadTemp)).toBe(false)
+    expect(readFileSync(unrelated, 'utf8')).toBe('do not delete')
+    expect(readFileSync(outsideMarker, 'utf8')).toBe('do not delete')
+    if (linkCreated) expect(existsSync(linkedTemp)).toBe(true)
+    await store.append(record(12))
+    expect(
+      readdirSync(tempDirectory).filter((name) => /^\d+\.\d+\.tmp$/.test(name))
+    ).toEqual(linkCreated ? ['1900000013.2.tmp'] : [])
+    store.quiesce()
+    await store.dispose()
+  })
+
+  it('fails closed without following a symlinked dedicated temp directory', async () => {
+    const root = scratch('dedicated-temp-directory-link')
+    const file = join(root, 'archive.json')
+    const outside = join(root, 'outside')
+    const outsideMarker = join(outside, 'private-history.txt')
+    mkdirSync(outside)
+    writeFileSync(outsideMarker, 'do not delete', 'utf8')
+    let linkCreated = false
+    try {
+      symlinkSync(
+        outside,
+        `${file}${DEBRIEF_ARCHIVE_TEMP_DIRECTORY_SUFFIX}`,
+        'junction'
+      )
+      linkCreated = true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+    }
+    if (!linkCreated) return
+
+    const store = new StintDebriefArchiveStore(file)
+    await store.ready()
+    await expect(store.list()).rejects.toThrow('temp directory is not a safe directory')
+    expect(readFileSync(outsideMarker, 'utf8')).toBe('do not delete')
+    store.quiesce()
+    await expect(store.dispose()).rejects.toThrow('temp directory is not a safe directory')
+    expect(readFileSync(outsideMarker, 'utf8')).toBe('do not delete')
+  })
+
   it('schedules one bounded grace cleanup and removes an owner that dies later', async () => {
     const root = scratch('fresh-live-then-dead')
     const file = join(root, 'archive.json')
@@ -337,42 +454,82 @@ describe('StintDebriefArchiveStore', () => {
     await store.dispose()
   })
 
-  it.each(['open', 'sync'] as const)(
-    'treats only the Windows EPERM directory-%s limitation as unsupported',
-    async (stage) => {
-      const root = scratch(`directory-eperm-${stage}`)
+  it('suppresses only Windows sync EPERM after directory handles open', async () => {
+    const root = scratch('directory-sync-eperm')
+    const file = join(root, 'archive.json')
+    let opens = 0
+    let syncs = 0
+    const store = new StintDebriefArchiveStore(file, {
+      platform: 'win32',
+      openDirectory: async () => {
+        opens += 1
+        return {
+          sync: async () => {
+            syncs += 1
+            throw errno('EPERM')
+          },
+          close: async () => undefined
+        }
+      }
+    })
+
+    await expect(store.append(record(7))).resolves.toMatchObject({
+      inserted: true,
+      count: 1
+    })
+    await expect(store.list()).resolves.toEqual([
+      expect.objectContaining({ capturedAt: 7 })
+    ])
+    expect(opens).toBe(2)
+    expect(syncs).toBe(2)
+    store.quiesce()
+    await store.dispose()
+  })
+
+  it.each(['EPERM', 'EACCES'] as const)(
+    'propagates Windows directory open %s and withholds failed append visibility',
+    async (code) => {
+      const root = scratch(`directory-open-${code.toLowerCase()}`)
       const file = join(root, 'archive.json')
+      let failing = true
       const store = new StintDebriefArchiveStore(file, {
         platform: 'win32',
         openDirectory: async () => {
-          if (stage === 'open') throw errno('EPERM')
+          if (failing) throw errno(code)
           return {
-            sync: async () => {
-              throw errno('EPERM')
-            },
+            sync: async () => undefined,
             close: async () => undefined
           }
         }
       })
 
-      await expect(store.append(record(7))).resolves.toMatchObject({
-        inserted: true,
-        count: 1
-      })
-      await expect(store.list()).resolves.toEqual([
-        expect.objectContaining({ capturedAt: 7 })
-      ])
+      await expect(store.append(record(8))).rejects.toMatchObject({ code })
+      await expect(store.list()).rejects.toMatchObject({ code })
+      await expect(store.append(record(8))).rejects.toMatchObject({ code })
+
+      failing = false
       store.quiesce()
-      await store.dispose()
+      await expect(store.dispose()).resolves.toBeUndefined()
+      const restarted = new StintDebriefArchiveStore(file)
+      await expect(restarted.list()).resolves.toEqual([
+        expect.objectContaining({ capturedAt: 8 })
+      ])
+      restarted.quiesce()
+      await restarted.dispose()
     }
   )
 
-  it('propagates EPERM when it is not the Windows directory limitation', async () => {
+  it('propagates sync EPERM when it is not the Windows limitation', async () => {
     const root = scratch('directory-sync-eperm-non-windows')
     const store = new StintDebriefArchiveStore(join(root, 'archive.json'), {
       platform: 'linux',
       openDirectory: async () => {
-        throw errno('EPERM')
+        return {
+          sync: async () => {
+            throw errno('EPERM')
+          },
+          close: async () => undefined
+        }
       }
     })
 
@@ -381,22 +538,18 @@ describe('StintDebriefArchiveStore', () => {
     await expect(store.dispose()).rejects.toThrow('durability failed during teardown')
   })
 
-  it.each([
-    ['EIO', 'open'],
-    ['ENOSPC', 'sync']
-  ] as const)(
-    'propagates real directory %s failures and withholds failed append visibility',
-    async (code, stage) => {
+  it.each(['EIO', 'ENOSPC'] as const)(
+    'propagates Windows directory sync %s and withholds failed append visibility',
+    async (code) => {
       const root = scratch(`directory-sync-${code.toLowerCase()}`)
       const file = join(root, 'archive.json')
       let failing = true
       const store = new StintDebriefArchiveStore(file, {
         platform: 'win32',
         openDirectory: async () => {
-          if (failing && stage === 'open') throw errno(code)
           return {
             sync: async () => {
-              if (failing && stage === 'sync') throw errno(code)
+              if (failing) throw errno(code)
             },
             close: async () => undefined
           }
