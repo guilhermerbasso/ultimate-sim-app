@@ -2709,7 +2709,7 @@ async function execute(request: Request): Promise<unknown> {
     if (
       priorReceipt &&
       priorReceipt.operationId === operationId &&
-      priorReceipt.tokenHash === tokenHash &&
+      constantTimeHexEqual(priorReceipt.tokenHash, tokenHash) &&
       isCompletedRepairReceipt(current, priorReceipt, authority, authorityKey)
     ) {
       return { quarantinedPath: priorReceipt.quarantinedPath }
