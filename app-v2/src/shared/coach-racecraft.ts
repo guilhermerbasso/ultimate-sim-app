@@ -652,86 +652,112 @@ const DEFINITION_ACTION_PHRASE =
  * intentionally conservative: unsafe race-control states must never treat a
  * natural plural/case-inflected setup question as a harmless definition.
  */
-export function detectTyreSelectionQuestionLanguage(
-  question: string
-): CoachAdviceLanguage | null {
-  const q = normalize(question)
+interface TyreSelectionPattern {
+  language: CoachAdviceLanguage
+  domain: RegExp
+  directChoice: RegExp
+  boundedChoice: RegExp
+  selectionMarker: RegExp
+  action: RegExp
+}
+
+interface TyreSelectionMatch {
+  language: CoachAdviceLanguage
+  choice: boolean
+}
+
+const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
+  {
+    language: 'pt-BR',
+    domain: /\b(?:pneu|compost)\p{L}*\b/u,
+    directChoice: /\b(?:(?:qual|quais)\s+(?:(?:tipo|jogo)\s+de\s+)?|que\s+)(?:pneu|compost)\p{L}*\b/u,
+    boundedChoice: /\b(?:qual|quais|que)\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compost)\p{L}*\b/u,
+    selectionMarker: /\b(?:melhor\p{L}*|pior\p{L}*|mais\s+(?:adequad|apropriad|rapid|segur)\p{L}*|devo|deveria|usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u,
+    action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
+  },
+  {
+    language: 'es',
+    domain: /\b(?:neumatic|compuest)\p{L}*\b/u,
+    directChoice: /\b(?:que|cual\p{L}*)\s+(?:(?:tipo|juego)\s+de\s+)?(?:neumatic|compuest)\p{L}*\b/u,
+    boundedChoice: /\b(?:que|cual\p{L}*)\b(?:\s+\p{L}+){0,8}\s+(?:neumatic|compuest)\p{L}*\b/u,
+    selectionMarker: /\b(?:mejor\p{L}*|peor\p{L}*|mas\s+(?:adecuad|apropiad|rapid|segur)\p{L}*|debo|deberia|usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u,
+    action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
+  },
+  {
+    language: 'fr',
+    domain: /\b(?:pneu|compos|gomm)\p{L}*\b/u,
+    directChoice: /\bquel\p{L}*\s+(?:(?:type|jeu)\s+de\s+)?(?:pneu|compos|gomm)\p{L}*\b/u,
+    boundedChoice: /\bquel\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
+    selectionMarker: /\b(?:meilleur\p{L}*|pire\p{L}*|plus\s+(?:adapte|approprie|rapide|sur)\p{L}*|devrais|devrait|utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u,
+    action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
+  },
+  {
+    language: 'de',
+    domain: /\b(?:reifen|misch)\p{L}*\b/u,
+    directChoice: /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|misch)\p{L}*\b/u,
+    boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|misch)\p{L}*\b/u,
+    selectionMarker: /\b(?:best\p{L}*|besser\p{L}*|schlechter\p{L}*|geeignet\p{L}*|soll\p{L}*|mus\p{L}*|verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u,
+    action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
+  },
+  {
+    language: 'en-US',
+    domain: /\b(?:tyre|tire|compound)\p{L}*\b/u,
+    directChoice: /\b(?:which|what)\s+(?:(?:type|set)\s+of\s+)?(?:tyre|tire|compound)\p{L}*\b/u,
+    boundedChoice: /\b(?:which|what)\b(?:\s+\p{L}+){0,8}\s+(?:tyre|tire|compound)\p{L}*\b/u,
+    selectionMarker: /\b(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick)|should|use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u,
+    action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
+  }
+]
+
+function normalizedTyreSelectionQuestion(question: string): string {
+  return normalize(question)
     .replace(/[’']/g, ' ')
     .replace(/[^\p{L}\p{N}\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
+  const q = normalizedTyreSelectionQuestion(question)
   if (!q) return null
 
   const meaningOnly =
-    /\b(?:definition|meaning|significa\p{L}*|definicao|definicion|signification|bedeut\p{L}*)\b/u.test(q)
-  if (meaningOnly) return null
-  const patterns: ReadonlyArray<{
-    language: CoachAdviceLanguage
-    domain: RegExp
-    choice: RegExp
-    action: RegExp
-  }> = [
-    {
-      language: 'pt-BR',
-      domain: /\b(?:pneu|compost)\p{L}*\b/u,
-      choice: /\b(?:(?:qual|quais)\s+(?:(?:tipo|jogo)\s+de\s+)?|que\s+)(?:pneu|compost)\p{L}*\b/u,
-      action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
-    },
-    {
-      language: 'es',
-      domain: /\b(?:neumatic|compuest)\p{L}*\b/u,
-      choice: /\b(?:que|cual\p{L}*)\s+(?:(?:tipo|juego)\s+de\s+)?(?:neumatic|compuest)\p{L}*\b/u,
-      action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
-    },
-    {
-      language: 'fr',
-      domain: /\b(?:pneu|compos|gomm)\p{L}*\b/u,
-      choice: /\bquel\p{L}*\s+(?:(?:type|jeu)\s+de\s+)?(?:pneu|compos|gomm)\p{L}*\b/u,
-      action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
-    },
-    {
-      language: 'de',
-      domain: /\b(?:reifen|misch)\p{L}*\b/u,
-      choice: /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|misch)\p{L}*\b/u,
-      action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
-    },
-    {
-      language: 'en-US',
-      domain: /\b(?:tyre|tire|compound)\p{L}*\b/u,
-      choice: /\b(?:which|what)\s+(?:(?:type|set)\s+of\s+)?(?:tyre|tire|compound)\p{L}*\b/u,
-      action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
-    }
-  ]
-  for (const pattern of patterns) {
+    /\b(?:definition|meaning|explanation|mean\p{L}*|significad\p{L}*|signification|sens|definicao|definicion|definit\p{L}*|bedeut\p{L}*|erklarung)\b/u.test(q)
+
+  // Choice grammar is evaluated before any definition exemption. In particular,
+  // polite "explain which are the best tyres" wording remains a selection request.
+  for (const pattern of TYRE_SELECTION_PATTERNS) {
+    if (!pattern.domain.test(q)) continue
+    const boundedChoice = pattern.boundedChoice.test(q)
     if (
-      pattern.domain.test(q) &&
-      (pattern.action.test(q) || pattern.choice.test(q))
+      pattern.directChoice.test(q) ||
+      (boundedChoice && pattern.selectionMarker.test(q))
     ) {
-      return pattern.language
+      return { language: pattern.language, choice: true }
     }
   }
   if (
     /(?:轮胎|配方)/u.test(q) &&
     /(?:哪|什么|选择|推荐|使用)/u.test(q)
-  ) return 'zh'
+  ) return { language: 'zh', choice: true }
   if (
     /(?:タイヤ|コンパウンド)/u.test(q) &&
     /(?:どの|どれ|選|使|推奨|薦)/u.test(q)
-  ) return 'ja'
+  ) return { language: 'ja', choice: true }
+
+  if (meaningOnly) return null
+  for (const pattern of TYRE_SELECTION_PATTERNS) {
+    if (pattern.domain.test(q) && pattern.action.test(q)) {
+      return { language: pattern.language, choice: false }
+    }
+  }
   return null
 }
 
-function hasDirectTyreChoiceStructure(value: string): boolean {
-  const q = normalize(value).replace(/[^\p{L}\p{N}\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/gu, ' ')
-  return [
-    /\b(?:(?:qual|quais)\s+(?:(?:tipo|jogo)\s+de\s+)?|que\s+)(?:pneu|compost)\p{L}*\b/u,
-    /\b(?:que|cual\p{L}*)\s+(?:(?:tipo|juego)\s+de\s+)?(?:neumatic|compuest)\p{L}*\b/u,
-    /\bquel\p{L}*\s+(?:(?:type|jeu)\s+de\s+)?(?:pneu|compos|gomm)\p{L}*\b/u,
-    /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|misch)\p{L}*\b/u,
-    /\b(?:which|what)\s+(?:(?:type|set)\s+of\s+)?(?:tyre|tire|compound)\p{L}*\b/u,
-    /(?:哪|什么).*(?:轮胎|配方)/u,
-    /(?:どの|どれ).*(?:タイヤ|コンパウンド)/u
-  ].some((pattern) => pattern.test(q))
+export function detectTyreSelectionQuestionLanguage(
+  question: string
+): CoachAdviceLanguage | null {
+  return detectTyreSelectionMatch(question)?.language ?? null
 }
 
 function isPureDefinitionBody(
@@ -742,10 +768,10 @@ function isPureDefinitionBody(
     DEFINITION_PERSONAL_CONTEXT.test(body) ||
     DEFINITION_RECOMMENDATION_CLAUSE.test(body)
   ) return false
-  const tyreSelectionLanguage = detectTyreSelectionQuestionLanguage(body)
+  const tyreSelection = detectTyreSelectionMatch(body)
   if (
-    tyreSelectionLanguage !== null &&
-    (!explicitMeaningEnvelope || hasDirectTyreChoiceStructure(body))
+    tyreSelection !== null &&
+    (!explicitMeaningEnvelope || tyreSelection.choice)
   ) return false
   return explicitMeaningEnvelope || !DEFINITION_ACTION_PHRASE.test(body)
 }

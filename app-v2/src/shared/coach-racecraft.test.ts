@@ -375,16 +375,38 @@ describe('racecraft question routing', () => {
   it.each([
     ['pt-BR', 'Quais pneus devo usar?'],
     ['pt-BR', 'Por favor, quais compostos você recomendaria?'],
+    ['pt-BR', 'Você pode me explicar quais são os melhores pneus?'],
+    ['pt-BR', 'Poderia me dizer qual seria o pneu mais adequado?'],
+    ['pt-BR', 'Você poderia explicar quais compostos seriam melhores?'],
     ['es', '¿Qué neumáticos debo usar?'],
     ['es', 'Por favor, ¿cuáles compuestos recomendaría?'],
+    ['es', '¿Podría explicarme cuáles son los mejores neumáticos?'],
+    ['es', 'Por favor, ¿cuál sería el neumático más adecuado?'],
+    ['es', '¿Me explica qué compuestos serían mejores?'],
     ['fr', 'Quels pneus dois-je utiliser ?'],
     ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?'],
+    ['fr', 'Expliquez-moi quels sont les meilleurs pneus.'],
+    ['fr', 'Pourriez-vous me dire quel serait le pneu le plus adapté ?'],
+    ['fr', 'Quels composés seraient meilleurs, s’il vous plaît ?'],
     ['de', 'Welchen Reifen soll ich verwenden?'],
-    ['de', 'Welche Reifen würden Sie bitte empfehlen?']
+    ['de', 'Welche Reifen würden Sie bitte empfehlen?'],
+    ['de', 'Erkläre mir, welche die besten Reifen sind.'],
+    ['de', 'Könnten Sie mir erklären, welcher Reifen besser wäre?'],
+    ['de', 'Welchem Reifen sollte ich bitte den Vorzug geben?']
   ] as const)('default-denies localized tyre-choice structure: %s — %s', (language, question) => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, language)).toBeNull()
+  })
+
+  it.each([
+    'Quais são as pressões dos pneus?',
+    '¿Cuáles son las presiones de los neumáticos?',
+    'Quelles sont les pressions des pneus ?',
+    'Wie hoch sind die Reifendrücke?',
+    'What are the tyre pressures?'
+  ])('does not mistake read-only tyre status for compound selection: %s', (question) => {
+    expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
   })
 
   it.each([

@@ -86,6 +86,10 @@ function record(
   return candidate
 }
 
+function errno(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`simulated ${code}`), { code })
+}
+
 describe('StintDebriefArchiveStore', () => {
   it('migrates once, writes atomically, and reloads the same immutable record', async () => {
     const root = scratch('migration-restart')
@@ -161,8 +165,8 @@ describe('StintDebriefArchiveStore', () => {
   it('cleans only stale files matching this archive writer exact temp grammar', async () => {
     const root = scratch('stale-temp-name-age')
     const file = join(root, 'archive[history].json')
-    const stale = `${file}.12345.7.tmp`
-    const fresh = `${file}.12345.8.tmp`
+    const stale = `${file}.1900000001.7.tmp`
+    const fresh = `${file}.1900000002.8.tmp`
     const unrelated = join(root, 'unrelated.12345.7.tmp')
     const lookalike = join(root, 'archivehistory.json.12345.7.tmp')
     for (const path of [stale, fresh, unrelated, lookalike]) {
@@ -171,18 +175,28 @@ describe('StintDebriefArchiveStore', () => {
     const old = new Date(Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS - 1_000)
     for (const path of [stale, unrelated, lookalike]) utimesSync(path, old, old)
 
-    const store = new StintDebriefArchiveStore(file)
+    const scheduled: Array<() => Promise<void>> = []
+    const store = new StintDebriefArchiveStore(file, {
+      isProcessAlive: (pid) => pid === 1_900_000_002,
+      scheduleCleanup: (callback) => {
+        scheduled.push(callback)
+        return scheduled.length
+      },
+      cancelCleanup: () => undefined
+    })
     await store.ready()
 
     expect(existsSync(stale)).toBe(false)
     expect(existsSync(fresh)).toBe(true)
     expect(existsSync(unrelated)).toBe(true)
     expect(existsSync(lookalike)).toBe(true)
+    expect(scheduled).toHaveLength(1)
     store.quiesce()
     await store.dispose()
+    expect(existsSync(fresh)).toBe(true)
   })
 
-  it('removes a stale crash-before-rename snapshot without recovering or exposing it', async () => {
+  it('removes a fresh dead-owner crash-before-rename snapshot without exposing it', async () => {
     const root = scratch('crash-before-rename')
     const file = join(root, 'archive.json')
     const primary = new StintDebriefArchiveStore(file)
@@ -190,16 +204,16 @@ describe('StintDebriefArchiveStore', () => {
     primary.quiesce()
     await primary.dispose()
 
-    const crashTemp = `${file}.9876.3.tmp`
+    const crashTemp = `${file}.1900000003.3.tmp`
     writeFileSync(crashTemp, `${JSON.stringify({
       schema: DEBRIEF_ARCHIVE_SCHEMA,
       version: DEBRIEF_ARCHIVE_VERSION,
       records: [record(2)]
     })}\n`, 'utf8')
-    const old = new Date(Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS - 1_000)
-    utimesSync(crashTemp, old, old)
 
-    const restarted = new StintDebriefArchiveStore(file)
+    const restarted = new StintDebriefArchiveStore(file, {
+      isProcessAlive: () => false
+    })
     await expect(restarted.list()).resolves.toEqual([
       expect.objectContaining({ capturedAt: 1 })
     ])
@@ -208,23 +222,86 @@ describe('StintDebriefArchiveStore', () => {
     await restarted.dispose()
   })
 
-  it('removes a bounded batch of stale snapshots so evicted private history does not linger', async () => {
-    const root = scratch('stale-temp-batch')
+  it('removes a bounded batch of fresh dead-owner snapshots so crashes do not accumulate', async () => {
+    const root = scratch('dead-temp-batch')
     const file = join(root, 'archive.json')
-    const old = new Date(Date.now() - DEBRIEF_ARCHIVE_STALE_TEMP_MS - 1_000)
     const stalePaths = Array.from({ length: 70 }, (_, index) =>
-      `${file}.${index + 1}.${index + 1}.tmp`)
+      `${file}.${1_800_000_000 + index}.${index + 1}.tmp`)
     for (const stalePath of stalePaths) {
       writeFileSync(stalePath, `private history ${stalePath}`, 'utf8')
-      utimesSync(stalePath, old, old)
     }
 
-    const store = new StintDebriefArchiveStore(file)
+    const store = new StintDebriefArchiveStore(file, {
+      isProcessAlive: () => false
+    })
     await store.ready()
 
     expect(stalePaths.filter(existsSync)).toEqual([])
     store.quiesce()
     await store.dispose()
+  })
+
+  it('schedules one bounded grace cleanup and removes an owner that dies later', async () => {
+    const root = scratch('fresh-live-then-dead')
+    const file = join(root, 'archive.json')
+    const temp = `${file}.1900000004.1.tmp`
+    writeFileSync(temp, 'private history', 'utf8')
+    let alive = true
+    const scheduled: Array<{
+      callback: () => Promise<void>
+      delayMs: number
+    }> = []
+    const store = new StintDebriefArchiveStore(file, {
+      isProcessAlive: () => alive,
+      scheduleCleanup: (callback, delayMs) => {
+        scheduled.push({ callback, delayMs })
+        return scheduled.length
+      },
+      cancelCleanup: () => undefined
+    })
+
+    await store.ready()
+    expect(existsSync(temp)).toBe(true)
+    expect(scheduled).toHaveLength(1)
+    expect(scheduled[0].delayMs).toBeGreaterThan(0)
+    expect(scheduled[0].delayMs).toBeLessThanOrEqual(DEBRIEF_ARCHIVE_STALE_TEMP_MS)
+
+    alive = false
+    await scheduled[0].callback()
+    expect(existsSync(temp)).toBe(false)
+    expect(scheduled).toHaveLength(1)
+    store.quiesce()
+    await store.dispose()
+  })
+
+  it('runs cleanup again during teardown when a live owner dies before grace', async () => {
+    const root = scratch('teardown-dead-owner')
+    const file = join(root, 'archive.json')
+    const temp = `${file}.1900000005.1.tmp`
+    writeFileSync(temp, 'private history', 'utf8')
+    let alive = true
+    let scheduled = 0
+    let cancelled = 0
+    const store = new StintDebriefArchiveStore(file, {
+      isProcessAlive: () => alive,
+      scheduleCleanup: () => {
+        scheduled += 1
+        return scheduled
+      },
+      cancelCleanup: () => {
+        cancelled += 1
+      }
+    })
+
+    await store.ready()
+    expect(existsSync(temp)).toBe(true)
+    expect(scheduled).toBe(1)
+    alive = false
+    store.quiesce()
+    await store.dispose()
+
+    expect(cancelled).toBe(1)
+    expect(existsSync(temp)).toBe(false)
   })
 
   it('keeps cleanup path-confined and never follows matching symlinks or junctions', async () => {
@@ -259,6 +336,88 @@ describe('StintDebriefArchiveStore', () => {
     store.quiesce()
     await store.dispose()
   })
+
+  it.each(['open', 'sync'] as const)(
+    'treats only the Windows EPERM directory-%s limitation as unsupported',
+    async (stage) => {
+      const root = scratch(`directory-eperm-${stage}`)
+      const file = join(root, 'archive.json')
+      const store = new StintDebriefArchiveStore(file, {
+        platform: 'win32',
+        openDirectory: async () => {
+          if (stage === 'open') throw errno('EPERM')
+          return {
+            sync: async () => {
+              throw errno('EPERM')
+            },
+            close: async () => undefined
+          }
+        }
+      })
+
+      await expect(store.append(record(7))).resolves.toMatchObject({
+        inserted: true,
+        count: 1
+      })
+      await expect(store.list()).resolves.toEqual([
+        expect.objectContaining({ capturedAt: 7 })
+      ])
+      store.quiesce()
+      await store.dispose()
+    }
+  )
+
+  it('propagates EPERM when it is not the Windows directory limitation', async () => {
+    const root = scratch('directory-sync-eperm-non-windows')
+    const store = new StintDebriefArchiveStore(join(root, 'archive.json'), {
+      platform: 'linux',
+      openDirectory: async () => {
+        throw errno('EPERM')
+      }
+    })
+
+    await expect(store.append(record(7))).rejects.toMatchObject({ code: 'EPERM' })
+    store.quiesce()
+    await expect(store.dispose()).rejects.toThrow('durability failed during teardown')
+  })
+
+  it.each([
+    ['EIO', 'open'],
+    ['ENOSPC', 'sync']
+  ] as const)(
+    'propagates real directory %s failures and withholds failed append visibility',
+    async (code, stage) => {
+      const root = scratch(`directory-sync-${code.toLowerCase()}`)
+      const file = join(root, 'archive.json')
+      let failing = true
+      const store = new StintDebriefArchiveStore(file, {
+        platform: 'win32',
+        openDirectory: async () => {
+          if (failing && stage === 'open') throw errno(code)
+          return {
+            sync: async () => {
+              if (failing && stage === 'sync') throw errno(code)
+            },
+            close: async () => undefined
+          }
+        }
+      })
+
+      await expect(store.append(record(8))).rejects.toMatchObject({ code })
+      await expect(store.list()).rejects.toMatchObject({ code })
+      await expect(store.append(record(8))).rejects.toMatchObject({ code })
+
+      failing = false
+      store.quiesce()
+      await expect(store.dispose()).resolves.toBeUndefined()
+      const restarted = new StintDebriefArchiveStore(file)
+      await expect(restarted.list()).resolves.toEqual([
+        expect.objectContaining({ capturedAt: 8 })
+      ])
+      restarted.quiesce()
+      await restarted.dispose()
+    }
+  )
 
   it('serializes concurrent writes and carries every accepted record forward', async () => {
     const root = scratch('serialized')
