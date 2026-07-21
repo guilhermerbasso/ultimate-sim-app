@@ -124,6 +124,22 @@ describe('detectActiveMoments', () => {
     expect(active.has('qualifying')).toBe(true)
   })
 
+  it('treats ACC hotlap as active qualifying UX without race lifecycle moments', () => {
+    const active = detectActiveMoments(
+      snap({
+        sim: 'acc',
+        sessionType: '3',
+        sessionKind: 'hotlap',
+        currentLap: 2
+      }),
+      preds(),
+      null
+    )
+    expect(active.has('qualifying')).toBe(true)
+    expect(active.has('race-start')).toBe(false)
+    expect(active.has('mid-race')).toBe(false)
+  })
+
   it('detects lap moments from lapDistPct + inputs', () => {
     const onStraight = detectActiveMoments(
       snap({ sessionType: 'Race', currentLap: 5, lapDistPct: 0.5, steerAngleDeg: 2, throttle: 1, speedKmh: 200 }),

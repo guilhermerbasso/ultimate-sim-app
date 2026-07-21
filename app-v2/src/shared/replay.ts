@@ -30,6 +30,18 @@ export interface ReplayAwareTelemetrySnapshot {
   connected?: boolean
   sim?: string
   sessionUniqueId?: number
+  sessionKind?: string
+  sessionType?: string
+  trackId?: string | number
+  trackName?: string
+  trackConfigName?: string
+  carPath?: string
+  carName?: string
+  timestamp?: number
+  sessionTimeSec?: number
+  sessionTimeRemainingSec?: number
+  currentLap?: number
+  connectionEpoch?: number
   replayContext?: ReplayContext
 }
 
@@ -98,9 +110,57 @@ export function captureLiveTelemetryContext(
       sessionIdentity: context.sessionIdentity
     }
   }
-  const sim = snapshot?.sim ?? 'telemetry'
-  const session = Number.isFinite(snapshot?.sessionUniqueId) ? snapshot?.sessionUniqueId : 'session'
-  return { state: 'live', revision: 0, token: `${sim}:${session}`, connectionEpoch: 0 }
+  const sessionIdentity = fallbackLiveSessionIdentity(snapshot)
+  const connectionEpoch =
+    Number.isSafeInteger(snapshot?.connectionEpoch) && (snapshot?.connectionEpoch as number) >= 0
+      ? snapshot?.connectionEpoch as number
+      : 0
+  return {
+    state: 'live',
+    revision: 0,
+    token: `${sessionIdentity}:connection:${connectionEpoch}`,
+    connectionEpoch,
+    sessionIdentity
+  }
+}
+
+function identityPart(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number'
+    ? String(value).trim().toLowerCase()
+    : ''
+}
+
+export function fallbackLiveSessionIdentity(
+  snapshot: ReplayAwareTelemetrySnapshot | null | undefined
+): string {
+  const startBoundary =
+    typeof snapshot?.timestamp === 'number' &&
+    Number.isFinite(snapshot.timestamp) &&
+    typeof snapshot.sessionTimeSec === 'number' &&
+    Number.isFinite(snapshot.sessionTimeSec)
+      ? Math.round((snapshot.timestamp - snapshot.sessionTimeSec * 1000) / 10_000)
+      : undefined
+  const endBoundary =
+    startBoundary === undefined &&
+    typeof snapshot?.timestamp === 'number' &&
+    Number.isFinite(snapshot.timestamp) &&
+    typeof snapshot.sessionTimeRemainingSec === 'number' &&
+    Number.isFinite(snapshot.sessionTimeRemainingSec)
+      ? Math.round((snapshot.timestamp + snapshot.sessionTimeRemainingSec * 1000) / 10_000)
+      : undefined
+  return [
+    identityPart(snapshot?.sim || 'telemetry'),
+    identityPart(snapshot?.sessionKind || snapshot?.sessionType || 'unknown'),
+    identityPart(snapshot?.trackId || snapshot?.trackName || 'track'),
+    identityPart(snapshot?.trackConfigName || 'layout'),
+    identityPart(snapshot?.carPath || snapshot?.carName || 'car'),
+    Number.isFinite(snapshot?.sessionUniqueId) ? snapshot?.sessionUniqueId : 'no-id',
+    startBoundary !== undefined
+      ? `start-${startBoundary}`
+      : endBoundary !== undefined
+        ? `end-${endBoundary}`
+        : 'boundary-unknown'
+  ].join(':')
 }
 
 export function sameLiveTelemetryContext(
@@ -133,11 +193,28 @@ export function isLiveTelemetrySnapshot<T extends ReplayAwareTelemetrySnapshot>(
 export class LiveTelemetryGate {
   private previousKey: string | undefined
   private lastLiveContext: LiveTelemetryContext | null = null
+  private previousState: LiveTelemetryState | undefined
+  private fallbackConnectionEpoch = 0
 
   observe(snapshot: ReplayAwareTelemetrySnapshot | null | undefined): LiveTelemetryDecision {
     const state = liveTelemetryState(snapshot)
     const raw = snapshot?.replayContext
-    const context = captureLiveTelemetryContext(snapshot)
+    let context = captureLiveTelemetryContext(snapshot)
+    const hasProviderConnectionEpoch =
+      Number.isSafeInteger(snapshot?.connectionEpoch) &&
+      (snapshot?.connectionEpoch as number) >= 0
+    if (!raw && !hasProviderConnectionEpoch && state === 'live' && context) {
+      if (this.previousState !== undefined && this.previousState !== 'live') {
+        this.fallbackConnectionEpoch += 1
+      }
+      const sessionIdentity = fallbackLiveSessionIdentity(snapshot)
+      context = {
+        ...context,
+        connectionEpoch: this.fallbackConnectionEpoch,
+        sessionIdentity,
+        token: `${sessionIdentity}:connection:${this.fallbackConnectionEpoch}`
+      }
+    }
     const key = raw
       ? `${state}:${raw.connectionEpoch}:${raw.revision}:${raw.sessionIdentity ?? ''}`
       : `${state}:${context?.token ?? ''}`
@@ -153,6 +230,7 @@ export class LiveTelemetryGate {
       )
     )
     this.previousKey = key
+    this.previousState = state
     if (context) this.lastLiveContext = context
 
     return {

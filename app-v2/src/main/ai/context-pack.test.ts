@@ -4,6 +4,7 @@ import type { FuelStrategyState } from '../../shared/fuel'
 import type { LapTimingState } from '../../shared/laptiming'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { TireStrategyState } from '../../shared/tire-strategy'
+import { formatMeasurement } from '../../shared/units'
 import { buildContextPack, estimateTokens, renderContextText } from './context-pack'
 
 function snapshot(overrides: Partial<TelemetrySnapshot> = {}): TelemetrySnapshot {
@@ -209,6 +210,96 @@ describe('buildContextPack', () => {
     // 34.2 / 2.1 ≈ 16.3 laps; canFinish vs 13 laps remaining → true
     expect(pack.fuel.lapsLeft).toBeGreaterThan(15)
     expect(pack.fuel.canFinish).toBe(true)
+  })
+
+  it('preserves and formats all four tyre pressures without dropping temperatures', () => {
+    const pressures = { lf: 180, rf: 181.2, lr: 178.4, rr: 179.6 }
+    const pack = buildContextPack(
+      snapshot({
+        tyres: {
+          lf: { pressureKpa: pressures.lf, tempC: 88 },
+          rf: { pressureKpa: pressures.rf, tempC: 95 },
+          lr: { pressureKpa: pressures.lr, tempC: 86 },
+          rr: { pressureKpa: pressures.rr, tempC: 90 }
+        }
+      })
+    )
+
+    expect(pack.tyres).toMatchObject({
+      lf: { pressureKpa: 180, tempC: 88 },
+      rf: { pressureKpa: 181.2, tempC: 95 },
+      lr: { pressureKpa: 178.4, tempC: 86 },
+      rr: { pressureKpa: 179.6, tempC: 90 }
+    })
+    const metric = renderContextText(pack, { unitSystem: 'metric' })
+    for (const [id, pressure] of Object.entries(pressures)) {
+      expect(metric).toContain(
+        `${id.toUpperCase()} ${formatMeasurement(pressure, 'pressure-kpa', 'metric', {
+          decimals: 1,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display}`
+      )
+    }
+    expect(metric).toContain('88 °C')
+
+    const imperial = renderContextText(pack, { unitSystem: 'imperial' })
+    for (const pressure of Object.values(pressures)) {
+      expect(imperial).toContain(
+        formatMeasurement(pressure, 'pressure-kpa', 'imperial', {
+          decimals: 1,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      )
+    }
+  })
+
+  it('keeps partial tyre pressure/temperature data and omits missing or non-finite values', () => {
+    const pack = buildContextPack(
+      snapshot({
+        tyres: {
+          lf: { pressureKpa: 180 },
+          rf: { tempC: 91 },
+          lr: { pressureKpa: Number.NaN },
+          rr: {}
+        }
+      })
+    )
+
+    expect(pack.tyres.lf).toEqual({ pressureKpa: 180 })
+    expect(pack.tyres.rf).toEqual({ tempC: 91 })
+    expect(pack.tyres.lr).toBeUndefined()
+    expect(pack.tyres.rr).toBeUndefined()
+    const text = renderContextText(pack)
+    expect(text).toContain('LF 180 kPa')
+    expect(text).toContain('RF 91 °C')
+    expect(text).not.toContain('NaN')
+  })
+
+  it('omits the tyre line when pressure, temperature, and wear are all missing', () => {
+    const pack = buildContextPack(snapshot({ tyres: undefined }))
+    expect(pack.tyres.lf).toBeUndefined()
+    expect(renderContextText(pack)).not.toContain('TYRES:')
+  })
+
+  it('keeps surface wetness unknown when rain is false but no explicit surface evidence exists', () => {
+    const pack = buildContextPack(
+      snapshot({ isRaining: false, trackWetnessPct: undefined })
+    )
+    expect(pack.weather.condition).toBe('unknown')
+    const text = renderContextText(pack)
+    expect(text).toContain('WEATHER:')
+    expect(text).toContain('surface unknown')
+    expect(text).not.toContain('WEATHER: dry')
+  })
+
+  it('reports dry only from an explicit zero wetness measurement', () => {
+    const pack = buildContextPack(
+      snapshot({ isRaining: false, trackWetnessPct: 0 })
+    )
+    expect(pack.weather.condition).toBe('dry')
+    expect(renderContextText(pack)).toContain('dry')
   })
 
   it('honours the render token budget by dropping events first', () => {

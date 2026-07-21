@@ -29,13 +29,19 @@ import type {
   SessionPhase
 } from '../../shared/ai-engineer'
 import { formatMeasurement, type UnitSystem } from '../../shared/units'
+import { classifyTrackWetness } from '../../shared/track-wetness'
 import type { CoachFinding, CoachTip } from '../../shared/coach'
 import { groundedFindingText } from '../../shared/coach'
 import type { FuelStrategyState } from '../../shared/fuel'
 import type { LapTimingState } from '../../shared/laptiming'
 import type { PredictionsSnapshot } from '../../shared/predictions'
 import type { TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
-import { formatTimeOfDay, trackSurfaceMaterialLabel } from '../../shared/telemetry'
+import {
+  formatTimeOfDay,
+  sessionKindForSnapshot,
+  sessionKindFromText,
+  trackSurfaceMaterialLabel
+} from '../../shared/telemetry'
 import type { TireStrategyState } from '../../shared/tire-strategy'
 
 const DEFAULT_MAX_EVENTS = 3
@@ -75,13 +81,7 @@ export function formatSignedSec(sec: number | undefined, digits = 2): string | u
 // ─── per-field derivations (pure) ────────────────────────────────────────────
 
 export function deriveSessionKind(rawType: string | undefined): SessionKind {
-  if (!rawType) return 'unknown'
-  const t = rawType.toLowerCase()
-  if (t.includes('race')) return 'race'
-  if (t.includes('qual') || t.includes('lone') || t.includes('open qual')) return 'qualify'
-  if (t.includes('warm')) return 'warmup'
-  if (t.includes('practice') || t.includes('test') || t.includes('offline')) return 'practice'
-  return 'unknown'
+  return sessionKindFromText(rawType)
 }
 
 export function deriveSessionPhase(snapshot: TelemetrySnapshot | null): SessionPhase {
@@ -112,7 +112,7 @@ export function deriveSession(snapshot: TelemetrySnapshot | null, fuel?: FuelStr
     ? (snapshot?.currentLap as number) + (lapsRemaining as number)
     : undefined
   return {
-    kind: deriveSessionKind(rawType),
+    kind: sessionKindForSnapshot(snapshot),
     rawType: rawType || undefined,
     phase: deriveSessionPhase(snapshot),
     lap: isPositive(snapshot?.currentLap) ? snapshot?.currentLap : undefined,
@@ -198,15 +198,18 @@ export function deriveTyres(snapshot: TelemetrySnapshot | null, tire?: TireStrat
   const corners: Array<'lf' | 'rf' | 'lr' | 'rr'> = ['lf', 'rf', 'lr', 'rr']
   const out: PackTyres = { estimated: tire?.estimated ?? undefined }
   for (const id of corners) {
-    const temp = tyreTemp(snapshot?.tyres?.[id])
+    const info = snapshot?.tyres?.[id]
+    const temp = tyreTemp(info)
+    const pressureKpa = info?.pressureKpa
     // Strategy wear is a 0..100 "remaining life" scale; snapshot wearPct is 0..1.
     const stratWear = tire?.corners?.[id]?.wearPct
     const snapWear = snapshot?.tyres?.[id]?.wearPct
     const wearPct = isFiniteNum(stratWear) ? stratWear : isFiniteNum(snapWear) ? round(snapWear * 100, 0) : undefined
-    if (isFiniteNum(temp) || isFiniteNum(wearPct)) {
+    if (isFiniteNum(temp) || isFiniteNum(wearPct) || isFiniteNum(pressureKpa)) {
       out[id] = {
         tempC: isFiniteNum(temp) ? round(temp, 0) : undefined,
-        wearPct: isFiniteNum(wearPct) ? round(wearPct, 0) : undefined
+        wearPct: isFiniteNum(wearPct) ? round(wearPct, 0) : undefined,
+        pressureKpa: isFiniteNum(pressureKpa) ? round(pressureKpa, 1) : undefined
       }
     }
   }
@@ -246,7 +249,12 @@ export function deriveWeather(snapshot: TelemetrySnapshot | null): PackWeather {
     wetnessPct: wetness,
     raining: typeof snapshot?.isRaining === 'boolean' ? snapshot?.isRaining : undefined,
     declaredWet: typeof snapshot?.weatherDeclaredWet === 'boolean' ? snapshot?.weatherDeclaredWet : undefined,
-    surface: trackSurfaceMaterialLabel(snapshot?.trackSurfaceMaterial)
+    surface: trackSurfaceMaterialLabel(snapshot?.trackSurfaceMaterial),
+    condition: classifyTrackWetness({
+      trackWetnessPct: snapshot?.trackWetnessPct,
+      isRaining: snapshot?.isRaining,
+      weatherDeclaredWet: snapshot?.weatherDeclaredWet
+    })
   }
 }
 
@@ -505,6 +513,15 @@ function renderLines(pack: ContextPack, unitSystem: UnitSystem): string[] {
     const corner = ty[id]
     if (!corner) continue
     const bits: string[] = []
+    if (isFiniteNum(corner.pressureKpa)) {
+      bits.push(
+        formatMeasurement(corner.pressureKpa, 'pressure-kpa', unitSystem, {
+          decimals: 1,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      )
+    }
     if (isFiniteNum(corner.tempC)) bits.push(formatMeasurement(corner.tempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display)
     if (isFiniteNum(corner.wearPct)) bits.push(`${corner.wearPct}%`)
     if (bits.length) tyParts.push(`${id.toUpperCase()} ${bits.join('/')}`)
@@ -538,8 +555,17 @@ function renderLines(pack: ContextPack, unitSystem: UnitSystem): string[] {
     const parts: string[] = []
     if (isFiniteNum(w.airTempC)) parts.push(`air ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
     if (isFiniteNum(w.trackTempC)) parts.push(`track ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
-    const wet = w.declaredWet || w.raining === true || (isFiniteNum(w.wetnessPct) && w.wetnessPct >= 15)
-    parts.push(wet ? `wet${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}` : 'dry')
+    if (w.condition === 'dry') {
+      parts.push('dry')
+    } else if (w.condition === 'wet') {
+      parts.push(`wet${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}`)
+    } else if (w.condition === 'intermediate') {
+      parts.push(`damp${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}`)
+    } else if (w.condition === 'drying') {
+      parts.push(`drying${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}`)
+    } else {
+      parts.push('surface unknown')
+    }
     if (w.surface) parts.push(w.surface)
     lines.push(`WEATHER: ${parts.join(' · ')}`)
   }

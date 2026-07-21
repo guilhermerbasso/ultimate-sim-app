@@ -207,7 +207,7 @@ function App(): ReactElement {
       if (speak && text) void speakViaTts(text, { lang, ...diag })
     }
     const unsubAnswer = window.ipc.subscribe<EngineerAnswer>(ENGINEER_CHANNELS.answer, (a) =>
-      speakIf(a.text, (a as { lang?: string }).lang, a.speak, { source: 'engineer', tipId: (a as { id?: string }).id })
+      speakIf(a.speechText ?? a.text, (a as { lang?: string }).lang, a.speak, { source: 'engineer', tipId: (a as { id?: string }).id })
     )
     const unsubProactive = window.ipc.subscribe<EngineerProactiveEvent>(ENGINEER_CHANNELS.proactive, (e) =>
       speakIf(e.text, e.lang, e.speak, { source: e.source ?? 'engineer', tipId: e.id, corner: e.corner })

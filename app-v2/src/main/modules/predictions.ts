@@ -14,6 +14,7 @@ import { logger } from './logger'
 import {
   isCurrentLiveTelemetryContext,
   LiveTelemetryGate,
+  sameLiveTelemetryContext,
   type LiveTelemetryContext
 } from '../../shared/replay'
 
@@ -95,6 +96,7 @@ export class PredictionsEngine {
   private pitSeenThisLap = false
   private lastIncidentCount: number | null = null
   private lastSnapshot: PredictionsSnapshot | null = null
+  private lastSnapshotContext: LiveTelemetryContext | null = null
   private lastBroadcastAt = 0
   private model: PaceModel | null = null
 
@@ -131,7 +133,8 @@ export class PredictionsEngine {
     this.latest = snapshot
   }
 
-  getSnapshot(): PredictionsSnapshot | null {
+  getSnapshot(context?: LiveTelemetryContext | null): PredictionsSnapshot | null {
+    if (context && !sameLiveTelemetryContext(this.lastSnapshotContext, context)) return null
     return this.lastSnapshot
   }
 
@@ -148,6 +151,7 @@ export class PredictionsEngine {
     this.pitSeenThisLap = false
     this.lastIncidentCount = null
     this.lastSnapshot = null
+    this.lastSnapshotContext = null
     this.lastBroadcastAt = 0
   }
 
@@ -174,6 +178,7 @@ export class PredictionsEngine {
       const next = computePredictions(inputs, this.model)
       if (!isCurrentLiveTelemetryContext(this.latest, context)) return
       this.lastSnapshot = next
+      this.lastSnapshotContext = { ...context }
 
       const now = Date.now()
       if (lapCompleted || now - this.lastBroadcastAt >= BROADCAST_MIN_MS) {
@@ -321,8 +326,10 @@ export function setPredictionsPaceModel(model: PaceModel | null): void {
  * WS-G engineer tool plug point: return the last computed predictions snapshot
  * (or `null` when the engine isn't running / has nothing yet). Never throws.
  */
-export function getLatestPredictions(): PredictionsSnapshot | null {
-  return engine?.getSnapshot() ?? null
+export function getLatestPredictions(
+  context?: LiveTelemetryContext | null
+): PredictionsSnapshot | null {
+  return engine?.getSnapshot(context) ?? null
 }
 
 export function register(ctx: ModuleContext): void {

@@ -267,4 +267,47 @@ describe('race moment canonical live boundaries', () => {
       lastSwitchAt: 1_000
     })
   })
+
+  it('hard resets fallback state on Race → Hotlap', () => {
+    const race = {
+      sim: 'acc',
+      connected: true,
+      timestamp: 101_000,
+      sessionTimeSec: 100,
+      sessionKind: 'race',
+      trackName: 'Spa',
+      trackConfigName: 'GP',
+      carName: 'GT3 R',
+      speedKmh: 100,
+      onPitRoad: true,
+      currentLap: 3
+    } as TelemetrySnapshot
+    const inPit = resolveRaceMoment(race, null, null, { now: 1_000 })
+    const dirty = resolveRaceMoment(
+      { ...race, timestamp: 102_000, sessionTimeSec: 101, onPitRoad: false },
+      null,
+      inPit,
+      { now: 1_100 }
+    )
+    expect(dirty.candidate).toBe('out-lap')
+
+    const hotlap = resolveRaceMoment(
+      {
+        ...race,
+        timestamp: 200_000,
+        sessionTimeSec: 0,
+        sessionKind: 'hotlap',
+        sessionType: '3',
+        onPitRoad: false,
+        lapDistPct: 0.4,
+        speedKmh: 200
+      },
+      null,
+      dirty,
+      { now: 1_200 }
+    )
+    expect(hotlap.moment).toBe('qualifying-lap')
+    expect(hotlap.candidate).toBeNull()
+    expect(hotlap.leftPitAt).toBe(0)
+  })
 })

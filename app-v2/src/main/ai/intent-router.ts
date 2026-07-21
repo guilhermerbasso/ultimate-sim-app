@@ -1,6 +1,6 @@
 // Deterministic Intent Router.
 //
-// `routeIntent(text, ctx)` answers common PT-BR + EN race-engineer questions and
+// `routeIntent(text, ctx)` answers common race-engineer questions and
 // voice commands WITHOUT touching the LLM. It returns one of:
 //   - { type: 'answer' }      → a ready spoken string built from the live engines
 //   - { type: 'command' }     → a structured action for the orchestrator to run
@@ -12,12 +12,19 @@
 import type {
   EngineerContext,
   IntentAnswer,
+  IntentAnswerLang,
   IntentCategory,
   IntentCommand,
   IntentCommandKind,
   IntentLang,
   IntentResult
 } from '../../shared/ai-engineer'
+import {
+  recognizeAnchoredTyreStatusQuery,
+  type AnchoredTyreStatusLanguage,
+  type AnchoredTyreStatusMetric,
+  type AnchoredTyreStatusQuery
+} from '../../shared/coach-racecraft'
 import {
   computePitRecommendation,
   deriveFuel,
@@ -56,8 +63,8 @@ function has(text: string, ...subs: string[]): boolean {
 }
 
 const PT_MARKERS = [
-  'fuel', 'gasolina', 'tanque', 'boxes', 'frente', 'atras', 'traseira', 'posicao', 'lugar',
-  'colocado', 'tire', 'tires', 'borracha', 'rain', 'chovendo', 'weather', 'lap', 'laps', 'proximo',
+  'fuel', 'gasolina', 'combustivel', 'tanque', 'nivel', 'boxes', 'frente', 'atras', 'traseira', 'posicao', 'lugar',
+  'colocado', 'tire', 'tires', 'pneu', 'pneus', 'pressao', 'temperatura', 'desgaste', 'borracha', 'rain', 'chovendo', 'weather', 'lap', 'laps', 'volta', 'voltas', 'faltam', 'restam', 'proximo',
   'anterior', 'salvar', 'salva', 'marcar', 'marca', 'resetar', 'reseta', 'ativar', 'ativa', 'desativar',
   'desativa', 'quanto', 'devo', 'preciso', 'consigo', 'terminar', 'meu', 'minha', 'qual', 'agora', 'pace'
 ]
@@ -84,13 +91,27 @@ const PREV_TOKENS = ['anterior', 'previous', 'prev', 'lapr', 'lap', 'atras', 're
 // ─── public entry ────────────────────────────────────────────────────────────
 
 export function routeIntent(rawText: string, ctx: EngineerContext, forcedLang?: IntentLang, unitSystem: UnitSystem = 'metric'): IntentResult {
+  const recognizedTyreStatus = recognizeAnchoredTyreStatusQuery(rawText)
+  const tyreStatus =
+    recognizedTyreStatus &&
+    forcedLang &&
+    (recognizedTyreStatus.language === 'en-US' ||
+      recognizedTyreStatus.language === 'pt-BR')
+      // forcedLang is IntentLang ('en' | 'pt'), which can only map to 'en-US' / 'pt-BR'.
+      // Patterns recognised as 'es', 'fr', or 'de' carry an unambiguous language and
+      // are returned unchanged — no override is needed or meaningful for those locales.
+      ? {
+          ...recognizedTyreStatus,
+          language: forcedLang === 'pt' ? 'pt-BR' as const : 'en-US' as const
+        }
+      : recognizedTyreStatus
   const text = normalize(rawText ?? '')
   if (!text) return { type: 'passthrough', reason: 'empty' }
   const lang = forcedLang ?? detectLang(text)
 
   return (
     matchCommand(text, lang) ??
-    matchQuestion(text, lang, ctx, unitSystem) ?? { type: 'passthrough' }
+    matchQuestion(text, lang, ctx, unitSystem, tyreStatus) ?? { type: 'passthrough' }
   )
 }
 
@@ -122,7 +143,7 @@ function matchCommand(text: string, lang: IntentLang): IntentCommand | null {
   }
 
   // Reset fuel calculation
-  if (hasWord(text, 'resetar', 'reseta', 'resete', 'zerar', 'zera', 'reset', 'limpar', 'limpa') && has(text, 'fuel', 'fuel', 'gasolina', 'tanque')) {
+  if (hasWord(text, 'resetar', 'reseta', 'resete', 'zerar', 'zera', 'reset', 'limpar', 'limpa') && has(text, 'fuel', 'fuel', 'gasolina', 'combustivel', 'tanque')) {
     return command('fuel.reset', lang, 'Cálculo de combustível reiniciado.', 'Fuel calculation reset.', 'fuel:reset')
   }
 
@@ -145,20 +166,42 @@ function matchCommand(text: string, lang: IntentLang): IntentCommand | null {
 
 // ─── question matching ───────────────────────────────────────────────────────
 
-function answer(category: IntentCategory, lang: IntentLang, text: string): IntentAnswer {
+function answer(category: IntentCategory, lang: IntentAnswerLang, text: string): IntentAnswer {
   return { type: 'answer', category, lang, text }
+}
+
+export function routeAnchoredTyreStatusQuery(
+  query: AnchoredTyreStatusQuery,
+  ctx: EngineerContext,
+  unitSystem: UnitSystem = 'metric'
+): IntentAnswer {
+  return answer(
+    'tyres',
+    tyreStatusIntentLanguage(query.language),
+    buildTyresAnswer(ctx, query, unitSystem)
+  )
 }
 
 const NO_DATA_PT = 'Sem telemetria no momento.'
 const NO_DATA_EN = 'No telemetry right now.'
 
-function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, unitSystem: UnitSystem): IntentAnswer | null {
+function matchQuestion(
+  text: string,
+  lang: IntentLang,
+  ctx: EngineerContext,
+  unitSystem: UnitSystem,
+  tyreStatus: AnchoredTyreStatusQuery | null
+): IntentAnswer | null {
   const snapshot = ctx.getSnapshot()
   const noData = lang === 'en' ? NO_DATA_EN : NO_DATA_PT
 
+  if (tyreStatus) {
+    return routeAnchoredTyreStatusQuery(tyreStatus, ctx, unitSystem)
+  }
+
   // FUEL (level / can I finish)
-  const isFinishQ = has(text, 'da pra terminar', 'da para terminar', 'consigo terminar', 'can we finish', 'can i finish', 'finish the race', 'make it to the end', 'make the finish', 'will i finish', 'enough fuel')
-  if (isFinishQ || (hasWord(text, 'fuel', 'fuel', 'gasolina', 'tanque', 'gas') )) {
+  const isFinishQ = has(text, 'da pra terminar', 'da para terminar', 'consigo terminar', 'tenho combustivel para terminar', 'combustivel para terminar', 'can we finish', 'can i finish', 'finish the race', 'make it to the end', 'make the finish', 'will i finish', 'enough fuel')
+  if (isFinishQ || (hasWord(text, 'fuel', 'fuel', 'gasolina', 'combustivel', 'tanque', 'gas') )) {
     if (!snapshot?.connected) return answer('fuel', lang, noData)
     return answer('fuel', lang, buildFuelAnswer(ctx, lang, isFinishQ, unitSystem))
   }
@@ -204,17 +247,17 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, uni
       'laps to go',
       'laps remaining',
       'laps left',
-      'laps are left'
+      'laps are left',
+      'quantas voltas faltam',
+      'quantas voltas restam',
+      'voltas restantes',
+      'voltas faltando',
+      'voltas para acabar',
+      'voltas ate o fim'
     )
   ) {
     if (!snapshot?.connected) return answer('laps', lang, noData)
     return answer('laps', lang, buildLapsAnswer(ctx, lang))
-  }
-
-  // TYRES
-  if (hasWord(text, 'tire', 'tires', 'tyre', 'tyres', 'tire', 'tires', 'borracha')) {
-    if (!snapshot?.connected) return answer('tyres', lang, noData)
-    return answer('tyres', lang, buildTyresAnswer(ctx, lang, unitSystem))
   }
 
   // WEATHER
@@ -352,31 +395,154 @@ function buildDeltaAnswer(ctx: EngineerContext, lang: IntentLang): string {
   return `${parts.join(pt ? '. ' : ', ')}.`
 }
 
-function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: UnitSystem): string {
-  const tyres = deriveTyres(ctx.getSnapshot(), ctx.getTireState?.())
-  const pt = lang === 'pt'
+type TyreReadingField = 'pressure' | 'temperature' | 'wear'
+
+interface TyreStatusCopy {
+  headings: Record<AnchoredTyreStatusMetric, string>
+  unavailable: string
+  partial: string
+  separator: string
+}
+
+const TYRE_STATUS_COPY: Record<AnchoredTyreStatusLanguage, TyreStatusCopy> = {
+  'en-US': {
+    headings: {
+      overview: 'Tyres',
+      pressure: 'Tyre pressures',
+      temperature: 'Tyre temperatures',
+      wear: 'Tyre wear',
+      condition: 'Tyre condition',
+      'temperature-wear': 'Tyre temperatures and wear'
+    },
+    unavailable: 'Current tyre readings are unavailable',
+    partial: 'Some tyre readings are unavailable',
+    separator: ': '
+  },
+  'pt-BR': {
+    headings: {
+      overview: 'Pneus',
+      pressure: 'Pressões dos pneus',
+      temperature: 'Temperaturas dos pneus',
+      wear: 'Desgaste dos pneus',
+      condition: 'Condição dos pneus',
+      'temperature-wear': 'Temperaturas e desgaste dos pneus'
+    },
+    unavailable: 'As leituras atuais dos pneus estão indisponíveis',
+    partial: 'Algumas leituras dos pneus estão indisponíveis',
+    separator: ': '
+  },
+  es: {
+    headings: {
+      overview: 'Neumáticos',
+      pressure: 'Presiones de los neumáticos',
+      temperature: 'Temperaturas de los neumáticos',
+      wear: 'Desgaste de los neumáticos',
+      condition: 'Estado de los neumáticos',
+      'temperature-wear': 'Temperaturas y desgaste de los neumáticos'
+    },
+    unavailable: 'Las lecturas actuales de los neumáticos no están disponibles',
+    partial: 'Algunas lecturas de los neumáticos no están disponibles',
+    separator: ': '
+  },
+  fr: {
+    headings: {
+      overview: 'Pneus',
+      pressure: 'Pressions des pneus',
+      temperature: 'Températures des pneus',
+      wear: 'Usure des pneus',
+      condition: 'État des pneus',
+      'temperature-wear': 'Températures et usure des pneus'
+    },
+    unavailable: 'Les mesures actuelles des pneus sont indisponibles',
+    partial: 'Certaines mesures des pneus sont indisponibles',
+    separator: ' : '
+  },
+  de: {
+    headings: {
+      overview: 'Reifen',
+      pressure: 'Reifendrücke',
+      temperature: 'Reifentemperaturen',
+      wear: 'Reifenverschleiß',
+      condition: 'Reifenzustand',
+      'temperature-wear': 'Reifentemperaturen und Reifenverschleiß'
+    },
+    unavailable: 'Aktuelle Reifenmesswerte sind nicht verfügbar',
+    partial: 'Einige Reifenmesswerte sind nicht verfügbar',
+    separator: ': '
+  }
+}
+
+function tyreStatusIntentLanguage(
+  language: AnchoredTyreStatusLanguage
+): IntentAnswerLang {
+  if (language === 'en-US') return 'en'
+  if (language === 'pt-BR') return 'pt'
+  return language
+}
+
+function tyreStatusFields(metric: AnchoredTyreStatusMetric): readonly TyreReadingField[] {
+  if (metric === 'pressure') return ['pressure']
+  if (metric === 'temperature') return ['temperature']
+  if (metric === 'wear') return ['wear']
+  if (metric === 'temperature-wear') return ['temperature', 'wear']
+  return ['pressure', 'temperature', 'wear']
+}
+
+function buildTyresAnswer(
+  ctx: EngineerContext,
+  query: AnchoredTyreStatusQuery,
+  unitSystem: UnitSystem
+): string {
+  const copy = TYRE_STATUS_COPY[query.language]
+  const snapshot = ctx.getSnapshot()
+  if (!snapshot?.connected) return `${copy.unavailable}.`
+
+  const tyres = deriveTyres(snapshot, ctx.getTireState?.())
+  const fields = tyreStatusFields(query.metric)
   const parts: string[] = []
+  let complete = true
   for (const id of ['lf', 'rf', 'lr', 'rr'] as const) {
     const corner = tyres[id]
-    if (!corner) continue
     const bits: string[] = []
-    if (isFiniteNum(corner.tempC)) bits.push(formatMeasurement(corner.tempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display)
-    if (isFiniteNum(corner.wearPct)) bits.push(`${corner.wearPct}%`)
+    for (const field of fields) {
+      if (field === 'pressure' && isFiniteNum(corner?.pressureKpa)) {
+        bits.push(
+          formatMeasurement(corner.pressureKpa, 'pressure-kpa', unitSystem, {
+            decimals: 1,
+            trimTrailingZeros: true,
+            includeUnit: true
+          }).display
+        )
+      } else if (field === 'temperature' && isFiniteNum(corner?.tempC)) {
+        bits.push(
+          formatMeasurement(corner.tempC, 'temperature-c', unitSystem, {
+            decimals: 0,
+            includeUnit: true
+          }).display
+        )
+      } else if (field === 'wear' && isFiniteNum(corner?.wearPct)) {
+        bits.push(`${corner.wearPct}%`)
+      } else {
+        complete = false
+      }
+    }
     if (bits.length) parts.push(`${id.toUpperCase()} ${bits.join(' ')}`)
   }
-  const head = parts.length ? `${pt ? 'Pneus' : 'Tyres'}: ${parts.join(', ')}` : pt ? 'Sem dados dos pneus' : 'No tyre data'
-  const tail: string[] = []
-  if (tyres.worst) tail.push(pt ? `pior: ${tyres.worst}` : `worst: ${tyres.worst}`)
-  if (isFiniteNum(tyres.lapsLeft)) tail.push(pt ? `cerca de ${tyres.lapsLeft} voltas restantes` : `~${tyres.lapsLeft} laps left`)
-  return `${[head, ...tail].join('. ')}.`
+  if (!parts.length) return `${copy.unavailable}.`
+
+  const answer = `${copy.headings[query.metric]}${copy.separator}${parts.join(', ')}.`
+  return complete ? answer : `${answer} ${copy.partial}.`
 }
 
 function buildWeatherAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: UnitSystem): string {
   const w = deriveWeather(ctx.getSnapshot())
   const pt = lang === 'pt'
-  const wet = w.declaredWet === true || w.raining === true || (isFiniteNum(w.wetnessPct) && w.wetnessPct >= 15)
   const parts: string[] = []
-  parts.push(wet ? (pt ? 'Pista molhada' : 'Track is wet') : (pt ? 'Pista seca' : 'Track is dry'))
+  if (w.condition === 'dry') parts.push(pt ? 'Pista seca' : 'Track is dry')
+  else if (w.condition === 'wet') parts.push(pt ? 'Pista molhada' : 'Track is wet')
+  else if (w.condition === 'intermediate') parts.push(pt ? 'Pista úmida' : 'Track is damp')
+  else if (w.condition === 'drying') parts.push(pt ? 'Pista secando' : 'Track is drying')
+  else parts.push(pt ? 'Condição da pista desconhecida' : 'Track surface is unknown')
   if (isFiniteNum(w.wetnessPct)) parts.push(pt ? `umidade ${w.wetnessPct}%` : `${w.wetnessPct}% wet`)
   if (isFiniteNum(w.airTempC)) parts.push(`${pt ? 'ar' : 'air'} ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
   if (isFiniteNum(w.trackTempC)) parts.push(`${pt ? 'pista' : 'track'} ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)

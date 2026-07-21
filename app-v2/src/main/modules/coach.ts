@@ -1,5 +1,6 @@
 import type { ModuleContext } from '../module-context'
 import type { Corners, TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
+import { sessionKindForSnapshot } from '../../shared/telemetry'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
@@ -44,12 +45,10 @@ import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
 import { recordLapEvents } from '../../shared/coach-baseline'
 import { findingEventKeys } from '../../shared/coach-intent-gate'
 import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
-import { deriveSessionKind } from '../ai/context-pack'
 import type { SessionKind } from '../../shared/ai-engineer'
 import {
   buildSetupReport,
   type CornerTyres,
-  type SetupBalanceSignal,
   type SetupReport,
   type TyreTreadTemps
 } from '../../shared/setup-advisor'
@@ -58,6 +57,11 @@ import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
 import type { UnitSystem } from '../../shared/units'
+import {
+  racecraftSafetyFromSnapshot,
+  racecraftSafetyReason,
+  type RacecraftSafetyReason
+} from '../../shared/coach-racecraft'
 import {
   speechLanguageFromAppLanguage,
   type SpeechLanguage
@@ -285,7 +289,7 @@ export class LiveCoachEngine {
     const sample = coachSampleFromSnapshot(snapshot)
     if (!sample) return
 
-    this.lastSessionKind = deriveSessionKind(snapshot.sessionType)
+    this.lastSessionKind = sessionKindForSnapshot(snapshot)
     this.sampleCount += 1
     this.lastUpdatedAt = this.now()
 
@@ -572,7 +576,55 @@ const MIN_LAP_SAMPLES = 30
 const MAX_REPORTS = 6
 const RECENT_LAPS = 8
 const EXPLAIN_TIMEOUT_MS = 8000
-const EXPLAIN_MAX_TOKENS = 96
+const EXPLAIN_MAX_TOKENS = 8
+const COACH_EXPLAIN_SESSION_KINDS: readonly SessionKind[] = [
+  'practice',
+  'qualify',
+  'race',
+  'warmup',
+  'hotlap',
+  'time-attack'
+]
+
+interface CoachExplanationFence {
+  context: LiveTelemetryContext
+  safetyRevision: number
+  languageRevision: number
+  reportRevision: number
+  findingFingerprint: string
+  language: SpeechLanguage
+  safetyReason?: RacecraftSafetyReason
+}
+
+function coachFindingFingerprint(finding: CoachFinding): string {
+  return JSON.stringify({
+    id: finding.id,
+    kind: finding.kind,
+    phase: finding.phase,
+    sector: finding.sector,
+    corner: finding.corner,
+    zonePctStart: finding.zonePctStart,
+    zonePctEnd: finding.zonePctEnd,
+    severity: finding.severity,
+    estTimeLossSec: finding.estTimeLossSec,
+    estTimeDeltaSec: finding.estTimeDeltaSec,
+    title: finding.title,
+    detail: finding.detail,
+    evidence: finding.evidence,
+    metrics: Object.entries(finding.metrics).sort(([left], [right]) => left.localeCompare(right))
+  })
+}
+
+const CONTROLLED_COACH_TEMPLATE_TOKEN = 'PRIMARY'
+
+function controlledCoachTemplate(
+  modelOutput: string,
+  deterministic: string
+): string | null {
+  return modelOutput.trim() === CONTROLLED_COACH_TEMPLATE_TOKEN
+    ? deterministic
+    : null
+}
 
 export interface LapCoachDeps {
   broadcast(channel: string, payload: unknown): void
@@ -601,7 +653,16 @@ export class LapCoachAnalyzer {
   private recentLapTimes: number[] = []
   private reports: CoachReport[] = []
   private latestReport: CoachReport | null = null
+  private latestReportLiveContext: LiveTelemetryContext | null = null
   private latestSetup: SetupReport | null = null
+  private readonly explanationCache = new Map<string, CoachExplainResult>()
+  private readonly explanationInFlight = new Map<string, Promise<CoachExplainResult>>()
+  private safetyRevision = 0
+  private safetyKey: string | undefined
+  private currentSafetyReason: RacecraftSafetyReason | undefined = 'race-control-unknown'
+  private languageRevision = 0
+  private observedLanguage: SpeechLanguage | null = null
+  private reportRevision = 0
   private latestReportContext: LapCoachFindingsContext | null = null
   // Per-track corner map, learned lazily from the first full clean lap and then
   // reused for every subsequent lap so corner numbers stay stable.
@@ -613,7 +674,73 @@ export class LapCoachAnalyzer {
 
   constructor(private readonly deps: LapCoachDeps) {}
 
+  private invalidateExplanations(): void {
+    this.explainAbort?.abort()
+    this.explainAbort = null
+    this.explanationCache.clear()
+    this.explanationInFlight.clear()
+  }
+
+  private observeLanguage(): SpeechLanguage {
+    const language = this.deps.getLanguage?.() ?? 'pt-BR'
+    if (this.observedLanguage === null) {
+      this.observedLanguage = language
+    } else if (this.observedLanguage !== language) {
+      this.observedLanguage = language
+      this.languageRevision += 1
+      this.invalidateExplanations()
+    }
+    return language
+  }
+
+  private observeSafety(snapshot: TelemetrySnapshot | null): void {
+    const safety = racecraftSafetyFromSnapshot(snapshot)
+    const reason = racecraftSafetyReason(
+      safety,
+      COACH_EXPLAIN_SESSION_KINDS,
+      true
+    )
+    const key = JSON.stringify([
+      snapshot?.sim,
+      reason ?? 'safe',
+      safety.connected,
+      safety.onTrack,
+      safety.onPitRoad,
+      safety.flagYellow,
+      safety.flagBlue,
+      safety.flagRed,
+      safety.flagBlack,
+      safety.flagMeatball,
+      safety.flagRepair,
+      safety.flagDisqualify,
+      safety.flagCheckered,
+      safety.flagsKnown,
+      safety.raceControlUnknownReason,
+      safety.pitStateKnown,
+      safety.paceStateKnown,
+      safety.caution,
+      safety.paceMode,
+      safety.sessionState,
+      safety.sessionKind,
+      safety.replayState,
+      safety.carLeftRight,
+      (safety.carsAlongsideCount ?? 0) > 0,
+      safety.radarClosestMeters !== undefined && safety.radarClosestMeters <= 8,
+      safety.gapAheadSec !== undefined && safety.gapAheadSec <= 0.35,
+      safety.gapBehindSec !== undefined && safety.gapBehindSec <= 0.35
+    ])
+    if (this.safetyKey === undefined) {
+      this.safetyKey = key
+    } else if (this.safetyKey !== key) {
+      this.safetyKey = key
+      this.safetyRevision += 1
+      this.invalidateExplanations()
+    }
+    this.currentSafetyReason = reason
+  }
+
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
+    this.observeSafety(snapshot)
     const live = this.liveGate.observe(snapshot)
     if (!live.live) {
       if (live.boundary) this.resetLiveSession()
@@ -643,8 +770,8 @@ export class LapCoachAnalyzer {
   }
 
   private resetLiveSession(): void {
-    this.explainAbort?.abort()
-    this.explainAbort = null
+    this.invalidateExplanations()
+    this.reportRevision += 1
     this.liveContext = null
     this.buffer = []
     this.previous = null
@@ -652,8 +779,9 @@ export class LapCoachAnalyzer {
     this.recentLapTimes = []
     this.reports = []
     this.latestReport = null
-    this.latestSetup = null
+    this.latestReportLiveContext = null
     this.latestReportContext = null
+    this.latestSetup = null
     this.cornerMap = null
     this.reference = null
     this.referenceLapTimeSec = undefined
@@ -705,9 +833,12 @@ export class LapCoachAnalyzer {
       this.referenceLapTimeSec = lapTimeSec
     }
     const setup = buildSetupReport(buildSetupInput(snapshot, report.findings), { unitSystem: this.deps.getUnitSystem?.() })
+    this.invalidateExplanations()
+    this.reportRevision += 1
     this.latestReport = report
+    this.latestReportLiveContext = this.liveContext ? { ...this.liveContext } : null
     this.latestSetup = setup
-    this.latestReportContext = lapCoachFindingsContext(snapshot)
+    this.latestReportContext = lapCoachFindingsContext(snapshot, this.liveContext)
     this.reports.push(report)
     this.reports = this.reports.slice(-MAX_REPORTS)
     this.deps.broadcast(COACH_CHANNELS.report, this.payload())
@@ -717,43 +848,118 @@ export class LapCoachAnalyzer {
     return { report: this.latestReport, setup: this.latestSetup }
   }
 
-  lastFindings(context?: LapCoachFindingsContext | null): { findings: CoachFinding[]; setup: SetupReport | null } {
+  analysisForContext(
+    context?: LapCoachFindingsContext | null
+  ): { findings: CoachFinding[]; setup: SetupReport | null } | null {
+    if (!this.latestReport) return null
     if (
       context &&
-      this.latestReportContext &&
-      !sameLapCoachFindingsContext(this.latestReportContext, context)
+      (
+        !this.latestReportContext ||
+        !sameLapCoachFindingsContext(this.latestReportContext, context)
+      )
     ) {
-      return { findings: [], setup: null }
+      return null
     }
-    return { findings: this.latestReport?.findings ?? [], setup: this.latestSetup }
+    return { findings: this.latestReport.findings, setup: this.latestSetup }
+  }
+
+  lastFindings(context?: LapCoachFindingsContext | null): { findings: CoachFinding[]; setup: SetupReport | null } {
+    return this.analysisForContext(context) ?? { findings: [], setup: null }
   }
 
   private findFinding(req: CoachExplainRequest): CoachFinding | null {
-    if (req.finding) return req.finding
-    if (req.findingId && this.latestReport) {
-      return this.latestReport.findings.find((f) => f.id === req.findingId) ?? null
-    }
-    return null
+    if (!this.latestReport) return null
+    const findingId = req.findingId?.trim() || req.finding?.id?.trim()
+    if (!findingId) return null
+    if (req.findingId && req.finding && req.findingId !== req.finding.id) return null
+    return this.latestReport.findings.find((finding) => finding.id === findingId) ?? null
   }
 
-  async explain(req: CoachExplainRequest): Promise<CoachExplainResult> {
-    const language = this.deps.getLanguage?.() ?? 'pt-BR'
-    const finding = this.findFinding(req)
-    if (!finding) {
-      return {
-        text: language === 'pt-BR' ? 'Ainda não há dados de coaching para explicar. Complete uma volta primeiro.' : 'No coaching data to explain yet. Complete a lap first.',
-        source: 'deterministic'
-      }
+  private explanationIsCurrent(
+    fence: CoachExplanationFence,
+    findingId: string
+  ): boolean {
+    const language = this.observeLanguage()
+    const canonical = this.latestReport?.findings.find((finding) => finding.id === findingId)
+    return (
+      sameLiveTelemetryContext(this.liveContext, fence.context) &&
+      sameLiveTelemetryContext(this.latestReportLiveContext, fence.context) &&
+      this.safetyRevision === fence.safetyRevision &&
+      this.languageRevision === fence.languageRevision &&
+      language === fence.language &&
+      this.reportRevision === fence.reportRevision &&
+      canonical !== undefined &&
+      coachFindingFingerprint(canonical) === fence.findingFingerprint
+    )
+  }
+
+  private explanationUnavailable(language: SpeechLanguage): CoachExplainResult {
+    return {
+      text:
+        language === 'pt-BR'
+          ? 'Ainda não há dados de coaching atuais para explicar. Complete uma volta primeiro.'
+          : 'No current coaching data is available to explain. Complete a lap first.',
+      source: 'deterministic'
     }
-    const deterministic = deterministicPhrasing(finding, language)
-    if (!req.useLlm || !this.deps.generate || !this.deps.getModelPath) {
-      return { text: deterministic, source: 'deterministic', findingId: finding.id }
+  }
+
+  private explanationKey(
+    fence: CoachExplanationFence,
+    finding: CoachFinding,
+    useLlm: boolean
+  ): string {
+    return [
+      fence.context.connectionEpoch,
+      fence.context.revision,
+      fence.context.token,
+      fence.context.sessionIdentity ?? '',
+      fence.safetyRevision,
+      fence.languageRevision,
+      fence.reportRevision,
+      fence.findingFingerprint,
+      finding.id,
+      fence.language,
+      useLlm ? 'llm' : 'deterministic'
+    ].join(':')
+  }
+
+  private finalizeExplanation(
+    fence: CoachExplanationFence,
+    finding: CoachFinding,
+    result: CoachExplainResult
+  ): CoachExplainResult {
+    if (!this.explanationIsCurrent(fence, finding.id)) {
+      return { text: '', source: 'deterministic', findingId: finding.id }
+    }
+    return { ...result, findingId: finding.id }
+  }
+
+  private async explainFinding(
+    finding: CoachFinding,
+    useLlm: boolean,
+    fence: CoachExplanationFence
+  ): Promise<CoachExplainResult> {
+    const deterministic = deterministicPhrasing(finding, fence.language)
+    if (
+      !useLlm ||
+      fence.safetyReason !== undefined ||
+      !this.deps.generate ||
+      !this.deps.getModelPath
+    ) {
+      return this.finalizeExplanation(fence, finding, {
+        text: deterministic,
+        source: 'deterministic'
+      })
     }
     // Only touch the LLM when a model is already present — never trigger a download.
     const modelPath = this.deps.getModelPath()
-    if (!modelPath) return { text: deterministic, source: 'deterministic', findingId: finding.id }
-    const context = this.liveContext
-    if (!context) return { text: deterministic, source: 'deterministic', findingId: finding.id }
+    if (!modelPath) {
+      return this.finalizeExplanation(fence, finding, {
+        text: deterministic,
+        source: 'deterministic'
+      })
+    }
     const controller = new AbortController()
     try {
       this.deps.setModel?.(modelPath, this.deps.getModelId?.() ?? '')
@@ -764,31 +970,78 @@ export class LapCoachAnalyzer {
       const result = await this.deps
         .generate({
           system:
-            language === 'pt-BR'
-              ? 'Você é um coach de pilotagem objetivo e prático. Reescreva a observação técnica em 1 ou 2 frases curtas e diretas em português do Brasil, dizendo ao piloto o que fazer. Não invente dados; use somente os números fornecidos.'
-              : 'You are an objective, practical driving coach. Rewrite the technical observation in 1 to 2 short, direct American English sentences telling the driver what to do. Do not invent data; use only the provided numbers.',
-          prompt: explainPrompt(finding),
+            'Return exactly the single token PRIMARY and nothing else. Do not produce prose, punctuation, explanations, or additional clauses.',
+          prompt: [
+            explainPrompt(finding),
+            `Deterministic sentence: ${deterministic}`,
+            'Allowed output grammar: PRIMARY'
+          ].join('\n'),
           maxTokens: EXPLAIN_MAX_TOKENS,
-          temperature: 0.3,
+          temperature: 0,
           signal: controller.signal
         })
         .finally(() => clearTimeout(timer))
-      if (!sameLiveTelemetryContext(this.liveContext, context)) {
-        return { text: '', source: 'deterministic', findingId: finding.id }
-      }
       const text = (result.text ?? '').trim()
-      if (result.ok && text.length > 0) {
-        return { text, source: 'llm', findingId: finding.id }
+      const controlled = controlledCoachTemplate(text, deterministic)
+      if (result.ok && controlled !== null) {
+        return this.finalizeExplanation(fence, finding, {
+          text: controlled,
+          source: 'llm'
+        })
       }
     } catch {
       // fall through to deterministic
     } finally {
       if (this.explainAbort === controller) this.explainAbort = null
     }
-    if (!sameLiveTelemetryContext(this.liveContext, context)) {
-      return { text: '', source: 'deterministic', findingId: finding.id }
+    return this.finalizeExplanation(fence, finding, {
+      text: deterministic,
+      source: 'deterministic'
+    })
+  }
+
+  async explain(req: CoachExplainRequest): Promise<CoachExplainResult> {
+    const language = this.observeLanguage()
+    const finding = this.findFinding(req)
+    const context = this.liveContext
+    if (
+      !finding ||
+      !context ||
+      !sameLiveTelemetryContext(this.latestReportLiveContext, context)
+    ) return this.explanationUnavailable(language)
+
+    const fence: CoachExplanationFence = {
+      context: { ...context },
+      safetyRevision: this.safetyRevision,
+      languageRevision: this.languageRevision,
+      reportRevision: this.reportRevision,
+      findingFingerprint: coachFindingFingerprint(finding),
+      language,
+      safetyReason: this.currentSafetyReason
     }
-    return { text: deterministic, source: 'deterministic', findingId: finding.id }
+    const key = this.explanationKey(fence, finding, req.useLlm === true)
+    const cached = this.explanationCache.get(key)
+    if (cached) return { ...cached }
+    const existing = this.explanationInFlight.get(key)
+    if (existing) return { ...(await existing) }
+
+    const pending = this.explainFinding(
+      finding,
+      req.useLlm === true,
+      fence
+    )
+    this.explanationInFlight.set(key, pending)
+    try {
+      const result = await pending
+      if (result.text && this.explanationIsCurrent(fence, finding.id)) {
+        this.explanationCache.set(key, { ...result })
+      }
+      return { ...result }
+    } finally {
+      if (this.explanationInFlight.get(key) === pending) {
+        this.explanationInFlight.delete(key)
+      }
+    }
   }
 }
 
@@ -809,7 +1062,7 @@ function explainPrompt(finding: CoachFinding): string {
     .join('\n')
 }
 
-// ── Telemetry → setup-advisor input (tyre tread mapping + heuristic balance) ──
+// ── Telemetry → setup-advisor input (direct tyre evidence only) ───────────────
 
 function num(value: number | undefined): number | undefined {
   return value !== undefined && Number.isFinite(value) ? value : undefined
@@ -852,79 +1105,18 @@ function buildTyres(corners: Corners<TyreInfo> | undefined): CornerTyres | undef
   return Object.keys(out).length > 0 ? out : undefined
 }
 
-// HEURISTIC: infer a per-phase understeer(-)/oversteer(+) bias from the coach
-// findings so the setup advisor can suggest a balance change. This is a coarse
-// signal (no chassis model), weighted by each finding's estimated time loss.
-function deriveBalanceSignals(findings: CoachFinding[]): SetupBalanceSignal[] {
-  const score: Record<CoachPhase, number> = { entry: 0, mid: 0, exit: 0 }
-  const note: Record<CoachPhase, string[]> = { entry: [], mid: [], exit: [] }
-  for (const f of findings) {
-    if (f.severity === 'good') continue
-    const w = Math.max(0.04, f.estTimeLossSec)
-    const phase: CoachPhase = f.phase ?? 'mid'
-    switch (f.kind) {
-      case 'trail-brake-lock':
-        score.entry += 1.5 * w
-        note.entry.push('trail-brake travando')
-        break
-      case 'tc-overuse':
-        score.exit += 1.5 * w
-        note.exit.push('TC cutting on exit')
-        break
-      case 'brake-early':
-        score.entry -= w
-        note.entry.push('freada cedo')
-        break
-      case 'abs-overuse':
-        score.entry -= 0.5 * w
-        note.entry.push('ABS demais')
-        break
-      case 'steering-busy':
-        score[phase] -= 1.5 * w
-        note[phase].push('steering agitado')
-        break
-      case 'coast':
-        if (phase === 'mid') {
-          score.mid -= w
-          note.mid.push('coasting at the apex')
-        }
-        break
-      case 'throttle-hesitation':
-        score.exit -= 0.5 * w
-        note.exit.push('hesitant exit')
-        break
-      default:
-        break
-    }
-  }
-  const out: SetupBalanceSignal[] = []
-  for (const phase of ['entry', 'mid', 'exit'] as CoachPhase[]) {
-    const bias = Math.max(-1, Math.min(1, score[phase] * 3))
-    if (Math.abs(bias) >= 0.25) {
-      out.push({ phase, bias, evidence: note[phase].length ? `Sinais: ${note[phase].join(', ')}` : undefined })
-    }
-  }
-  return out
-}
-
-function deriveFrontLock(findings: CoachFinding[]): boolean {
-  return findings.some((f) => f.kind === 'brake-late' || f.kind === 'trail-brake-lock' || f.kind === 'abs-overuse')
-}
-
-function buildSetupInput(
+export function buildSetupInput(
   snapshot: TelemetrySnapshot,
-  findings: CoachFinding[]
+  _techniqueFindings: readonly CoachFinding[] = []
 ): {
   tyres?: CornerTyres
-  brakeBiasPct?: number
-  balance?: SetupBalanceSignal[]
-  frontLock?: boolean
 } {
+  // Braking points, coasting, steering activity, generic ABS/TC activation and
+  // other technique findings do not identify chassis balance or a locked axle.
+  // Until telemetry exposes a validated direct handling or wheel-specific lock
+  // signal, only measured tyre data is eligible for deterministic setup advice.
   return {
-    tyres: buildTyres(snapshot.tyres),
-    brakeBiasPct: num(snapshot.brakeBiasPct),
-    balance: deriveBalanceSignals(findings),
-    frontLock: deriveFrontLock(findings)
+    tyres: buildTyres(snapshot.tyres)
   }
 }
 
@@ -940,9 +1132,13 @@ export interface LapCoachFindingsContext {
   sessionUniqueId?: number
   sessionIdentity?: string
   connectionEpoch?: number
+  liveContext?: LiveTelemetryContext
 }
 
-function lapCoachFindingsContext(snapshot: TelemetrySnapshot): LapCoachFindingsContext {
+function lapCoachFindingsContext(
+  snapshot: TelemetrySnapshot,
+  liveContext?: LiveTelemetryContext | null
+): LapCoachFindingsContext {
   return {
     trackName: snapshot.trackName,
     trackConfigName: snapshot.trackConfigName,
@@ -951,7 +1147,8 @@ function lapCoachFindingsContext(snapshot: TelemetrySnapshot): LapCoachFindingsC
     sessionType: snapshot.sessionType,
     sessionUniqueId: snapshot.sessionUniqueId,
     sessionIdentity: snapshot.replayContext?.sessionIdentity,
-    connectionEpoch: snapshot.replayContext?.connectionEpoch
+    connectionEpoch: snapshot.replayContext?.connectionEpoch,
+    ...(liveContext ? { liveContext: { ...liveContext } } : {})
   }
 }
 
@@ -959,6 +1156,12 @@ function sameLapCoachFindingsContext(
   left: LapCoachFindingsContext,
   right: LapCoachFindingsContext
 ): boolean {
+  if (
+    right.liveContext &&
+    !sameLiveTelemetryContext(left.liveContext, right.liveContext)
+  ) {
+    return false
+  }
   const textKeys: Array<keyof LapCoachFindingsContext> = [
     'trackName',
     'trackConfigName',
@@ -999,7 +1202,14 @@ function sameLapCoachFindingsContext(
 }
 
 export function getLatestLapCoachFindings(context?: LapCoachFindingsContext | null): CoachFinding[] {
-  return analyzer?.lastFindings(context).findings ?? []
+  return getLatestLapCoachAnalysis(context)?.findings ?? []
+}
+
+/** Context-fenced findings and setup from the exact same completed lap report. */
+export function getLatestLapCoachAnalysis(
+  context?: LapCoachFindingsContext | null
+): { findings: CoachFinding[]; setup: SetupReport | null } | null {
+  return analyzer?.analysisForContext(context) ?? null
 }
 
 // Lazy, fault-tolerant access to the app-wide LLM singletons. The coach module
