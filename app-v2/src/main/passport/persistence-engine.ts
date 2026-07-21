@@ -1030,7 +1030,12 @@ export class PassportPersistenceEngine {
   }
 
   validateRepairToken(token: string): boolean {
-    return Boolean(token) && token === this.repairToken
+    if (!token || token.length !== this.repairToken.length) return false
+    try {
+      return timingSafeEqual(Buffer.from(token, 'utf8'), Buffer.from(this.repairToken, 'utf8'))
+    } catch {
+      return false
+    }
   }
 
   metricsSnapshot(): PassportStoreMetrics {
