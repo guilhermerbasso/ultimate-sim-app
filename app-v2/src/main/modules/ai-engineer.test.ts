@@ -738,6 +738,9 @@ describe('createEngineerOrchestrator.ask', () => {
     ['pt-BR', 'Explique se o composto macio é melhor na temperatura atual dos pneus.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
     ['pt-BR', 'Por favor, diga se superior é o pneu duro com a pressão atual dos pneus.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
     ['pt-BR', 'Explique se o composto médio não convém com o desgaste atual dos pneus.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
+    ['pt-BR', 'Explique como o composto macio é melhor se a temperatura atual dele estiver baixa.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
+    ['pt-BR', 'O pneu duro, caso a pressão atual dele esteja baixa, seria superior?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
+    ['pt-BR', 'O composto médio não convém se o desgaste atual dele estiver alto?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL'],
     ['es', '¿Qué neumáticos debo usar?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', 'Por favor, ¿cuáles compuestos recomendaría?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', '¿Podría explicarme cuáles son los mejores neumáticos?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
@@ -753,6 +756,9 @@ describe('createEngineerOrchestrator.ask', () => {
     ['es', 'Explique si el compuesto blando es mejor a la temperatura actual de los neumáticos.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', 'Por favor, diga si superior es el neumático duro con la presión actual.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['es', 'Explique si el compuesto medio no conviene con el desgaste actual de los neumáticos.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
+    ['es', 'Explique cómo el compuesto blando es mejor si su temperatura actual es baja.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
+    ['es', '¿El neumático duro, si su presión actual es baja, sería superior?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
+    ['es', '¿El compuesto medio no conviene si su desgaste actual es alto?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE'],
     ['fr', 'Quels pneus dois-je utiliser ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'S’il vous plaît, quels composés recommanderiez-vous ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'Expliquez-moi quels sont les meilleurs pneus.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
@@ -768,6 +774,9 @@ describe('createEngineerOrchestrator.ask', () => {
     ['fr', 'Expliquez si le composé tendre est meilleur à la température actuelle des pneus.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'Dites-moi, s’il vous plaît, si supérieur est le pneu dur avec la pression actuelle.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['fr', 'Expliquez si la gomme moyenne ne convient pas avec l’usure actuelle des pneus.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
+    ['fr', 'Expliquez comment le composé tendre est meilleur si sa température actuelle est basse.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
+    ['fr', 'Le pneu dur, si sa pression actuelle est basse, serait-il supérieur ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
+    ['fr', 'Le composé moyen ne convient pas si son usure actuelle est élevée ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE'],
     ['de', 'Welchen Reifen soll ich verwenden?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Welche Reifen würden Sie bitte empfehlen?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Erkläre mir, welche die besten Reifen sind.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
@@ -782,7 +791,10 @@ describe('createEngineerOrchestrator.ask', () => {
     ['de', 'Erklären Sie, ob der mittlere Reifen keineswegs taugt.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Erklären Sie, ob die weiche Mischung bei der aktuellen Reifentemperatur besser ist.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
     ['de', 'Sagen Sie bitte, ob überlegen der harte Reifen beim aktuellen Reifendruck ist.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
-    ['de', 'Erklären Sie, ob die mittlere Mischung beim aktuellen Reifenverschleiß nicht taugt.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR']
+    ['de', 'Erklären Sie, ob die mittlere Mischung beim aktuellen Reifenverschleiß nicht taugt.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
+    ['de', 'Erklären Sie, wie die weiche Mischung besser ist, wenn ihre aktuelle Temperatur niedrig ist.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
+    ['de', 'Wäre der harte Reifen überlegen, falls sein aktueller Druck niedrig ist?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR'],
+    ['de', 'Ist die mittlere Mischung nicht geeignet, wenn ihr aktueller Verschleiß hoch ist?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR']
   ] as const)(
     'default-denies natural localized tyre selection under yellow and unknown: %s — %s',
     async (language, question, pausedMarker, unknownMarker) => {

@@ -758,14 +758,17 @@ function hasConditionalTyreProposition(
   q: string,
   pattern: TyreSelectionPattern
 ): boolean {
-  const conditional = pattern.conditionalEnvelope.exec(q)
-  if (!conditional) return false
-  const clause = q.slice(conditional.index + conditional[0].length).trim()
-  if (!clause || !pattern.domain.test(clause)) return false
+  if (
+    !pattern.conditionalEnvelope.test(q) ||
+    !pattern.domain.test(q)
+  ) return false
 
-  const tokens = clause.match(/\p{L}+/gu) ?? []
+  // Inspect the full normalized clause because the tyre domain and comparator
+  // can precede a trailing condition that refers back to them by pronoun.
+  const tokens = q.match(/\p{L}+/gu) ?? []
   return tokens.some((token) =>
     !CONDITIONAL_STRUCTURE_WORDS.has(token) &&
+    !pattern.conditionalEnvelope.test(token) &&
     !pattern.domain.test(token))
 }
 
