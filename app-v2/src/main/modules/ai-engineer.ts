@@ -29,11 +29,34 @@ import {
   type ModelStatus,
   defineTool
 } from '../../shared/ai'
-import type { EngineerContext, EngineerToolset, IntentCommandKind } from '../../shared/ai-engineer'
+import type {
+  EngineerContext,
+  EngineerToolset,
+  IntentAnswerLang,
+  IntentCategory,
+  IntentCommandKind
+} from '../../shared/ai-engineer'
 import {
   buildRacecraftAdvice,
-  detectRacecraftQuestion,
-  type RacecraftAdviceContext
+  classifyTyrePressureQuery,
+  coachAdviceLanguageFromAppLanguage,
+  controlledDefinitionResponse,
+  detectRacecraftLikeQuestionLanguage,
+  detectRacecraftQuestionWithLanguage,
+  detectTyreSelectionQuestionLanguage,
+  isPureDefinitionRequest,
+  racecraftClarificationText,
+  racecraftSafetyFromSnapshot,
+  racecraftSafetyMessage,
+  racecraftSafetyReason,
+  recognizeAnchoredTyreStatusQuery,
+  safeInformationalDefinition,
+  tyrePressureSetupAdviceUnavailableText,
+  type AnchoredTyreStatusLanguage,
+  type CoachAdviceLanguage,
+  type RacecraftAdviceContext,
+  type RacecraftSafetyContext,
+  type RacecraftSafetyReason
 } from '../../shared/coach-racecraft'
 import {
   DEFAULT_ENGINEER_CONFIG,
@@ -44,14 +67,19 @@ import {
   type EngineerCommandDirective,
   type EngineerConfig,
   type EngineerConfigPatch,
+  type EngineerMessageLanguage,
   type EngineerStatus,
   mergeEngineerConfig,
   resolveCommandDirective
 } from '../../shared/engineer-ipc'
 import type { Logger } from '../../shared/logger'
+import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { speechLanguageFromAppLanguage } from '../../shared/tts-voice'
-import { buildContextPack, renderContextText } from '../ai/context-pack'
-import { routeIntent } from '../ai/intent-router'
+import { buildContextPack, deriveFuel, renderContextText } from '../ai/context-pack'
+import {
+  routeAnchoredTyreStatusQuery,
+  routeIntent
+} from '../ai/intent-router'
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { buildEngineerTools } from '../ai/tools'
@@ -59,9 +87,8 @@ import { settingsEvents } from '../settings/events'
 import { logger } from './logger'
 import { getLatestPredictions } from './predictions'
 import { getLatestCoachFindings, getLatestCoachRacecraftContext } from './proactive-engineer'
-import type { UnitSystem } from '../../shared/units'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 import {
-  captureLiveTelemetryContext,
   LiveTelemetryGate,
   sameLiveTelemetryContext,
   type LiveTelemetryContext
@@ -70,6 +97,14 @@ import {
 const LOG_AREA = 'ai'
 const CONFIG_FILE = 'engineer.json'
 const MODELS_DIR = 'models'
+
+function engineerMessageLanguageForIntent(
+  language: IntentAnswerLang
+): EngineerMessageLanguage {
+  if (language === 'en') return 'en-US'
+  if (language === 'pt') return 'pt-BR'
+  return language
+}
 
 // Token budget for the rendered context block (kept well under the model's window so
 // the persona + tools + answer all fit). The pack itself targets < 400 tokens.
@@ -81,6 +116,125 @@ const ASK_LOG_THROTTLE_MS = 4000
 // Keep the most recent Q&A pairs in memory (the renderer keeps its own scrollback).
 const MAX_LOG_ENTRIES = 50
 let liveContextRejectionSeq = 0
+const SAFE_DETERMINISTIC_INTENT_CATEGORIES = new Set<IntentCategory>([
+  'position',
+  'weather',
+  'laps'
+])
+export type EngineerSafetyIntent =
+  | 'definition'
+  | 'fuel-quantity'
+  | 'position'
+  | 'tyres'
+  | 'weather'
+  | 'laps'
+  | 'other'
+
+export function engineerSafetyAllowsIntent(
+  reason: RacecraftSafetyReason | undefined,
+  intent: EngineerSafetyIntent
+): boolean {
+  if (reason === undefined) return true
+  if (reason === 'race-control-unknown') return intent === 'tyres'
+  if (reason !== 'yellow-flag' && reason !== 'caution' && reason !== 'pacing') {
+    return false
+  }
+  return (
+    intent === 'definition' ||
+    intent === 'fuel-quantity' ||
+    intent === 'position' ||
+    intent === 'tyres' ||
+    intent === 'weather' ||
+    intent === 'laps'
+  )
+}
+
+function isReadOnlyFuelQuantityQuestion(question: string): boolean {
+  const q = question
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const english = [
+    /^(?:fuel|current fuel|fuel level|fuel remaining|fuel in the tank)$/,
+    /^how much fuel(?: is left)?$/,
+    /^what (?:is|s) (?:my |the )?(?:current )?(?:fuel|fuel level|fuel remaining)$/,
+    /^(?:fuel consumption|fuel burn|fuel per lap)$/,
+    /^what (?:is|s) my (?:fuel consumption|fuel burn|fuel per lap)$/
+  ]
+  const portuguese = [
+    /^(?:combustivel|combustivel atual|nivel de combustivel|combustivel restante)$/,
+    /^quanto combustivel(?: resta| tenho| ha no tanque)?$/,
+    /^qual (?:e )?o (?:meu )?(?:combustivel atual|nivel de combustivel|combustivel restante)$/,
+    /^(?:consumo de combustivel|combustivel por volta)$/,
+    /^qual (?:e )?o (?:meu )?(?:consumo de combustivel|combustivel por volta)$/
+  ]
+  return [...english, ...portuguese].some((pattern) => pattern.test(q))
+}
+
+function isSafeDeterministicAnswer(
+  category: IntentCategory,
+  question: string
+): boolean {
+  if (category === 'fuel') return isReadOnlyFuelQuantityQuestion(question)
+  if (category === 'tyres') return recognizeAnchoredTyreStatusQuery(question) !== null
+  return SAFE_DETERMINISTIC_INTENT_CATEGORIES.has(category)
+}
+
+function safetyIntentForAnswer(
+  category: IntentCategory,
+  question: string
+): EngineerSafetyIntent {
+  if (category === 'fuel') {
+    return isReadOnlyFuelQuantityQuestion(question) ? 'fuel-quantity' : 'other'
+  }
+  if (category === 'tyres') {
+    return recognizeAnchoredTyreStatusQuery(question) ? 'tyres' : 'other'
+  }
+  if (
+    category === 'position' ||
+    category === 'weather' ||
+    category === 'laps'
+  ) return category
+  return 'other'
+}
+
+function fuelQuantityAnswer(
+  context: EngineerContext,
+  language: EngineerMessageLanguage,
+  unitSystem: UnitSystem
+): string {
+  const fuel = deriveFuel(context.getSnapshot(), context.getFuelState?.())
+  const parts: string[] = []
+  if (typeof fuel.liters === 'number' && Number.isFinite(fuel.liters)) {
+    parts.push(
+      `${language === 'pt-BR' ? 'Combustível' : 'Fuel'}: ${
+        formatMeasurement(fuel.liters, 'fuel-volume-l', unitSystem, {
+          decimals: 1,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      }`
+    )
+  }
+  if (typeof fuel.perLap === 'number' && Number.isFinite(fuel.perLap)) {
+    parts.push(
+      `${language === 'pt-BR' ? 'consumo' : 'consumption'} ${
+        formatMeasurement(fuel.perLap, 'fuel-per-lap-l', unitSystem, {
+          decimals: 2,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      }`
+    )
+  }
+  if (parts.length > 0) return `${parts.join(' · ')}.`
+  return language === 'pt-BR'
+    ? 'Ainda não há quantidades de combustível disponíveis.'
+    : 'Fuel quantities are not available yet.'
+}
 
 // ─── Injectable dependency seams (tests pass fakes) ───────────────────────────
 
@@ -99,6 +253,13 @@ export interface EngineerModelManagerLike {
   getActiveModelPath(): string | null
 }
 
+export interface EngineerLiveTelemetryFrame {
+  readonly snapshot: TelemetrySnapshot | null
+  readonly context: LiveTelemetryContext | null
+  /** Process-local revision of this exact LiveTelemetryGate observation. */
+  readonly revision: number
+}
+
 export interface EngineerOrchestratorDeps {
   runtime: EngineerRuntimeLike
   modelManager: EngineerModelManagerLike
@@ -114,8 +275,11 @@ export interface EngineerOrchestratorDeps {
   logger?: Logger
   now?(): number
   getUnitSystem?(): UnitSystem
+  getRacecraftLanguage?(): CoachAdviceLanguage
   /** Canonical live context used to reject replay/unknown and stale async answers. */
   getLiveContext?(): LiveTelemetryContext | null
+  /** Snapshot/context pair accepted by the authoritative LiveTelemetryGate. */
+  getLiveTelemetryFrame?(): EngineerLiveTelemetryFrame
 }
 
 export interface EngineerOrchestrator {
@@ -125,6 +289,7 @@ export interface EngineerOrchestrator {
   getConfig(): EngineerConfig
   setConfig(patch: EngineerConfigPatch): Promise<EngineerConfig>
   cancel(): void
+  observeSafety(): void
   resetLiveContext(): void
   getLog(): EngineerAnswer[]
 }
@@ -294,6 +459,9 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
   const recent: EngineerAnswer[] = []
   let currentAbort: AbortController | null = null
   let configRevision = 0
+  let languageRevision = 0
+  let safetyRevision = 0
+  let lastSafetyKey: string | undefined
   let seq = 0
   let lastAskLogAt = 0
 
@@ -326,6 +494,207 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     }
   }
 
+  function safetyContextForSnapshot(
+    snapshot: TelemetrySnapshot | null
+  ): RacecraftSafetyContext {
+    if (snapshot) return racecraftSafetyFromSnapshot(snapshot)
+    const published = deps.racecraftContext?.()
+    return published?.safety ??
+      { connected: false, onTrack: false, replayState: 'unknown' }
+  }
+
+  function generationSafetyContext(): RacecraftSafetyContext {
+    return safetyContextForSnapshot(deps.context.getSnapshot())
+  }
+
+  function generationSafetyKey(safety: RacecraftSafetyContext): string {
+    return JSON.stringify([
+      safety.connected,
+      safety.onTrack,
+      safety.onPitRoad,
+      safety.flagYellow,
+      safety.flagBlue,
+      safety.flagRed,
+      safety.flagBlack,
+      safety.flagMeatball,
+      safety.flagRepair,
+      safety.flagDisqualify,
+      safety.flagCheckered,
+      safety.flagsKnown,
+      safety.raceControlUnknownReason,
+      safety.pitStateKnown,
+      safety.paceStateKnown,
+      safety.caution,
+      safety.paceMode,
+      safety.sessionState,
+      safety.sessionKind,
+      safety.replayState,
+      safety.carLeftRight,
+      (safety.carsAlongsideCount ?? 0) > 0,
+      safety.radarClosestMeters !== undefined && safety.radarClosestMeters <= 8,
+      safety.gapAheadSec !== undefined && safety.gapAheadSec <= 0.35,
+      safety.gapBehindSec !== undefined && safety.gapBehindSec <= 0.35
+    ])
+  }
+
+  function observeGenerationSafety(
+    observedSafety: RacecraftSafetyContext = generationSafetyContext()
+  ): {
+    key: string
+    revision: number
+    reason?: RacecraftSafetyReason
+  } {
+    const safety = observedSafety
+    const key = generationSafetyKey(safety)
+    if (lastSafetyKey === undefined) {
+      lastSafetyKey = key
+    } else if (lastSafetyKey !== key) {
+      lastSafetyKey = key
+      safetyRevision += 1
+      currentAbort?.abort()
+    }
+    return {
+      key,
+      revision: safetyRevision,
+      reason: racecraftSafetyReason(safety)
+    }
+  }
+
+  interface AnchoredTyreStatusFence {
+    context: LiveTelemetryContext | null
+    snapshot: TelemetrySnapshot | null
+    frameRevision: number
+    configRevision: number
+    languageRevision: number
+    unitSystem: UnitSystem
+    racecraftLanguage: CoachAdviceLanguage | undefined
+    safety: {
+      key: string
+      revision: number
+      reason?: RacecraftSafetyReason
+    }
+  }
+
+  function liveContextMatches(
+    current: LiveTelemetryContext | null,
+    captured: LiveTelemetryContext | null
+  ): boolean {
+    return current === null && captured === null
+      ? true
+      : sameLiveTelemetryContext(current, captured)
+  }
+
+  function finalizeAnchoredTyreStatus(
+    question: string,
+    text: string,
+    language: EngineerMessageLanguage,
+    fence: AnchoredTyreStatusFence,
+    speechText?: string,
+    speakOverride?: boolean
+  ): EngineerAnswer {
+    const currentFrame = deps.getLiveTelemetryFrame?.()
+    if (
+      !currentFrame ||
+      !liveContextMatches(currentFrame.context, fence.context)
+    ) return rejectedAnswer(question)
+    if (
+      configRevision !== fence.configRevision ||
+      languageRevision !== fence.languageRevision ||
+      (deps.getUnitSystem?.() ?? 'metric') !== fence.unitSystem ||
+      deps.getRacecraftLanguage?.() !== fence.racecraftLanguage
+    ) return cancelledForConfigChange(question)
+    const currentSafety = observeGenerationSafety(
+      safetyContextForSnapshot(currentFrame.snapshot)
+    )
+    if (
+      currentSafety.revision !== fence.safety.revision ||
+      currentSafety.key !== fence.safety.key ||
+      currentSafety.reason !== fence.safety.reason
+    ) return safetyChangedAnswer(question)
+    if (
+      currentFrame.revision !== fence.frameRevision ||
+      currentFrame.snapshot !== fence.snapshot
+    ) return rejectedAnswer(question)
+    return publishAnswer(
+      question,
+      text,
+      'answer',
+      'intent',
+      undefined,
+      language,
+      speechText,
+      speakOverride
+    )
+  }
+
+  function answerAnchoredTyrePressure(
+    question: string,
+    language: AnchoredTyreStatusLanguage,
+    frame: EngineerLiveTelemetryFrame | null,
+    unitSystem: UnitSystem,
+    racecraftLanguage: CoachAdviceLanguage | undefined
+  ): EngineerAnswer {
+    if (!frame) return rejectedAnswer(question)
+    const { context, snapshot } = frame
+
+    const safety = observeGenerationSafety(
+      safetyContextForSnapshot(snapshot)
+    )
+    const fence: AnchoredTyreStatusFence = {
+      context: context ? { ...context } : null,
+      snapshot,
+      frameRevision: frame.revision,
+      configRevision,
+      languageRevision,
+      unitSystem,
+      racecraftLanguage,
+      safety
+    }
+    if (!engineerSafetyAllowsIntent(safety.reason, 'tyres')) {
+      const text = racecraftSafetyMessage(
+        safety.reason ?? 'race-control-unknown',
+        language
+      )
+      return finalizeAnchoredTyreStatus(
+        question,
+        text,
+        language,
+        fence,
+        text,
+        false
+      )
+    }
+    if (!context) return rejectedAnswer(question)
+
+    const intent = routeAnchoredTyreStatusQuery(
+      { language, metric: 'pressure' },
+      { getSnapshot: () => snapshot },
+      unitSystem
+    )
+    return finalizeAnchoredTyreStatus(
+      question,
+      intent.text,
+      engineerMessageLanguageForIntent(intent.lang),
+      fence
+    )
+  }
+
+  function safetyChangedAnswer(question: string): EngineerAnswer {
+    return {
+      id: nextId(),
+      at: now(),
+      question,
+      text:
+        config.language === 'pt-BR'
+          ? 'A condição de segurança mudou. Faça a pergunta novamente quando a telemetria estabilizar.'
+          : 'The safety state changed. Ask again after live telemetry stabilizes.',
+      speak: false,
+      lang: config.language,
+      kind: 'disabled',
+      source: 'system'
+    }
+  }
+
   function cancelledForConfigChange(question: string): EngineerAnswer {
     const answer: EngineerAnswer = {
       id: nextId(),
@@ -350,15 +719,19 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     text: string,
     kind: EngineerAnswerKind,
     source: EngineerAnswerSource,
-    command?: EngineerCommandDirective
+    command?: EngineerCommandDirective,
+    language: EngineerMessageLanguage = config.language,
+    speechText?: string,
+    speakOverride?: boolean
   ): EngineerAnswer {
     const answer: EngineerAnswer = {
       id: nextId(),
       at: now(),
       question,
       text,
-      speak: config.speakAnswers && text.length > 0,
-      lang: config.language,
+      speechText,
+      speak: speakOverride ?? (config.speakAnswers && text.length > 0),
+      lang: language,
       kind,
       source,
       command
@@ -384,10 +757,22 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     kind: EngineerAnswerKind,
     source: EngineerAnswerSource,
     command: EngineerCommandDirective | undefined,
-    context: LiveTelemetryContext | null
+    context: LiveTelemetryContext | null,
+    language?: EngineerMessageLanguage,
+    speechText?: string,
+    speakOverride?: boolean
   ): EngineerAnswer {
     if (!contextIsCurrent(context)) return rejectedAnswer(question)
-    return publishAnswer(question, text, kind, source, command)
+    return publishAnswer(
+      question,
+      text,
+      kind,
+      source,
+      command,
+      language,
+      speechText,
+      speakOverride
+    )
   }
 
   function applyRuntimeOptions(): void {
@@ -414,18 +799,38 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     currentAbort = controller
     const requestConfig = config
     const requestRevision = configRevision
+    const requestLanguageRevision = languageRevision
+    const requestSafety = observeGenerationSafety()
     const requestConfigIsCurrent = (): boolean => configRevision === requestRevision
+    const requestLanguageIsCurrent = (): boolean =>
+      languageRevision === requestLanguageRevision
+    const requestSafetyIsCurrent = (): boolean => {
+      const current = observeGenerationSafety()
+      return (
+        current.revision === requestSafety.revision &&
+        current.key === requestSafety.key &&
+        current.reason === undefined
+      )
+    }
+    if (requestSafety.reason !== undefined) return safetyChangedAnswer(question)
     try {
       // Lazy model resolution (download-on-first-run with progress + cancellable).
       const ensured = await deps.modelManager.ensureModel(
         requestConfig.modelId,
         (progress) => {
-          if (contextIsCurrent(context) && requestConfigIsCurrent()) deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
+          if (
+            contextIsCurrent(context) &&
+            requestConfigIsCurrent() &&
+            requestLanguageIsCurrent() &&
+            requestSafetyIsCurrent()
+          ) deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
         },
         controller.signal
       )
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestLanguageIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestSafetyIsCurrent()) return safetyChangedAnswer(question)
       if (!ensured.ok) {
         log?.warn(LOG_AREA, 'ensureModel failed', { modelId: requestConfig.modelId, error: ensured.error })
         return finalize(question, pick(requestConfig, FALLBACK.noModel), 'error', 'llm', undefined, context)
@@ -466,6 +871,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       })
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestLanguageIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestSafetyIsCurrent()) return safetyChangedAnswer(question)
       if (!result.ok) {
         log?.warn(LOG_AREA, 'generate failed', { code: result.code })
         return finalize(question, pick(requestConfig, FALLBACK.llmError), 'error', 'llm', undefined, context)
@@ -476,6 +883,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       // The runtime never throws, but keep the orchestrator bullet-proof regardless.
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestLanguageIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestSafetyIsCurrent()) return safetyChangedAnswer(question)
       log?.error(LOG_AREA, 'generate threw', { message: error instanceof Error ? error.message : String(error) })
       return finalize(question, pick(requestConfig, FALLBACK.llmError), 'error', 'llm', undefined, context)
     } finally {
@@ -510,54 +919,303 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (!question) return publishAnswer('', pick(config, FALLBACK.empty), 'answer', 'system')
     if (!config.enabled) return publishAnswer(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
-    const context = deps.getLiveContext?.() ?? null
-    if (deps.getLiveContext && !context) return rejectedAnswer(question)
-    const racecraftIntent = detectRacecraftQuestion(question)
+    const tyrePressureQuery = classifyTyrePressureQuery(question)
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
-    if (racecraftIntent) {
-      const snapshot = deps.context.getSnapshot()
-      const fallbackContext: RacecraftAdviceContext = {
-        findings: deps.context.getCoachFindings?.() ?? [],
-        gaps: snapshot
-          ? [
-              {
-                at: snapshot.timestamp,
-                aheadSec: Number.isFinite(snapshot.relatives?.ahead?.gapSec)
-                  ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
-                  : undefined,
-                behindSec: Number.isFinite(snapshot.relatives?.behind?.gapSec)
-                  ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
-                  : undefined,
-                aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
-                behindCarIdx: snapshot.relatives?.behind?.carIdx
-              }
-            ]
-          : [],
-        currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
-          ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
-          : undefined,
-        currentGapBehindSec: Number.isFinite(snapshot?.relatives?.behind?.gapSec)
-          ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
-          : undefined,
-        trackName: snapshot?.trackName,
-        trackConfigName: snapshot?.trackConfigName,
-        carName: snapshot?.carName,
-        carPath: snapshot?.carPath
-      }
-      const advice = buildRacecraftAdvice(
-        racecraftIntent,
-        deps.racecraftContext?.() ?? fallbackContext,
-        { language: config.language, unitSystem }
+    const tyrePressureFrame =
+      tyrePressureQuery?.kind === 'current-reading'
+        ? deps.getLiveTelemetryFrame?.() ?? null
+        : null
+    const context =
+      tyrePressureQuery?.kind === 'current-reading'
+        ? tyrePressureFrame?.context ?? null
+        : deps.getLiveContext?.() ?? null
+    const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
+    const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
+    const tyrePressureSetupLanguage =
+      tyrePressureQuery?.kind === 'setup-advice'
+        ? tyrePressureQuery.language
+        : null
+    const tyreSelectionLanguage = detectTyreSelectionQuestionLanguage(question)
+    const requestRacecraftLanguage = deps.getRacecraftLanguage?.()
+    const adviceLanguage =
+      requestRacecraftLanguage ??
+      detectedRacecraft?.language ??
+      racecraftLikeLanguage ??
+      coachAdviceLanguageFromAppLanguage(config.language)
+    const snapshot =
+      tyrePressureQuery?.kind === 'current-reading'
+        ? tyrePressureFrame?.snapshot ?? null
+        : deps.context.getSnapshot()
+    if (tyrePressureQuery?.kind === 'current-reading') {
+      return answerAnchoredTyrePressure(
+        question,
+        tyrePressureQuery.language,
+        tyrePressureFrame,
+        unitSystem,
+        requestRacecraftLanguage
       )
-      return finalize(question, advice.text, 'answer', 'intent', undefined, context)
+    }
+    const fallbackGapSample = snapshot
+      ? {
+          at: snapshot.timestamp,
+          aheadSec: Number.isFinite(snapshot.relatives?.ahead?.gapSec)
+            ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
+            : undefined,
+          behindSec: Number.isFinite(snapshot.relatives?.behind?.gapSec)
+            ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
+            : undefined,
+          aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
+          behindCarIdx: snapshot.relatives?.behind?.carIdx
+        }
+      : undefined
+    const hasFallbackRelative =
+      fallbackGapSample?.aheadSec !== undefined ||
+      fallbackGapSample?.behindSec !== undefined
+    const makeFallbackContext = (): RacecraftAdviceContext => ({
+      findings: deps.context.getCoachFindings?.() ?? [],
+      gaps: hasFallbackRelative && fallbackGapSample ? [fallbackGapSample] : [],
+      currentGapSample: hasFallbackRelative ? fallbackGapSample : undefined,
+      currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
+        ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
+        : undefined,
+      currentGapBehindSec: Number.isFinite(snapshot?.relatives?.behind?.gapSec)
+        ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
+        : undefined,
+      safety: snapshot
+        ? racecraftSafetyFromSnapshot(snapshot)
+        : { connected: false, onTrack: false, replayState: 'unknown' },
+      trackId: snapshot?.trackId,
+      sim: snapshot?.sim,
+      trackName: snapshot?.trackName,
+      trackConfigName: snapshot?.trackConfigName,
+      carName: snapshot?.carName,
+      carPath: snapshot?.carPath
+    })
+    if (tyreSelectionLanguage) {
+      const safety =
+        deps.racecraftContext?.()?.safety ??
+        makeFallbackContext().safety
+      const safetyReason = racecraftSafetyReason(safety)
+      if (safetyReason) {
+        const text = racecraftSafetyMessage(safetyReason, adviceLanguage)
+        return finalize(
+          question,
+          text,
+          'answer',
+          'intent',
+          undefined,
+          context,
+          adviceLanguage,
+          text,
+          false
+        )
+      }
+      if (tyrePressureSetupLanguage) {
+        const text = tyrePressureSetupAdviceUnavailableText(
+          tyrePressureSetupLanguage
+        )
+        return finalize(
+          question,
+          text,
+          'answer',
+          'intent',
+          undefined,
+          context,
+          tyrePressureSetupLanguage,
+          text
+        )
+      }
+    }
+    const definitionLanguage =
+      tyrePressureQuery?.kind === 'concept-definition'
+        ? tyrePressureQuery.language
+        : adviceLanguage
+    const supportedDefinition = safeInformationalDefinition(
+      question,
+      definitionLanguage
+    )
+    const controlledDefinition =
+      supportedDefinition ??
+      controlledDefinitionResponse(question, definitionLanguage)
+    if (
+      controlledDefinition &&
+      isPureDefinitionRequest(question)
+    ) {
+      const definitionSafety =
+        deps.racecraftContext?.()?.safety ??
+        makeFallbackContext().safety
+      const definitionSafetyReason = racecraftSafetyReason(definitionSafety)
+      if (
+        tyrePressureQuery?.kind === 'concept-definition' ||
+        engineerSafetyAllowsIntent(definitionSafetyReason, 'definition')
+      ) {
+        if (tyrePressureQuery?.kind === 'concept-definition') {
+          return publishAnswer(
+            question,
+            controlledDefinition,
+            'answer',
+            'intent',
+            undefined,
+            definitionLanguage,
+            controlledDefinition
+          )
+        }
+        return finalize(
+          question,
+          controlledDefinition,
+          'answer',
+          'intent',
+          undefined,
+          context,
+          definitionLanguage,
+          controlledDefinition
+        )
+      }
+    }
+    if (deps.getLiveContext && !context) {
+      if (detectedRacecraft) {
+        const advice = buildRacecraftAdvice(detectedRacecraft.intent, makeFallbackContext(), {
+          language: adviceLanguage,
+          unitSystem
+        })
+        return publishAnswer(
+          question,
+          advice.text,
+          'answer',
+          'intent',
+          undefined,
+          adviceLanguage,
+          advice.speechText,
+          advice.suppressedReason ? false : undefined
+        )
+      }
+      if (racecraftLikeLanguage) {
+        const fallbackContext = makeFallbackContext()
+        const safetyReason = racecraftSafetyReason(fallbackContext.safety)
+        const text = safetyReason
+          ? racecraftSafetyMessage(safetyReason, adviceLanguage)
+          : racecraftClarificationText(adviceLanguage)
+        return publishAnswer(
+          question,
+          text,
+          'answer',
+          'intent',
+          undefined,
+          adviceLanguage,
+          text,
+          safetyReason ? false : undefined
+        )
+      }
+      return rejectedAnswer(question)
+    }
+    if (detectedRacecraft) {
+      const fallbackContext = makeFallbackContext()
+      const advice = buildRacecraftAdvice(
+        detectedRacecraft.intent,
+        deps.racecraftContext?.() ?? fallbackContext,
+        { language: adviceLanguage, unitSystem }
+      )
+      return finalize(
+        question,
+        advice.text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        advice.speechText,
+        advice.suppressedReason ? false : undefined
+      )
+    }
+    if (racecraftLikeLanguage) {
+      const fallbackContext = makeFallbackContext()
+      const safety =
+        deps.racecraftContext?.()?.safety ??
+        fallbackContext.safety
+      const safetyReason = racecraftSafetyReason(safety)
+      const text = safetyReason
+        ? racecraftSafetyMessage(safetyReason, adviceLanguage)
+        : racecraftClarificationText(adviceLanguage)
+      return finalize(
+        question,
+        text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        text,
+        safetyReason ? false : undefined
+      )
     }
 
     const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en', unitSystem)
-    if (intent.type === 'answer') {
-      return finalize(question, intent.text, 'answer', 'intent', undefined, context)
-    }
     if (intent.type === 'command') {
       return runCommand(question, intent.kind, intent.speak, intent.args, context)
+    }
+    const freeFormSafety =
+      deps.racecraftContext?.()?.safety ??
+      makeFallbackContext().safety
+    const freeFormSafetyReason = racecraftSafetyReason(freeFormSafety)
+    if (
+      intent.type === 'answer' &&
+      isSafeDeterministicAnswer(intent.category, question) &&
+      engineerSafetyAllowsIntent(
+        freeFormSafetyReason,
+        safetyIntentForAnswer(intent.category, question)
+      )
+    ) {
+      const text =
+        intent.category === 'fuel'
+          ? fuelQuantityAnswer(deps.context, config.language, unitSystem)
+          : intent.text
+      return finalize(
+        question,
+        text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        engineerMessageLanguageForIntent(intent.lang)
+      )
+    }
+    if (freeFormSafetyReason) {
+      const text = racecraftSafetyMessage(freeFormSafetyReason, adviceLanguage)
+      return finalize(
+        question,
+        text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        text,
+        false
+      )
+    }
+    const definition = controlledDefinition
+    if (definition) {
+      return finalize(
+        question,
+        definition,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        definition
+      )
+    }
+    if (intent.type === 'answer') {
+      return finalize(
+        question,
+        intent.text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        engineerMessageLanguageForIntent(intent.lang)
+      )
     }
     return llmAnswer(question, context)
   }
@@ -581,8 +1239,10 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
   async function setConfig(patch: EngineerConfigPatch): Promise<EngineerConfig> {
     const previousModel = config.modelId
+    const previousLanguage = config.language
     config = mergeEngineerConfig(config, { ...patch, updatedAt: now() })
     configRevision += 1
+    if (config.language !== previousLanguage) languageRevision += 1
     currentAbort?.abort()
     deps.onConfigChange?.(config)
     await deps.saveConfig(config)
@@ -604,6 +1264,10 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     currentAbort?.abort()
   }
 
+  function observeSafety(): void {
+    observeGenerationSafety()
+  }
+
   function resetLiveContext(): void {
     currentAbort?.abort()
     currentAbort = null
@@ -617,6 +1281,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     getConfig: () => config,
     setConfig,
     cancel,
+    observeSafety,
     resetLiveContext,
     getLog: () => recent.slice()
   }
@@ -681,6 +1346,16 @@ export function register(ctx: ModuleContext): void {
   }
 
   let unitSystem: UnitSystem = 'metric'
+  let racecraftLanguage = coachAdviceLanguageFromAppLanguage('auto', ctx.app.getLocale())
+  const liveGate = new LiveTelemetryGate()
+  const initialSnapshot = ctx.telemetryHub.getLatest()
+  const initialDecision = liveGate.observe(initialSnapshot)
+  let liveFrameRevision = 0
+  let currentLiveFrame: EngineerLiveTelemetryFrame = {
+    snapshot: initialSnapshot,
+    context: initialDecision.context,
+    revision: liveFrameRevision
+  }
   const orchestrator = createEngineerOrchestrator({
     runtime,
     modelManager,
@@ -693,17 +1368,27 @@ export function register(ctx: ModuleContext): void {
       activeEngineerConfig = next
     },
     getUnitSystem: () => unitSystem,
-    getLiveContext: () => captureLiveTelemetryContext(ctx.telemetryHub.getLatest()),
+    getRacecraftLanguage: () => racecraftLanguage,
+    getLiveContext: () => currentLiveFrame.context,
+    getLiveTelemetryFrame: () => currentLiveFrame,
     logger
   })
 
-  const liveGate = new LiveTelemetryGate()
   ctx.telemetryHub.on('snapshot', (snapshot) => {
-    if (liveGate.observe(snapshot).boundary) orchestrator.resetLiveContext()
+    const decision = liveGate.observe(snapshot)
+    liveFrameRevision += 1
+    currentLiveFrame = {
+      snapshot,
+      context: decision.context,
+      revision: liveFrameRevision
+    }
+    orchestrator.observeSafety()
+    if (decision.boundary) orchestrator.resetLiveContext()
   })
 
   settingsEvents.onChanged((settings) => {
     unitSystem = settings.unitSystem
+    racecraftLanguage = coachAdviceLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
     const language = speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
     if (orchestrator.getConfig().language !== language) {
       void orchestrator.setConfig({ language })

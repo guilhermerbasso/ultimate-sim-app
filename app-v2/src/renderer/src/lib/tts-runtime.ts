@@ -836,6 +836,17 @@ export async function speakViaIsolatedTts(
   })
 }
 
+export function piperSupportsLanguage(language: string | null | undefined): boolean {
+  const normalized = (language ?? '').trim().toLowerCase().replace(/_/g, '-')
+  return (
+    normalized === '' ||
+    normalized === 'en' ||
+    normalized.startsWith('en-') ||
+    normalized === 'pt' ||
+    normalized.startsWith('pt-')
+  )
+}
+
 /**
  * THE seam: speak `text` via the neural Piper engine, falling back to OS Web Speech.
  * Resolves once playback finishes (or is superseded by a newer call). Never throws.

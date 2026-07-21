@@ -5,8 +5,75 @@ import type { ReplayContext } from './replay'
 export type { ReplayContext, ReplayContextIdentity, ReplayContextInputs, ReplayContextReason, ReplayContextSource, ReplayContextState, ReplayResolution } from './replay'
 
 export type SimId = 'iracing' | 'acc' | 'ac' | 'ams2' | 'lmu' | 'mock' | 'replay' | 'none'
+export type SessionKind =
+  | 'practice'
+  | 'qualify'
+  | 'race'
+  | 'warmup'
+  | 'hotlap'
+  | 'time-attack'
+  | 'drift'
+  | 'drag'
+  | 'other'
+  | 'unknown'
 
 export type TelemetrySource = SimId | 'auto' | 'off'
+
+export function sessionKindFromText(raw: unknown): SessionKind {
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  if (!value) return 'unknown'
+  if (value.includes('hotlap') || value.includes('hot lap')) return 'hotlap'
+  if (value.includes('time attack') || value.includes('time-attack')) return 'time-attack'
+  if (value.includes('drift')) return 'drift'
+  if (value.includes('drag')) return 'drag'
+  if (value.includes('race')) return 'race'
+  if (value.includes('qual') || value.includes('lone')) return 'qualify'
+  if (value.includes('warm') || value.includes('formation')) return 'warmup'
+  if (
+    value.includes('practice') ||
+    value.includes('test') ||
+    value.includes('offline')
+  ) return 'practice'
+  return 'unknown'
+}
+
+export function sessionKindFromProvider(sim: SimId, raw: unknown): SessionKind {
+  const numeric =
+    typeof raw === 'number' && Number.isFinite(raw)
+      ? Math.trunc(raw)
+      : typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))
+        ? Math.trunc(Number(raw))
+        : undefined
+  if ((sim === 'ac' || sim === 'acc') && numeric !== undefined) {
+    if (numeric === 0) return 'practice'
+    if (numeric === 1) return 'qualify'
+    if (numeric === 2) return 'race'
+    if (numeric === 3) return 'hotlap'
+    if (numeric === 4) return 'time-attack'
+    if (numeric === 5) return 'drift'
+    if (numeric === 6) return 'drag'
+    return numeric < 0 ? 'unknown' : 'other'
+  }
+  if (sim === 'ams2' && numeric !== undefined) {
+    if (numeric === 1 || numeric === 2) return 'practice'
+    if (numeric === 3) return 'qualify'
+    if (numeric === 4) return 'warmup'
+    if (numeric === 5) return 'race'
+    if (numeric === 6) return 'time-attack'
+    return numeric <= 0 ? 'unknown' : 'other'
+  }
+  return sessionKindFromText(raw)
+}
+
+export function sessionKindForSnapshot(
+  snapshot: Pick<TelemetrySnapshot, 'sim' | 'sessionKind' | 'sessionType'> | null | undefined
+): SessionKind {
+  return snapshot?.sessionKind ?? sessionKindFromProvider(snapshot?.sim ?? 'none', snapshot?.sessionType)
+}
+
+export function isQualifyingLikeSessionKind(kind: SessionKind): boolean {
+  return kind === 'qualify' || kind === 'hotlap'
+}
 
 export interface Corners<T> {
   lf: T
@@ -617,6 +684,8 @@ export interface TelemetrySnapshot {
 
   // Session / tempo
   sessionType?: string
+  /** Canonical provider-normalized session classification. */
+  sessionKind?: SessionKind
   // Overall session phase from irsdk_SessionState (use sessionStateLabel to decode).
   sessionState?: SessionState
   // Pace/formation state from irsdk_PaceMode (use paceModeLabel to decode).
@@ -628,6 +697,8 @@ export interface TelemetrySnapshot {
    *  Stable across UI languages and renames, unlike the localized carName — soundshift
    *  keys its per-car tuning on this. */
   carPath?: string
+  /** Stable provider-specific track id when available; falls back to trackName. */
+  trackId?: string | number
   trackName?: string
   /** iRacing WeekendInfo.TrackConfigName — the LAYOUT within a track (e.g. "Grand
    *  Prix" vs "International"). Undefined for tracks with a single configuration.
@@ -643,6 +714,8 @@ export interface TelemetrySnapshot {
   lapDistPct?: number // 0..1
   lapDistanceM?: number
   lastLapTimeSec?: number
+  /** Provider-verified completed-lap validity; unknown when not exposed reliably. */
+  lapValidity?: 'valid' | 'invalid' | 'unknown'
   bestLapTimeSec?: number
   bestNLapLap?: number
   bestNLapTimeSec?: number
@@ -667,6 +740,8 @@ export interface TelemetrySnapshot {
   replayPlaying?: boolean
   replayFrameNum?: number
   replayFrameEnd?: number
+  /** Provider/hub connection generation for fallback live identity. */
+  connectionEpoch?: number
   replayContext?: ReplayContext
 
   // BoP / penalidades (iRacing)
@@ -700,6 +775,10 @@ export interface TelemetrySnapshot {
 
   // Bandeiras / iRacing extras
   flags?: Flags
+  /** Whether the provider's raw race-control flag value was recognized. */
+  raceControlState?: 'known' | 'unknown'
+  /** Provider-specific fail-closed reason when raceControlState is unknown. */
+  raceControlUnknownReason?: string
   sessionFlagsRaw?: number
   pitLimiter?: boolean
   onPitRoad?: boolean
@@ -740,7 +819,6 @@ export interface TelemetrySnapshot {
   trafficDensity?: number
   flagStateIndex?: number
   damagePct?: number
-  lapValidity?: 'valid' | 'invalid' | 'unknown'
   towReset?: boolean
   // Extra environment telemetry (iRacing): fog + relative humidity (0..1), wind speed (m/s)
   // + direction (rad), solar altitude/azimuth (rad), and the Skies enum (0=clear..3=overcast).

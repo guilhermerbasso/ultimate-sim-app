@@ -15,12 +15,12 @@
 import type { CoachFinding, CoachTip } from './coach'
 import type { FuelPitWindow, FuelStrategyState } from './fuel'
 import type { LapTimingState } from './laptiming'
-import type { TelemetrySnapshot } from './telemetry'
+import type { SessionKind, TelemetrySnapshot } from './telemetry'
 import type { TireStrategyState } from './tire-strategy'
 
 // ─── Session classification ──────────────────────────────────────────────────
 
-export type SessionKind = 'practice' | 'qualify' | 'race' | 'warmup' | 'unknown'
+export type { SessionKind } from './telemetry'
 
 export type SessionPhase = 'pre' | 'green' | 'pit' | 'finished' | 'unknown'
 
@@ -74,6 +74,7 @@ export interface PackFuel {
 export interface PackTyreCorner {
   tempC?: number
   wearPct?: number
+  pressureKpa?: number
 }
 
 export interface PackTyres {
@@ -107,6 +108,7 @@ export interface PackWeather {
   raining?: boolean
   declaredWet?: boolean
   surface?: string
+  condition?: import('./track-wetness').TrackWetnessState
 }
 
 export interface PackPit {
@@ -193,6 +195,7 @@ export type IntentCategory =
   | 'laps'
 
 export type IntentLang = 'pt' | 'en'
+export type IntentAnswerLang = IntentLang | 'es' | 'fr' | 'de'
 
 export type IntentCommandKind =
   | 'dashboard.next'
@@ -207,7 +210,7 @@ export type IntentCommandKind =
 export interface IntentAnswer {
   type: 'answer'
   category: IntentCategory
-  lang: IntentLang
+  lang: IntentAnswerLang
   text: string
 }
 

@@ -4,6 +4,7 @@ import {
   adviseFromHandling,
   adviseFromTyres,
   buildSetupReport,
+  SETUP_ADJUSTMENT_SPECS,
   type SetupBalanceSignal,
   type SetupSuggestion
 } from './setup-advisor'
@@ -146,5 +147,32 @@ describe('buildSetupReport', () => {
     const report = buildSetupReport({ balance: [], tyres: {} })
     expect(report.suggestions).toHaveLength(0)
     expect(report.summary).toMatch(/balanced/i)
+  })
+
+  it('emits a stable structured code matching every generated adjustment', () => {
+    const suggestions = [
+      ...(['entry', 'mid', 'exit'] as const).flatMap((phase) => [
+        ...adviseFromHandling([{ phase, bias: -0.8 }]),
+        ...adviseFromHandling([{ phase, bias: 0.8 }])
+      ]),
+      ...adviseFromTyres({
+        lf: { innerC: 115, middleC: 130, outerC: 80 },
+        rf: { innerC: 75, middleC: 50, outerC: 105 },
+        lr: { innerC: 50, middleC: 50, outerC: 50 },
+        rr: { innerC: 120, middleC: 120, outerC: 120 }
+      }),
+      ...adviseFromBrakeBias({ frontLock: true, rearLock: true, brakeBiasPct: 57 })
+    ]
+    expect(suggestions.length).toBeGreaterThan(10)
+    for (const suggestion of suggestions) {
+      for (const adjustment of [suggestion.primary, ...suggestion.alternatives]) {
+        expect(adjustment.code, suggestion.symptom).toBeDefined()
+        expect(SETUP_ADJUSTMENT_SPECS[adjustment.code!]).toEqual({
+          area: adjustment.area,
+          direction: adjustment.direction,
+          magnitude: adjustment.magnitude
+        })
+      }
+    }
   })
 })

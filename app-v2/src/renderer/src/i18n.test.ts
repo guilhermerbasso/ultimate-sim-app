@@ -4,6 +4,15 @@ import { join } from 'node:path'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolveAppLanguage, t, translateNavTitle, tt } from './i18n'
+import {
+  SETUP_ADJUSTMENT_CODES,
+  SETUP_AREA_VALUES,
+  SETUP_CORNER_VALUES,
+  SETUP_DIRECTION_VALUES,
+  SETUP_MAGNITUDE_VALUES,
+  SETUP_PHASE_VALUES,
+  SETUP_SYMPTOM_VALUES
+} from '../../shared/setup-advisor'
 
 describe('resolveAppLanguage', () => {
   it('uses the manual language when configured', () => {
@@ -51,6 +60,28 @@ describe('i18n text helpers', () => {
     expect(tt('en', 'steward.owner.title')).toBe('Human decision owner')
     expect(tt('pt-BR', 'steward.owner.title')).toBe('Decisão sob responsabilidade humana')
   })
+
+  it('has complete structured setup guidance keys in every supported locale', () => {
+    const keys = [
+      ...SETUP_SYMPTOM_VALUES.flatMap((value) => [
+        `debrief.history.setup.symptom.${value}`,
+        `debrief.history.setup.rationale.${value}`,
+        `debrief.history.setup.evidence.${value}`
+      ]),
+      ...SETUP_AREA_VALUES.map((value) => `debrief.history.setup.area.${value}`),
+      ...SETUP_DIRECTION_VALUES.map((value) => `debrief.history.setup.direction.${value}`),
+      ...SETUP_MAGNITUDE_VALUES.map((value) => `debrief.history.setup.magnitude.${value}`),
+      ...SETUP_CORNER_VALUES.map((value) => `debrief.history.setup.corner.${value}`),
+      ...SETUP_PHASE_VALUES.map((value) => `debrief.history.setup.phase.${value}`),
+      ...SETUP_ADJUSTMENT_CODES.map((value) => `debrief.history.setup.adjustment.${value}`),
+      'debrief.history.setup.adjustmentDetails',
+      'debrief.history.setup.currentBrakeBias',
+      'debrief.history.setup.structuredInsufficient'
+    ]
+    for (const language of ['pt-BR', 'en', 'es', 'fr', 'de', 'zh', 'ja'] as const) {
+      for (const key of keys) expect(tt(language, key), `${language}:${key}`).not.toBe(key)
+    }
+  })
 })
 
 describe('migrated view i18n coverage', () => {
@@ -65,7 +96,7 @@ describe('migrated view i18n coverage', () => {
         const childFullPath = join(here, child)
         const childStat = statSync(childFullPath)
         if (childStat.isDirectory()) return collectSourceFiles(child)
-        return /\.(tsx?|jsx?)$/.test(entry) ? [child] : []
+        return /\.(tsx?|jsx?)$/.test(entry) && !/\.test\.[tj]sx?$/.test(entry) ? [child] : []
       })
     }
     const files = [

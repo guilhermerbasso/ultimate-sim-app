@@ -30,11 +30,59 @@ export type SetupDirection = 'increase' | 'decrease' | 'soften' | 'stiffen' | 'f
 
 export type SetupMagnitude = 'small' | 'medium' | 'large'
 
-export interface SetupAdjustment {
+export const SETUP_AREA_VALUES: readonly SetupArea[] = [
+  'aero', 'arb', 'springs', 'dampers', 'differential', 'tyres', 'brakes', 'alignment', 'ride-height'
+]
+export const SETUP_DIRECTION_VALUES: readonly SetupDirection[] = [
+  'increase', 'decrease', 'soften', 'stiffen', 'forward', 'rearward', 'adjust'
+]
+export const SETUP_MAGNITUDE_VALUES: readonly SetupMagnitude[] = ['small', 'medium', 'large']
+
+export const SETUP_ADJUSTMENT_SPECS = {
+  'tyre-pressure-decrease-cold': { area: 'tyres', direction: 'decrease', magnitude: 'small' },
+  'tyre-pressure-decrease-repeat': { area: 'tyres', direction: 'decrease', magnitude: 'medium' },
+  'tyre-pressure-increase-cold': { area: 'tyres', direction: 'increase', magnitude: 'small' },
+  'tyre-pressure-increase-repeat': { area: 'tyres', direction: 'increase', magnitude: 'medium' },
+  'camber-negative-decrease': { area: 'alignment', direction: 'decrease', magnitude: 'small' },
+  'tyre-pressure-increase-camber-fallback': { area: 'tyres', direction: 'increase', magnitude: 'small' },
+  'camber-negative-increase': { area: 'alignment', direction: 'increase', magnitude: 'small' },
+  'tyre-pressure-decrease-overheat': { area: 'tyres', direction: 'decrease', magnitude: 'small' },
+  'axle-aero-load-decrease': { area: 'aero', direction: 'decrease', magnitude: 'small' },
+  'tyre-pressure-increase-heat': { area: 'tyres', direction: 'increase', magnitude: 'small' },
+  'axle-load-increase': { area: 'arb', direction: 'stiffen', magnitude: 'small' },
+  'cross-weight-adjust': { area: 'ride-height', direction: 'adjust', magnitude: 'small' },
+  'axle-pressure-equalize': { area: 'tyres', direction: 'adjust', magnitude: 'small' },
+  'front-arb-soften': { area: 'arb', direction: 'soften', magnitude: 'small' },
+  'brake-bias-rearward': { area: 'brakes', direction: 'rearward', magnitude: 'small' },
+  'front-springs-soften': { area: 'springs', direction: 'soften', magnitude: 'small' },
+  'front-aero-increase': { area: 'aero', direction: 'increase', magnitude: 'small' },
+  'rear-arb-stiffen': { area: 'arb', direction: 'stiffen', magnitude: 'small' },
+  'front-camber-increase': { area: 'alignment', direction: 'increase', magnitude: 'small' },
+  'power-diff-lock-decrease': { area: 'differential', direction: 'decrease', magnitude: 'small' },
+  'rear-arb-soften': { area: 'arb', direction: 'soften', magnitude: 'small' },
+  'rear-aero-decrease': { area: 'aero', direction: 'decrease', magnitude: 'small' },
+  'rear-aero-increase': { area: 'aero', direction: 'increase', magnitude: 'small' },
+  'brake-bias-forward': { area: 'brakes', direction: 'forward', magnitude: 'small' },
+  'front-arb-stiffen': { area: 'arb', direction: 'stiffen', magnitude: 'small' },
+  'brake-pressure-decrease': { area: 'brakes', direction: 'decrease', magnitude: 'small' }
+} as const satisfies Record<string, {
   area: SetupArea
   direction: SetupDirection
   magnitude: SetupMagnitude
-  /** Human-readable instruction (PT-BR). */
+}>
+
+export type SetupAdjustmentCode = keyof typeof SETUP_ADJUSTMENT_SPECS
+export const SETUP_ADJUSTMENT_CODES = Object.freeze(
+  Object.keys(SETUP_ADJUSTMENT_SPECS) as SetupAdjustmentCode[]
+)
+
+export interface SetupAdjustment {
+  /** Stable structured instruction code. Legacy archives may not contain one. */
+  code?: SetupAdjustmentCode
+  area: SetupArea
+  direction: SetupDirection
+  magnitude: SetupMagnitude
+  /** Legacy/internal prose. Persisted UI must localize from code + metrics instead. */
   change: string
 }
 
@@ -59,15 +107,103 @@ export type SetupCorner = 'lf' | 'rf' | 'lr' | 'rr' | 'front' | 'rear' | 'left' 
 
 export type SetupConfidence = 'low' | 'med' | 'high'
 
+export const SETUP_SYMPTOM_VALUES: readonly SetupSymptomKind[] = [
+  'understeer-entry',
+  'understeer-mid',
+  'understeer-exit',
+  'oversteer-entry',
+  'oversteer-mid',
+  'oversteer-exit',
+  'tyre-overheat',
+  'tyre-cold',
+  'tyre-temp-imbalance-lr',
+  'camber-excess',
+  'camber-lack',
+  'pressure-high',
+  'pressure-low',
+  'brake-lock-front',
+  'brake-lock-rear'
+]
+export const SETUP_CORNER_VALUES: readonly SetupCorner[] = [
+  'lf', 'rf', 'lr', 'rr', 'front', 'rear', 'left', 'right', 'all'
+]
+export const SETUP_PHASE_VALUES: readonly CoachPhase[] = ['entry', 'mid', 'exit']
+
+export const SETUP_SUGGESTION_ADJUSTMENT_CODES: Record<
+  SetupSymptomKind,
+  { primary: readonly SetupAdjustmentCode[]; alternatives: readonly SetupAdjustmentCode[] }
+> = {
+  'understeer-entry': {
+    primary: ['front-arb-soften'],
+    alternatives: ['brake-bias-rearward', 'front-springs-soften']
+  },
+  'understeer-mid': {
+    primary: ['front-aero-increase'],
+    alternatives: ['rear-arb-stiffen', 'front-camber-increase']
+  },
+  'understeer-exit': {
+    primary: ['power-diff-lock-decrease'],
+    alternatives: ['rear-arb-soften', 'rear-aero-decrease']
+  },
+  'oversteer-entry': {
+    primary: ['rear-arb-soften'],
+    alternatives: ['rear-aero-increase', 'brake-bias-forward']
+  },
+  'oversteer-mid': {
+    primary: ['rear-aero-increase'],
+    alternatives: ['rear-arb-soften', 'front-arb-stiffen']
+  },
+  'oversteer-exit': {
+    primary: ['rear-aero-increase'],
+    alternatives: ['rear-arb-soften', 'power-diff-lock-decrease']
+  },
+  'tyre-overheat': {
+    primary: ['tyre-pressure-decrease-overheat'],
+    alternatives: ['axle-aero-load-decrease']
+  },
+  'tyre-cold': {
+    primary: ['tyre-pressure-increase-heat'],
+    alternatives: ['axle-load-increase']
+  },
+  'tyre-temp-imbalance-lr': {
+    primary: ['cross-weight-adjust'],
+    alternatives: ['axle-pressure-equalize']
+  },
+  'camber-excess': {
+    primary: ['camber-negative-decrease'],
+    alternatives: ['tyre-pressure-increase-camber-fallback']
+  },
+  'camber-lack': {
+    primary: ['camber-negative-increase'],
+    alternatives: []
+  },
+  'pressure-high': {
+    primary: ['tyre-pressure-decrease-cold'],
+    alternatives: ['tyre-pressure-decrease-repeat']
+  },
+  'pressure-low': {
+    primary: ['tyre-pressure-increase-cold'],
+    alternatives: ['tyre-pressure-increase-repeat']
+  },
+  'brake-lock-front': {
+    primary: ['brake-bias-rearward'],
+    alternatives: ['brake-pressure-decrease']
+  },
+  'brake-lock-rear': {
+    primary: ['brake-bias-forward'],
+    alternatives: ['rear-aero-increase']
+  }
+}
+
 export interface SetupSuggestion {
   id: string
   symptom: SetupSymptomKind
   phase?: CoachPhase
   corner?: SetupCorner
   confidence: SetupConfidence
-  /** Why this symptom was flagged + what the change does (PT-BR). */
+  /** Legacy/internal prose; persisted UI localizes from symptom + metrics. */
   rationale: string
-  /** Measured numbers backing the suggestion (PT-BR). */
+  /** Legacy/internal prose; persisted UI localizes measured metrics instead. */
   evidence: string
   primary: SetupAdjustment
   alternatives: SetupAdjustment[]
@@ -77,7 +213,7 @@ export interface SetupSuggestion {
 export interface SetupReport {
   generatedAt: number
   suggestions: SetupSuggestion[]
-  /** Short PT-BR headline. */
+  /** Legacy/internal headline; persisted UI does not render it. */
   summary: string
 }
 
@@ -140,6 +276,10 @@ export const DEFAULT_SETUP_ADVISOR: SetupAdvisorConfig = {
 }
 
 let setupSeq = 0
+function adjustment(code: SetupAdjustmentCode, change: string): SetupAdjustment {
+  return { code, ...SETUP_ADJUSTMENT_SPECS[code], change }
+}
+
 function suggestion(
   symptom: SetupSymptomKind,
   confidence: SetupConfidence,
@@ -221,8 +361,8 @@ export function adviseFromTyres(
           suggestion('pressure-high', 'high',
             `${label}: center of the tire is much hotter than the edges - pressure is too high, reducing the contact patch. Lowering cold pressure will settle the tire.`,
             `Center ${tempText(mid, unitSystem)} vs edges ${tempText(edges, unitSystem)} (delta ${tempDeltaText(mid - edges, unitSystem)})`,
-            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Lower ${label} cold tire pressure ~${pressureAdjustmentText(unitSystem)}` },
-            [{ area: 'tyres', direction: 'decrease', magnitude: 'medium', change: 'Repeat until the temperature profile is flat (center matches edges)' }],
+            adjustment('tyre-pressure-decrease-cold', `Lower ${label} cold tire pressure ~${pressureAdjustmentText(unitSystem)}`),
+            [adjustment('tyre-pressure-decrease-repeat', 'Repeat until the temperature profile is flat (center matches edges)')],
             { middleC: Math.round(mid), edgesC: Math.round(edges), deltaC: Math.round(mid - edges) }, { corner: c })
         )
       } else if (edges - mid >= cfg.pressureDeltaC) {
@@ -230,8 +370,8 @@ export function adviseFromTyres(
           suggestion('pressure-low', 'high',
             `${label}: edges are hotter than the center - pressure is too low, so the tire rolls over and flexes. Raising cold pressure stabilizes the carcass.`,
             `Edges ${tempText(edges, unitSystem)} vs center ${tempText(mid, unitSystem)} (delta ${tempDeltaText(edges - mid, unitSystem)})`,
-            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Increase ${label} cold tire pressure ~${pressureAdjustmentText(unitSystem)}` },
-            [{ area: 'tyres', direction: 'increase', magnitude: 'medium', change: 'Repeat until the center matches the edges' }],
+            adjustment('tyre-pressure-increase-cold', `Increase ${label} cold tire pressure ~${pressureAdjustmentText(unitSystem)}`),
+            [adjustment('tyre-pressure-increase-repeat', 'Repeat until the center matches the edges')],
             { middleC: Math.round(mid), edgesC: Math.round(edges), deltaC: Math.round(edges - mid) }, { corner: c })
         )
       }
@@ -242,8 +382,8 @@ export function adviseFromTyres(
           suggestion('camber-excess', 'med',
             `${label}: inner edge is much hotter - too much negative camber for this track. Reducing camber spreads the temperature better.`,
             `Inner ${tempText(t.innerC, unitSystem)} vs outer ${tempText(t.outerC, unitSystem)} (delta ${tempDeltaText(t.innerC - t.outerC, unitSystem)})`,
-            { area: 'alignment', direction: 'decrease', magnitude: 'small', change: `Reduce negative camber on ${label} ~0.2-0.4 deg` },
-            [{ area: 'tyres', direction: 'increase', magnitude: 'small', change: 'As a fallback, raise pressure slightly to heat the center' }],
+            adjustment('camber-negative-decrease', `Reduce negative camber on ${label} ~0.2-0.4 deg`),
+            [adjustment('tyre-pressure-increase-camber-fallback', 'As a fallback, raise pressure slightly to heat the center')],
             { innerC: Math.round(t.innerC), outerC: Math.round(t.outerC), deltaC: Math.round(t.innerC - t.outerC) }, { corner: c })
         )
       } else if (t.outerC - t.innerC >= cfg.camberDeltaC) {
@@ -251,7 +391,7 @@ export function adviseFromTyres(
           suggestion('camber-lack', 'med',
             `${label}: outer edge is much hotter - not enough negative camber, so the tire loads the outside edge in the corner. More camber widens the cornering footprint.`,
             `Outer ${tempText(t.outerC, unitSystem)} vs inner ${tempText(t.innerC, unitSystem)} (delta ${tempDeltaText(t.outerC - t.innerC, unitSystem)})`,
-            { area: 'alignment', direction: 'increase', magnitude: 'small', change: `Increase negative camber on ${label} ~0.2-0.4 deg` },
+            adjustment('camber-negative-increase', `Increase negative camber on ${label} ~0.2-0.4 deg`),
             [],
             { innerC: Math.round(t.innerC), outerC: Math.round(t.outerC), deltaC: Math.round(t.outerC - t.innerC) }, { corner: c })
         )
@@ -265,8 +405,8 @@ export function adviseFromTyres(
           suggestion('tyre-overheat', 'med',
             `${label}: tire overheating (${tempText(avg, unitSystem)}), above the ideal window. Lower pressure, reduce aero load on that axle, or smooth your inputs so the rubber does not degrade.`,
             `Average ${tempText(avg, unitSystem)} (target ${tempRangeText(cfg.tempLowC, cfg.tempHighC, unitSystem)})`,
-            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Lower ${label} cold pressure and/or reduce load on that axle` },
-            [{ area: 'aero', direction: 'decrease', magnitude: 'small', change: 'Slightly reduce wing/splitter on the affected axle' }],
+            adjustment('tyre-pressure-decrease-overheat', `Lower ${label} cold pressure and/or reduce load on that axle`),
+            [adjustment('axle-aero-load-decrease', 'Slightly reduce wing/splitter on the affected axle')],
             { avgC: Math.round(avg) }, { corner: c })
         )
       } else if (avg <= cfg.tempLowC - 8) {
@@ -274,8 +414,8 @@ export function adviseFromTyres(
           suggestion('tyre-cold', 'med',
             `${label}: tire is cold (${tempText(avg, unitSystem)}), below the ideal window - low grip and slow warmup. Raise pressure, add load to that axle, or consider a softer compound.`,
             `Average ${tempText(avg, unitSystem)} (target ${tempRangeText(cfg.tempLowC, cfg.tempHighC, unitSystem)})`,
-            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Increase ${label} cold pressure to generate more heat` },
-            [{ area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Move more load to that axle (bar/spring)' }],
+            adjustment('tyre-pressure-increase-heat', `Increase ${label} cold pressure to generate more heat`),
+            [adjustment('axle-load-increase', 'Move more load to that axle (bar/spring)')],
             { avgC: Math.round(avg) }, { corner: c })
         )
       }
@@ -308,8 +448,8 @@ function axleImbalance(
     suggestion('tyre-temp-imbalance-lr', 'low',
       `Axle ${axleTxt}: the ${hotter} side is much hotter - a typical L/R imbalance from tracks with more corners in one direction or from cross-weight/ride height. Check corner weights and cold pressures by side.`,
       `Delta ${tempDeltaText(Math.abs(delta), unitSystem)} between ${axleTxt} axle tires (L ${tempText(la, unitSystem)} / R ${tempText(ra, unitSystem)})`,
-      { area: 'ride-height', direction: 'adjust', magnitude: 'small', change: `Adjust cross-weight/ride height to balance the ${axleTxt} axle` },
-      [{ area: 'tyres', direction: 'adjust', magnitude: 'small', change: `Equalize cold pressures on the ${axleTxt} axle to compensate for the hot side` }],
+      adjustment('cross-weight-adjust', `Adjust cross-weight/ride height to balance the ${axleTxt} axle`),
+      [adjustment('axle-pressure-equalize', `Equalize cold pressures on the ${axleTxt} axle to compensate for the hot side`)],
       { leftC: Math.round(la), rightC: Math.round(ra), deltaC: Math.round(Math.abs(delta)) }, { corner: axle })
   ]
 }
@@ -321,55 +461,55 @@ const BALANCE_RULES: Record<
   'understeer-entry': {
     symptom: 'understeer-entry',
     rationale: 'Entry understeer (the car will not turn while braking): not enough front support in the braking phase. Softening the front or moving brake bias rearward brings the nose back.',
-    primary: { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the front anti-roll bar 1 click' },
+    primary: adjustment('front-arb-soften', 'Soften the front anti-roll bar 1 click'),
     alternatives: [
-      { area: 'brakes', direction: 'rearward', magnitude: 'small', change: 'Move brake bias ~1% rearward' },
-      { area: 'springs', direction: 'soften', magnitude: 'small', change: 'Slightly soften the front springs' }
+      adjustment('brake-bias-rearward', 'Move brake bias ~1% rearward'),
+      adjustment('front-springs-soften', 'Slightly soften the front springs')
     ]
   },
   'understeer-mid': {
     symptom: 'understeer-mid',
     rationale: 'Mid-corner understeer (washing wide at the apex): not enough steady-state front grip. More front aero or a softer front increases bite.',
-    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase front wing/splitter 1 point' },
+    primary: adjustment('front-aero-increase', 'Increase front wing/splitter 1 point'),
     alternatives: [
-      { area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Stiffen the rear anti-roll bar 1 click' },
-      { area: 'alignment', direction: 'increase', magnitude: 'small', change: 'Add a little front negative camber' }
+      adjustment('rear-arb-stiffen', 'Stiffen the rear anti-roll bar 1 click'),
+      adjustment('front-camber-increase', 'Add a little front negative camber')
     ]
   },
   'understeer-exit': {
     symptom: 'understeer-exit',
     rationale: 'Exit understeer (pushes on throttle): the differential locks too much under power and drags the front. Opening the power diff or softening the rear frees the nose.',
-    primary: { area: 'differential', direction: 'decrease', magnitude: 'small', change: 'Reduce differential lock on acceleration (power ramp)' },
+    primary: adjustment('power-diff-lock-decrease', 'Reduce differential lock on acceleration (power ramp)'),
     alternatives: [
-      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
-      { area: 'aero', direction: 'decrease', magnitude: 'small', change: 'Slightly reduce rear wing to free rotation' }
+      adjustment('rear-arb-soften', 'Soften the rear anti-roll bar 1 click'),
+      adjustment('rear-aero-decrease', 'Slightly reduce rear wing to free rotation')
     ]
   },
   'oversteer-entry': {
     symptom: 'oversteer-entry',
     rationale: 'Entry oversteer (rear steps out on braking/lift): not enough rear stability on decel. More rear wing, a softer rear, or forward brake bias holds the rear.',
-    primary: { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
+    primary: adjustment('rear-arb-soften', 'Soften the rear anti-roll bar 1 click'),
     alternatives: [
-      { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase rear wing 1 point' },
-      { area: 'brakes', direction: 'forward', magnitude: 'small', change: 'Move brake bias ~1% forward' }
+      adjustment('rear-aero-increase', 'Increase rear wing 1 point'),
+      adjustment('brake-bias-forward', 'Move brake bias ~1% forward')
     ]
   },
   'oversteer-mid': {
     symptom: 'oversteer-mid',
     rationale: 'Mid-corner oversteer (rear slides in steady-state): not enough rear grip under load. More rear wing or a softer rear stabilizes it.',
-    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase rear wing 1 point' },
+    primary: adjustment('rear-aero-increase', 'Increase rear wing 1 point'),
     alternatives: [
-      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
-      { area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Alternatively, stiffen the front anti-roll bar 1 click' }
+      adjustment('rear-arb-soften', 'Soften the rear anti-roll bar 1 click'),
+      adjustment('front-arb-stiffen', 'Alternatively, stiffen the front anti-roll bar 1 click')
     ]
   },
   'oversteer-exit': {
     symptom: 'oversteer-exit',
     rationale: 'Exit oversteer (rear steps out on throttle): not enough rear traction. More rear grip (wing/softer spring) and a less aggressive diff control the exit.',
-    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase rear wing 1 point for traction' },
+    primary: adjustment('rear-aero-increase', 'Increase rear wing 1 point for traction'),
     alternatives: [
-      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
-      { area: 'differential', direction: 'decrease', magnitude: 'small', change: 'Reduce differential lock on acceleration' }
+      adjustment('rear-arb-soften', 'Soften the rear anti-roll bar 1 click'),
+      adjustment('power-diff-lock-decrease', 'Reduce differential lock on acceleration')
     ]
   }
 }
@@ -412,9 +552,12 @@ export function adviseFromBrakeBias(
       suggestion('brake-lock-front', 'med',
         `FRONT lockup under braking: too much front brake. Moving brake bias rearward balances braking${biasTxt}.`,
         `Front lock detected${biasTxt}`,
-        { area: 'brakes', direction: 'rearward', magnitude: 'small', change: 'Move brake bias ~1-2% rearward' },
-        [{ area: 'brakes', direction: 'decrease', magnitude: 'small', change: 'Slightly reduce maximum brake pressure' }],
-        { brakeBiasPct: input.brakeBiasPct ?? 0 }, { corner: 'front' })
+        adjustment('brake-bias-rearward', 'Move brake bias ~1-2% rearward'),
+        [adjustment('brake-pressure-decrease', 'Slightly reduce maximum brake pressure')],
+        {
+          lockSignal: 1,
+          ...(input.brakeBiasPct !== undefined ? { brakeBiasPct: input.brakeBiasPct } : {})
+        }, { corner: 'front' })
     )
   }
   if (input.rearLock) {
@@ -422,9 +565,12 @@ export function adviseFromBrakeBias(
       suggestion('brake-lock-rear', 'med',
         `REAR lockup under braking (rear unstable on the brakes): too much rear brake. Moving brake bias forward stabilizes it${biasTxt}.`,
         `Rear lock detected${biasTxt}`,
-        { area: 'brakes', direction: 'forward', magnitude: 'small', change: 'Move brake bias ~1-2% forward' },
-        [{ area: 'aero', direction: 'increase', magnitude: 'small', change: 'More rear wing helps stabilize braking' }],
-        { brakeBiasPct: input.brakeBiasPct ?? 0 }, { corner: 'rear' })
+        adjustment('brake-bias-forward', 'Move brake bias ~1-2% forward'),
+        [adjustment('rear-aero-increase', 'More rear wing helps stabilize braking')],
+        {
+          lockSignal: 1,
+          ...(input.brakeBiasPct !== undefined ? { brakeBiasPct: input.brakeBiasPct } : {})
+        }, { corner: 'rear' })
     )
   }
   return out

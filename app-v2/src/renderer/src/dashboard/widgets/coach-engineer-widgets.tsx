@@ -35,7 +35,7 @@ import {
   sectorDeltaBars,
   topCoachTips
 } from '../../lib/coach-insights'
-import { feedClock, useEngineerFeed, type EngineerFeedItem } from '../../lib/engineer-feed'
+import { engineerFeedScope, feedClock, useEngineerFeed, type EngineerFeedItem } from '../../lib/engineer-feed'
 import { FitText, resolveElementSkin } from '../../skins'
 import type { SkinToken } from '../../skins'
 import { Caption, WidgetFrame, hexAlpha } from './new-widgets-minimal'
@@ -273,7 +273,7 @@ function EngineerFeed({ element }: NewWidgetProps): ReactElement {
         feed.slice(0, plan.rows).map((item: EngineerFeedItem, i) => {
           const tone = item.source === 'proactive' && item.severity ? toneColor(findingTone(item.severity)) : accent
           const clock = feedClock(item.at)
-          const scopeText = item.source === 'proactive' ? `Sector ${item.sector ?? '—'}` : 'Resposta'
+          const scopeText = engineerFeedScope(item)
           const y = plan.y(i)
           const cy = y + plan.rowH / 2
           const textX = layout.bodyX + 7 + scopeW + 6

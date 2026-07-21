@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { sessionKindFromProvider } from '../../shared/telemetry'
 import type { TelemetryProvider } from '../telemetry/provider'
 import { firstString, loadKoffi, msToSeconds, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
 
@@ -66,6 +67,7 @@ export class ACProvider implements TelemetryProvider {
     const graphics = this.graphics?.view
     if (!physics || !graphics) return null
     const staticInfo = this.staticInfo?.view ?? {}
+    const rawSession = graphics.session
     const completedLaps = Math.max(0, Math.trunc(num(graphics.completedLaps, 0)))
     const scheduledLaps = Math.max(0, Math.trunc(num(graphics.numberOfLaps, 0)))
     return {
@@ -80,7 +82,8 @@ export class ACProvider implements TelemetryProvider {
       brake: num(physics.brake),
       clutch: num(physics.clutch),
       steerAngleDeg: normalizedSteerToDeg(physics.steerAngle),
-      sessionType: assettoSessionType(graphics.session),
+      sessionType: assettoSessionType(rawSession),
+      sessionKind: sessionKindFromProvider('ac', rawSession),
       carName: firstString(staticInfo.carModel),
       trackName: firstString(staticInfo.track),
       sessionTimeRemainingSec: msToSeconds(graphics.sessionTimeLeft),

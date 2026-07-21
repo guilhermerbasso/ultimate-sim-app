@@ -34,10 +34,20 @@ export interface EngineerFeedItem {
   sector?: number
   /** Present for proactive call-outs — drives severity colouring. */
   severity?: CoachSeverity
+  /** Distinguishes findings from informational/no-data briefings. */
+  eventType?: EngineerProactiveEvent['eventType']
 }
 
 function isText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+export function engineerFeedScope(item: EngineerFeedItem): string {
+  if (item.source !== 'proactive') return 'Resposta'
+  if (item.eventType === 'quali-briefing' || item.eventType === 'insufficient-history') return 'Quali'
+  if (item.eventType === 'race-status') return 'Race'
+  if (item.sector !== undefined) return `Sector ${item.sector}`
+  return 'Info'
 }
 
 /**
@@ -70,7 +80,15 @@ export function useEngineerFeed(limit = 8): EngineerFeedItem[] {
     })
     const unsubProactive = window.ipc.subscribe<EngineerProactiveEvent>(ENGINEER_CHANNELS.proactive, (e) => {
       if (!e) return
-      push({ id: e.id, at: e.at, text: e.text, source: 'proactive', sector: e.sector, severity: e.severity })
+      push({
+        id: e.id,
+        at: e.at,
+        text: e.text,
+        source: 'proactive',
+        sector: e.sector,
+        severity: e.severity,
+        eventType: e.eventType
+      })
     })
 
     return () => {

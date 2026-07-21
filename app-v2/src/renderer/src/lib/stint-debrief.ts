@@ -1,6 +1,7 @@
 // STINT DEBRIEF — renderer helper (WS-I).
 //
-// Thin client for the `debrief:` module. Manual requests gather the live Coach
+// Thin client for the `debrief:` module. Historical requests use an opaque archive
+// ID and never gather live state. Compatibility manual requests gather the live Coach
 // findings (`coach:lastFindings`) + latest PredictionsSnapshot (`predictions:get`)
 // and hand them to `debrief:generate`. Automatic boundary debriefs are composed
 // and persisted in main, so renderer mounting never controls their lifecycle.
@@ -12,6 +13,9 @@ import { COACH_CHANNELS, type CoachFinding } from '../../../shared/coach'
 import { PREDICTIONS_CHANNELS, type PredictionsSnapshot } from '../../../shared/predictions'
 import {
   DEBRIEF_CHANNELS,
+  type DebriefArchiveGenerateResult,
+  type DebriefArchiveSummary,
+  type DebriefArchiveUpdatedPayload,
   type DebriefReason,
   type DebriefSessionInfo,
   type DebriefTriggerPayload,
@@ -86,6 +90,34 @@ export async function generateDebrief(options: GenerateDebriefOptions = {}): Pro
 /** Fetch the last composed debrief, if any. */
 export function getLastDebrief(): Promise<StintDebrief | null> {
   return invoke<StintDebrief | null>(DEBRIEF_CHANNELS.last).catch(() => null)
+}
+
+/** List durable ended-session analysis snapshots, newest first. */
+export function listDebriefArchive(): Promise<DebriefArchiveSummary[]> {
+  return invoke<DebriefArchiveSummary[]>(DEBRIEF_CHANNELS.archiveList)
+}
+
+/** Generate strictly from one persisted opaque session ID (never from live state). */
+export function generateArchivedDebrief(
+  sessionId: string,
+  useLlm = false
+): Promise<DebriefArchiveGenerateResult> {
+  return invoke<DebriefArchiveGenerateResult>(DEBRIEF_CHANNELS.archiveGenerate, {
+    sessionId,
+    useLlm
+  })
+}
+
+/** Refresh archive summaries only after the main process reports a durable capture. */
+export function subscribeDebriefArchive(
+  callback: (payload: DebriefArchiveUpdatedPayload) => void
+): () => void {
+  return window.ipc.subscribe<DebriefArchiveUpdatedPayload>(
+    DEBRIEF_CHANNELS.archiveUpdated,
+    (payload) => {
+      if (payload) callback(payload)
+    }
+  )
 }
 
 /** Subscribe to freshly composed debriefs (`debrief:updated`). */

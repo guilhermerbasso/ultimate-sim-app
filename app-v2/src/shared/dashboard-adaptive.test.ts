@@ -56,6 +56,20 @@ describe('resolveAdaptivePhase', () => {
     expect(resolveAdaptivePhase(snap({ sessionType: 'Warmup', currentLap: 1 }))).toBe('warmup')
   })
 
+  it('treats ACC hotlap as qualifying-like for adaptive layout', () => {
+    const snapshot = snap({
+      sim: 'acc',
+      sessionType: '3',
+      sessionKind: 'hotlap',
+      currentLap: 2
+    })
+    expect(resolveAdaptivePhase(snapshot)).toBe('qualifying')
+    const plan = planAdaptiveDashboard(snapshot)
+    expect(plan.phase).toBe('qualifying')
+    expect(plan.byConcept.delta).toBe('emphasize')
+    expect(plan.byConcept.laptime).toBe('emphasize')
+  })
+
   it('returns unknown for an unrecognised session type', () => {
     expect(resolveAdaptivePhase(snap({ sessionType: 'Lobby', currentLap: 1 }))).toBe('unknown')
   })

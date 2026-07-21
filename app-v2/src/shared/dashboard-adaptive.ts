@@ -11,6 +11,8 @@
 import { DEFAULT_ALERTS_CONFIG } from './alerts'
 import {
   fuelLapsRemainingOf,
+  isQualifyingLikeSessionKind,
+  sessionKindForSnapshot,
   type TelemetrySnapshot
 } from './telemetry'
 import type { DashboardElement, DashboardElementType } from './dashboards'
@@ -115,16 +117,6 @@ export function withRaceMoment(plan: AdaptivePlan, state: RaceMomentState | null
 
 // ─── Phase detection ─────────────────────────────────────────────────────────
 
-function sessionKind(rawType: string | undefined): 'race' | 'qualify' | 'practice' | 'warmup' | 'unknown' {
-  if (!rawType) return 'unknown'
-  const t = rawType.toLowerCase()
-  if (t.includes('race')) return 'race'
-  if (t.includes('qual') || t.includes('lone') || t.includes('hotlap') || t.includes('hot lap')) return 'qualify'
-  if (t.includes('warm')) return 'warmup'
-  if (t.includes('practice') || t.includes('test') || t.includes('offline')) return 'practice'
-  return 'unknown'
-}
-
 function isPositiveNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v > 0
 }
@@ -138,13 +130,13 @@ function isPositiveNum(v: unknown): v is number {
 export function resolveAdaptivePhase(snapshot: TelemetrySnapshot | null | undefined): AdaptivePhase {
   if (!isLiveTelemetrySnapshot(snapshot)) return 'unknown'
   if (snapshot.onPitRoad === true || snapshot.pit?.inPitStall === true || snapshot.pitLimiter === true) return 'pit'
-  const kind = sessionKind(snapshot.sessionType)
+  const kind = sessionKindForSnapshot(snapshot)
   if (kind === 'race') {
     const notStarted = !isPositiveNum(snapshot.currentLap)
     if (notStarted && snapshot.flags?.checkered !== true) return 'formation'
     return 'race'
   }
-  if (kind === 'qualify') return 'qualifying'
+  if (isQualifyingLikeSessionKind(kind)) return 'qualifying'
   if (kind === 'warmup') return 'warmup'
   if (kind === 'practice') return 'practice'
   return 'unknown'

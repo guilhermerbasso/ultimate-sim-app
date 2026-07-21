@@ -199,20 +199,23 @@ function driversTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
   }
 }
 
-function sessionTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
+export function sessionTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
   return {
     sim: snapshot.sim,
     connected: snapshot.connected,
     timestamp: snapshot.timestamp,
     sessionType: snapshot.sessionType,
+    sessionKind: snapshot.sessionKind,
     carName: snapshot.carName,
     trackName: snapshot.trackName,
+    trackConfigName: snapshot.trackConfigName,
     sessionUniqueId: snapshot.sessionUniqueId,
     driverName: snapshot.driverName,
     trackTempC: snapshot.trackTempC,
     airTempC: snapshot.airTempC,
     trackWetnessPct: snapshot.trackWetnessPct,
     isRaining: snapshot.isRaining,
+    precipitationPct: snapshot.precipitationPct,
     gripPct: snapshot.gripPct,
     steeringAngleMaxDeg: snapshot.steeringAngleMaxDeg,
     fogPct: snapshot.fogPct,
@@ -225,19 +228,22 @@ function sessionTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
   }
 }
 
-function sessionTierKey(snapshot: TelemetrySnapshot): string {
+export function sessionTierKey(snapshot: TelemetrySnapshot): string {
   return JSON.stringify([
     snapshot.sim,
     snapshot.connected,
     snapshot.sessionType,
+    snapshot.sessionKind,
     snapshot.carName,
     snapshot.trackName,
+    snapshot.trackConfigName,
     snapshot.sessionUniqueId,
     snapshot.driverName,
     snapshot.trackTempC,
     snapshot.airTempC,
     snapshot.trackWetnessPct,
     snapshot.isRaining,
+    snapshot.precipitationPct,
     snapshot.gripPct
   ])
 }

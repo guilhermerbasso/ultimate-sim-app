@@ -219,12 +219,19 @@ function formatModelSize(bytes: number): string {
   return `${Math.round(bytes / 1_000_000)} MB`
 }
 
-// Proactive call-outs are MISTAKES — always warm tones, never green (green is
-// reserved for positive states): danger → warning → primary by severity.
+// Finding call-outs use warm severity tones; informational briefings use primary.
 function proactiveColor(severity: EngineerProactiveEvent['severity']): string {
   if (severity === 'high') return 'var(--accent-danger)'
   if (severity === 'med') return 'var(--accent-warning)'
   return 'var(--accent-primary)'
+}
+
+function proactiveLabel(event: EngineerProactiveEvent): string {
+  if (event.eventType === 'quali-briefing' || event.eventType === 'insufficient-history') return 'QUALI'
+  if (event.eventType === 'race-status') return 'RACE'
+  if (event.corner !== undefined) return `T${event.corner}`
+  if (event.sector !== undefined) return `S${event.sector}`
+  return 'INFO'
 }
 
 // ─── View ────────────────────────────────────────────────────────────────────
@@ -660,7 +667,9 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
                     padding: '6px 10px'
                   }}
                 >
-                  <span style={{ ...label, color: proactiveColor(event.severity), whiteSpace: 'nowrap' }}>S{event.sector}</span>
+                  <span style={{ ...label, color: proactiveColor(event.severity), whiteSpace: 'nowrap' }}>
+                    {proactiveLabel(event)}
+                  </span>
                   <span style={{ color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.35 }}>{event.text}</span>
                 </div>
               ))}
