@@ -11,7 +11,10 @@ import {
   type DebriefArchiveSummary
 } from '../../shared/stint-debrief'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
-import { register as registerStintDebrief } from './stint-debrief'
+import {
+  LAST_DEBRIEF_TEMP_DIRECTORY_SUFFIX,
+  register as registerStintDebrief
+} from './stint-debrief'
 
 vi.mock('electron', () => ({
   app: {},
@@ -265,27 +268,29 @@ describe('historical stint debrief integration', () => {
     expect(phrase.mock.calls[0][1]).not.toContain('Reduce rear wing')
     expect(phrase.mock.calls[0][1]).not.toContain('setup')
 
-    // Reordered text preserves all numeric measurement tokens → accepted under the
-    // token-based guard (word order is not a safety concern; numbers are).
     phrase.mockResolvedValueOnce(generated.debrief.text.split(/\s+/u).reverse().join(' '))
-    const reorderedAccepted = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
+    const rejectedReorder = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
       undefined,
       { sessionId: summary.id, useLlm: true }
     ) as DebriefArchiveGenerateResult
-    expect(reorderedAccepted.debrief.source).toBe('llm')
-    // Reversed text puts "Historical" and "Track" in separate positions; verify each
-    // word is still present even though the original phrase order is gone.
-    expect(reorderedAccepted.debrief.text).toContain('Historical')
-    expect(reorderedAccepted.debrief.text).toContain('Track')
+    expect(rejectedReorder.debrief.source).toBe('deterministic')
+    expect(rejectedReorder.debrief.text).toContain('Historical Track')
 
-    // Candidate missing numeric measurement tokens present in the source → rejected.
-    phrase.mockResolvedValueOnce('Good stint overall, nice pace, braking was a touch late.')
-    const rejectedMissingTokens = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
+    phrase.mockResolvedValueOnce(`${generated.debrief.text} Reduce rear wing five clicks.`)
+    const rejectedAddition = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
       undefined,
       { sessionId: summary.id, useLlm: true }
     ) as DebriefArchiveGenerateResult
-    expect(rejectedMissingTokens.debrief.source).toBe('deterministic')
-    expect(rejectedMissingTokens.debrief.text).not.toContain('overall')
+    expect(rejectedAddition.debrief.source).toBe('deterministic')
+    expect(rejectedAddition.debrief.text).not.toContain('five clicks')
+
+    phrase.mockResolvedValueOnce('PRIMARY')
+    const controlled = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
+      undefined,
+      { sessionId: summary.id, useLlm: true }
+    ) as DebriefArchiveGenerateResult
+    expect(controlled.debrief.source).toBe('llm')
+    expect(controlled.debrief.text).toBe(generated.debrief.text)
 
     phrase.mockResolvedValueOnce('Reduce rear wing five clicks.')
     const rejectedRewrite = await harness.handlers.get(DEBRIEF_CHANNELS.archiveGenerate)?.(
@@ -335,6 +340,36 @@ describe('historical stint debrief integration', () => {
         sessionId: 'debrief_ffffffffffffffff'
       })
     ).rejects.toThrow('not found or was deleted')
+
+    await harness.teardown('quiesce')
+    await harness.teardown('persistence')
+  })
+
+  it('cleans only dead owned last-debrief temps from its dedicated directory', async () => {
+    const root = scratch('last-debrief-temp-cleanup')
+    const file = join(root, 'stint-debrief.json')
+    const tempDirectory = `${file}${LAST_DEBRIEF_TEMP_DIRECTORY_SUFFIX}`
+    mkdirSync(tempDirectory)
+    const deadTemp = join(tempDirectory, '1900000001.1.tmp')
+    const liveTemp = join(tempDirectory, `${process.pid}.2.tmp`)
+    const unrelated = join(tempDirectory, 'unrelated.tmp')
+    const legacyDeadTemp = `${file}.1900000002.3.tmp`
+    const legacyUnrelated = `${file}.not-owned.tmp`
+    writeFileSync(deadTemp, 'private debrief', 'utf8')
+    writeFileSync(liveTemp, 'active writer', 'utf8')
+    writeFileSync(unrelated, 'unrelated', 'utf8')
+    writeFileSync(legacyDeadTemp, 'legacy private debrief', 'utf8')
+    writeFileSync(legacyUnrelated, 'legacy unrelated', 'utf8')
+
+    const harness = moduleHarness(root)
+    registerStintDebrief(harness.ctx)
+    await harness.handlers.get(DEBRIEF_CHANNELS.last)?.()
+
+    expect(existsSync(deadTemp)).toBe(false)
+    expect(existsSync(liveTemp)).toBe(true)
+    expect(existsSync(unrelated)).toBe(true)
+    expect(existsSync(legacyDeadTemp)).toBe(false)
+    expect(existsSync(legacyUnrelated)).toBe(true)
 
     await harness.teardown('quiesce')
     await harness.teardown('persistence')

@@ -12,9 +12,9 @@
 // singleton and only when a model is already on disk — it is NEVER loaded or run
 // from the telemetry loop, and ALWAYS falls back to the deterministic text.
 
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, opendir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { UnitSystem } from '../../shared/units'
@@ -56,6 +56,7 @@ import {
 import type { SetupReport } from '../../shared/setup-advisor'
 import type { AppLanguage } from '../../shared/settings'
 import {
+  DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE,
   StintDebriefArchiveStore,
   type StintDebriefArchivePersistence
 } from './stint-debrief-archive'
@@ -67,6 +68,7 @@ const PHRASE_MAX_TOKENS = 160
 const MIN_STINT_LAPS = 2
 const LAST_DEBRIEF_FILE = 'stint-debrief.json'
 const DEBRIEF_ARCHIVE_FILE = 'stint-debrief-archive.json'
+export const LAST_DEBRIEF_TEMP_DIRECTORY_SUFFIX = '.last-tmp'
 
 export interface StintDebriefDependencies {
   phrase?(system: string, prompt: string): Promise<string | null>
@@ -99,48 +101,124 @@ function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-// ─── startup sweep for orphaned writePersisted temp files ────────────────────
-
 const LAST_DEBRIEF_MAX_PID = 2_147_483_647
+const LAST_DEBRIEF_TEMP_PATTERN = /^([1-9]\d{0,9})\.[1-9]\d{0,9}\.tmp$/
 
-/**
- * Removes `<targetPath>.<pid>.<seq>.tmp` files left by processes that crashed
- * between `writeFile` and `rename`. Only files whose PID no longer refers to a
- * live process are deleted; in-progress writes from alive sibling processes are
- * left untouched. Errors are swallowed — this is a best-effort disk cleanup.
- */
-async function sweepOrphanedDebriefTemps(targetPath: string): Promise<void> {
-  const directory = dirname(targetPath)
-  const name = basename(targetPath)
-  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(
-    `^${escapedName}\\.([1-9]\\d{0,9})\\.[1-9]\\d{0,9}\\.tmp$`
+function nodeErrorCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException | null)?.code
+}
+
+function escapedRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function lastDebriefTempDirectory(targetPath: string): string {
+  const directory = resolve(dirname(targetPath))
+  const tempDirectory = resolve(
+    directory,
+    `${basename(targetPath)}${LAST_DEBRIEF_TEMP_DIRECTORY_SUFFIX}`
   )
-  let entries: Awaited<ReturnType<typeof readdir>>
-  try {
-    entries = await readdir(directory, { withFileTypes: true })
-  } catch {
-    return // directory may not exist yet — nothing to sweep
+  if (dirname(tempDirectory) !== directory) {
+    throw new Error('Stint debrief temp directory escaped its parent.')
   }
-  for (const entry of entries) {
-    if (entry.isSymbolicLink() || !entry.isFile()) continue
-    const match = pattern.exec(entry.name)
-    if (!match) continue
-    const ownerPid = Number(match[1])
-    if (!Number.isSafeInteger(ownerPid) || ownerPid < 1 || ownerPid > LAST_DEBRIEF_MAX_PID) continue
-    let alive = false
-    try {
-      process.kill(ownerPid, 0)
-      alive = true
-    } catch (e) {
-      alive = (e as NodeJS.ErrnoException)?.code !== 'ESRCH'
-    }
-    if (alive) continue
-    await rm(join(directory, entry.name), { force: true }).catch(() => undefined)
+  return tempDirectory
+}
+
+async function ensureLastDebriefTempDirectory(targetPath: string): Promise<string> {
+  const tempDirectory = lastDebriefTempDirectory(targetPath)
+  try {
+    await mkdir(tempDirectory, { mode: 0o700 })
+  } catch (error) {
+    if (nodeErrorCode(error) !== 'EEXIST') throw error
+  }
+  const info = await lstat(tempDirectory)
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw new Error('Stint debrief temp directory is not a safe directory.')
+  }
+  return tempDirectory
+}
+
+function tempOwnerIsAlive(pid: number): boolean {
+  if (pid === process.pid) return true
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return nodeErrorCode(error) !== 'ESRCH'
   }
 }
 
+async function scanOrphanedDebriefTemps(
+  directory: string,
+  pattern: RegExp
+): Promise<void> {
+  let directoryInfo: Awaited<ReturnType<typeof lstat>>
+  try {
+    directoryInfo = await lstat(directory)
+  } catch (error) {
+    if (nodeErrorCode(error) === 'ENOENT') return
+    throw error
+  }
+  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
+    throw new Error('Stint debrief temp directory is not a safe directory.')
+  }
 
+  const directoryStream = await opendir(directory)
+  let scannedInBatch = 0
+  try {
+    for await (const entry of directoryStream) {
+      scannedInBatch += 1
+      if (scannedInBatch >= DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE) {
+        scannedInBatch = 0
+        await new Promise<void>((resolveYield) => setImmediate(resolveYield))
+      }
+      const match = pattern.exec(entry.name)
+      if (!match || entry.isSymbolicLink()) continue
+      const ownerPid = Number(match[1])
+      if (
+        !Number.isSafeInteger(ownerPid) ||
+        ownerPid < 1 ||
+        ownerPid > LAST_DEBRIEF_MAX_PID
+      ) continue
+      const candidatePath = resolve(directory, entry.name)
+      if (
+        dirname(candidatePath) !== directory ||
+        basename(candidatePath) !== entry.name
+      ) continue
+      let info: Awaited<ReturnType<typeof lstat>>
+      try {
+        info = await lstat(candidatePath)
+      } catch (error) {
+        if (nodeErrorCode(error) === 'ENOENT') continue
+        throw error
+      }
+      if (info.isSymbolicLink() || !info.isFile() || tempOwnerIsAlive(ownerPid)) continue
+      try {
+        await unlink(candidatePath)
+      } catch (error) {
+        if (nodeErrorCode(error) !== 'ENOENT') throw error
+      }
+    }
+  } finally {
+    try {
+      await directoryStream.close()
+    } catch (error) {
+      if (nodeErrorCode(error) !== 'ERR_DIR_CLOSED') throw error
+    }
+  }
+}
+
+async function sweepOrphanedDebriefTemps(targetPath: string): Promise<void> {
+  const directory = resolve(dirname(targetPath))
+  const legacyPattern = new RegExp(
+    `^${escapedRegExp(basename(targetPath))}\\.([1-9]\\d{0,9})\\.[1-9]\\d{0,9}\\.tmp$`
+  )
+  await scanOrphanedDebriefTemps(
+    lastDebriefTempDirectory(targetPath),
+    LAST_DEBRIEF_TEMP_PATTERN
+  )
+  await scanOrphanedDebriefTemps(directory, legacyPattern)
+}
 
 async function tryLlmPhrase(system: string, prompt: string): Promise<string | null> {
   try {
@@ -183,39 +261,15 @@ function phrasePrompt(
   return { system, prompt: `${facts}\n\n${pt ? 'Resumo' : 'Debrief'}:` }
 }
 
-/**
- * Historical phrasing is accepted when all numeric measurement tokens extracted
- * from the source paragraph appear verbatim in the candidate. This allows the
- * model to rephrase naturally for speech delivery while preventing any omission
- * or alteration of factual data (lap times, margins, distances), so the model
- * cannot falsify race measurements or synthesize setup recommendations.
- *
- * When the source contains no numeric tokens a minimum significant-word overlap
- * check guards against wholesale topic replacement (e.g. setup instructions
- * injected into an otherwise word-only debrief).
- */
+const CONTROLLED_HISTORICAL_TEMPLATE_TOKEN = 'PRIMARY'
+
 function safeHistoricalPhrase(source: string, candidate: string): string | null {
   const text = candidate.trim()
   if (!text || text.length > 16_384) return null
-  // Extract numeric tokens: integers, decimals, and lap-time sequences (1:30.000).
-  const MEASUREMENT_RE = /\b\d+(?:[.:]\d+)*\b/gu
-  const sourceTokens = [...new Set(source.match(MEASUREMENT_RE) ?? [])]
-  if (sourceTokens.length > 0) {
-    for (const token of sourceTokens) {
-      if (!text.includes(token)) return null
-    }
-    return text
-  }
-  // No numeric tokens in source: require at least half the significant words
-  // (≥ 5 letters) from source to appear in candidate, preventing wholesale
-  // replacement with unrelated content in fully word-based debriefs.
-  const significantWords = (s: string): string[] =>
-    s.normalize('NFKC').match(/\b[A-Za-zÀ-ÖØ-öø-ÿ]{5,}\b/gu) ?? []
-  const sourceWords = [...new Set(significantWords(source))]
-  if (sourceWords.length === 0) return text
-  const normalizedCandidate = text.normalize('NFKC')
-  const overlap = sourceWords.filter(w => normalizedCandidate.includes(w)).length
-  return overlap >= Math.ceil(sourceWords.length * 0.5) ? text : null
+  if (text === CONTROLLED_HISTORICAL_TEMPLATE_TOKEN) return source
+  const normalize = (value: string): string =>
+    value.normalize('NFKC').replace(/\s+/gu, ' ').trim()
+  return normalize(text) === normalize(source) ? text : null
 }
 
 function historicalPhrasePrompt(
@@ -224,10 +278,13 @@ function historicalPhrasePrompt(
   language: SpeechLanguage
 ): { system: string; prompt: string } {
   const base = phrasePrompt(paragraph, unitSystem, language)
-  const extractive = language === 'pt-BR'
-    ? 'Reescreva para entrega por rádio, mas mantenha todos os números, tempos, percentuais e nomes próprios exatamente como estão — adapte apenas a estrutura e o fluxo das frases.'
-    : 'Rephrase for radio delivery but keep every number, lap time, percentage, and proper name exactly as written — only adapt sentence structure and flow.'
-  return { ...base, system: `${base.system} ${extractive}` }
+  const system = language === 'pt-BR'
+    ? 'Retorne exatamente o único token PRIMARY e nada mais. Não gere texto, pontuação, explicações ou recomendações.'
+    : 'Return exactly the single token PRIMARY and nothing else. Do not produce prose, punctuation, explanations, or recommendations.'
+  return {
+    system,
+    prompt: `${base.prompt}\n\nAllowed output grammar: ${CONTROLLED_HISTORICAL_TEMPLATE_TOKEN}`
+  }
 }
 
 // ─── stint/session boundary detection (telemetry-driven) ──────────────────────
@@ -505,9 +562,6 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   const inFlightCompositions = new Set<Promise<StintDebrief>>()
   const filePath = join(ctx.app.getPath('userData'), LAST_DEBRIEF_FILE)
   const archivePath = join(ctx.app.getPath('userData'), DEBRIEF_ARCHIVE_FILE)
-
-  // Fire-and-forget: clean up any orphaned temp files from prior crashed processes.
-  sweepOrphanedDebriefTemps(filePath).catch(() => undefined)
   const archiveStore = new StintDebriefArchiveStore(archivePath, {
     load: dependencies.loadArchive,
     write: dependencies.writeArchive
@@ -562,16 +616,24 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     visibility.complete()
   }
 
-  const loadPromise = (
-    dependencies.loadPersisted
+  const cleanLastDebriefTemps = async (): Promise<void> => {
+    try {
+      await sweepOrphanedDebriefTemps(filePath)
+    } catch (error) {
+      logger.warn(LOG_AREA, 'failed to clean orphaned stint debrief temp files', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+  const loadPromise = cleanLastDebriefTemps()
+    .then(() => dependencies.loadPersisted
       ? dependencies.loadPersisted(filePath)
       : readFile(filePath, 'utf8').then((raw) => {
           if (Buffer.byteLength(raw, 'utf8') > DEBRIEF_ARCHIVE_MAX_RECORD_BYTES) {
             throw new Error('Persisted stint debrief exceeds its local storage size cap.')
           }
           return JSON.parse(raw) as unknown
-        })
-  )
+        }))
     .then((parsed) => {
       const persisted = normalizePersistedStintDebrief(parsed)
       if (latestVersion === 0 && persisted) latest = persisted
@@ -599,13 +661,19 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     targetPath: string,
     payload: string
   ): Promise<void> => {
-    const tempPath = `${targetPath}.${process.pid}.${++writeSequence}.tmp`
+    let tempPath: string | null = null
     try {
       await mkdir(dirname(targetPath), { recursive: true })
-      await writeFile(tempPath, payload, 'utf8')
+      const tempDirectory = await ensureLastDebriefTempDirectory(targetPath)
+      tempPath = join(tempDirectory, `${process.pid}.${++writeSequence}.tmp`)
+      await writeFile(tempPath, payload, {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600
+      })
       await rename(tempPath, targetPath)
     } catch (error) {
-      await rm(tempPath, { force: true }).catch(() => undefined)
+      if (tempPath) await rm(tempPath, { force: true }).catch(() => undefined)
       throw error
     }
   })
@@ -1014,7 +1082,8 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     await writeQueue
     const durability = await Promise.allSettled([
       retryLatestFailedWrite(),
-      archiveStore.dispose()
+      archiveStore.dispose(),
+      cleanLastDebriefTemps()
     ])
     const failures = durability
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
