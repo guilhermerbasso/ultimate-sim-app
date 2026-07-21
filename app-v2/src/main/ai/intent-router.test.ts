@@ -111,6 +111,21 @@ function ctx(snap: TelemetrySnapshot | null = snapshot()): EngineerContext {
   }
 }
 
+const ANCHORED_PRESSURE_CASES = [
+  ['What is tyre pressure?', 'en', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['What are tyre pressures?', 'en', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['What are the pressures of the tyres?', 'en', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['Current tyre pressure', 'en', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['Qual é a pressão atual dos pneus?', 'pt', 'Pressões dos pneus', 'As leituras atuais dos pneus estão indisponíveis'],
+  ['Quais são as pressões atuais dos pneus?', 'pt', 'Pressões dos pneus', 'As leituras atuais dos pneus estão indisponíveis'],
+  ['¿Cuál es la presión actual de los neumáticos?', 'es', 'Presiones de los neumáticos', 'Las lecturas actuales de los neumáticos no están disponibles'],
+  ['¿Cuáles son las presiones actuales de los neumáticos?', 'es', 'Presiones de los neumáticos', 'Las lecturas actuales de los neumáticos no están disponibles'],
+  ['Quelle est la pression actuelle des pneus ?', 'fr', 'Pressions des pneus', 'Les mesures actuelles des pneus sont indisponibles'],
+  ['Quelles sont les pressions actuelles des pneus ?', 'fr', 'Pressions des pneus', 'Les mesures actuelles des pneus sont indisponibles'],
+  ['Wie ist der aktuelle Reifendruck?', 'de', 'Reifendrücke', 'Aktuelle Reifenmesswerte sind nicht verfügbar'],
+  ['Wie hoch sind die Reifendrücke?', 'de', 'Reifendrücke', 'Aktuelle Reifenmesswerte sind nicht verfügbar']
+] as const
+
 describe('routeIntent -- PT-BR questions', () => {
   it('answers fuel level (how much fuel?)', () => {
     const r = routeIntent('How much fuel?', ctx())
@@ -237,6 +252,54 @@ describe('routeIntent -- PT-BR questions', () => {
     expect(r.text).toContain('RF')
     expect(r.text).toContain('°F')
     expect(r.text).not.toContain('NaN')
+  })
+
+  it.each(ANCHORED_PRESSURE_CASES)(
+    'routes every anchored pressure shape from live telemetry: %s',
+    (question, language, heading) => {
+      const result = routeIntent(
+        question,
+        ctx(snapshot({
+          tyres: {
+            lf: { pressureKpa: 180 },
+            rf: { pressureKpa: 181 },
+            lr: { pressureKpa: 178 },
+            rr: { pressureKpa: 179 }
+          }
+        }))
+      )
+
+      expect(result.type).toBe('answer')
+      if (result.type !== 'answer') return
+      expect(result.category).toBe('tyres')
+      expect(result.lang).toBe(language)
+      expect(result.text).toContain(heading)
+      expect(result.text).toContain('180 kPa')
+    }
+  )
+
+  it.each(ANCHORED_PRESSURE_CASES)(
+    'keeps every anchored pressure shape deterministic without readings: %s',
+    (question, language, _heading, unavailable) => {
+      const result = routeIntent(
+        question,
+        ctx(snapshot({ tyres: undefined }))
+      )
+
+      expect(result.type).toBe('answer')
+      if (result.type !== 'answer') return
+      expect(result.category).toBe('tyres')
+      expect(result.lang).toBe(language)
+      expect(result.text).toContain(unavailable)
+    }
+  )
+
+  it.each([
+    'What does tyre pressure mean?',
+    'What does the phrase "tyre pressure" mean?',
+    'Define "tyre pressure".'
+  ])('does not route explicit tyre-pressure definitions as telemetry: %s', (question) => {
+    expect(routeIntent(question, ctx())).toEqual({ type: 'passthrough' })
   })
 
   it.each([

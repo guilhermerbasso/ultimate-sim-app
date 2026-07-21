@@ -74,7 +74,10 @@ import {
 import type { Logger } from '../../shared/logger'
 import { speechLanguageFromAppLanguage } from '../../shared/tts-voice'
 import { buildContextPack, deriveFuel, renderContextText } from '../ai/context-pack'
-import { routeIntent } from '../ai/intent-router'
+import {
+  routeAnchoredTyreStatusQuery,
+  routeIntent
+} from '../ai/intent-router'
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { buildEngineerTools } from '../ai/tools'
@@ -780,9 +783,30 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (!question) return publishAnswer('', pick(config, FALLBACK.empty), 'answer', 'system')
     if (!config.enabled) return publishAnswer(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
+    const tyrePressureQuery = classifyTyrePressureQuery(question)
+    const unitSystem = deps.getUnitSystem?.() ?? 'metric'
+    if (tyrePressureQuery?.kind === 'current-reading') {
+      const intent = routeAnchoredTyreStatusQuery(
+        {
+          language: tyrePressureQuery.language,
+          metric: 'pressure'
+        },
+        deps.context,
+        unitSystem
+      )
+      return publishAnswer(
+        question,
+        intent.text,
+        'answer',
+        'intent',
+        undefined,
+        engineerMessageLanguageForIntent(intent.lang)
+      )
+    }
+
+    const context = deps.getLiveContext?.() ?? null
     const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
     const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
-    const tyrePressureQuery = classifyTyrePressureQuery(question)
     const tyrePressureSetupLanguage =
       tyrePressureQuery?.kind === 'setup-advice'
         ? tyrePressureQuery.language
@@ -793,8 +817,6 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       detectedRacecraft?.language ??
       racecraftLikeLanguage ??
       coachAdviceLanguageFromAppLanguage(config.language)
-    const context = deps.getLiveContext?.() ?? null
-    const unitSystem = deps.getUnitSystem?.() ?? 'metric'
     const snapshot = deps.context.getSnapshot()
     const fallbackGapSample = snapshot
       ? {
@@ -890,6 +912,17 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         tyrePressureQuery?.kind === 'concept-definition' ||
         engineerSafetyAllowsIntent(definitionSafetyReason, 'definition')
       ) {
+        if (tyrePressureQuery?.kind === 'concept-definition') {
+          return publishAnswer(
+            question,
+            controlledDefinition,
+            'answer',
+            'intent',
+            undefined,
+            definitionLanguage,
+            controlledDefinition
+          )
+        }
         return finalize(
           question,
           controlledDefinition,

@@ -67,6 +67,21 @@ const KNOWN_SAFE_RACE = {
   replayState: 'live' as const
 }
 
+const ANCHORED_PRESSURE_CASES = [
+  ['en-US', 'What is tyre pressure?', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['en-US', 'What are tyre pressures?', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['en-US', 'What are the pressures of the tyres?', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['en-US', 'Current tyre pressure', 'Tyre pressures', 'Current tyre readings are unavailable'],
+  ['pt-BR', 'Qual é a pressão atual dos pneus?', 'Pressões dos pneus', 'As leituras atuais dos pneus estão indisponíveis'],
+  ['pt-BR', 'Quais são as pressões atuais dos pneus?', 'Pressões dos pneus', 'As leituras atuais dos pneus estão indisponíveis'],
+  ['es', '¿Cuál es la presión actual de los neumáticos?', 'Presiones de los neumáticos', 'Las lecturas actuales de los neumáticos no están disponibles'],
+  ['es', '¿Cuáles son las presiones actuales de los neumáticos?', 'Presiones de los neumáticos', 'Las lecturas actuales de los neumáticos no están disponibles'],
+  ['fr', 'Quelle est la pression actuelle des pneus ?', 'Pressions des pneus', 'Les mesures actuelles des pneus sont indisponibles'],
+  ['fr', 'Quelles sont les pressions actuelles des pneus ?', 'Pressions des pneus', 'Les mesures actuelles des pneus sont indisponibles'],
+  ['de', 'Wie ist der aktuelle Reifendruck?', 'Reifendrücke', 'Aktuelle Reifenmesswerte sind nicht verfügbar'],
+  ['de', 'Wie hoch sind die Reifendrücke?', 'Reifendrücke', 'Aktuelle Reifenmesswerte sind nicht verfügbar']
+] as const
+
 function groundedRacecraftContext(context: RacecraftAdviceContext): RacecraftAdviceContext {
   const last = context.gaps?.[context.gaps.length - 1]
   const currentGapSample =
@@ -429,6 +444,72 @@ describe('createEngineerOrchestrator.ask', () => {
     }
   )
 
+  it.each(ANCHORED_PRESSURE_CASES)(
+    'gives anchored pressure telemetry precedence over definitions: %s — %s',
+    async (language, question, heading, unavailable) => {
+      for (const [safetyLabel, safety] of [
+        ['green', KNOWN_SAFE_RACE],
+        ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }],
+        [
+          'unknown',
+          {
+            connected: true,
+            onTrack: true,
+            flagsKnown: false,
+            pitStateKnown: false,
+            paceStateKnown: false
+          }
+        ]
+      ] as const) {
+        for (const [dataLabel, tyres, marker] of [
+          [
+            'valid',
+            {
+              lf: { pressureKpa: 180 },
+              rf: { pressureKpa: 181 },
+              lr: { pressureKpa: 178 },
+              rr: { pressureKpa: 179 }
+            },
+            heading
+          ],
+          ['missing', undefined, unavailable]
+        ] as const) {
+          const getLiveContext = vi.fn(() => null)
+          const harness = makeHarness({
+            config: {
+              language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
+            },
+            racecraftLanguage: language,
+            getLiveContext,
+            snapshot: {
+              sim: 'iracing',
+              connected: true,
+              timestamp: 1000,
+              sessionType: 'Race',
+              tyres
+            } as TelemetrySnapshot,
+            racecraftContext: { safety }
+          })
+
+          const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+          const label = `${safetyLabel}:${dataLabel}:${question}`
+
+          expect(answer.source, label).toBe('intent')
+          expect(answer.kind, label).toBe('answer')
+          expect(answer.lang, label).toBe(language)
+          expect(answer.text, label).toContain(marker)
+          if (dataLabel === 'valid') {
+            expect(answer.text, label).toContain('180 kPa')
+          }
+          expect(answer.text, label).not.toMatch(/univers|Setup Experiment Twin/i)
+          expect(getLiveContext, label).not.toHaveBeenCalled()
+          expect(harness.runtime.generateWithTools, label).not.toHaveBeenCalled()
+          expect(harness.modelManager.ensureModel, label).not.toHaveBeenCalled()
+        }
+      }
+    }
+  )
+
   it.each([
     ['blue flag', { ...KNOWN_SAFE_RACE, flagBlue: true }],
     ['overlap', { ...KNOWN_SAFE_RACE, carLeftRight: 'left' as const }],
@@ -594,6 +675,7 @@ describe('createEngineerOrchestrator.ask', () => {
             language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
           },
           racecraftLanguage: language,
+          getLiveContext: () => null,
           snapshot: {
             sim: 'iracing',
             connected: true,
@@ -720,6 +802,8 @@ describe('createEngineerOrchestrator.ask', () => {
 
   it.each([
     ['en-US', 'What does tyre pressure mean?', 'measured inflation pressure'],
+    ['en-US', 'What does the phrase "tyre pressure" mean?', 'measured inflation pressure'],
+    ['en-US', 'Define "tyre pressure".', 'measured inflation pressure'],
     ['pt-BR', 'O que significa a pressão dos pneus?', 'pressão de inflação medida'],
     ['es', '¿Qué significa la presión de los neumáticos?', 'presión de inflado medida'],
     ['fr', 'Que signifie la pression des pneus ?', 'pression de gonflage mesurée'],
@@ -746,6 +830,19 @@ describe('createEngineerOrchestrator.ask', () => {
             language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
           },
           racecraftLanguage: language,
+          getLiveContext: () => null,
+          snapshot: {
+            sim: 'iracing',
+            connected: true,
+            timestamp: 1000,
+            sessionType: 'Race',
+            tyres: {
+              lf: { pressureKpa: 180 },
+              rf: { pressureKpa: 181 },
+              lr: { pressureKpa: 178 },
+              rr: { pressureKpa: 179 }
+            }
+          } as TelemetrySnapshot,
           racecraftContext: { safety }
         })
 
@@ -754,6 +851,7 @@ describe('createEngineerOrchestrator.ask', () => {
         expect(answer.source, `${safetyLabel}:${question}`).toBe('intent')
         expect(answer.lang, `${safetyLabel}:${question}`).toBe(language)
         expect(answer.text, `${safetyLabel}:${question}`).toContain(marker)
+        expect(answer.text, `${safetyLabel}:${question}`).not.toContain('180 kPa')
         expect(answer.text, `${safetyLabel}:${question}`).not.toContain('Setup Experiment Twin')
         expect(answer.speak, `${safetyLabel}:${question}`).not.toBe(false)
         expect(harness.runtime.generateWithTools, `${safetyLabel}:${question}`).not.toHaveBeenCalled()

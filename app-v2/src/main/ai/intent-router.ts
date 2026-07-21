@@ -167,6 +167,18 @@ function answer(category: IntentCategory, lang: IntentAnswerLang, text: string):
   return { type: 'answer', category, lang, text }
 }
 
+export function routeAnchoredTyreStatusQuery(
+  query: AnchoredTyreStatusQuery,
+  ctx: EngineerContext,
+  unitSystem: UnitSystem = 'metric'
+): IntentAnswer {
+  return answer(
+    'tyres',
+    tyreStatusIntentLanguage(query.language),
+    buildTyresAnswer(ctx, query, unitSystem)
+  )
+}
+
 const NO_DATA_PT = 'Sem telemetria no momento.'
 const NO_DATA_EN = 'No telemetry right now.'
 
@@ -181,11 +193,7 @@ function matchQuestion(
   const noData = lang === 'en' ? NO_DATA_EN : NO_DATA_PT
 
   if (tyreStatus) {
-    return answer(
-      'tyres',
-      tyreStatusIntentLanguage(tyreStatus.language),
-      buildTyresAnswer(ctx, tyreStatus, unitSystem)
-    )
+    return routeAnchoredTyreStatusQuery(tyreStatus, ctx, unitSystem)
   }
 
   // FUEL (level / can I finish)
