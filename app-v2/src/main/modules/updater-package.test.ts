@@ -63,15 +63,15 @@ describe('Windows updater package safety', () => {
     expect(bridge).toContain("runtimeRequire('serialport')")
   })
 
-  it('keeps package and lockfile versions aligned at 2.54.0', () => {
+  it('keeps package and lockfile versions aligned at 2.55.0', () => {
     const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string }
     const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as {
       version: string
       packages: Record<string, { version?: string }>
     }
 
-    expect(packageJson.version).toBe('2.54.0')
-    expect(packageLock.version).toBe('2.54.0')
-    expect(packageLock.packages['']?.version).toBe('2.54.0')
+    expect(packageJson.version).toBe('2.55.0')
+    expect(packageLock.version).toBe('2.55.0')
+    expect(packageLock.packages['']?.version).toBe('2.55.0')
   })
 })

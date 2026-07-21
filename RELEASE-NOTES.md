@@ -1,5 +1,102 @@
 # Ultimate Sim App — Release Notes
 
+## v2.55.0 — Durable stint history & evidence-grounded setup guidance
+
+Version 2.55.0 makes completed-session review selectable and durable, turns setup advice into
+deterministic measured guidance rather than automation, strengthens Stint Passport privacy and
+repair guarantees, and restores source-bound CI provenance.
+
+### Readable Accessibility Cues selectors
+- ♿ **Accessibility Cues selectors are readable again** in the dark view, the app's high-contrast
+  mode, and Windows forced-colors mode.
+- ⌨️ The fix keeps native `<select>` controls, labels, focus behavior, keyboard operation, and
+  screen-reader semantics instead of replacing them with a custom widget.
+
+### Durable, private Stint Passport V2
+- 🪪 **Each stint has a truthful local-first player record** designed to survive shutdowns, crashes,
+  restarts, offline use, export/import, and replay transitions.
+- 🔐 D1-D3 privacy classes bind retention to the record's class. Destructive deletion removes
+  evidence, detail, reason, owner, and provenance without leaking lower-class data.
+- 🧰 Process-isolated persistence uses bounded parsing, canonical integrity/authenticity checks,
+  corruption quarantine, a circuit breaker, deterministic drain/teardown, and restart recovery.
+- 🔑 The repair journal and authority state are crash-safe, authenticated, replay-resistant, and
+  rollback-resistant. Repair tokens use hidden reveal, copy, explicit retype/confirmation, visible
+  failures, no logging, and no durable UI persistence.
+
+### Clean source binding and OIDC provenance
+- 🧾 **Runtime evidence is bound to the GitHub SHA and Git tree**, while historical delivery-branch
+  metadata remains informational rather than an authority.
+- 🧪 CI explicitly installs the lockfile-pinned Electron test runtime after the clean dependency
+  install, avoiding concurrent lazy-download races between Vitest workers.
+- 🌐 The browser harness publishes readiness before its heavy module graph and retries only the
+  expected Vite dependency-optimization navigation without weakening assertions or timeouts.
+- ✅ Main push `0c0447d` completed Contract checks, App checks, Stint Passport V2 acceptance, and the
+  GitHub OIDC `Attest runtime evidence` step successfully.
+
+### Select any completed stint or session
+- 🗂️ **Choose a completed stint or session instead of being limited to the latest debrief.** The
+  newest-first archive preserves up to 50 immutable local-only analysis snapshots.
+- 📦 Storage is explicitly bounded to **8 MiB total and 512 KiB per record**, with strict validation,
+  deduplication, conservative migration, crash-safe atomic persistence, and fail-closed corruption
+  handling.
+- 🧷 Each snapshot keeps its track, car, session, laps, boundary reason, deterministic findings,
+  predictions, language, unit system, and context-matched setup evidence.
+- 🎯 Historical generation uses only the selected immutable record and never substitutes current
+  live telemetry.
+
+### Deterministic setup guidance, not automation
+- 🛠️ **Setup suggestions include confidence, rationale, measured evidence, one primary change, and
+  bounded alternatives** derived from deterministic handling and tyre rules.
+- 🛑 When tyre temperature, pressure, wear, or handling evidence is insufficient, the app asks for
+  clean laps and abstains instead of guessing from speed, throttle, or brake traces alone.
+- **No setup is applied automatically. Change one variable at a time, then validate it in Setup
+  Experiment Twin.**
+
+### Multilingual, safety, and replay fences
+- 🌍 Historical debrief and setup presentation is deterministic across seven languages: Brazilian
+  Portuguese, English, Spanish, French, German, Simplified Chinese, and Japanese.
+- 🧱 Racecraft history is fenced to the exact session, replay identity, and provider connection
+  epoch, including reconnects from providers without replay metadata.
+- 🔇 Stale UI generations and stale speech are rejected when the selection changes or the record is
+  no longer available.
+- 🤖 The local LLM may phrase the selected deterministic debrief paragraph only; it cannot create,
+  rewrite, or add setup recommendations.
+- 🛡️ Unknown or unsafe tactical advice remains default-denied without model or speech leakage.
+
+### Validation
+- Accessibility select regression: **4 tests passed**; both TypeScript configurations passed.
+- Stint Passport V2 merge gate: **431/431 source-bound acceptance tests**; the merge validation also
+  reported **5,532/5,532 unit tests across 425 files**.
+- Post-main CI run
+  [29839690536](https://github.com/guilhermerbasso/ultimate-sim-app/actions/runs/29839690536)
+  passed Contract checks, App checks, Stint Passport V2 acceptance, runtime evidence upload, and
+  GitHub OIDC provenance attestation.
+- Coach/debrief/archive/replay/safety validation: **1,997 relevant tests across 53 files** plus
+  **880 focused routing, tyre-safety, and reconnect tests**; both TypeScript configurations passed.
+- The PR #113 production build passed with **422 main-process modules, 9 preload modules, and 2,419
+  renderer modules**; the 56-file resource graph and packaged Passport worker checks passed.
+- Local release-preparation checks passed: **5/5 updater/package tests**, both TypeScript
+  configurations, the Phase-02 contract verifier, targeted documentation/version assertions, and
+  `git diff --check`.
+- Final `npm run dist:win` and `npm run verify:win-package` are intentionally deferred until the
+  release metadata commit lands on merged `main`; no tag, GitHub Release, or release assets have
+  been created during preparation.
+
+_Expected release artifacts: `Ultimate-Sim-App-2.55.0-x64.exe` (NSIS, x64) + portable `.zip` +
+blockmap + `latest.yml`._
+
+### What's Changed
+- [#109](https://github.com/guilhermerbasso/ultimate-sim-app/pull/109) — restore readable native
+  Accessibility Cues selects without losing keyboard or screen-reader behavior.
+- [#110](https://github.com/guilhermerbasso/ultimate-sim-app/pull/110) — add durable Stint Passport
+  V2 with local-first privacy, integrity, repair, and recovery guarantees.
+- [#111](https://github.com/guilhermerbasso/ultimate-sim-app/pull/111) — restore clean source-bound
+  CI, stabilize the browser harness, and complete post-main OIDC provenance.
+- [#113](https://github.com/guilhermerbasso/ultimate-sim-app/pull/113) — add selectable historical
+  debriefs and deterministic evidence-grounded setup guidance with safety and replay fences.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.54.0...v2.55.0
+
 ## v2.54.0 — Smarter streaming, local integrations & offline race preparation
 
 Version 2.54.0 adds safer local integrations, exact phone/tablet stream presentations, editor-only
