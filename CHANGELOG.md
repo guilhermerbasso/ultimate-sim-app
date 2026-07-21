@@ -6,6 +6,34 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.55.0 — durable stint history, evidence-grounded setup guidance, and verified delivery
+
+### Added
+- **Durable Stint Passport V2** as a local-first player record that survives shutdowns, crashes,
+  restarts, offline use, export/import, and replay transitions without success-shaped recovery.
+- **Selectable completed-stint and session debriefs** backed by immutable local snapshots. The
+  newest-first archive keeps at most 50 records, 8 MiB total, and 512 KiB per record.
+- **Deterministic setup guidance** with confidence, rationale, measured evidence, and bounded
+  alternatives. Insufficient tyre or handling evidence causes an explicit abstention instead of a
+  guessed change.
+
+### Changed
+- Stint Passport V2 enforces D1-D3 privacy classes, destructive deletion, authenticated
+  replay-resistant repair, corruption quarantine, bounded worker persistence, and accessible
+  repair-token handling without durable UI storage or token logging.
+- Historical debrief generation uses only the selected immutable record. Seven-language
+  presentation, exact session/replay/provider-epoch isolation, stale UI and speech fences, and
+  default-denied unsafe tactical advice keep historical review separate from live racing.
+- Post-main CI binds Passport evidence to the GitHub SHA and tree, installs the lockfile-pinned
+  Electron runtime explicitly, stabilizes the browser harness without weakening assertions or
+  timeouts, and successfully produces GitHub OIDC build provenance.
+- **No setup is applied automatically. Change one variable at a time, then validate it in Setup
+  Experiment Twin.**
+
+### Fixed
+- Accessibility Cues native selects remain readable in dark, high-contrast, and forced-colors
+  modes while preserving native labels, focus, keyboard operation, and screen-reader semantics.
+
 ## 2.54.0 — managed streaming, local integrations, and offline race preparation
 
 ### Added
