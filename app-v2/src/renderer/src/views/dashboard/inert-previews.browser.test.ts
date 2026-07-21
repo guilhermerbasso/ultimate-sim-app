@@ -208,7 +208,7 @@ describe('inert gallery previews (Electron Chromium)', () => {
       }
     }],
     optimizeDeps: {
-      // Keep dependency discovery from reloading Electron while the harness is evaluating.
+      // Keep dependency discovery and concurrent test churn from reloading Electron during evaluation.
       noDiscovery: true,
       include: [
         '@react-three/fiber',
@@ -222,7 +222,7 @@ describe('inert gallery previews (Electron Chromium)', () => {
         'three/examples/jsm/controls/OrbitControls.js'
       ]
     },
-    server: { host: '127.0.0.1', port: 0 }
+    server: { host: '127.0.0.1', hmr: false, port: 0, watch: null }
   })
     let electronApp
     let tempDirectory
