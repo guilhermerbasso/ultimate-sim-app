@@ -16,7 +16,7 @@ import {
   type PassportIntegrityState
 } from '../../shared/stint-passport'
 import { telemetrySnapshotToRaceOpsEvent } from '../phase02/telemetry-contract-adapter'
-import { PassportPersistenceEngine } from './persistence-engine'
+import { PassportPersistenceEngine, type PassportStoreEvent } from './persistence-engine'
 import type { PassportPersistenceClient } from './persistence-client'
 import { StintPassportService } from './service'
 
@@ -579,6 +579,47 @@ describe('StintPassportService lifecycle and privacy', () => {
       await test.tap.emit(delivery(telemetry('Driver A', 10, Number(sequence)), sequence))
     }
     expect(test.store.metricsSnapshot().appendOperations).toBe(before)
+  })
+
+  it('persists clearing D3 free text when its prior value equals the reason code', async () => {
+    const test = harness('d3-free-text-clear')
+    const current = await persistentCurrent(test)
+    const reasonCode = 'DRIVER_CONFIRMED'
+    const input = {
+      stintId: current.identity.stintId,
+      itemId: 'incoming-driver' as const,
+      status: 'manual-confirmed' as const,
+      owner: { memberId: current.identity.driverRef, role: 'driver' as const },
+      reasonCode
+    }
+
+    await test.service.resolveItem({ ...input, freeText: reasonCode })
+    const before = (await test.service.snapshot()).current!.items.find(
+      (item) => item.id === input.itemId
+    )!
+    const eventsBefore = test.store.eventHeaders(current.identity.stintId).length
+    const persistPassport = test.client.persistPassport.bind(test.client)
+    let persistedEvent: PassportStoreEvent | undefined
+    test.client.persistPassport = vi.fn(async (passport, event, expectedPrivacyGeneration) => {
+      persistedEvent = event
+      return persistPassport(passport, event, expectedPrivacyGeneration)
+    })
+
+    test.setNow(10_001)
+    await test.service.resolveItem({ ...input, freeText: '' })
+    const after = (await test.service.snapshot()).current!.items.find(
+      (item) => item.id === input.itemId
+    )!
+
+    expect(after.revision).toBe(before.revision + 1)
+    expect(after.evidence?.summary).toBe(reasonCode)
+    expect(test.store.eventHeaders(current.identity.stintId)).toHaveLength(eventsBefore + 1)
+    expect(persistedEvent?.canonicalEvent.facts.find(
+      (fact) => fact.name === 'passport.freeText'
+    )?.value).toEqual({
+      kind: 'string',
+      value: ''
+    })
   })
 
   it('treats explicit D3 deletion as opt-out and removes active identity state', async () => {

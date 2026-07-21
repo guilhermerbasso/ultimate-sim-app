@@ -1735,7 +1735,25 @@ export class PassportPersistenceEngine {
           // authoritative post-deletion state (redactEvidenceByClass ran earlier in this
           // transaction). Use it directly to avoid a revision/item-revision mismatch that
           // would cause a dedupe conflict on recovery.
-          return this.getPassport(migration.passport.identity.stintId) ?? migration.passport
+          const committed = this.getPassport(migration.passport.identity.stintId)
+          if (committed) return committed
+          const items = migration.passport.items.map((item): PassportItem => {
+            if (itemDataClass(item.id) !== dataClass) return item
+            return {
+              ...item,
+              status: 'unknown',
+              detail: 'Evidence removed by data-class deletion.',
+              verifiedAt: undefined,
+              expiresAt: undefined,
+              evidence: undefined,
+              revision: item.revision + 1
+            }
+          })
+          return coherentAfterPrivacyRedaction({
+            ...migration.passport,
+            items,
+            ...calculatePassportCoverage(items)
+          })
         })()
       : undefined
     const event = migration.event

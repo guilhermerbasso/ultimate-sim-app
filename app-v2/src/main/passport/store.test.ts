@@ -1652,23 +1652,28 @@ describe('PassportStore privacy and incremental integrity', () => {
       itemId: 'audio-comms' as const,
       unrelatedItemId: 'fuel-load' as const,
       deletedSentinel: 'D1-MIGRATION-DELETE-SENTINEL',
-      survivingSentinel: 'D2-MIGRATION-SURVIVING-EVIDENCE'
+      survivingSentinel: 'D2-MIGRATION-SURVIVING-EVIDENCE',
+      passportState: 'uncommitted',
+      passportAlreadyCommitted: false
     },
     {
       dataClass: 'D2' as const,
       itemId: 'fuel-load' as const,
       unrelatedItemId: 'audio-comms' as const,
       deletedSentinel: 'D2-MIGRATION-DELETE-SENTINEL',
-      survivingSentinel: 'D1-MIGRATION-SURVIVING-EVIDENCE'
+      survivingSentinel: 'D1-MIGRATION-SURVIVING-EVIDENCE',
+      passportState: 'committed-but-unadvanced',
+      passportAlreadyCommitted: true
     }
   ])(
-    '[spec-gap] rebases a roster-complete migration after $dataClass deletion without restoring $itemId evidence',
+    '[spec-gap] rebases a $passportState roster-complete migration after $dataClass deletion without restoring $itemId evidence',
     ({
       dataClass,
       itemId,
       unrelatedItemId,
       deletedSentinel,
-      survivingSentinel
+      survivingSentinel,
+      passportAlreadyCommitted
     }) => {
       const path = join(scratch(`migration-rebase-${dataClass.toLowerCase()}`), 'passport.db')
       const first = open(path, 10_000).store
@@ -1776,6 +1781,9 @@ describe('PassportStore privacy and incremental integrity', () => {
         `${migrationOperationId}:roster`
       )
       first.advancePersistenceMigration(migrationOperationId, 'roster')
+      if (passportAlreadyCommitted) {
+        first.persistPassport(migrationPassport, migrationEvent, generationBefore)
+      }
 
       const beforeDelete = first.getAuthoritativeState()
       const markerBeforeDelete = beforeDelete.persistenceMigration
@@ -1849,6 +1857,7 @@ describe('PassportStore privacy and incremental integrity', () => {
       expect.soft(reopened.getIntegrity()).toMatchObject({ state: 'anchored', verified: true })
 
       const reopenedMarker = reopenedAuthoritative.persistenceMigration
+      const eventCountBeforeResume = reopened.eventHeaders(stintId).length
       expect.soft({
         markerPresent: reopenedMarker !== undefined,
         passportPresent: reopenedMarker?.passport !== undefined,
@@ -1870,7 +1879,7 @@ describe('PassportStore privacy and incremental integrity', () => {
           reopened.advancePersistenceMigration(migrationOperationId, 'passport')
         ).toBeUndefined()
         expect.soft(reopened.getAuthoritativeState().persistenceMigration).toBeUndefined()
-        expect.soft(reopened.eventHeaders(stintId)).toHaveLength(1)
+        expect.soft(reopened.eventHeaders(stintId)).toHaveLength(eventCountBeforeResume + 1)
         expect.soft(reopened.verifyActiveStint(stintId)).toMatchObject({
           state: 'anchored',
           verified: true
