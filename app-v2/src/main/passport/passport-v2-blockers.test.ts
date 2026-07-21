@@ -329,6 +329,59 @@ async function persistentCurrent(test: ReturnType<typeof harness>) {
   return (await test.service.snapshot()).current!
 }
 
+function hardStopPassportRuntime(
+  service: StintPassportService,
+  store: PassportPersistenceEngine
+): void {
+  const internal = service as unknown as {
+    subscription: Phase02TapSubscription
+    retentionTimer: ReturnType<typeof setInterval> | null
+    broadcastTimer: ReturnType<typeof setTimeout> | null
+  }
+  internal.subscription.dispose()
+  if (internal.retentionTimer) clearInterval(internal.retentionTimer)
+  if (internal.broadcastTimer) clearTimeout(internal.broadcastTimer)
+  const serviceIndex = services.indexOf(service)
+  if (serviceIndex >= 0) services.splice(serviceIndex, 1)
+  store.close()
+  const storeIndex = stores.indexOf(store)
+  if (storeIndex >= 0) stores.splice(storeIndex, 1)
+}
+
+function hardRestartPassportRuntime(
+  test: ReturnType<typeof harness>,
+  active: {
+    service: StintPassportService
+    store: PassportPersistenceEngine
+  },
+  now: number,
+  configureClient?: (client: IPassportPersistenceClient) => void
+) {
+  hardStopPassportRuntime(active.service, active.store)
+  const store = new PassportPersistenceEngine({
+    path: join(test.dir, 'passport.db'),
+    now: () => now
+  })
+  stores.push(store)
+  const client = clientFor(store)
+  configureClient?.(client)
+  const tap = new FakeTap()
+  const service = new StintPassportService(
+    { ...test.ctx, phase02Tap: tap } as unknown as ModuleContext,
+    client,
+    () => now
+  )
+  services.push(service)
+  return { store, client, tap, service }
+}
+
+function isPersistenceMigrationPublish(
+  args: Parameters<IPassportPersistenceClient['persistPassport']>
+): boolean {
+  return args[1].canonicalEvent.eventType ===
+    'ultimate.sim.raceops.passport.persistence-migrated.v1'
+}
+
 async function preparedPersistentChallenge(test: ReturnType<typeof harness>) {
   const current = await persistentCurrent(test)
   await test.service.resolveItem({
@@ -1174,6 +1227,136 @@ describe('B2 – Challenge CAS race after verifyActiveStint', () => {
       expect(test.store.getPassport(current.identity.stintId)?.lifecycle).toBe(terminalLifecycle)
       expect((await test.service.snapshot()).current).toBeNull()
     }
+  )
+
+  it.each([
+    { dataClass: 'D1' as const, itemId: 'audio-comms' as const },
+    { dataClass: 'D2' as const, itemId: 'fuel-load' as const }
+  ])(
+    '[blocker-B12-i] $dataClass COMMIT/no-response deletion atomically transitions recovery to the rebased migration',
+    async ({ dataClass, itemId }) => {
+      const test = harness(`B12-${dataClass.toLowerCase()}-delete-response-loss`)
+      await test.service.setConfig(test.config)
+      await test.tap.emit(delivery(telemetry(), 1n))
+      const current = (await test.service.snapshot()).current!
+      await configureRoster(test, current.identity.driverRef)
+      await test.service.resolveItem({
+        stintId: current.identity.stintId,
+        itemId: 'audio-comms',
+        status: 'manual-confirmed',
+        owner: { memberId: 'spotter-1', role: 'spotter' },
+        reasonCode: 'D1_DELETE_RESPONSE_LOSS_FIXTURE'
+      })
+      await test.service.resolveItem({
+        stintId: current.identity.stintId,
+        itemId: 'fuel-load',
+        status: 'manual-confirmed',
+        owner: { memberId: 'engineer-1', role: 'engineer' },
+        reasonCode: 'D2_DELETE_RESPONSE_LOSS_FIXTURE'
+      })
+
+      const persistPassport = test.client.persistPassport.bind(test.client)
+      test.client.persistPassport = vi.fn(async (
+        ...args: Parameters<typeof test.client.persistPassport>
+      ) => {
+        if (isPersistenceMigrationPublish(args)) {
+          throw new Error('Injected incomplete opt-in migration.')
+        }
+        return persistPassport(...args)
+      }) as typeof test.client.persistPassport
+      const desiredPrivacy = {
+        ...DEFAULT_PASSPORT_PRIVACY,
+        identityPersistenceOptIn: true,
+        updatedAt: 20_000
+      }
+      await expect(test.service.setPrivacy(desiredPrivacy))
+        .rejects.toThrow(/migration|persistence|unresolved/i)
+      const migrationBeforeDelete = test.store.getAuthoritativeState().persistenceMigration
+      expect(migrationBeforeDelete).toMatchObject({
+        rosterComplete: true,
+        passportComplete: false
+      })
+      test.client.persistPassport =
+        persistPassport as typeof test.client.persistPassport
+
+      const deleteByClass = test.client.deleteByClass.bind(test.client)
+      const getAuthoritativeState =
+        test.client.getAuthoritativeState.bind(test.client)
+      let deleteCommitted = false
+      let failedFirstRecoveryRead = false
+      let deleteOperationId: string | undefined
+      test.client.deleteByClass = vi.fn(async (
+        ...args: Parameters<typeof test.client.deleteByClass>
+      ) => {
+        deleteOperationId = args[2]
+        await deleteByClass(...args)
+        deleteCommitted = true
+        throw Object.assign(
+          new Error(`Injected ${dataClass} response loss after COMMIT.`),
+          { code: 'EIO' }
+        )
+      }) as typeof test.client.deleteByClass
+      test.client.getAuthoritativeState = vi.fn(async (
+        ...args: Parameters<typeof test.client.getAuthoritativeState>
+      ) => {
+        if (deleteCommitted && !failedFirstRecoveryRead) {
+          failedFirstRecoveryRead = true
+          throw Object.assign(
+            new Error(`Injected ${dataClass} authoritative recovery read failure.`),
+            { code: 'EIO' }
+          )
+        }
+        return getAuthoritativeState(...args)
+      }) as typeof test.client.getAuthoritativeState
+
+      await expect(test.service.deleteByClass(dataClass)).resolves.toMatchObject({
+        dataClass
+      })
+      expect(failedFirstRecoveryRead).toBe(true)
+      const authoritativeAfterDelete = test.store.getAuthoritativeState(deleteOperationId)
+      expect(authoritativeAfterDelete.mutation).toMatchObject({
+        operationId: deleteOperationId,
+        kind: `privacy-delete:${dataClass}`
+      })
+      expect((test.service as unknown as {
+        pendingMutationRecovery?: { kind: string; operationId: string }
+      }).pendingMutationRecovery).toMatchObject({
+        kind: 'persistence-migration',
+        operationId: migrationBeforeDelete?.operationId
+      })
+
+      const exported = await test.service.exportPackage('full-local')
+      const durable = test.store.getPassport(current.identity.stintId)
+      expect(test.store.getAuthoritativeState().persistenceMigration).toBeUndefined()
+      expect(durable?.items.find((item) => item.id === itemId))
+        .toMatchObject({ status: 'unknown', evidence: undefined })
+      expect(exported.passports.find((passport) =>
+        passport.identity.stintId === current.identity.stintId
+      )?.items.find((item) => item.id === itemId))
+        .toMatchObject({ status: 'unknown', evidence: undefined })
+
+      const restarted = hardRestartPassportRuntime(
+        test,
+        { service: test.service, store: test.store },
+        90_000
+      )
+      const restartedSnapshot = await restarted.service.snapshot()
+      const restartedExport = await restarted.service.exportPackage('full-local')
+      const restartedPassport =
+        restartedSnapshot.current?.identity.stintId === current.identity.stintId
+          ? restartedSnapshot.current
+          : restartedSnapshot.history.find((passport) =>
+              passport.identity.stintId === current.identity.stintId
+            )
+      expect(restarted.store.getAuthoritativeState().persistenceMigration).toBeUndefined()
+      expect(restartedPassport?.items.find((item) => item.id === itemId))
+        .toMatchObject({ status: 'unknown', evidence: undefined })
+      expect(restartedExport.passports.find((passport) =>
+        passport.identity.stintId === current.identity.stintId
+      )?.items.find((item) => item.id === itemId))
+        .toMatchObject({ status: 'unknown', evidence: undefined })
+    },
+    20_000
   )
 })
 
@@ -2798,59 +2981,6 @@ describe('B11 – Serialized validated mutation intents', () => {
         expect(restartedExport.passports).toEqual([])
       }
     })
-
-    function hardStopPassportRuntime(
-      service: StintPassportService,
-      store: PassportPersistenceEngine
-    ): void {
-      const internal = service as unknown as {
-        subscription: Phase02TapSubscription
-        retentionTimer: ReturnType<typeof setInterval> | null
-        broadcastTimer: ReturnType<typeof setTimeout> | null
-      }
-      internal.subscription.dispose()
-      if (internal.retentionTimer) clearInterval(internal.retentionTimer)
-      if (internal.broadcastTimer) clearTimeout(internal.broadcastTimer)
-      const serviceIndex = services.indexOf(service)
-      if (serviceIndex >= 0) services.splice(serviceIndex, 1)
-      store.close()
-      const storeIndex = stores.indexOf(store)
-      if (storeIndex >= 0) stores.splice(storeIndex, 1)
-    }
-
-    function hardRestartPassportRuntime(
-      test: ReturnType<typeof harness>,
-      active: {
-        service: StintPassportService
-        store: PassportPersistenceEngine
-      },
-      now: number,
-      configureClient?: (client: IPassportPersistenceClient) => void
-    ) {
-      hardStopPassportRuntime(active.service, active.store)
-      const store = new PassportPersistenceEngine({
-        path: join(test.dir, 'passport.db'),
-        now: () => now
-      })
-      stores.push(store)
-      const client = clientFor(store)
-      configureClient?.(client)
-      const tap = new FakeTap()
-      const service = new StintPassportService(
-        { ...test.ctx, phase02Tap: tap } as unknown as ModuleContext,
-        client,
-        () => now
-      )
-      services.push(service)
-      return { store, client, tap, service }
-    }
-
-    function isPersistenceMigrationPublish(
-      args: Parameters<IPassportPersistenceClient['persistPassport']>
-    ): boolean {
-      return args[1].canonicalEvent.eventType ===
-        'ultimate.sim.raceops.passport.persistence-migrated.v1'
-    }
 
     type Phase4Observation<T> =
       | { status: 'fulfilled'; value: T }

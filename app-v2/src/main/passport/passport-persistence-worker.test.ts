@@ -56,6 +56,7 @@ interface InjectedIoFault {
   tracePath?: string
   descriptorKind?: InjectedIoDescriptorKind
   exitAfterDirectoryFsyncFault?: boolean
+  repeat?: boolean
 }
 
 interface InjectedCleanupFault {
@@ -66,13 +67,23 @@ interface InjectedCleanupFault {
   tracePath: string
 }
 
-type PersistenceProcessFault = InjectedIoFault | InjectedCleanupFault
+interface InjectedNativeMoveFault {
+  kind: 'native-move'
+  mode: 'observe' | 'unavailable'
+  tracePath: string
+}
+
+type PersistenceProcessFault =
+  | InjectedIoFault
+  | InjectedCleanupFault
+  | InjectedNativeMoveFault
 
 const PASSPORT_WORKER_FAULT_ENV = 'ULTIMATE_SIM_PASSPORT_WORKER_FAULT'
 const PASSPORT_WORKER_FAULT_PRELOAD = String.raw`
 const fs = require('node:fs')
 const pathModule = require('node:path')
-const { syncBuiltinESMExports } = require('node:module')
+const Module = require('node:module')
+const { syncBuiltinESMExports } = Module
 
 const raw = process.env.ULTIMATE_SIM_PASSPORT_WORKER_FAULT
 if (raw) {
@@ -94,6 +105,7 @@ if (raw) {
   let ioMatches = 0
   let cleanupArtifact
   let cleanupArtifactComparable
+  let injectedNativeLastError
 
   const comparable = (value) => {
     const resolved = pathModule.resolve(String(value))
@@ -142,7 +154,7 @@ if (raw) {
       occurrence: ioMatches,
       ...details
     })
-    return ioMatches === (config.occurrence || 1)
+    return config.repeat === true || ioMatches === (config.occurrence || 1)
   }
   const writePartial = (args) => {
     const descriptor = args[0]
@@ -161,6 +173,137 @@ if (raw) {
   const exitAt = (point, details = {}) => {
     record({ event: 'fault-exit', point, ...details })
     process.exit(120)
+  }
+  const afterSuccessfulRename = (source, destination) => {
+    if (
+      config.kind === 'cleanup' &&
+      comparable(source) === comparable(config.journalPath)
+    ) {
+      cleanupArtifact = destination
+      cleanupArtifactComparable = comparable(destination)
+      record({ event: 'cleanup-rename', source, artifactPath: destination })
+      if (config.point === 'after-cleanup-rename') {
+        exitAt('after-cleanup-rename', { artifactPath: destination })
+      }
+    }
+    if (
+      config.kind === 'cleanup' &&
+      config.point === 'after-completed-authority-promotion' &&
+      comparable(source) === comparable(config.authorityPath + '.pending') &&
+      comparable(destination) === comparable(config.authorityPath)
+    ) {
+      let promoted
+      try {
+        promoted = JSON.parse(original.readFileSync(destination, 'utf8'))
+      } catch {
+        promoted = undefined
+      }
+      if (promoted && promoted.lastCompleted?.journalCleanupPending === true) {
+        exitAt('after-completed-authority-promotion', { authorityPath: destination })
+      }
+    }
+  }
+  const nativeErrorCode = () => ({
+    ENOSPC: 112,
+    EIO: 1117,
+    EPERM: 5
+  })[config.code] || 1117
+  const originalModuleLoad = Module._load
+  Module._load = function (request, parent, isMain) {
+    if (
+      request === 'koffi' &&
+      config.kind === 'native-move' &&
+      config.mode === 'unavailable'
+    ) {
+      record({ event: 'native-move-unavailable' })
+      const error = new Error('Injected unavailable koffi module.')
+      error.code = 'MODULE_NOT_FOUND'
+      throw error
+    }
+    const loaded = originalModuleLoad.call(this, request, parent, isMain)
+    if (request !== 'koffi' || process.platform !== 'win32') return loaded
+    return new Proxy(loaded, {
+      get(target, property, receiver) {
+        if (property !== 'load') {
+          const value = Reflect.get(target, property, receiver)
+          return typeof value === 'function' ? value.bind(target) : value
+        }
+        return function (libraryName, ...args) {
+          const library = target.load(libraryName, ...args)
+          if (!/kernel32/i.test(String(libraryName))) return library
+          return new Proxy(library, {
+            get(libraryTarget, libraryProperty, libraryReceiver) {
+              if (libraryProperty !== 'func') {
+                const value = Reflect.get(
+                  libraryTarget,
+                  libraryProperty,
+                  libraryReceiver
+                )
+                return typeof value === 'function'
+                  ? value.bind(libraryTarget)
+                  : value
+              }
+              return function (name, ...signature) {
+                const native = libraryTarget.func(name, ...signature)
+                if (name === 'GetLastError') {
+                  return function (...nativeArgs) {
+                    if (injectedNativeLastError !== undefined) {
+                      const value = injectedNativeLastError
+                      injectedNativeLastError = undefined
+                      return value
+                    }
+                    return native(...nativeArgs)
+                  }
+                }
+                if (name !== 'MoveFileExW') return native
+                return function (sourceValue, destinationValue, flagsValue) {
+                  const source = String(sourceValue)
+                  const destination = String(destinationValue)
+                  const flags = Number(flagsValue)
+                  if (
+                    config.kind === 'cleanup' &&
+                    config.point === 'before-cleanup-unlink' &&
+                    cleanupArtifactComparable !== undefined &&
+                    comparable(source) === cleanupArtifactComparable
+                  ) {
+                    exitAt('before-cleanup-unlink', {
+                      artifactPath: cleanupArtifact,
+                      kind: 'write-through-rename'
+                    })
+                  }
+                  if (shouldInjectIo('rename', [source, destination])) {
+                    injectedNativeLastError = nativeErrorCode()
+                    record({
+                      event: 'io-fault',
+                      operation: 'rename',
+                      source,
+                      destination,
+                      target: destination,
+                      code: config.code,
+                      flags,
+                      syscall: 'MoveFileExW',
+                      occurrence: ioMatches
+                    })
+                    return false
+                  }
+                  const result = native(sourceValue, destinationValue, flagsValue)
+                  record({
+                    event: 'rename',
+                    source,
+                    destination,
+                    transport: 'MoveFileExW',
+                    flags,
+                    result
+                  })
+                  if (result) afterSuccessfulRename(source, destination)
+                  return result
+                }
+              }
+            }
+          })
+        }
+      }
+    })
   }
 
   fs.mkdirSync = function (...args) {
@@ -274,34 +417,8 @@ if (raw) {
       throw injectedError('rename', destination)
     }
     const result = original.renameSync(...args)
-    record({ event: 'rename', source, destination })
-    if (
-      config.kind === 'cleanup' &&
-      comparable(source) === comparable(config.journalPath)
-    ) {
-      cleanupArtifact = destination
-      cleanupArtifactComparable = comparable(destination)
-      record({ event: 'cleanup-rename', source, artifactPath: destination })
-      if (config.point === 'after-cleanup-rename') {
-        exitAt('after-cleanup-rename', { artifactPath: destination })
-      }
-    }
-    if (
-      config.kind === 'cleanup' &&
-      config.point === 'after-completed-authority-promotion' &&
-      comparable(source) === comparable(config.authorityPath + '.pending') &&
-      comparable(destination) === comparable(config.authorityPath)
-    ) {
-      let promoted
-      try {
-        promoted = JSON.parse(original.readFileSync(destination, 'utf8'))
-      } catch {
-        promoted = undefined
-      }
-      if (promoted && promoted.lastCompleted?.journalCleanupPending === true) {
-        exitAt('after-completed-authority-promotion', { authorityPath: destination })
-      }
-    }
+    record({ event: 'rename', source, destination, transport: 'renameSync' })
+    afterSuccessfulRename(source, destination)
     return result
   }
 
@@ -357,8 +474,10 @@ class PersistenceProcess {
       env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
       execArgv,
       serialization: 'advanced',
-      stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     })
+    this.child.stdout?.resume()
+    this.child.stderr?.resume()
   }
 
   get pid(): number {
@@ -959,6 +1078,9 @@ interface WorkerFaultTrace {
   descriptor?: number
   descriptorKind?: InjectedIoDescriptorKind
   powerLossExit?: boolean
+  flags?: number
+  transport?: string
+  result?: boolean
 }
 
 interface BootstrapFaultBoundary {
@@ -972,16 +1094,21 @@ const bootstrapFaultBoundaries: readonly BootstrapFaultBoundary[] = [
   {
     label: 'authority-key file create',
     operation: 'open',
-    target: (path) => `${path}.repair-authority.key`
+    target: (path) => `${path}.repair-authority.key.pending`
   },
   {
     label: 'authority-key write',
     operation: 'write',
-    target: (path) => `${path}.repair-authority.key`
+    target: (path) => `${path}.repair-authority.key.pending`
   },
   {
     label: 'authority-key fsync',
     operation: 'fsync',
+    target: (path) => `${path}.repair-authority.key.pending`
+  },
+  {
+    label: 'authority-key rename',
+    operation: 'rename',
     target: (path) => `${path}.repair-authority.key`
   },
   {
@@ -4047,10 +4174,91 @@ async function exerciseCleanupParentFsync(
   await expectParentFsyncPowerLossPair(unlinkObservation, root, path, oracle)
 }
 
-describe('packaged Passport persistence worker parent-directory fsync durability', () => {
+function expectWindowsWriteThroughFault(
+  trace: readonly WorkerFaultTrace[],
+  destination: string,
+  code: InjectedIoCode
+): void {
+  const faults = trace.filter((entry) =>
+    entry.event === 'io-fault' &&
+    entry.operation === 'rename' &&
+    workerPathsEqual(entry.destination, destination)
+  )
+  expect(faults.length).toBeGreaterThan(0)
+  for (const fault of faults) {
+    expect(fault).toMatchObject({
+      code,
+      flags: 0x1 | 0x8,
+      syscall: 'MoveFileExW'
+    })
+  }
+}
+
+async function exerciseWindowsWriteThroughBoundary(
+  boundary: ParentFsyncBoundary,
+  code: InjectedIoCode
+): Promise<void> {
+  const path = tempDatabase(`write-through-${boundary}-${code}`)
+  const operationId = `repair:write-through:${boundary}:${code}`
+  const destination =
+    boundary === 'authority'
+      ? `${path}.repair-authority.json`
+      : boundary === 'high-water'
+        ? join(`${path}.repair-high-water-a`, initialHighWaterMarkerName)
+        : boundary === 'journal'
+          ? `${path}.repair-journal.json`
+          : `${path}.repair-journal.json.cleanup`
+  if (boundary === 'journal' || boundary === 'cleanup') {
+    await seedCorruptD3BoundaryBase(
+      path,
+      `write-through-${boundary}-${code}`,
+      `WRITE-THROUGH-${boundary}-${code}`
+    )
+  }
+  const tracePath = parentFsyncTracePath(
+    `write-through-${boundary}-${code}`
+  )
+  const fault: InjectedIoFault = {
+    kind: 'io',
+    operation: 'rename',
+    path: destination,
+    code,
+    repeat: true,
+    tracePath
+  }
+  const response =
+    boundary === 'journal' || boundary === 'cleanup'
+      ? await runRepairBoundaryOperation(path, operationId, fault)
+      : await runInitializeBoundaryOperation(path, fault)
+  expect(response).toMatchObject({
+    ok: false,
+    error: expect.stringMatching(new RegExp(code, 'i')),
+    code
+  })
+  expectWindowsWriteThroughFault(
+    readWorkerFaultTrace(tracePath),
+    destination,
+    code
+  )
+  expect(existsSync(`${path}.directory-authority.sqlite`)).toBe(false)
+
+  await expect(runInitializeBoundaryOperation(path))
+    .resolves.toMatchObject({ ok: true })
+  if (boundary === 'cleanup') {
+    expect(readRepairReceiptState(path)).toMatchObject({ operationId })
+    expect(existsSync(`${path}.repair-journal.json`)).toBe(false)
+    expect(existsSync(`${path}.repair-journal.json.cleanup`)).toBe(false)
+  }
+}
+
+describe('packaged Passport persistence worker durable publication', () => {
   it.each(parentFsyncFaultMatrix)(
-    '[spec-gap] propagates $code from $boundary parent-directory fsync and survives power loss',
+    '[spec-gap] propagates $code from $boundary durable publication and survives recovery',
     async ({ boundary, code }) => {
+      if (process.platform === 'win32') {
+        await exerciseWindowsWriteThroughBoundary(boundary, code)
+        return
+      }
       if (boundary === 'authority') {
         await exerciseAuthorityParentFsync(code)
       } else if (boundary === 'journal') {
@@ -4063,4 +4271,75 @@ describe('packaged Passport persistence worker parent-directory fsync durability
     },
     90_000
   )
+
+  it('[spec-gap] uses MoveFileExW write-through for every Windows repair publication', async () => {
+    if (process.platform !== 'win32') return
+    const path = tempDatabase('write-through-observe')
+    await seedCorruptD3BoundaryBase(
+      path,
+      'write-through-observe',
+      'WRITE-THROUGH-OBSERVE'
+    )
+    const tracePath = parentFsyncTracePath('write-through-observe')
+    const worker = spawnWorker({
+      kind: 'native-move',
+      mode: 'observe',
+      tracePath
+    })
+    await expect(rpc(worker, 'initialize', [path], 15_000))
+      .resolves.toMatchObject({ ok: true })
+    const integrity = await rpc(worker, 'getIntegrity')
+    const repairToken = (integrity.result as { repairToken?: string }).repairToken ?? ''
+    expect(repairToken).toMatch(/^[a-f0-9]+$/)
+    await expect(rpc(
+      worker,
+      'repairPersistence',
+      [repairToken, 'repair:write-through:observe'],
+      30_000
+    )).resolves.toMatchObject({ ok: true })
+    await worker.terminate()
+
+    const moves = readWorkerFaultTrace(tracePath).filter((entry) =>
+      entry.event === 'rename' && entry.transport === 'MoveFileExW'
+    )
+    expect(moves.length).toBeGreaterThan(0)
+    expect(moves.every((entry) => entry.flags === (0x1 | 0x8))).toBe(true)
+    const destinations = moves.map((entry) =>
+      comparableWorkerPath(entry.destination ?? '')
+    )
+    for (const required of [
+      `${path}.repair-authority.json`,
+      `${path}.repair-journal.json`,
+      `${path}.repair-receipt.json`,
+      `${path}.repair-journal.json.cleanup`
+    ]) {
+      expect(destinations).toContain(comparableWorkerPath(required))
+    }
+    expect(destinations.some((destination) =>
+      destination.startsWith(
+        `${comparableWorkerPath(`${path}.repair-high-water-a`)}/`
+      )
+    )).toBe(true)
+    expect(existsSync(`${path}.directory-authority.sqlite`)).toBe(false)
+  }, 60_000)
+
+  it('[spec-gap] fails closed when the Windows write-through primitive is unavailable', async () => {
+    if (process.platform !== 'win32') return
+    const path = tempDatabase('write-through-unavailable')
+    const tracePath = parentFsyncTracePath('write-through-unavailable')
+    await expect(runInitializeBoundaryOperation(path, {
+      kind: 'native-move',
+      mode: 'unavailable',
+      tracePath
+    })).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/write-through rename is unavailable/i),
+      code: 'PERSISTENCE_HEALTH_ERROR'
+    })
+    expect(readWorkerFaultTrace(tracePath))
+      .toContainEqual(expect.objectContaining({ event: 'native-move-unavailable' }))
+    expect(existsSync(`${path}.directory-authority.sqlite`)).toBe(false)
+    await expect(runInitializeBoundaryOperation(path))
+      .resolves.toMatchObject({ ok: true })
+  }, 30_000)
 })

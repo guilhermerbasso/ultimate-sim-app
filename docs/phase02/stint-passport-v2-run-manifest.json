@@ -3,7 +3,7 @@
   "kind": "acceptance-plan",
   "status": "pending-ci-attestation",
   "acceptanceContract": "docs/phase02/stint-passport-v2-acceptance-contract.json",
-  "acceptanceContractSha256": "f1bf81b700a4d02adf1ee0b646d616f996e394c917d5fbecf84be75d46786d30",
+  "acceptanceContractSha256": "d4988c5ab622d4d82b1cb5b651339f1ad7e00344512e286cea2d52f83c2d2c9a",
   "branch": "feat/phase2-stint-passport-v2",
   "baseCommit": "48956c6261f1b19b5f72c99287ad8b7f4a3a6f05",
   "sourceBinding": {
@@ -34,7 +34,7 @@
         "src/main/passport/passport-v2-blockers.test.ts",
         "src/main/passport/acceptance-evidence.test.ts"
       ],
-      "tests": 423,
+      "tests": 430,
       "files": 15
     },
     "typecheck": {

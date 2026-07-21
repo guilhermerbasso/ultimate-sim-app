@@ -31,13 +31,15 @@ const sidecars = [
   '.repair-authority.json',
   '.repair-authority.json.pending',
   '.repair-authority.key',
+  '.repair-authority.key.pending',
   '.repair-journal.json',
   '.repair-journal.json.pending',
   '.repair-journal.json.cleanup',
   '.repair-receipt.json',
   '.repair-receipt.json.pending',
   '.repair-high-water-a',
-  '.repair-high-water-b'
+  '.repair-high-water-b',
+  '.directory-authority.sqlite'
 ]
 const cleanup = () => {
   for (const suffix of sidecars) {
@@ -52,8 +54,10 @@ function startProcess() {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     execArgv: [],
     serialization: 'advanced',
-    stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
   })
+  child.stdout?.resume()
+  child.stderr?.resume()
   const pending = new Map()
   child.on('message', (response) => {
     const entry = pending.get(response.id)
@@ -131,6 +135,9 @@ try {
   const drained = await processHandle.request('getConfig')
   if (drained.communicationChannel !== 'drain-proof') {
     throw new Error('Shutdown did not drain the accepted persistence mutation.')
+  }
+  if (existsSync(`${smokeDb}.directory-authority.sqlite`)) {
+    throw new Error('Passport worker created the forbidden SQLite directory durability fallback.')
   }
   proofs.push('drain')
   await processHandle.request('shutdown')

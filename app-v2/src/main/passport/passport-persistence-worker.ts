@@ -18,6 +18,7 @@ import {
   rmSync,
   writeSync
 } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
@@ -177,7 +178,23 @@ let chain: Promise<void> = Promise.resolve()
 let crashBoundary: CrashBoundary | null = null
 let repairAuthority: RepairAuthority | null = null
 let repairAuthorityKey: Buffer | null = null
-let directoryDurabilityAuthorityPath: string | null = null
+
+const nativeRequire = createRequire(import.meta.url)
+const MOVEFILE_REPLACE_EXISTING = 0x1
+const MOVEFILE_WRITE_THROUGH = 0x8
+
+interface WindowsMoveApi {
+  readonly module: unknown
+  readonly library: unknown
+  moveFileEx(
+    source: string,
+    destination: string,
+    flags: number
+  ): boolean
+  getLastError(): number
+}
+
+let windowsMoveApi: WindowsMoveApi | undefined
 
 const CRASH_CHECKPOINTS: readonly CrashBoundary['checkpoint'][] = [
   'before-dispatch',
@@ -205,6 +222,74 @@ function isCrashCheckpoint(value: unknown): value is CrashBoundary['checkpoint']
     CRASH_CHECKPOINTS.includes(value as CrashBoundary['checkpoint'])
 }
 
+function requireWindowsMoveApi(): WindowsMoveApi {
+  if (windowsMoveApi) return windowsMoveApi
+  try {
+    const koffi = nativeRequire('koffi')
+    const kernel32 = koffi.load('kernel32.dll')
+    windowsMoveApi = {
+      module: koffi,
+      library: kernel32,
+      moveFileEx: kernel32.func(
+        'MoveFileExW',
+        'bool',
+        ['str16', 'str16', 'uint32']
+      ),
+      getLastError: kernel32.func('GetLastError', 'uint32', [])
+    }
+    return windowsMoveApi
+  } catch (cause) {
+    throw Object.assign(
+      new Error('Passport Windows write-through rename is unavailable.'),
+      { code: 'ENOTSUP', cause }
+    )
+  }
+}
+
+function windowsMoveErrorCode(error: number): string {
+  if (error === 5) return 'EPERM'
+  if (error === 32 || error === 33) return 'EBUSY'
+  if (error === 39 || error === 112) return 'ENOSPC'
+  return 'EIO'
+}
+
+function moveFileWriteThrough(source: string, destination: string): void {
+  const api = requireWindowsMoveApi()
+  if (
+    api.moveFileEx(
+      resolve(source),
+      resolve(destination),
+      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+    )
+  ) {
+    return
+  }
+  const nativeError = api.getLastError()
+  const code = windowsMoveErrorCode(nativeError)
+  throw Object.assign(
+    new Error(
+      `${code}: Passport Windows write-through rename failed (Win32 ${nativeError}).`
+    ),
+    {
+      code,
+      errno: nativeError,
+      syscall: 'MoveFileExW'
+    }
+  )
+}
+
+function removeErasedDurably(path: string): void {
+  if (process.platform !== 'win32') {
+    rmSync(path, { force: true })
+    fsyncParent(path)
+    return
+  }
+  const erased = `${path}.erased`
+  rmSync(erased, { force: true })
+  promoteDurable(path, erased)
+  rmSync(erased, { force: true })
+}
+
 function secureErase(path: string): void {
   if (!existsSync(path)) return
   const descriptor = openSync(path, 'r+')
@@ -218,8 +303,7 @@ function secureErase(path: string): void {
   } finally {
     closeSync(descriptor)
   }
-  rmSync(path, { force: true })
-  fsyncParent(path)
+  removeErasedDurably(path)
 }
 
 function secureEraseDatabase(path: string): void {
@@ -246,8 +330,7 @@ function secureEraseDatabase(path: string): void {
     closeSync(descriptor)
   }
   repairCheckpoint('before-repair-database-unlink', 101)
-  rmSync(path, { force: true })
-  fsyncParent(path)
+  removeErasedDurably(path)
   repairCheckpoint('after-repair-database-unlink', 102)
 }
 
@@ -280,47 +363,11 @@ function repairHighWaterDirectory(databasePath: string, copy: 'a' | 'b'): string
   return `${databasePath}.repair-high-water-${copy}`
 }
 
-function windowsDirectoryDurabilityBarrier(): void {
-  if (!directoryDurabilityAuthorityPath) {
-    throw new Error('Passport directory durability authority is unavailable.')
-  }
-  const authority = new DatabaseSync(directoryDurabilityAuthorityPath)
-  try {
-    authority.exec(`
-      PRAGMA journal_mode = DELETE;
-      PRAGMA synchronous = FULL;
-      CREATE TABLE IF NOT EXISTS directory_publication_authority (
-        singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-        revision INTEGER NOT NULL
-      );
-      INSERT OR IGNORE INTO directory_publication_authority(singleton, revision)
-      VALUES (1, 0);
-      BEGIN IMMEDIATE;
-      UPDATE directory_publication_authority
-      SET revision = revision + 1
-      WHERE singleton = 1;
-      COMMIT;
-    `)
-  } finally {
-    authority.close()
-  }
-}
-
 function fsyncParent(path: string): void {
   let descriptor: number | undefined
   try {
     descriptor = openSync(dirname(path), 'r')
     fsyncSync(descriptor)
-  } catch (error) {
-    const failure = error as NodeJS.ErrnoException
-    const unsupportedWindowsDirectoryFsync =
-      process.platform === 'win32' &&
-      failure.code === 'EPERM' &&
-      failure.syscall === 'fsync' &&
-      failure.path === undefined &&
-      failure.message === 'EPERM: operation not permitted, fsync'
-    if (!unsupportedWindowsDirectoryFsync) throw error
-    windowsDirectoryDurabilityBarrier()
   } finally {
     if (descriptor !== undefined) closeSync(descriptor)
   }
@@ -346,14 +393,18 @@ function promoteDurable(source: string, destination: string): void {
   for (const delay of delays) {
     if (delay > 0) waitSynchronously(delay)
     try {
-      renameSync(source, destination)
+      if (process.platform === 'win32') {
+        moveFileWriteThrough(source, destination)
+      } else {
+        renameSync(source, destination)
+      }
     } catch (error) {
       lastError = error
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') throw error
       continue
     }
-    fsyncParent(destination)
+    if (process.platform !== 'win32') fsyncParent(destination)
     return
   }
   throw lastError
@@ -1029,8 +1080,7 @@ function resumeInitialRepairSecurityBootstrap(
       key = readRepairAuthorityKey(databasePath)
     } catch (error) {
       if (stateExists || highWaterExists) throw error
-      rmSync(keyPath, { force: true })
-      fsyncParent(keyPath)
+      secureErase(keyPath)
     }
   } else if (stateExists || highWaterExists) {
     throw new Error(
@@ -1135,15 +1185,23 @@ function readRepairAuthorityKey(databasePath: string): Buffer {
 
 function createRepairAuthorityKey(databasePath: string): Buffer {
   const path = repairAuthorityKeyPath(databasePath)
+  const pending = `${path}.pending`
   const key = randomBytes(32)
-  const descriptor = openSync(path, 'wx', 0o600)
+  if (existsSync(path)) {
+    throw Object.assign(
+      new Error('Passport repair authority key already exists.'),
+      { code: 'EEXIST' }
+    )
+  }
+  rmSync(pending, { force: true })
+  const descriptor = openSync(pending, 'wx', 0o600)
   try {
     writeSync(descriptor, `${key.toString('hex')}\n`, undefined, 'utf8')
     fsyncSync(descriptor)
   } finally {
     closeSync(descriptor)
   }
-  fsyncParent(path)
+  promoteDurable(pending, path)
   return key
 }
 
@@ -2219,7 +2277,7 @@ function seedRepairDatabaseIdentity(
   } finally {
     closeSync(descriptor)
   }
-  fsyncParent(path)
+  if (process.platform !== 'win32') fsyncParent(path)
   repairCheckpoint('after-repair-database-identity-create', 108)
   const seeded = probeDatabase(path)
   if (
@@ -2516,7 +2574,6 @@ async function execute(request: Request): Promise<unknown> {
     repairAuthority = null
     repairAuthorityKey = null
     const path = String(request.args[0])
-    directoryDurabilityAuthorityPath = `${resolve(path)}.directory-authority.sqlite`
     try {
       const hasJournal =
         existsSync(repairJournalPath(path)) ||

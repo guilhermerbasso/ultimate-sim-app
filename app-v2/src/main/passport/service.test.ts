@@ -1400,6 +1400,88 @@ describe('StintPassportService lifecycle and privacy', () => {
       })
     }, 15_000)
 
+    it('[spec-gap] finalizes a recovered close exactly once before restart and new telemetry', async () => {
+      const test = harness('close-commit-no-response')
+      const before = await persistentCurrent(test)
+      const persist = test.client.persistPassport.bind(test.client)
+      const responseLoss = Object.assign(
+        new Error('response lost after close COMMIT'),
+        { code: 'EIO' }
+      )
+      const persistPassport = vi.fn(async (...args: Parameters<typeof persist>) => {
+        const result = await persist(...args)
+        if (
+          args[1].canonicalEvent.eventType ===
+          'ultimate.sim.raceops.passport.stint-closed.v1'
+        ) {
+          throw responseLoss
+        }
+        return result
+      })
+      test.client.persistPassport = persistPassport
+
+      await expect(test.service.closeCurrent('manual')).rejects.toBe(responseLoss)
+      expect((test.service as unknown as {
+        pendingMutationRecovery?: { kind: string }
+      }).pendingMutationRecovery).toMatchObject({ kind: 'passport-persist' })
+
+      const recovered = await test.service.snapshot()
+      const recoveredAgain = await test.service.snapshot()
+      const closeHeaders = test.store.eventHeaders(before.identity.stintId).filter((header) =>
+        header.dedupeKey === persistPassport.mock.calls.find((call) =>
+          call[1].canonicalEvent.eventType ===
+          'ultimate.sim.raceops.passport.stint-closed.v1'
+        )?.[1].canonicalEvent.dedupeKey
+      )
+      expect(recovered.current).toBeNull()
+      expect(recovered.history.filter((passport) =>
+        passport.identity.stintId === before.identity.stintId
+      )).toEqual([
+        expect.objectContaining({
+          lifecycle: 'closed',
+          closeReason: 'manual',
+          interrupted: false,
+          persisted: true,
+          durability: 'durable'
+        })
+      ])
+      expect(recoveredAgain.history.filter((passport) =>
+        passport.identity.stintId === before.identity.stintId
+      )).toHaveLength(1)
+      expect(closeHeaders).toHaveLength(1)
+
+      await test.service.dispose()
+      const restartedStore = new PassportPersistenceEngine({
+        path: join(test.dir, 'passport.db'),
+        now: () => 40_000
+      })
+      stores.push(restartedStore)
+      const restartedTap = new FakeTap()
+      const restartedService = new StintPassportService(
+        { ...test.ctx, phase02Tap: restartedTap } as ModuleContext,
+        clientFor(restartedStore),
+        () => 40_000
+      )
+      services.push(restartedService)
+
+      const restarted = await restartedService.snapshot()
+      expect(restarted.current).toBeNull()
+      expect(restarted.history.filter((passport) =>
+        passport.identity.stintId === before.identity.stintId
+      )).toHaveLength(1)
+
+      await restartedTap.emit(delivery(telemetry('Driver A', 10, 2), 2n))
+      const afterTelemetry = await restartedService.snapshot()
+      expect(afterTelemetry.current).toMatchObject({
+        lifecycle: 'awaiting-checklist',
+        persisted: true
+      })
+      expect(afterTelemetry.current?.identity.stintId).not.toBe(before.identity.stintId)
+      expect(afterTelemetry.history.filter((passport) =>
+        passport.identity.stintId === before.identity.stintId
+      )).toHaveLength(1)
+    }, 20_000)
+
     it.each([
       { startupRead: 'getConfig' as const },
       { startupRead: 'getAuthoritativeState' as const },

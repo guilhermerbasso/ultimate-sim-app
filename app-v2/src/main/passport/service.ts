@@ -1390,11 +1390,26 @@ export class StintPassportService {
       { reason, interrupted, coverage: closed.coverage },
       'D3'
     ), previous)
-    const finalized = this.current ?? closed
-    this.ephemeralHistory.unshift(finalized)
+    return this.finalizeClosedPassport(this.current ?? closed)
+  }
+
+  private finalizeClosedPassport(passport: StintPassport): StintPassport {
+    if (passport.lifecycle !== 'closed' && passport.lifecycle !== 'interrupted') {
+      throw new Error('Passport close finalization requires a closed durable Passport.')
+    }
+    const existing = this.ephemeralHistory.findIndex((entry) =>
+      entry.identity.stintId === passport.identity.stintId
+    )
+    if (existing >= 0) this.ephemeralHistory.splice(existing, 1)
+    this.ephemeralHistory.unshift(passport)
     this.ephemeralHistory.splice(HISTORY_LIMIT)
-    this.current = null
-    return finalized
+    if (this.current?.identity.stintId === passport.identity.stintId) {
+      this.current = null
+    }
+    this.challenge = undefined
+    this.challengeNonceHash = undefined
+    this.challengeClaim = undefined
+    return passport
   }
 
   private async persistCurrent(
@@ -1522,17 +1537,30 @@ export class StintPassportService {
         return undefined
       }
       this.reconcileAuthoritativeState(state, { reconcilePassports: true })
-      if (this.current?.identity.stintId === durable.identity.stintId) {
-        this.current = { ...durable, durability: 'durable' }
-      }
-      const historyIndex = this.ephemeralHistory.findIndex((passport) =>
-        passport.identity.stintId === durable.identity.stintId
-      )
-      if (historyIndex >= 0) {
-        this.ephemeralHistory[historyIndex] = {
-          ...durable,
-          durability: 'durable'
+      const committed = { ...durable, durability: 'durable' as const }
+      if (
+        attempted.event.canonicalEvent.eventType ===
+        'ultimate.sim.raceops.passport.stint-closed.v1'
+      ) {
+        const expected = {
+          ...attempted.passport,
+          persisted: true,
+          durability: 'durable' as const
         }
+        if (durablePassportStateKey(committed) !== durablePassportStateKey(expected)) {
+          throw passportDomainError(
+            'Recovered Passport close receipt does not match the durable closed state.'
+          )
+        }
+        this.finalizeClosedPassport(committed)
+      } else {
+        if (this.current?.identity.stintId === durable.identity.stintId) {
+          this.current = committed
+        }
+        const historyIndex = this.ephemeralHistory.findIndex((passport) =>
+          passport.identity.stintId === durable.identity.stintId
+        )
+        if (historyIndex >= 0) this.ephemeralHistory[historyIndex] = committed
       }
       this.ambiguousMutations.delete(operationKey)
       this.lastError = undefined
@@ -2335,6 +2363,41 @@ export class StintPassportService {
     }
   }
 
+  private transitionPendingRecovery(
+    expected: Pick<PendingMutationRecovery, 'operationId' | 'kind'>,
+    intent: ServiceMutationIntent,
+    desiredStateKey: string,
+    recover: () => Promise<void>,
+    desiredIdentityPersistenceOptIn?: boolean,
+    snapshotSafe = false
+  ): void {
+    const existing = this.pendingMutationRecovery
+    const alreadyTransitioned =
+      existing?.operationId === intent.operationId &&
+      existing.kind === intent.kind
+    if (
+      existing &&
+      !alreadyTransitioned &&
+      (
+        existing.operationId !== expected.operationId ||
+        existing.kind !== expected.kind
+      )
+    ) {
+      throw new Error(
+        `Passport mutation ${existing.operationId} must be reconciled before ${intent.operationId}.`
+      )
+    }
+    this.pendingMutationRecovery = {
+      operationId: intent.operationId,
+      kind: intent.kind,
+      classes: [...intent.deletingClasses],
+      desiredStateKey,
+      desiredIdentityPersistenceOptIn,
+      snapshotSafe,
+      recover
+    }
+  }
+
   private async recoverPendingMutation(): Promise<void> {
     if (this.pendingRecoveryPromise) return this.pendingRecoveryPromise
     const recovery = this.performPendingMutationRecovery()
@@ -2540,7 +2603,8 @@ export class StintPassportService {
   }
 
   private installPersistenceMigrationRecovery(
-    migration: PassportPersistenceMigrationState
+    migration: PassportPersistenceMigrationState,
+    replacing?: Pick<PendingMutationRecovery, 'operationId' | 'kind'>
   ): void {
     const intent = this.createMutationIntent(
       'persistence-migration',
@@ -2572,13 +2636,19 @@ export class StintPassportService {
         reconcilePassports: true
       })
     }
-    this.installPendingRecovery(
-      intent,
-      `persistence-migration:${migration.operationId}`,
-      resume,
-      true,
-      true
-    )
+    const desiredStateKey = `persistence-migration:${migration.operationId}`
+    if (replacing) {
+      this.transitionPendingRecovery(
+        replacing,
+        intent,
+        desiredStateKey,
+        resume,
+        true,
+        true
+      )
+    } else {
+      this.installPendingRecovery(intent, desiredStateKey, resume, true, true)
+    }
   }
 
   private assertPersistenceMigrationFence(
@@ -2962,7 +3032,10 @@ export class StintPassportService {
           deletedClasses: [dataClass]
         })
         if (state?.persistenceMigration) {
-          this.installPersistenceMigrationRecovery(state.persistenceMigration)
+          this.installPersistenceMigrationRecovery(state.persistenceMigration, {
+            operationId: intent.operationId,
+            kind: intent.kind
+          })
         }
       }
       this.lastError = undefined

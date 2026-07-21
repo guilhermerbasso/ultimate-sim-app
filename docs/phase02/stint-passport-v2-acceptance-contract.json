@@ -59,8 +59,10 @@
     "D1 and D2 deletion during incomplete opt-in atomically rebases the durable migration marker to the new privacy generation, erases only the selected class from its Passport and canonical event payload, and preserves resumable sanitized work for every remaining class",
     "Every ordinary Passport mutation uses its canonical event dedupe key as a stable authenticated operation receipt; ambiguous commits retain an export and mutation barrier until bounded authoritative event and Passport reconciliation proves committed durable state or explicit non-success",
     "Persistence clients dispatch only initialize until initialization succeeds; every initialization failure consumes the bounded restart budget, settles queued callers, opens the circuit on exhaustion and cannot surface an unhandled service readiness rejection",
-    "Passport repair artifact publication propagates genuine directory durability failures and uses a synchronous-FULL SQLite publication authority when Windows rejects native directory fsync, so authority, journal, high-water and cleanup transitions never report false durable success",
-    "The controlled privacy form tracks authoritative baselines and dirty fields independently, rebases destructive opt-out immediately, preserves non-conflicting retention edits and blocks overlapping stale edits from silently re-enabling D3 persistence"
+    "Passport repair artifact publication uses MoveFileExW with MOVEFILE_REPLACE_EXISTING and MOVEFILE_WRITE_THROUGH on Windows, propagates native failures without an unrelated SQLite flush fallback, and durably renames securely erased files out of authoritative paths before best-effort removal",
+    "The controlled privacy form tracks authoritative baselines and dirty fields independently, rebases destructive opt-out immediately, preserves non-conflicting retention edits and blocks overlapping stale edits from silently re-enabling D3 persistence",
+    "An authoritative D1 or D2 deletion receipt atomically replaces the exact pending deletion recovery with its rebased sanitized migration recovery without exposing an unblocked interval, so export, retry and restart converge instead of deadlocking on operation identity",
+    "A recovered canonical close receipt idempotently moves the exact durable closed Passport into bounded history once, clears current challenge and readiness state, survives restart without duplication and permits subsequent telemetry to start a new stint"
   ],
   "experimentMetrics": {
     "handoffDefectRate": "handoffDefects / completedChallenges",
