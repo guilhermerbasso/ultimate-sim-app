@@ -18,7 +18,10 @@ import {
   type RacecraftSafetyReason
 } from '../../shared/coach-racecraft'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
-import { captureLiveTelemetryContext } from '../../shared/replay'
+import {
+  captureLiveTelemetryContext,
+  LiveTelemetryGate
+} from '../../shared/replay'
 import {
   DEFAULT_ENGINEER_CONFIG,
   DEFAULT_PRESET_QUESTIONS,
@@ -37,6 +40,7 @@ import {
   adaptEngineerTools,
   createEngineerOrchestrator,
   engineerSafetyAllowsIntent,
+  type EngineerLiveTelemetryFrame,
   type EngineerOrchestratorDeps,
   generationParams
 } from './ai-engineer'
@@ -197,6 +201,7 @@ function anchoredPressureSnapshot(
           connectionEpoch: 1
         }
       }
+
     case 'disconnected':
       return { ...base, connected: false }
     case 'blue':
@@ -220,6 +225,18 @@ function anchoredPressureSnapshot(
     case 'green':
     default:
       return base
+  }
+}
+
+function acceptedTelemetryFrame(
+  gate: LiveTelemetryGate,
+  snapshot: TelemetrySnapshot | null,
+  revision: number
+): EngineerLiveTelemetryFrame {
+  return {
+    snapshot,
+    context: gate.observe(snapshot).context,
+    revision
   }
 }
 
@@ -303,6 +320,7 @@ function makeHarness(overrides?: {
   snapshot?: TelemetrySnapshot | null
   racecraftContext?: RacecraftAdviceContext | null
   getLiveContext?: EngineerOrchestratorDeps['getLiveContext']
+  getLiveTelemetryFrame?: EngineerOrchestratorDeps['getLiveTelemetryFrame']
   racecraftLanguage?: CoachAdviceLanguage
 }): Harness {
   const config: EngineerConfig = { ...DEFAULT_ENGINEER_CONFIG, ...overrides?.config }
@@ -333,6 +351,7 @@ function makeHarness(overrides?: {
     saveConfig,
     now: () => 1000,
     getLiveContext: overrides?.getLiveContext,
+    getLiveTelemetryFrame: overrides?.getLiveTelemetryFrame,
     getRacecraftLanguage: overrides?.racecraftLanguage
       ? () => overrides.racecraftLanguage as CoachAdviceLanguage
       : undefined
@@ -603,14 +622,22 @@ describe('createEngineerOrchestrator.ask', () => {
           ['missing', undefined, unavailable]
         ] as const) {
           const snapshot = anchoredPressureSnapshot(safetyLabel, tyres)
-          const liveContext = captureLiveTelemetryContext(snapshot)
-          const getLiveContext = vi.fn(() => liveContext)
+          const frame = acceptedTelemetryFrame(
+            new LiveTelemetryGate(),
+            snapshot,
+            0
+          )
+          const getLiveTelemetryFrame = vi.fn(() => frame)
+          const getLiveContext = vi.fn(() => {
+            throw new Error('Anchored readings must use the accepted frame')
+          })
           const harness = makeHarness({
             config: {
               language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
             },
             racecraftLanguage: language,
             getLiveContext,
+            getLiveTelemetryFrame,
             snapshot
           })
 
@@ -638,7 +665,8 @@ describe('createEngineerOrchestrator.ask', () => {
             expect(answer.text, label).not.toContain('180 kPa')
             expect(answer.speak, label).toBe(false)
           }
-          expect(getLiveContext, label).toHaveBeenCalledTimes(2)
+          expect(getLiveTelemetryFrame, label).toHaveBeenCalledTimes(2)
+          expect(getLiveContext, label).not.toHaveBeenCalled()
           expect(harness.runtime.generateWithTools, label).not.toHaveBeenCalled()
           expect(harness.modelManager.ensureModel, label).not.toHaveBeenCalled()
         }
@@ -646,21 +674,21 @@ describe('createEngineerOrchestrator.ask', () => {
     }
   )
 
-  it('does not expose a live pressure snapshot when the live-context provider has no valid context', async () => {
+  it('does not expose a pressure snapshot without an authoritative accepted frame', async () => {
     const snapshot = anchoredPressureSnapshot('green', {
       lf: { pressureKpa: 180 },
       rf: { pressureKpa: 181 },
       lr: { pressureKpa: 178 },
       rr: { pressureKpa: 179 }
     })
-    const getLiveContext = vi.fn(() => null)
+    const getLiveContext = vi.fn(() => captureLiveTelemetryContext(snapshot))
     const harness = makeHarness({ snapshot, getLiveContext })
 
     const answer = await createEngineerOrchestrator(harness.deps).ask(
       'What is tyre pressure?'
     )
 
-    expect(getLiveContext).toHaveBeenCalledOnce()
+    expect(getLiveContext).not.toHaveBeenCalled()
     expect(answer).toMatchObject({
       kind: 'disabled',
       source: 'system',
@@ -672,31 +700,299 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
   })
 
-  it('rejects an anchored pressure reading when the live session context changes before publication', async () => {
-    const snapshot = anchoredPressureSnapshot('green', {
-      lf: { pressureKpa: 180 },
-      rf: { pressureKpa: 181 },
-      lr: { pressureKpa: 178 },
-      rr: { pressureKpa: 179 }
-    })
-    const captured = captureLiveTelemetryContext(snapshot)
-    if (!captured) throw new Error('Expected live telemetry context')
-    const changed = {
-      ...captured,
-      revision: captured.revision + 1,
-      token: `${captured.token}:next-session`,
-      sessionIdentity: `${captured.sessionIdentity}:next`
+  it.each(['lmu', 'acc', 'ac', 'ams2', 'mock'] as const)(
+    'answers after a gate-synthesized reconnect for %s without replay metadata',
+    async (sim) => {
+      const initial = {
+        ...anchoredPressureSnapshot('green', {
+          lf: { pressureKpa: 170 },
+          rf: { pressureKpa: 171 },
+          lr: { pressureKpa: 168 },
+          rr: { pressureKpa: 169 }
+        }),
+        sim,
+        replayContext: undefined,
+        connectionEpoch: undefined
+      } as TelemetrySnapshot
+      const gate = new LiveTelemetryGate()
+      const firstFrame = acceptedTelemetryFrame(gate, initial, 0)
+      const disconnectedFrame = acceptedTelemetryFrame(
+        gate,
+        { ...initial, connected: false },
+        1
+      )
+      const reconnected = {
+        ...initial,
+        connected: true,
+        timestamp: 2000,
+        tyres: {
+          lf: { pressureKpa: 180 },
+          rf: { pressureKpa: 181 },
+          lr: { pressureKpa: 178 },
+          rr: { pressureKpa: 179 }
+        }
+      } as TelemetrySnapshot
+      const reconnectedFrame = acceptedTelemetryFrame(
+        gate,
+        reconnected,
+        2
+      )
+      expect(firstFrame.context?.connectionEpoch).toBe(0)
+      expect(disconnectedFrame.context).toBeNull()
+      expect(reconnectedFrame.context?.connectionEpoch).toBe(1)
+
+      const getLiveTelemetryFrame = vi.fn(() => reconnectedFrame)
+      const harness = makeHarness({
+        snapshot: reconnected,
+        getLiveTelemetryFrame
+      })
+      const answer = await createEngineerOrchestrator(harness.deps).ask(
+        'What is tyre pressure?'
+      )
+
+      expect(answer).toMatchObject({
+        kind: 'answer',
+        source: 'intent'
+      })
+      expect(answer.text).toContain('180 kPa')
+      expect(getLiveTelemetryFrame).toHaveBeenCalledTimes(2)
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     }
-    const getLiveContext = vi.fn()
-      .mockReturnValueOnce(captured)
-      .mockReturnValue(changed)
-    const harness = makeHarness({ snapshot, getLiveContext })
+  )
+
+  it('keeps LMU tyre readings live through repeated synthesized reconnect epochs', async () => {
+    const base = {
+      ...anchoredPressureSnapshot('green'),
+      sim: 'lmu',
+      replayContext: undefined,
+      connectionEpoch: undefined
+    } as TelemetrySnapshot
+    const gate = new LiveTelemetryGate()
+    let revision = 0
+    let currentFrame = acceptedTelemetryFrame(gate, base, revision)
+    const getLiveTelemetryFrame = vi.fn(() => currentFrame)
+    const harness = makeHarness({
+      snapshot: base,
+      getLiveTelemetryFrame
+    })
+    const orchestrator = createEngineerOrchestrator(harness.deps)
+    const tokens: string[] = []
+
+    for (let cycle = 1; cycle <= 3; cycle += 1) {
+      revision += 1
+      currentFrame = acceptedTelemetryFrame(
+        gate,
+        { ...base, connected: false, timestamp: cycle * 2000 },
+        revision
+      )
+      revision += 1
+      currentFrame = acceptedTelemetryFrame(
+        gate,
+        {
+          ...base,
+          connected: true,
+          timestamp: cycle * 2000 + 1000,
+          tyres: {
+            lf: { pressureKpa: 180 + cycle },
+            rf: { pressureKpa: 181 + cycle },
+            lr: { pressureKpa: 178 + cycle },
+            rr: { pressureKpa: 179 + cycle }
+          }
+        },
+        revision
+      )
+      expect(currentFrame.context?.connectionEpoch).toBe(cycle)
+      tokens.push(currentFrame.context?.token ?? '')
+
+      const answer = await orchestrator.ask('What are tyre pressures?')
+      expect(answer.text).toContain(`${180 + cycle} kPa`)
+      expect(answer.source).toBe('intent')
+    }
+
+    expect(new Set(tokens).size).toBe(3)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+  })
+
+  it('rejects a pre-disconnect pressure result when the accepted frame disconnects mid-request', async () => {
+    const initial = {
+      ...anchoredPressureSnapshot('green', {
+        lf: { pressureKpa: 180 },
+        rf: { pressureKpa: 181 },
+        lr: { pressureKpa: 178 },
+        rr: { pressureKpa: 179 }
+      }),
+      sim: 'lmu',
+      replayContext: undefined,
+      connectionEpoch: undefined
+    } as TelemetrySnapshot
+    const gate = new LiveTelemetryGate()
+    const initialFrame = acceptedTelemetryFrame(gate, initial, 0)
+    const disconnectedFrame = acceptedTelemetryFrame(
+      gate,
+      { ...initial, connected: false },
+      1
+    )
+    const getLiveTelemetryFrame = vi.fn()
+      .mockReturnValueOnce(initialFrame)
+      .mockReturnValue(disconnectedFrame)
+    const harness = makeHarness({
+      snapshot: initial,
+      getLiveTelemetryFrame
+    })
 
     const answer = await createEngineerOrchestrator(harness.deps).ask(
       'What is tyre pressure?'
     )
 
-    expect(getLiveContext).toHaveBeenCalledTimes(2)
+    expect(answer).toMatchObject({
+      kind: 'disabled',
+      source: 'system',
+      speak: false,
+      text: 'Live telemetry is unavailable.'
+    })
+    expect(answer.text).not.toContain('180 kPa')
+    expect(harness.broadcast).not.toHaveBeenCalledWith(
+      ENGINEER_CHANNELS.answer,
+      expect.anything()
+    )
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it('rejects a pre-reconnect pressure result after LMU enters a new synthesized epoch', async () => {
+    const initial = {
+      ...anchoredPressureSnapshot('green', {
+        lf: { pressureKpa: 180 },
+        rf: { pressureKpa: 181 },
+        lr: { pressureKpa: 178 },
+        rr: { pressureKpa: 179 }
+      }),
+      sim: 'lmu',
+      replayContext: undefined,
+      connectionEpoch: undefined
+    } as TelemetrySnapshot
+    const gate = new LiveTelemetryGate()
+    const initialFrame = acceptedTelemetryFrame(gate, initial, 0)
+    acceptedTelemetryFrame(gate, { ...initial, connected: false }, 1)
+    const reconnectedFrame = acceptedTelemetryFrame(
+      gate,
+      { ...initial, connected: true, timestamp: 3000 },
+      2
+    )
+    const getLiveTelemetryFrame = vi.fn()
+      .mockReturnValueOnce(initialFrame)
+      .mockReturnValue(reconnectedFrame)
+    const harness = makeHarness({
+      snapshot: initial,
+      getLiveTelemetryFrame
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(
+      'What are tyre pressures?'
+    )
+
+    expect(initialFrame.context?.connectionEpoch).toBe(0)
+    expect(reconnectedFrame.context?.connectionEpoch).toBe(1)
+    expect(answer).toMatchObject({
+      kind: 'disabled',
+      source: 'system',
+      speak: false,
+      text: 'Live telemetry is unavailable.'
+    })
+    expect(answer.text).not.toContain('180 kPa')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it('preserves explicit replay-provider epochs while gating replay pressure reads', async () => {
+    const live = {
+      ...anchoredPressureSnapshot('green', {
+        lf: { pressureKpa: 180 },
+        rf: { pressureKpa: 181 },
+        lr: { pressureKpa: 178 },
+        rr: { pressureKpa: 179 }
+      }),
+      replayContext: {
+        state: 'live',
+        reason: 'confirmed-live',
+        inputs: {},
+        active: false,
+        revision: 4,
+        token: 'iracing-live:4',
+        connectionEpoch: 7,
+        sessionIdentity: 'iracing-session'
+      }
+    } as TelemetrySnapshot
+    const gate = new LiveTelemetryGate()
+    let currentFrame = acceptedTelemetryFrame(gate, live, 0)
+    const getLiveTelemetryFrame = vi.fn(() => currentFrame)
+    const harness = makeHarness({
+      snapshot: live,
+      getLiveTelemetryFrame
+    })
+    const orchestrator = createEngineerOrchestrator(harness.deps)
+
+    const liveAnswer = await orchestrator.ask('What is tyre pressure?')
+    expect(currentFrame.context).toMatchObject({
+      revision: 4,
+      token: 'iracing-live:4',
+      connectionEpoch: 7,
+      sessionIdentity: 'iracing-session'
+    })
+    expect(liveAnswer.text).toContain('180 kPa')
+
+    currentFrame = acceptedTelemetryFrame(
+      gate,
+      {
+        ...live,
+        replayContext: {
+          ...live.replayContext!,
+          state: 'replay',
+          reason: 'replay-playing',
+          active: true,
+          revision: 5,
+          token: 'iracing-replay:5'
+        }
+      },
+      1
+    )
+    const replayAnswer = await orchestrator.ask('What is tyre pressure?')
+    expect(replayAnswer.text).toBe(
+      racecraftSafetyMessage('replay', 'en-US')
+    )
+    expect(replayAnswer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+  })
+
+  it('rejects an anchored pressure reading when the live session context changes before publication', async () => {
+    const initial = anchoredPressureSnapshot('green', {
+      lf: { pressureKpa: 180 },
+      rf: { pressureKpa: 181 },
+      lr: { pressureKpa: 178 },
+      rr: { pressureKpa: 179 }
+    })
+    const changed = {
+      ...initial,
+      sessionUniqueId: 2,
+      trackName: 'Monza'
+    } as TelemetrySnapshot
+    const gate = new LiveTelemetryGate()
+    const initialFrame = acceptedTelemetryFrame(gate, initial, 0)
+    const changedFrame = acceptedTelemetryFrame(gate, changed, 1)
+    const getLiveTelemetryFrame = vi.fn()
+      .mockReturnValueOnce(initialFrame)
+      .mockReturnValue(changedFrame)
+    const harness = makeHarness({
+      snapshot: initial,
+      getLiveTelemetryFrame
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(
+      'What is tyre pressure?'
+    )
+
+    expect(getLiveTelemetryFrame).toHaveBeenCalledTimes(2)
     expect(answer).toMatchObject({
       kind: 'disabled',
       source: 'system',
@@ -721,15 +1017,16 @@ describe('createEngineerOrchestrator.ask', () => {
       sessionUniqueId: 99,
       trackName: 'Monza'
     } as TelemetrySnapshot
-    const context = captureLiveTelemetryContext(initial)
-    if (!context) throw new Error('Expected live telemetry context')
+    const gate = new LiveTelemetryGate()
+    const initialFrame = acceptedTelemetryFrame(gate, initial, 0)
+    const changedFrame = acceptedTelemetryFrame(gate, changed, 1)
+    const getLiveTelemetryFrame = vi.fn()
+      .mockReturnValueOnce(initialFrame)
+      .mockReturnValue(changedFrame)
     const harness = makeHarness({
       snapshot: initial,
-      getLiveContext: () => context
+      getLiveTelemetryFrame
     })
-    harness.deps.context.getSnapshot = vi.fn()
-      .mockReturnValueOnce(initial)
-      .mockReturnValue(changed)
 
     const answer = await createEngineerOrchestrator(harness.deps).ask(
       'What are tyre pressures?'
@@ -746,6 +1043,53 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
   })
 
+  it('rejects an old pressure snapshot when a newer accepted frame arrives in the same epoch', async () => {
+    const initial = anchoredPressureSnapshot('green', {
+      lf: { pressureKpa: 180 },
+      rf: { pressureKpa: 181 },
+      lr: { pressureKpa: 178 },
+      rr: { pressureKpa: 179 }
+    })
+    const changed = {
+      ...initial,
+      timestamp: 1100,
+      tyres: {
+        lf: { pressureKpa: 190 },
+        rf: { pressureKpa: 191 },
+        lr: { pressureKpa: 188 },
+        rr: { pressureKpa: 189 }
+      }
+    } as TelemetrySnapshot
+    const gate = new LiveTelemetryGate()
+    const initialFrame = acceptedTelemetryFrame(gate, initial, 0)
+    const changedFrame = acceptedTelemetryFrame(gate, changed, 1)
+    expect(changedFrame.context).toEqual(initialFrame.context)
+    const getLiveTelemetryFrame = vi.fn()
+      .mockReturnValueOnce(initialFrame)
+      .mockReturnValue(changedFrame)
+    const harness = makeHarness({
+      snapshot: initial,
+      getLiveTelemetryFrame
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(
+      'What is tyre pressure?'
+    )
+
+    expect(answer).toMatchObject({
+      kind: 'disabled',
+      source: 'system',
+      speak: false,
+      text: 'Live telemetry is unavailable.'
+    })
+    expect(answer.text).not.toMatch(/180 kPa|190 kPa/)
+    expect(harness.broadcast).not.toHaveBeenCalledWith(
+      ENGINEER_CHANNELS.answer,
+      expect.anything()
+    )
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
   it('suppresses an anchored pressure reading when safety becomes critical before publication', async () => {
     const initial = anchoredPressureSnapshot('green', {
       lf: { pressureKpa: 180 },
@@ -754,19 +1098,22 @@ describe('createEngineerOrchestrator.ask', () => {
       rr: { pressureKpa: 179 }
     })
     const changed = anchoredPressureSnapshot('red', initial.tyres)
-    const context = captureLiveTelemetryContext(initial)
-    if (!context) throw new Error('Expected live telemetry context')
-    const getLiveContext = vi.fn(() => context)
-    const harness = makeHarness({ snapshot: initial, getLiveContext })
-    harness.deps.context.getSnapshot = vi.fn()
-      .mockReturnValueOnce(initial)
-      .mockReturnValue(changed)
+    const gate = new LiveTelemetryGate()
+    const initialFrame = acceptedTelemetryFrame(gate, initial, 0)
+    const changedFrame = acceptedTelemetryFrame(gate, changed, 1)
+    const getLiveTelemetryFrame = vi.fn()
+      .mockReturnValueOnce(initialFrame)
+      .mockReturnValue(changedFrame)
+    const harness = makeHarness({
+      snapshot: initial,
+      getLiveTelemetryFrame
+    })
 
     const answer = await createEngineerOrchestrator(harness.deps).ask(
       'Current tyre pressure'
     )
 
-    expect(getLiveContext).toHaveBeenCalledTimes(2)
+    expect(getLiveTelemetryFrame).toHaveBeenCalledTimes(2)
     expect(answer).toMatchObject({
       kind: 'disabled',
       source: 'system',
@@ -789,11 +1136,14 @@ describe('createEngineerOrchestrator.ask', () => {
       lr: { pressureKpa: 178 },
       rr: { pressureKpa: 179 }
     })
-    const context = captureLiveTelemetryContext(snapshot)
-    if (!context) throw new Error('Expected live telemetry context')
+    const frame = acceptedTelemetryFrame(
+      new LiveTelemetryGate(),
+      snapshot,
+      0
+    )
     const harness = makeHarness({
       snapshot,
-      getLiveContext: () => context
+      getLiveTelemetryFrame: () => frame
     })
     harness.deps.getRacecraftLanguage = vi.fn()
       .mockReturnValueOnce('en-US')
@@ -821,27 +1171,30 @@ describe('createEngineerOrchestrator.ask', () => {
       lr: { pressureKpa: 178 },
       rr: { pressureKpa: 179 }
     })
-    const context = captureLiveTelemetryContext(snapshot)
-    if (!context) throw new Error('Expected live telemetry context')
+    const frame = acceptedTelemetryFrame(
+      new LiveTelemetryGate(),
+      snapshot,
+      0
+    )
     let orchestrator!: ReturnType<typeof createEngineerOrchestrator>
-    let contextReads = 0
-    const getLiveContext = vi.fn(() => {
-      contextReads += 1
-      if (contextReads === 2) {
+    let frameReads = 0
+    const getLiveTelemetryFrame = vi.fn(() => {
+      frameReads += 1
+      if (frameReads === 2) {
         void orchestrator.setConfig({ language: 'pt-BR' })
       }
-      return context
+      return frame
     })
     const harness = makeHarness({
       config: { language: 'en-US' },
       snapshot,
-      getLiveContext
+      getLiveTelemetryFrame
     })
     orchestrator = createEngineerOrchestrator(harness.deps)
 
     const answer = await orchestrator.ask('What is tyre pressure?')
 
-    expect(getLiveContext).toHaveBeenCalledTimes(2)
+    expect(getLiveTelemetryFrame).toHaveBeenCalledTimes(2)
     expect(answer).toMatchObject({
       kind: 'disabled',
       source: 'system',
@@ -861,11 +1214,14 @@ describe('createEngineerOrchestrator.ask', () => {
       lr: { pressureKpa: 178 },
       rr: { pressureKpa: 179 }
     })
-    const context = captureLiveTelemetryContext(snapshot)
-    if (!context) throw new Error('Expected live telemetry context')
+    const frame = acceptedTelemetryFrame(
+      new LiveTelemetryGate(),
+      snapshot,
+      0
+    )
     const harness = makeHarness({
       snapshot,
-      getLiveContext: () => context
+      getLiveTelemetryFrame: () => frame
     })
     harness.deps.getUnitSystem = vi.fn()
       .mockReturnValueOnce('metric')
@@ -931,9 +1287,15 @@ describe('createEngineerOrchestrator.ask', () => {
       fuelPerLap: 2.1,
       lapsRemaining: 13
     } as TelemetrySnapshot
+    const frame = acceptedTelemetryFrame(
+      new LiveTelemetryGate(),
+      snapshot,
+      0
+    )
     const harness = makeHarness({
       config: { language: 'pt-BR' },
-      getLiveContext: () => captureLiveTelemetryContext(snapshot),
+      getLiveContext: () => frame.context,
+      getLiveTelemetryFrame: () => frame,
       snapshot,
       racecraftContext: {
         safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
@@ -1003,12 +1365,18 @@ describe('createEngineerOrchestrator.ask', () => {
             rr: { pressureKpa: 179, tempC: 90, wearPct: 0.89 }
           }
         )
+        const frame = acceptedTelemetryFrame(
+          new LiveTelemetryGate(),
+          snapshot,
+          0
+        )
         const harness = makeHarness({
           config: {
             language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
           },
           racecraftLanguage: language,
-          getLiveContext: () => captureLiveTelemetryContext(snapshot),
+          getLiveContext: () => frame.context,
+          getLiveTelemetryFrame: () => frame,
           snapshot,
           racecraftContext: { safety }
         })
@@ -1048,12 +1416,18 @@ describe('createEngineerOrchestrator.ask', () => {
         ]
       ] as const) {
         const snapshot = anchoredPressureSnapshot('unknown', tyres)
+        const frame = acceptedTelemetryFrame(
+          new LiveTelemetryGate(),
+          snapshot,
+          0
+        )
         const harness = makeHarness({
           config: {
             language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
           },
           racecraftLanguage: language,
-          getLiveContext: () => captureLiveTelemetryContext(snapshot),
+          getLiveContext: () => frame.context,
+          getLiveTelemetryFrame: () => frame,
           snapshot
         })
 

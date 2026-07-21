@@ -89,7 +89,6 @@ import { getLatestPredictions } from './predictions'
 import { getLatestCoachFindings, getLatestCoachRacecraftContext } from './proactive-engineer'
 import { formatMeasurement, type UnitSystem } from '../../shared/units'
 import {
-  captureLiveTelemetryContext,
   LiveTelemetryGate,
   sameLiveTelemetryContext,
   type LiveTelemetryContext
@@ -254,6 +253,13 @@ export interface EngineerModelManagerLike {
   getActiveModelPath(): string | null
 }
 
+export interface EngineerLiveTelemetryFrame {
+  readonly snapshot: TelemetrySnapshot | null
+  readonly context: LiveTelemetryContext | null
+  /** Process-local revision of this exact LiveTelemetryGate observation. */
+  readonly revision: number
+}
+
 export interface EngineerOrchestratorDeps {
   runtime: EngineerRuntimeLike
   modelManager: EngineerModelManagerLike
@@ -272,6 +278,8 @@ export interface EngineerOrchestratorDeps {
   getRacecraftLanguage?(): CoachAdviceLanguage
   /** Canonical live context used to reject replay/unknown and stale async answers. */
   getLiveContext?(): LiveTelemetryContext | null
+  /** Snapshot/context pair accepted by the authoritative LiveTelemetryGate. */
+  getLiveTelemetryFrame?(): EngineerLiveTelemetryFrame
 }
 
 export interface EngineerOrchestrator {
@@ -554,7 +562,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
   interface AnchoredTyreStatusFence {
     context: LiveTelemetryContext | null
-    providerKey: string
+    snapshot: TelemetrySnapshot | null
+    frameRevision: number
     configRevision: number
     languageRevision: number
     unitSystem: UnitSystem
@@ -566,28 +575,6 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     }
   }
 
-  function telemetryProviderKey(snapshot: TelemetrySnapshot | null): string {
-    const replay = snapshot?.replayContext
-    return JSON.stringify([
-      snapshot?.sim,
-      snapshot?.connected,
-      snapshot?.connectionEpoch,
-      snapshot?.sessionUniqueId,
-      snapshot?.sessionKind,
-      snapshot?.sessionType,
-      snapshot?.trackId,
-      snapshot?.trackName,
-      snapshot?.trackConfigName,
-      snapshot?.carPath,
-      snapshot?.carName,
-      replay?.state,
-      replay?.revision,
-      replay?.token,
-      replay?.connectionEpoch,
-      replay?.sessionIdentity
-    ])
-  }
-
   function liveContextMatches(
     current: LiveTelemetryContext | null,
     captured: LiveTelemetryContext | null
@@ -595,13 +582,6 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     return current === null && captured === null
       ? true
       : sameLiveTelemetryContext(current, captured)
-  }
-
-  function snapshotMatchesLiveContext(
-    snapshot: TelemetrySnapshot | null,
-    context: LiveTelemetryContext | null
-  ): boolean {
-    return liveContextMatches(captureLiveTelemetryContext(snapshot), context)
   }
 
   function finalizeAnchoredTyreStatus(
@@ -612,13 +592,10 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     speechText?: string,
     speakOverride?: boolean
   ): EngineerAnswer {
-    if (!deps.getLiveContext) return rejectedAnswer(question)
-    const currentContext = deps.getLiveContext()
-    const currentSnapshot = deps.context.getSnapshot()
+    const currentFrame = deps.getLiveTelemetryFrame?.()
     if (
-      !liveContextMatches(currentContext, fence.context) ||
-      !snapshotMatchesLiveContext(currentSnapshot, currentContext) ||
-      telemetryProviderKey(currentSnapshot) !== fence.providerKey
+      !currentFrame ||
+      !liveContextMatches(currentFrame.context, fence.context)
     ) return rejectedAnswer(question)
     if (
       configRevision !== fence.configRevision ||
@@ -627,13 +604,17 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       deps.getRacecraftLanguage?.() !== fence.racecraftLanguage
     ) return cancelledForConfigChange(question)
     const currentSafety = observeGenerationSafety(
-      safetyContextForSnapshot(currentSnapshot)
+      safetyContextForSnapshot(currentFrame.snapshot)
     )
     if (
       currentSafety.revision !== fence.safety.revision ||
       currentSafety.key !== fence.safety.key ||
       currentSafety.reason !== fence.safety.reason
     ) return safetyChangedAnswer(question)
+    if (
+      currentFrame.revision !== fence.frameRevision ||
+      currentFrame.snapshot !== fence.snapshot
+    ) return rejectedAnswer(question)
     return publishAnswer(
       question,
       text,
@@ -649,22 +630,20 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
   function answerAnchoredTyrePressure(
     question: string,
     language: AnchoredTyreStatusLanguage,
-    context: LiveTelemetryContext | null,
-    snapshot: TelemetrySnapshot | null,
+    frame: EngineerLiveTelemetryFrame | null,
     unitSystem: UnitSystem,
     racecraftLanguage: CoachAdviceLanguage | undefined
   ): EngineerAnswer {
-    if (
-      !deps.getLiveContext ||
-      !snapshotMatchesLiveContext(snapshot, context)
-    ) return rejectedAnswer(question)
+    if (!frame) return rejectedAnswer(question)
+    const { context, snapshot } = frame
 
     const safety = observeGenerationSafety(
       safetyContextForSnapshot(snapshot)
     )
     const fence: AnchoredTyreStatusFence = {
       context: context ? { ...context } : null,
-      providerKey: telemetryProviderKey(snapshot),
+      snapshot,
+      frameRevision: frame.revision,
       configRevision,
       languageRevision,
       unitSystem,
@@ -942,7 +921,14 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
     const tyrePressureQuery = classifyTyrePressureQuery(question)
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
-    const context = deps.getLiveContext?.() ?? null
+    const tyrePressureFrame =
+      tyrePressureQuery?.kind === 'current-reading'
+        ? deps.getLiveTelemetryFrame?.() ?? null
+        : null
+    const context =
+      tyrePressureQuery?.kind === 'current-reading'
+        ? tyrePressureFrame?.context ?? null
+        : deps.getLiveContext?.() ?? null
     const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
     const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
     const tyrePressureSetupLanguage =
@@ -956,13 +942,15 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       detectedRacecraft?.language ??
       racecraftLikeLanguage ??
       coachAdviceLanguageFromAppLanguage(config.language)
-    const snapshot = deps.context.getSnapshot()
+    const snapshot =
+      tyrePressureQuery?.kind === 'current-reading'
+        ? tyrePressureFrame?.snapshot ?? null
+        : deps.context.getSnapshot()
     if (tyrePressureQuery?.kind === 'current-reading') {
       return answerAnchoredTyrePressure(
         question,
         tyrePressureQuery.language,
-        context,
-        snapshot,
+        tyrePressureFrame,
         unitSystem,
         requestRacecraftLanguage
       )
@@ -1359,7 +1347,15 @@ export function register(ctx: ModuleContext): void {
 
   let unitSystem: UnitSystem = 'metric'
   let racecraftLanguage = coachAdviceLanguageFromAppLanguage('auto', ctx.app.getLocale())
-  let currentLiveContext = captureLiveTelemetryContext(ctx.telemetryHub.getLatest())
+  const liveGate = new LiveTelemetryGate()
+  const initialSnapshot = ctx.telemetryHub.getLatest()
+  const initialDecision = liveGate.observe(initialSnapshot)
+  let liveFrameRevision = 0
+  let currentLiveFrame: EngineerLiveTelemetryFrame = {
+    snapshot: initialSnapshot,
+    context: initialDecision.context,
+    revision: liveFrameRevision
+  }
   const orchestrator = createEngineerOrchestrator({
     runtime,
     modelManager,
@@ -1373,15 +1369,20 @@ export function register(ctx: ModuleContext): void {
     },
     getUnitSystem: () => unitSystem,
     getRacecraftLanguage: () => racecraftLanguage,
-    getLiveContext: () => currentLiveContext,
+    getLiveContext: () => currentLiveFrame.context,
+    getLiveTelemetryFrame: () => currentLiveFrame,
     logger
   })
 
-  const liveGate = new LiveTelemetryGate()
   ctx.telemetryHub.on('snapshot', (snapshot) => {
-    orchestrator.observeSafety()
     const decision = liveGate.observe(snapshot)
-    currentLiveContext = decision.context
+    liveFrameRevision += 1
+    currentLiveFrame = {
+      snapshot,
+      context: decision.context,
+      revision: liveFrameRevision
+    }
+    orchestrator.observeSafety()
     if (decision.boundary) orchestrator.resetLiveContext()
   })
 
