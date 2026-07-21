@@ -624,6 +624,81 @@ describe('createEngineerOrchestrator.ask', () => {
   )
 
   it.each([
+    ['en-US', 'Explain what the ideal tyre pressure is.', 'TACTICS PAUSED', 'RACE-CONTROL STATE UNAVAILABLE', 'Target tyre pressure is setup-specific'],
+    ['pt-BR', 'Explique qual é a pressão ideal dos pneus.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['pt-BR', 'Você pode explicar quais são as pressões ótimas dos pneus?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['pt-BR', 'Qual é a pressão-alvo do pneu dianteiro?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['pt-BR', 'Explique, por favor, a pressão recomendada para os pneus.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['es', 'Explique cuál es la presión ideal de los neumáticos.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['es', '¿Podría explicar cuáles son las presiones óptimas de los neumáticos?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['es', '¿Cuál es la presión objetivo del neumático delantero?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['es', 'Explique la presión recomendada para los neumáticos.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['fr', 'Expliquez quelle est la pression idéale des pneus.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['fr', 'Pourriez-vous expliquer quelles sont les pressions optimales des pneus ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['fr', 'Quelle est la pression cible du pneu avant ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['fr', 'Expliquez la pression recommandée pour les pneus.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['de', 'Erklären Sie, was der ideale Reifendruck ist.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Könnten Sie erklären, welche Reifendrücke optimal sind?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Was ist der Zielreifendruck?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Welcher Reifendruck ist der Zielwert?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Erklären Sie den empfohlenen Druck für die Reifen.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab']
+  ] as const)(
+    'routes localized target tyre pressure as setup advice before definitions: %s — %s',
+    async (language, question, pausedMarker, unknownMarker, greenMarker) => {
+      for (const [label, safety, expectedSafetyMarker] of [
+        ['green', KNOWN_SAFE_RACE, null],
+        ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }, pausedMarker],
+        [
+          'unknown',
+          {
+            connected: true,
+            onTrack: true,
+            flagsKnown: false,
+            pitStateKnown: false,
+            paceStateKnown: false
+          },
+          unknownMarker
+        ]
+      ] as const) {
+        const harness = makeHarness({
+          config: {
+            language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
+          },
+          racecraftLanguage: language,
+          snapshot: {
+            sim: 'iracing',
+            connected: true,
+            timestamp: 1000,
+            sessionType: 'Race',
+            tyres: {
+              lf: { pressureKpa: 180 },
+              rf: { pressureKpa: 181 },
+              lr: { pressureKpa: 178 },
+              rr: { pressureKpa: 179 }
+            }
+          } as TelemetrySnapshot,
+          racecraftContext: { safety }
+        })
+
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.source, `${label}:${question}`).toBe('intent')
+        expect(answer.lang, `${label}:${question}`).toBe(language)
+        if (expectedSafetyMarker) {
+          expect(answer.text, `${label}:${question}`).toContain(pausedMarker)
+          expect(answer.text, `${label}:${question}`).toContain(expectedSafetyMarker)
+          expect(answer.speak, `${label}:${question}`).toBe(false)
+        } else {
+          expect(answer.text, `${label}:${question}`).toContain(greenMarker)
+          expect(answer.text, `${label}:${question}`).not.toContain(pausedMarker)
+        }
+        expect(harness.runtime.generateWithTools, `${label}:${question}`).not.toHaveBeenCalled()
+        expect(harness.modelManager.ensureModel, `${label}:${question}`).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  it.each([
     'Tenho combustível para terminar?',
     'Devo economizar combustível?',
     'Qual alvo de combustível?',

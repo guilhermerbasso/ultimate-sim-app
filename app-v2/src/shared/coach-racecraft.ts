@@ -659,6 +659,8 @@ interface TyreSelectionPattern {
   boundedChoice: RegExp
   selectionMarker: RegExp
   conditionalEnvelope: RegExp
+  pressure: RegExp
+  setupTarget: RegExp
   action: RegExp
 }
 
@@ -675,6 +677,8 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:qual|quais|que)\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compost)\p{L}*\b/u,
     selectionMarker: /\b(?:melhor\p{L}*|pior\p{L}*|mais\s+(?:adequad|apropriad|rapid|segur)\p{L}*|devo|deveria|usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u,
     conditionalEnvelope: /\b(?:se|caso)\b/u,
+    pressure: /\b(?:pressao|pressoes|calibrag\p{L}*)\b/u,
+    setupTarget: /\b(?:ideal\p{L}*|otim\p{L}*|alvo\p{L}*|meta\p{L}*|recomend\p{L}*)\b/u,
     action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
   },
   {
@@ -684,6 +688,8 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:que|cual\p{L}*)\b(?:\s+\p{L}+){0,8}\s+(?:neumatic|compuest)\p{L}*\b/u,
     selectionMarker: /\b(?:mejor\p{L}*|peor\p{L}*|mas\s+(?:adecuad|apropiad|rapid|segur)\p{L}*|debo|deberia|usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u,
     conditionalEnvelope: /\bsi\b/u,
+    pressure: /\b(?:presion|presiones)\b/u,
+    setupTarget: /\b(?:ideal\p{L}*|optim\p{L}*|objetiv\p{L}*|meta\p{L}*|recomend\p{L}*)\b/u,
     action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -693,15 +699,19 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\bquel\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
     selectionMarker: /\b(?:meilleur\p{L}*|pire\p{L}*|plus\s+(?:adapte|approprie|rapide|sur)\p{L}*|devrais|devrait|utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u,
     conditionalEnvelope: /\bsi\b/u,
+    pressure: /\bpression\p{L}*\b/u,
+    setupTarget: /\b(?:ideal\p{L}*|optimal\p{L}*|cibl\p{L}*|recommand\p{L}*)\b/u,
     action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
   },
   {
     language: 'de',
-    domain: /\b(?:reifen\p{L}*|misch\p{L}*)\b/u,
+    domain: /\b(?:\p{L}*reifen\p{L}*|misch\p{L}*)\b/u,
     directChoice: /\bwelch\p{L}*\s+(?:(?:satz|art)\s+)?(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
     boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
     selectionMarker: /\b(?:best\p{L}*|besser\p{L}*|schlechter\p{L}*|geeignet\p{L}*|soll\p{L}*|mus\p{L}*|verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u,
     conditionalEnvelope: /\b(?:ob|wenn|falls)\b/u,
+    pressure: /\b(?:\p{L}*reifendruck\p{L}*|druck\p{L}*)\b/u,
+    setupTarget: /\b(?:ideal\p{L}*|optimal\p{L}*|ziel\p{L}*|empfohl\p{L}*|empfehl\p{L}*)\b/u,
     action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
   },
   {
@@ -711,6 +721,8 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:which|what)\b(?:\s+\p{L}+){0,8}\s+(?:tyre|tire|compound)\p{L}*\b/u,
     selectionMarker: /\b(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick)|should|use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u,
     conditionalEnvelope: /\b(?:if|whether)\b/u,
+    pressure: /\bpressures?\b/u,
+    setupTarget: /\b(?:ideal|optimal|target|recommended)\b/u,
     action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
   }
 ]
@@ -778,6 +790,31 @@ function normalizedTyreSelectionQuestion(question: string): string {
     .replace(/[^\p{L}\p{N}\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+export function detectTyrePressureSetupAdviceLanguage(
+  question: string
+): CoachAdviceLanguage | null {
+  const q = normalizedTyreSelectionQuestion(question)
+  const match = TYRE_SELECTION_PATTERNS.find((pattern) =>
+    pattern.domain.test(q) &&
+    pattern.pressure.test(q) &&
+    pattern.setupTarget.test(q))
+  return match?.language ?? null
+}
+
+export function tyrePressureSetupAdviceUnavailableText(
+  language: CoachAdviceLanguage
+): string {
+  return localized(language, {
+    'en-US': 'Target tyre pressure is setup-specific and unavailable without a validated car-and-track baseline. Use Setup Experiment Twin and change one variable at a time.',
+    'pt-BR': 'A pressão-alvo dos pneus depende do setup e fica indisponível sem uma referência validada para carro e pista. Use o Setup Experiment Twin e altere uma variável por vez.',
+    es: 'La presión objetivo de los neumáticos depende de la configuración y no está disponible sin una referencia validada para el coche y la pista. Usa Setup Experiment Twin y cambia una variable cada vez.',
+    fr: 'La pression cible des pneus dépend du réglage et reste indisponible sans référence validée pour la voiture et la piste. Utilisez Setup Experiment Twin et ne changez qu’une variable à la fois.',
+    de: 'Der Zielreifendruck hängt vom Setup ab und ist ohne validierte Fahrzeug-Strecken-Referenz nicht verfügbar. Nutzen Sie Setup Experiment Twin und ändern Sie jeweils nur eine Variable.',
+    zh: '目标胎压取决于车辆设定；没有经过验证的车辆与赛道基准时无法提供。请使用 Setup Experiment Twin，并且每次只更改一个变量。',
+    ja: '目標タイヤ空気圧はセットアップ固有です。車両とコースで検証済みの基準がないため提示できません。Setup Experiment Twin を使い、変更は一度に一項目だけにしてください。'
+  })
 }
 
 export type AnchoredTyreStatusMetric =
@@ -865,6 +902,10 @@ export function recognizeAnchoredTyreStatusQuery(
 }
 
 function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
+  const pressureSetupLanguage = detectTyrePressureSetupAdviceLanguage(question)
+  if (pressureSetupLanguage) {
+    return { language: pressureSetupLanguage, choice: true }
+  }
   if (isNarrowPhraseMeaningRequest(question)) return null
   const q = normalizedTyreSelectionQuestion(question)
   if (!q) return null
@@ -914,6 +955,7 @@ function isPureDefinitionBody(
   body: string,
   explicitMeaningEnvelope = false
 ): boolean {
+  if (detectTyrePressureSetupAdviceLanguage(body)) return false
   if (
     DEFINITION_PERSONAL_CONTEXT.test(body) ||
     DEFINITION_RECOMMENDATION_CLAUSE.test(body)

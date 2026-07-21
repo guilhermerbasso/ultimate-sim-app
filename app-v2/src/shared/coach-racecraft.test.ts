@@ -12,6 +12,7 @@ import {
   detectRacecraftQuestion,
   detectRacecraftQuestionWithLanguage,
   detectRacecraftLikeQuestionLanguage,
+  detectTyrePressureSetupAdviceLanguage,
   detectTyreSelectionQuestionLanguage,
   isExplicitSafeInformationalQuestion,
   MAX_QUALI_BRIEFING_LENGTH,
@@ -451,6 +452,45 @@ describe('racecraft question routing', () => {
     expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, language)).toBeNull()
+  })
+
+  it.each([
+    ['en-US', 'Explain what the ideal tyre pressure is.'],
+    ['pt-BR', 'Explique qual é a pressão ideal dos pneus.'],
+    ['pt-BR', 'Você pode explicar quais são as pressões ótimas dos pneus?'],
+    ['pt-BR', 'Qual é a pressão-alvo do pneu dianteiro?'],
+    ['pt-BR', 'Explique, por favor, a pressão recomendada para os pneus.'],
+    ['es', 'Explique cuál es la presión ideal de los neumáticos.'],
+    ['es', '¿Podría explicar cuáles son las presiones óptimas de los neumáticos?'],
+    ['es', '¿Cuál es la presión objetivo del neumático delantero?'],
+    ['es', 'Explique la presión recomendada para los neumáticos.'],
+    ['fr', 'Expliquez quelle est la pression idéale des pneus.'],
+    ['fr', 'Pourriez-vous expliquer quelles sont les pressions optimales des pneus ?'],
+    ['fr', 'Quelle est la pression cible du pneu avant ?'],
+    ['fr', 'Expliquez la pression recommandée pour les pneus.'],
+    ['de', 'Erklären Sie, was der ideale Reifendruck ist.'],
+    ['de', 'Könnten Sie erklären, welche Reifendrücke optimal sind?'],
+    ['de', 'Was ist der Zielreifendruck?'],
+    ['de', 'Welcher Reifendruck ist der Zielwert?'],
+    ['de', 'Erklären Sie den empfohlenen Druck für die Reifen.']
+  ] as const)(
+    'routes localized target tyre pressure semantics as setup advice: %s — %s',
+    (language, question) => {
+      expect(recognizeAnchoredTyreStatusQuery(question)).toBeNull()
+      expect(detectTyrePressureSetupAdviceLanguage(question)).toBe(language)
+      expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
+      expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
+      expect(controlledDefinitionResponse(question, language)).toBeNull()
+    }
+  )
+
+  it('does not let a quoted ideal-pressure meaning envelope bypass setup advice routing', () => {
+    const question = 'Explain what the phrase "ideal tyre pressure" means.'
+
+    expect(detectTyrePressureSetupAdviceLanguage(question)).toBe('en-US')
+    expect(detectTyreSelectionQuestionLanguage(question)).toBe('en-US')
+    expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
+    expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
   })
 
   it.each([

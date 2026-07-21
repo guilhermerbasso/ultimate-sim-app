@@ -42,6 +42,7 @@ import {
   controlledDefinitionResponse,
   detectRacecraftLikeQuestionLanguage,
   detectRacecraftQuestionWithLanguage,
+  detectTyrePressureSetupAdviceLanguage,
   detectTyreSelectionQuestionLanguage,
   isPureDefinitionRequest,
   racecraftClarificationText,
@@ -50,6 +51,7 @@ import {
   racecraftSafetyReason,
   recognizeAnchoredTyreStatusQuery,
   safeInformationalDefinition,
+  tyrePressureSetupAdviceUnavailableText,
   type CoachAdviceLanguage,
   type RacecraftAdviceContext,
   type RacecraftSafetyContext,
@@ -780,6 +782,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
     const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
     const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
+    const tyrePressureSetupLanguage =
+      detectTyrePressureSetupAdviceLanguage(question)
     const tyreSelectionLanguage = detectTyreSelectionQuestionLanguage(question)
     const adviceLanguage =
       deps.getRacecraftLanguage?.() ??
@@ -842,6 +846,21 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
           adviceLanguage,
           text,
           false
+        )
+      }
+      if (tyrePressureSetupLanguage) {
+        const text = tyrePressureSetupAdviceUnavailableText(
+          tyrePressureSetupLanguage
+        )
+        return finalize(
+          question,
+          text,
+          'answer',
+          'intent',
+          undefined,
+          context,
+          tyrePressureSetupLanguage,
+          text
         )
       }
     }
