@@ -6,7 +6,7 @@ Version 2.55.0 makes completed-session review selectable and durable, turns setu
 deterministic measured guidance rather than automation, strengthens Stint Passport privacy and
 repair guarantees, and restores source-bound CI provenance.
 
-### Readable Accessibility Cue selects
+### Readable Accessibility Cues selectors
 - ♿ **Accessibility Cues selectors are readable again** in the dark view, the app's high-contrast
   mode, and Windows forced-colors mode.
 - ⌨️ The fix keeps native `<select>` controls, labels, focus behavior, keyboard operation, and
