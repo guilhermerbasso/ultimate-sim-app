@@ -6874,6 +6874,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     engineer: { label: 'AI Engineer', eyebrow: 'Local LLM', description: 'Text race engineer for fuel, tyres, gaps, and strategy. Includes Voice Spotter.' },
     coach: { label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach and lap analysis with corner findings, track map, and setup suggestions.' },
     strategy: { label: 'Strategy', eyebrow: 'Predictive', description: 'Pit window, fuel margin, undercut, and incident clips.' },
+    'stint-passport': { label: 'Stint Passport', eyebrow: 'Endurance', description: 'Role-owned 12-item handover readiness and retained stint history.' },
     'dashboard-builder': { label: 'AI Dashboard', eyebrow: 'Local LLM', description: 'Build dashboards by describing them in text.' },
     'dashboard-adaptive': { label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'A single dashboard that reorganizes by session phase and lap moment.' },
     biometrics: { label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress vs pace, and AR HUD.' },
@@ -6957,6 +6958,14 @@ patchViewText('es', {
   'accessibility-cues': { label: 'Señales de accesibilidad', description: 'Perfiles semánticos de subtítulos, audio, símbolos, LED y háptica.' },
   settings: { label: 'Configuración', description: 'Autoarranque, telemetría, idioma y tema.' },
   about: { label: 'Acerca de / Créditos' }
+})
+
+patchViewText('pt-BR', {
+  'stint-passport': {
+    label: 'Passaporte de Stint',
+    eyebrow: 'Endurance',
+    description: 'Prontidão de handover com 12 itens, responsáveis por função e histórico de stints.'
+  }
 })
 
 patchViewText('fr', {

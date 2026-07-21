@@ -1,0 +1,59 @@
+{
+  "contractVersion": 1,
+  "identity": {
+    "stintId": "stint-golden-001",
+    "sessionRef": "session:golden",
+    "trackRef": "track:golden",
+    "trackLabel": "Golden Circuit — GP",
+    "carRef": "car:golden",
+    "carLabel": "Golden GT3",
+    "driverRef": "driver:golden",
+    "driverLabel": "Golden Driver",
+    "teamRef": "team:golden",
+    "teamLabel": "Golden Team",
+    "startedAtMs": "1000"
+  },
+  "lifecycle": "PASSPORT_LIFECYCLE_READY",
+  "telemetryContext": "TELEMETRY_CONTEXT_LIVE",
+  "items": [
+    { "itemId": "PASSPORT_ITEM_ID_SESSION_IDENTITY", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "member:engineer", "role": "PASSPORT_ROLE_ENGINEER" }, "detail": "Session verified.", "verifiedAtMs": "1000", "expiresAtMs": "16000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_INCOMING_DRIVER", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "driver:golden", "role": "PASSPORT_ROLE_DRIVER" }, "detail": "Driver verified.", "verifiedAtMs": "1000", "expiresAtMs": "31000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_CAR_TRACK", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "member:engineer", "role": "PASSPORT_ROLE_ENGINEER" }, "detail": "Car and track verified.", "verifiedAtMs": "1000", "expiresAtMs": "31000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_FUEL_LOAD", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "member:engineer", "role": "PASSPORT_ROLE_ENGINEER" }, "detail": "Fuel verified.", "verifiedAtMs": "1000", "expiresAtMs": "16000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_STINT_TARGET", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "member:crew", "role": "PASSPORT_ROLE_CREW_CHIEF" }, "detail": "Stint target verified.", "verifiedAtMs": "1000", "expiresAtMs": "61000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_RACE_PROFILE", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "member:engineer", "role": "PASSPORT_ROLE_ENGINEER" }, "detail": "Race profile verified.", "verifiedAtMs": "1000", "expiresAtMs": "61000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_BUTTONBOX_PROFILE", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "driver:golden", "role": "PASSPORT_ROLE_DRIVER" }, "detail": "ButtonBox profile verified.", "verifiedAtMs": "1000", "expiresAtMs": "61000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_REQUIRED_DEVICES", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "member:engineer", "role": "PASSPORT_ROLE_ENGINEER" }, "detail": "Devices verified.", "verifiedAtMs": "1000", "expiresAtMs": "31000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_CRITICAL_CONTROLS", "status": "PASSPORT_ITEM_STATUS_VERIFIED", "owner": { "memberId": "driver:golden", "role": "PASSPORT_ROLE_DRIVER" }, "detail": "Controls verified.", "verifiedAtMs": "1000", "expiresAtMs": "61000", "revision": "1" },
+    { "itemId": "PASSPORT_ITEM_ID_AUDIO_COMMS", "status": "PASSPORT_ITEM_STATUS_MANUAL_CONFIRMED", "owner": { "memberId": "member:spotter", "role": "PASSPORT_ROLE_SPOTTER" }, "detail": "Audio verified and communications confirmed.", "verifiedAtMs": "1000", "expiresAtMs": "61000", "revision": "2" },
+    { "itemId": "PASSPORT_ITEM_ID_WEATHER_ASSUMPTION", "status": "PASSPORT_ITEM_STATUS_NOT_APPLICABLE", "owner": { "memberId": "member:crew", "role": "PASSPORT_ROLE_CREW_CHIEF" }, "detail": "Any weather accepted.", "overrideReason": "Open weather strategy.", "verifiedAtMs": "1000", "expiresAtMs": "31000", "revision": "2" },
+    {
+      "itemId": "PASSPORT_ITEM_ID_FINAL_ACKNOWLEDGEMENT",
+      "status": "PASSPORT_ITEM_STATUS_MANUAL_CONFIRMED",
+      "owner": { "memberId": "driver:golden", "role": "PASSPORT_ROLE_DRIVER" },
+      "detail": "Challenge complete.",
+      "verifiedAtMs": "1000",
+      "expiresAtMs": "301000",
+      "evidence": {
+        "source": "challenge-response",
+        "summary": "Golden acknowledgement.",
+        "contentSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "capturedAtMs": "1000",
+        "state": "available"
+      },
+      "revision": "2"
+    }
+  ],
+  "coverage": 1,
+  "applicableItems": 11,
+  "coveredItems": 11,
+  "challengeCompletedAtMs": "1000",
+  "challengeOwner": {
+    "memberId": "driver:golden",
+    "role": "PASSPORT_ROLE_DRIVER"
+  },
+  "interrupted": false,
+  "persisted": true,
+  "revision": "1",
+  "durability": "durable"
+}

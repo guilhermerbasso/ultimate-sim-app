@@ -1,5 +1,6 @@
 import { EXPR_CHANNELS } from '../shared/expr'
 import { TOUCH_ACTION_IPC_CHANNEL } from '../shared/touch-panel'
+import { STINT_PASSPORT_CHANNELS } from '../shared/stint-passport'
 
 export const READ_ONLY_EXPRESSION_CHANNELS = new Set<string>([
   EXPR_CHANNELS.getStudio,
@@ -49,6 +50,15 @@ const TOUCH_EXACT_CHANNELS = new Set<string>([
   ...TOUCH_READ_ONLY_EXPRESSION_CHANNELS
 ])
 
+export const MAIN_PASSPORT_INVOKE_CHANNELS = new Set<string>(
+  Object.values(STINT_PASSPORT_CHANNELS).filter(
+    (channel) => channel !== STINT_PASSPORT_CHANNELS.updated
+  )
+)
+export const MAIN_PASSPORT_SUBSCRIBE_CHANNELS = new Set<string>([
+  STINT_PASSPORT_CHANNELS.updated
+])
+
 export function isOverlayIpcAllowed(channel: string): boolean {
   return (
     READ_ONLY_EXPRESSION_CHANNELS.has(channel) ||
@@ -59,4 +69,12 @@ export function isOverlayIpcAllowed(channel: string): boolean {
 
 export function isTouchpanelIpcAllowed(channel: string): boolean {
   return TOUCH_EXACT_CHANNELS.has(channel)
+}
+
+export function isMainPassportInvokeAllowed(channel: string): boolean {
+  return MAIN_PASSPORT_INVOKE_CHANNELS.has(channel)
+}
+
+export function isMainPassportSubscribeAllowed(channel: string): boolean {
+  return MAIN_PASSPORT_SUBSCRIBE_CHANNELS.has(channel)
 }

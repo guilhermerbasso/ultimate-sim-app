@@ -4,6 +4,7 @@ import type { ProfileStore } from './profiles'
 import type { SerialManager } from './serial-manager'
 import type { SerialHub } from './serial/hub'
 import type { TelemetryHub } from './telemetry/hub'
+import type { Phase02Tap } from '../shared/phase02-tap'
 
 export type GracefulTeardownPhase = 'quiesce' | 'persistence'
 export type GracefulTeardownStage = GracefulTeardownPhase | 'hardware'
@@ -202,6 +203,8 @@ export interface ModuleContext {
   app: App
   ipcMain: IpcMain
   telemetryHub: TelemetryHub
+  /** Bounded asynchronous Phase 02 contract tap. New Phase 02 consumers use this, not TelemetryHub. */
+  phase02Tap: Phase02Tap
   // Legacy single-device facade: wraps the PRIMARY (SIM-X) device on the hub.
   // Existing callers (revlights, OLED, arduino, buttonbox:* IPC) keep using
   // this exactly as before.

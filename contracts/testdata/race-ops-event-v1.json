@@ -1,0 +1,169 @@
+{
+  "eventId": "evt-golden-001",
+  "eventClass": "RACE_OPS_EVENT_CLASS_FACT",
+  "eventType": "ultimate.sim.telemetry.snapshot.v1",
+  "sessionRef": "session:golden",
+  "actorRef": "system:fixture",
+  "subjectRef": "car:golden",
+  "observedInterval": {
+    "sourceTickStart": "100",
+    "sourceTickEnd": "101",
+    "monotonicNsStart": "1000000",
+    "monotonicNsEnd": "2000000",
+    "simTimeMsStart": "3000",
+    "simTimeMsEnd": "4000"
+  },
+  "facts": [
+    {
+      "name": "fuel.liters",
+      "canonicalUnit": "L",
+      "doubleValue": 42.5,
+      "provenance": {
+        "sourceId": "fixture.telemetry",
+        "transformId": "fixture.adapter.v1",
+        "schemaFingerprint": "fixture-schema",
+        "canonicalUnit": "L",
+        "validity": "DATA_VALIDITY_VALID",
+        "nullReason": "NULL_REASON_UNSPECIFIED",
+        "sourceTick": "100",
+        "observedMonotonicNs": "1000000",
+        "ageMs": "10",
+        "privacyClass": "PRIVACY_CLASS_D2_DRIVER"
+      }
+    },
+    {
+      "name": "session.current_lap",
+      "canonicalUnit": "lap",
+      "unsignedValue": "12",
+      "provenance": {
+        "sourceId": "fixture.telemetry",
+        "transformId": "fixture.adapter.v1",
+        "schemaFingerprint": "fixture-schema",
+        "canonicalUnit": "lap",
+        "validity": "DATA_VALIDITY_VALID",
+        "nullReason": "NULL_REASON_UNSPECIFIED",
+        "sourceTick": "100",
+        "observedMonotonicNs": "1000000",
+        "ageMs": "10",
+        "privacyClass": "PRIVACY_CLASS_D2_DRIVER"
+      }
+    },
+    {
+      "name": "session.delta_ms",
+      "canonicalUnit": "ms",
+      "signedValue": "-250",
+      "provenance": {
+        "sourceId": "fixture.telemetry",
+        "transformId": "fixture.adapter.v1",
+        "schemaFingerprint": "fixture-schema",
+        "canonicalUnit": "ms",
+        "validity": "DATA_VALIDITY_STALE",
+        "nullReason": "NULL_REASON_UNSPECIFIED",
+        "sourceTick": "100",
+        "observedMonotonicNs": "1000000",
+        "ageMs": "1500",
+        "privacyClass": "PRIVACY_CLASS_D2_DRIVER"
+      }
+    },
+    {
+      "name": "weather.raining",
+      "canonicalUnit": "bool",
+      "boolValue": false,
+      "provenance": {
+        "sourceId": "fixture.telemetry",
+        "transformId": "fixture.adapter.v1",
+        "schemaFingerprint": "fixture-schema",
+        "canonicalUnit": "bool",
+        "validity": "DATA_VALIDITY_VALID",
+        "nullReason": "NULL_REASON_UNSPECIFIED",
+        "sourceTick": "100",
+        "observedMonotonicNs": "1000000",
+        "ageMs": "10",
+        "privacyClass": "PRIVACY_CLASS_D2_DRIVER"
+      }
+    },
+    {
+      "name": "driver.name",
+      "canonicalUnit": "text",
+      "stringValue": "Golden Driver",
+      "provenance": {
+        "sourceId": "fixture.telemetry",
+        "transformId": "fixture.adapter.v1",
+        "schemaFingerprint": "fixture-schema",
+        "canonicalUnit": "text",
+        "validity": "DATA_VALIDITY_VALID",
+        "nullReason": "NULL_REASON_UNSPECIFIED",
+        "sourceTick": "100",
+        "observedMonotonicNs": "1000000",
+        "ageMs": "10",
+        "privacyClass": "PRIVACY_CLASS_D3_TEAM"
+      }
+    },
+    {
+      "name": "opaque.signature",
+      "canonicalUnit": "bytes",
+      "bytesValue": "AQID",
+      "provenance": {
+        "sourceId": "fixture.telemetry",
+        "transformId": "fixture.adapter.v1",
+        "schemaFingerprint": "fixture-schema",
+        "canonicalUnit": "bytes",
+        "validity": "DATA_VALIDITY_VALID",
+        "nullReason": "NULL_REASON_UNSPECIFIED",
+        "sourceTick": "100",
+        "observedMonotonicNs": "1000000",
+        "ageMs": "10",
+        "privacyClass": "PRIVACY_CLASS_D1_ACCOUNT"
+      }
+    },
+    {
+      "name": "missing.example",
+      "canonicalUnit": "text",
+      "provenance": {
+        "sourceId": "fixture.telemetry",
+        "transformId": "fixture.adapter.v1",
+        "schemaFingerprint": "fixture-schema",
+        "canonicalUnit": "text",
+        "validity": "DATA_VALIDITY_MISSING",
+        "nullReason": "NULL_REASON_NOT_AVAILABLE",
+        "sourceTick": "100",
+        "observedMonotonicNs": "1000000",
+        "ageMs": "10",
+        "privacyClass": "PRIVACY_CLASS_D1_ACCOUNT"
+      }
+    }
+  ],
+  "confidence": {
+    "value": 0.75,
+    "method": "fixture-method",
+    "abstained": false
+  },
+  "severity": "RACE_OPS_SEVERITY_NOTICE",
+  "priority": "RACE_OPS_PRIORITY_HIGH",
+  "evidenceRefs": [
+    "evidence:1",
+    "evidence:2"
+  ],
+  "policyRef": "policy:local",
+  "capabilityRef": "capability:tap",
+  "consentEpoch": "7",
+  "approvalRef": "approval:1",
+  "correlationId": "correlation:1",
+  "dedupeKey": "dedupe:golden:1",
+  "privacyClass": "PRIVACY_CLASS_D3_TEAM",
+  "integrityFlags": [
+    "INTEGRITY_FLAG_STALE",
+    "INTEGRITY_FLAG_GAP",
+    "INTEGRITY_FLAG_DERIVED",
+    "INTEGRITY_FLAG_REDACTED",
+    "INTEGRITY_FLAG_EXTERNALLY_ATTESTED"
+  ],
+  "supersedesEventId": "evt-golden-000",
+  "sequence": "99",
+  "partitionKey": "session:golden",
+  "partitionSeq": "5",
+  "telemetryContext": "TELEMETRY_CONTEXT_LIVE",
+  "sourceTick": "100",
+  "observedMonotonicNs": "1000000",
+  "ttlMs": "2000"
+}

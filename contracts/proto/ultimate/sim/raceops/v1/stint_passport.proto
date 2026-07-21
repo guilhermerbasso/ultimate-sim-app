@@ -1,0 +1,123 @@
+edition = "2023";
+
+package ultimate.sim.raceops.v1;
+
+import "ultimate/sim/raceops/v1/race_ops_event.proto";
+
+enum PassportRole {
+  PASSPORT_ROLE_UNSPECIFIED = 0;
+  PASSPORT_ROLE_DRIVER = 1;
+  PASSPORT_ROLE_ENGINEER = 2;
+  PASSPORT_ROLE_CREW_CHIEF = 3;
+  PASSPORT_ROLE_SPOTTER = 4;
+  PASSPORT_ROLE_TEAM_MANAGER = 5;
+}
+
+enum PassportItemId {
+  PASSPORT_ITEM_ID_UNSPECIFIED = 0;
+  PASSPORT_ITEM_ID_SESSION_IDENTITY = 1;
+  PASSPORT_ITEM_ID_INCOMING_DRIVER = 2;
+  PASSPORT_ITEM_ID_CAR_TRACK = 3;
+  PASSPORT_ITEM_ID_FUEL_LOAD = 4;
+  PASSPORT_ITEM_ID_STINT_TARGET = 5;
+  PASSPORT_ITEM_ID_RACE_PROFILE = 6;
+  PASSPORT_ITEM_ID_BUTTONBOX_PROFILE = 7;
+  PASSPORT_ITEM_ID_REQUIRED_DEVICES = 8;
+  PASSPORT_ITEM_ID_CRITICAL_CONTROLS = 9;
+  PASSPORT_ITEM_ID_AUDIO_COMMS = 10;
+  PASSPORT_ITEM_ID_WEATHER_ASSUMPTION = 11;
+  PASSPORT_ITEM_ID_FINAL_ACKNOWLEDGEMENT = 12;
+}
+
+enum PassportItemStatus {
+  PASSPORT_ITEM_STATUS_UNSPECIFIED = 0;
+  PASSPORT_ITEM_STATUS_UNKNOWN = 1;
+  PASSPORT_ITEM_STATUS_VERIFIED = 2;
+  PASSPORT_ITEM_STATUS_MANUAL_CONFIRMED = 3;
+  PASSPORT_ITEM_STATUS_WAIVED_WITH_REASON = 4;
+  PASSPORT_ITEM_STATUS_NOT_APPLICABLE = 5;
+  PASSPORT_ITEM_STATUS_MISMATCH = 6;
+  PASSPORT_ITEM_STATUS_EXPIRED = 7;
+}
+
+enum PassportLifecycle {
+  PASSPORT_LIFECYCLE_UNSPECIFIED = 0;
+  PASSPORT_LIFECYCLE_AWAITING_CHECKLIST = 1;
+  PASSPORT_LIFECYCLE_READY = 2;
+  PASSPORT_LIFECYCLE_CLOSED = 3;
+  PASSPORT_LIFECYCLE_INTERRUPTED = 4;
+}
+
+message PassportOwner {
+  string member_id = 1;
+  PassportRole role = 2;
+}
+
+message PassportRosterMember {
+  string member_id = 1;
+  string display_name = 2;
+  repeated PassportRole roles = 3;
+  bool active = 4;
+}
+
+message PassportItemEvidence {
+  string source = 1;
+  string summary = 2;
+  bytes content_sha256 = 3;
+  uint64 captured_at_ms = 4;
+  string state = 5;
+}
+
+message PassportItem {
+  PassportItemId item_id = 1;
+  PassportItemStatus status = 2;
+  PassportOwner owner = 3;
+  string detail = 4;
+  string override_reason = 5;
+  uint64 verified_at_ms = 6;
+  uint64 expires_at_ms = 7;
+  PassportItemEvidence evidence = 8;
+  uint64 revision = 9;
+  string reason_code = 10;
+}
+
+message StintIdentity {
+  string stint_id = 1;
+  string session_ref = 2;
+  string track_ref = 3;
+  string track_label = 4;
+  string car_ref = 5;
+  string car_label = 6;
+  string driver_ref = 7;
+  string driver_label = 8;
+  string team_ref = 9;
+  string team_label = 10;
+  uint64 started_at_ms = 11;
+}
+
+message StintPassport {
+  uint32 contract_version = 1;
+  StintIdentity identity = 2;
+  PassportLifecycle lifecycle = 3;
+  TelemetryContext telemetry_context = 4;
+  repeated PassportItem items = 5;
+  double coverage = 6;
+  uint32 applicable_items = 7;
+  uint32 covered_items = 8;
+  uint64 challenge_completed_at_ms = 9;
+  PassportOwner challenge_owner = 10;
+  uint64 closed_at_ms = 11;
+  string close_reason = 12;
+  bool interrupted = 13;
+  bool persisted = 14;
+  uint64 revision = 15;
+  string durability = 16;
+}
+
+message PassportEvent {
+  RaceOpsEvent event = 1;
+  string stint_id = 2;
+  PassportItemId item_id = 3;
+  PassportItem item = 4;
+  PassportLifecycle lifecycle = 5;
+}
