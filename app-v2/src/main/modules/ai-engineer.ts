@@ -38,11 +38,11 @@ import type {
 } from '../../shared/ai-engineer'
 import {
   buildRacecraftAdvice,
+  classifyTyrePressureQuery,
   coachAdviceLanguageFromAppLanguage,
   controlledDefinitionResponse,
   detectRacecraftLikeQuestionLanguage,
   detectRacecraftQuestionWithLanguage,
-  detectTyrePressureSetupAdviceLanguage,
   detectTyreSelectionQuestionLanguage,
   isPureDefinitionRequest,
   racecraftClarificationText,
@@ -782,8 +782,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
     const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
     const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
+    const tyrePressureQuery = classifyTyrePressureQuery(question)
     const tyrePressureSetupLanguage =
-      detectTyrePressureSetupAdviceLanguage(question)
+      tyrePressureQuery?.kind === 'setup-advice'
+        ? tyrePressureQuery.language
+        : null
     const tyreSelectionLanguage = detectTyreSelectionQuestionLanguage(question)
     const adviceLanguage =
       deps.getRacecraftLanguage?.() ??
@@ -864,10 +867,17 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         )
       }
     }
-    const supportedDefinition = safeInformationalDefinition(question, adviceLanguage)
+    const definitionLanguage =
+      tyrePressureQuery?.kind === 'concept-definition'
+        ? tyrePressureQuery.language
+        : adviceLanguage
+    const supportedDefinition = safeInformationalDefinition(
+      question,
+      definitionLanguage
+    )
     const controlledDefinition =
       supportedDefinition ??
-      controlledDefinitionResponse(question, adviceLanguage)
+      controlledDefinitionResponse(question, definitionLanguage)
     if (
       controlledDefinition &&
       isPureDefinitionRequest(question)
@@ -876,7 +886,10 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         deps.racecraftContext?.()?.safety ??
         makeFallbackContext().safety
       const definitionSafetyReason = racecraftSafetyReason(definitionSafety)
-      if (engineerSafetyAllowsIntent(definitionSafetyReason, 'definition')) {
+      if (
+        tyrePressureQuery?.kind === 'concept-definition' ||
+        engineerSafetyAllowsIntent(definitionSafetyReason, 'definition')
+      ) {
         return finalize(
           question,
           controlledDefinition,
@@ -884,7 +897,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
           'intent',
           undefined,
           context,
-          adviceLanguage,
+          definitionLanguage,
           controlledDefinition
         )
       }

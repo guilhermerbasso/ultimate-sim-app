@@ -601,6 +601,7 @@ type SafeInformationalTopic =
   | 'yellow-flag'
   | 'safety-car'
   | 'overtake'
+  | 'tyre-pressure'
 
 export interface ParsedDefinitionQuestion {
   language: CoachAdviceLanguage
@@ -634,6 +635,7 @@ function definitionTopic(body: string): SafeInformationalTopic | null {
   if (/^(?:yellow flag|bandeira amarela|bandera amarilla|drapeau jaune|gelbe flagge|黄旗|イエローフラッグ)$/.test(q)) return 'yellow-flag'
   if (/^(?:safety car|coche de seguridad|voiture de securite|sicherheitsauto|安全车|セーフティカー)$/.test(q)) return 'safety-car'
   if (/^(?:overtake|ultrapassagem|adelantamiento|depassement|uberholvorgang)$/.test(q)) return 'overtake'
+  if (/^(?:tyre pressure|tire pressure|pressao (?:do pneu|dos pneus|de pneu)|presion (?:del neumatico|de los neumaticos|de neumatico)|pression (?:du pneu|des pneus|de pneu)|reifendruck|druck der reifen)$/.test(q)) return 'tyre-pressure'
   return null
 }
 
@@ -659,8 +661,6 @@ interface TyreSelectionPattern {
   boundedChoice: RegExp
   selectionMarker: RegExp
   conditionalEnvelope: RegExp
-  pressure: RegExp
-  setupTarget: RegExp
   action: RegExp
 }
 
@@ -677,8 +677,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:qual|quais|que)\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compost)\p{L}*\b/u,
     selectionMarker: /\b(?:melhor\p{L}*|pior\p{L}*|mais\s+(?:adequad|apropriad|rapid|segur)\p{L}*|devo|deveria|usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u,
     conditionalEnvelope: /\b(?:se|caso)\b/u,
-    pressure: /\b(?:pressao|pressoes|calibrag\p{L}*)\b/u,
-    setupTarget: /\b(?:ideal\p{L}*|otim\p{L}*|alvo\p{L}*|meta\p{L}*|recomend\p{L}*)\b/u,
     action: /\b(?:usar|uso|escolh\p{L}*|recomend\p{L}*|mont\p{L}*|coloc\p{L}*|rodar)\b/u
   },
   {
@@ -688,8 +686,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:que|cual\p{L}*)\b(?:\s+\p{L}+){0,8}\s+(?:neumatic|compuest)\p{L}*\b/u,
     selectionMarker: /\b(?:mejor\p{L}*|peor\p{L}*|mas\s+(?:adecuad|apropiad|rapid|segur)\p{L}*|debo|deberia|usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u,
     conditionalEnvelope: /\bsi\b/u,
-    pressure: /\b(?:presion|presiones)\b/u,
-    setupTarget: /\b(?:ideal\p{L}*|optim\p{L}*|objetiv\p{L}*|meta\p{L}*|recomend\p{L}*)\b/u,
     action: /\b(?:usar|uso|eleg\p{L}*|escog\p{L}*|recomend\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -699,8 +695,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\bquel\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:pneu|compos|gomm)\p{L}*\b/u,
     selectionMarker: /\b(?:meilleur\p{L}*|pire\p{L}*|plus\s+(?:adapte|approprie|rapide|sur)\p{L}*|devrais|devrait|utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u,
     conditionalEnvelope: /\bsi\b/u,
-    pressure: /\bpression\p{L}*\b/u,
-    setupTarget: /\b(?:ideal\p{L}*|optimal\p{L}*|cibl\p{L}*|recommand\p{L}*)\b/u,
     action: /\b(?:utilis\p{L}*|chois\p{L}*|recommand\p{L}*|mont\p{L}*)\b/u
   },
   {
@@ -710,8 +704,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\bwelch\p{L}*\b(?:\s+\p{L}+){0,8}\s+(?:reifen|reifensatz\p{L}*|misch\p{L}*)\b/u,
     selectionMarker: /\b(?:best\p{L}*|besser\p{L}*|schlechter\p{L}*|geeignet\p{L}*|soll\p{L}*|mus\p{L}*|verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u,
     conditionalEnvelope: /\b(?:ob|wenn|falls)\b/u,
-    pressure: /\b(?:\p{L}*reifendruck\p{L}*|druck\p{L}*)\b/u,
-    setupTarget: /\b(?:ideal\p{L}*|optimal\p{L}*|ziel\p{L}*|empfohl\p{L}*|empfehl\p{L}*)\b/u,
     action: /\b(?:verwend\p{L}*|benutz\p{L}*|wahl\p{L}*|empfehl\p{L}*|fahr\p{L}*|nehm\p{L}*)\b/u
   },
   {
@@ -721,8 +713,6 @@ const TYRE_SELECTION_PATTERNS: readonly TyreSelectionPattern[] = [
     boundedChoice: /\b(?:which|what)\b(?:\s+\p{L}+){0,8}\s+(?:tyre|tire|compound)\p{L}*\b/u,
     selectionMarker: /\b(?:best|better|worst|worse|most\s+(?:suitable|appropriate|stable|quick)|should|use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u,
     conditionalEnvelope: /\b(?:if|whether)\b/u,
-    pressure: /\bpressures?\b/u,
-    setupTarget: /\b(?:ideal|optimal|target|recommended)\b/u,
     action: /\b(?:use|using|choose|choosing|pick|picking|run|running|recommend\p{L}*|fit\p{L}*)\b/u
   }
 ]
@@ -790,17 +780,6 @@ function normalizedTyreSelectionQuestion(question: string): string {
     .replace(/[^\p{L}\p{N}\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-export function detectTyrePressureSetupAdviceLanguage(
-  question: string
-): CoachAdviceLanguage | null {
-  const q = normalizedTyreSelectionQuestion(question)
-  const match = TYRE_SELECTION_PATTERNS.find((pattern) =>
-    pattern.domain.test(q) &&
-    pattern.pressure.test(q) &&
-    pattern.setupTarget.test(q))
-  return match?.language ?? null
 }
 
 export function tyrePressureSetupAdviceUnavailableText(
@@ -901,11 +880,138 @@ export function recognizeAnchoredTyreStatusQuery(
     : null
 }
 
-function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
-  const pressureSetupLanguage = detectTyrePressureSetupAdviceLanguage(question)
-  if (pressureSetupLanguage) {
-    return { language: pressureSetupLanguage, choice: true }
+export type TyrePressureQueryKind =
+  | 'current-reading'
+  | 'concept-definition'
+  | 'setup-advice'
+
+export interface TyrePressureQueryClassification {
+  readonly kind: TyrePressureQueryKind
+  readonly language: AnchoredTyreStatusLanguage
+}
+
+interface TyrePressureLanguagePattern {
+  readonly language: AnchoredTyreStatusLanguage
+  readonly pressure: RegExp
+  readonly conceptDefinitions: readonly RegExp[]
+}
+
+const TYRE_PRESSURE_LANGUAGE_PATTERNS: readonly TyrePressureLanguagePattern[] = [
+  {
+    language: 'pt-BR',
+    pressure: /\b(?:pressao|pressoes|calibrag\p{L}*)\b/u,
+    conceptDefinitions: [
+      /^(?:por favor )?(?:defina|explique) (?:o )?(?:(?:termo|conceito|expressao) )?pressao (?:do pneu|dos pneus|de pneu)$/u,
+      /^(?:por favor )?(?:voce )?(?:pode|poderia) (?:me )?(?:explicar|explique) (?:o )?(?:(?:termo|conceito|expressao) )?pressao (?:do pneu|dos pneus|de pneu)$/u,
+      /^(?:por favor )?(?:explique )?o que (?:significa|e) (?:a )?(?:(?:termo|conceito|expressao|frase) )?pressao (?:do pneu|dos pneus|de pneu)$/u,
+      /^(?:por favor )?explique o que (?:a )?pressao (?:do pneu|dos pneus|de pneu) significa$/u,
+      /^(?:por favor )?(?:diga|me diga) o que significa (?:a )?pressao (?:do pneu|dos pneus|de pneu)$/u,
+      /^(?:por favor )?me de (?:a )?(?:definicao|explicacao) (?:da )?pressao (?:do pneu|dos pneus|de pneu)$/u,
+      /^qual e (?:o significado|a definicao|a explicacao) (?:da )?pressao (?:do pneu|dos pneus|de pneu)$/u
+    ]
+  },
+  {
+    language: 'es',
+    pressure: /\b(?:presion|presiones)\b/u,
+    conceptDefinitions: [
+      /^(?:por favor )?(?:define|defina|explica|explique) (?:el )?(?:(?:termino|concepto|frase) )?presion (?:del neumatico|de los neumaticos|de neumatico)$/u,
+      /^(?:por favor )?(?:puede|puedes|podria|podrias) (?:explicarme|explicar|definirme) (?:el )?(?:(?:termino|concepto|frase) )?presion (?:del neumatico|de los neumaticos|de neumatico)$/u,
+      /^(?:por favor )?(?:(?:explica|explique) )?que (?:significa|es) (?:la )?(?:(?:termino|concepto|expresion|frase) )?presion (?:del neumatico|de los neumaticos|de neumatico)$/u,
+      /^(?:por favor )?(?:explica|explique) que (?:la )?presion (?:del neumatico|de los neumaticos|de neumatico) significa$/u,
+      /^(?:por favor )?(?:diga|digame|dime) que significa (?:la )?presion (?:del neumatico|de los neumaticos|de neumatico)$/u,
+      /^(?:por favor )?dame (?:la )?(?:definicion|explicacion) de (?:la )?presion (?:del neumatico|de los neumaticos|de neumatico)$/u,
+      /^cual es (?:el significado|la definicion|la explicacion) de (?:la )?presion (?:del neumatico|de los neumaticos|de neumatico)$/u
+    ]
+  },
+  {
+    language: 'fr',
+    pressure: /\bpression\p{L}*\b/u,
+    conceptDefinitions: [
+      /^(?:s il vous plait )?(?:definissez|definis|expliquez|explique) (?:le )?(?:(?:terme|concept|expression) )?pression (?:du pneu|des pneus|de pneu)$/u,
+      /^(?:s il vous plait )?(?:pouvez vous|pourriez vous|peux tu|pourrais tu) (?:m )?(?:expliquer|definir) (?:le )?(?:(?:terme|concept|expression) )?pression (?:du pneu|des pneus|de pneu)$/u,
+      /^(?:s il vous plait )?(?:expliquez moi|explique moi) (?:le )?(?:(?:terme|concept|expression) )?pression (?:du pneu|des pneus|de pneu)$/u,
+      /^(?:s il vous plait )?(?:expliquez |explique )?(?:ce qu est|qu est ce que|que signifie) (?:la |l )?(?:(?:terme|concept|expression|phrase) )?pression (?:du pneu|des pneus|de pneu)$/u,
+      /^(?:s il vous plait )?(?:expliquez|explique) ce que (?:la )?pression (?:du pneu|des pneus|de pneu) signifie$/u,
+      /^(?:s il vous plait )?(?:dites moi|dis moi) ce que signifie (?:la )?pression (?:du pneu|des pneus|de pneu)$/u,
+      /^(?:s il vous plait )?donnez moi (?:la )?(?:definition|explication) de (?:la )?pression (?:du pneu|des pneus|de pneu)$/u,
+      /^quelle est (?:la signification|la definition|l explication) de (?:la )?pression (?:du pneu|des pneus|de pneu)$/u
+    ]
+  },
+  {
+    language: 'de',
+    pressure: /\b(?:\p{L}*reifendruck\p{L}*|druck\p{L}*)\b/u,
+    conceptDefinitions: [
+      /^(?:bitte )?(?:definieren sie|definiere|erklaren sie|erklare) (?:den )?(?:(?:begriff|ausdruck|konzept) )?(?:reifendruck|druck der reifen)$/u,
+      /^(?:bitte )?(?:konnen sie|konntest du|kannst du) (?:mir )?(?:den )?(?:(?:begriff|ausdruck|konzept) )?(?:reifendruck|druck der reifen) (?:erklaren|definieren)$/u,
+      /^(?:bitte )?(?:erklaren sie mir|erklare mir) (?:den )?(?:(?:begriff|ausdruck|konzept) )?(?:reifendruck|druck der reifen)$/u,
+      /^(?:bitte )?(?:erklaren sie|erklare) was (?:der )?(?:(?:begriff|ausdruck|konzept) )?(?:reifendruck|druck der reifen) (?:ist|bedeutet)$/u,
+      /^(?:bitte )?was bedeutet (?:der )?(?:(?:begriff|ausdruck|konzept) )?(?:reifendruck|druck der reifen)$/u,
+      /^was ist (?:der )?(?:reifendruck|druck der reifen)$/u,
+      /^was ist die (?:bedeutung|definition|erklarung) (?:von|des) (?:reifendrucks|reifendruck|drucks der reifen|druck der reifen)$/u
+    ]
+  },
+  {
+    language: 'en-US',
+    pressure: /\bpressures?\b/u,
+    conceptDefinitions: [
+      /^(?:please )?(?:(?:can|could|would) you )?(?:define|explain) (?:the )?(?:(?:term|concept|phrase) )?(?:tyre|tire) pressure$/u,
+      /^(?:please )?(?:explain|tell me) what (?:the )?(?:(?:term|concept|phrase) )?(?:tyre|tire) pressure (?:is|means)$/u,
+      /^(?:please )?what does (?:the )?(?:(?:term|concept|phrase) )?(?:tyre|tire) pressure mean$/u,
+      /^(?:please )?(?:(?:can|could|would) you )?tell me what (?:the )?(?:(?:term|concept|phrase) )?(?:tyre|tire) pressure means$/u,
+      /^(?:please )?(?:give me|tell me) (?:the )?(?:meaning|definition|explanation) of (?:the )?(?:(?:term|concept|phrase) )?(?:tyre|tire) pressure$/u,
+      /^(?:can|could|would) (?:the )?(?:tyre|tire) pressure be explained$/u,
+      /^how is (?:the )?(?:tyre|tire) pressure defined$/u,
+      /^what is the (?:meaning|definition|explanation) of (?:the )?(?:(?:term|concept|phrase) )?(?:tyre|tire) pressure$/u
+    ]
   }
+]
+
+export function classifyTyrePressureQuery(
+  question: string
+): TyrePressureQueryClassification | null {
+  // A and B are deliberately exact allowlists. Once a localized tyre domain
+  // and pressure topic are present, every other shape defaults to setup advice.
+  const currentReading = recognizeAnchoredTyreStatusQuery(question)
+  if (currentReading?.metric === 'pressure') {
+    return {
+      kind: 'current-reading',
+      language: currentReading.language
+    }
+  }
+
+  const q = normalizedTyreSelectionQuestion(question)
+  if (!q) return null
+  const match = TYRE_PRESSURE_LANGUAGE_PATTERNS.find((candidate) => {
+    const tyreDomain = TYRE_SELECTION_PATTERNS.find(
+      ({ language }) => language === candidate.language
+    )
+    return tyreDomain?.domain.test(q) && candidate.pressure.test(q)
+  })
+  if (!match) return null
+
+  return {
+    kind: match.conceptDefinitions.some((pattern) => pattern.test(q))
+      ? 'concept-definition'
+      : 'setup-advice',
+    language: match.language
+  }
+}
+
+export function detectTyrePressureSetupAdviceLanguage(
+  question: string
+): CoachAdviceLanguage | null {
+  const classification = classifyTyrePressureQuery(question)
+  return classification?.kind === 'setup-advice'
+    ? classification.language
+    : null
+}
+
+function detectTyreSelectionMatch(question: string): TyreSelectionMatch | null {
+  const pressureQuery = classifyTyrePressureQuery(question)
+  if (pressureQuery?.kind === 'setup-advice') {
+    return { language: pressureQuery.language, choice: true }
+  }
+  if (pressureQuery) return null
   if (isNarrowPhraseMeaningRequest(question)) return null
   const q = normalizedTyreSelectionQuestion(question)
   if (!q) return null
@@ -955,7 +1061,7 @@ function isPureDefinitionBody(
   body: string,
   explicitMeaningEnvelope = false
 ): boolean {
-  if (detectTyrePressureSetupAdviceLanguage(body)) return false
+  if (classifyTyrePressureQuery(body)?.kind === 'setup-advice') return false
   if (
     DEFINITION_PERSONAL_CONTEXT.test(body) ||
     DEFINITION_RECOMMENDATION_CLAUSE.test(body)
@@ -970,6 +1076,16 @@ function isPureDefinitionBody(
 }
 
 export function parseDefinitionQuestion(question: string): ParsedDefinitionQuestion | null {
+  const tyrePressure = classifyTyrePressureQuery(question)
+  if (tyrePressure?.kind === 'concept-definition') {
+    return {
+      language: tyrePressure.language,
+      body: 'tyre pressure',
+      topic: 'tyre-pressure',
+      pure: true,
+      command: true
+    }
+  }
   const q = normalize(question)
     .replace(/[’']/g, ' ')
     .replace(/^[¿¡?？。！!]+/u, '')
@@ -1323,6 +1439,15 @@ export function safeInformationalDefinition(
       de: 'Ein Überholvorgang ist das regelkonforme Passieren eines anderen Autos um eine Position.',
       zh: '超车是在规则允许范围内超过另一辆赛车以取得赛道位置。',
       ja: 'オーバーテイクは、規則に従って他車を抜きコース上の順位を得ることです。'
+    },
+    'tyre-pressure': {
+      'en-US': 'Tyre pressure is the measured inflation pressure inside a tyre; it is a reading, not a universal setup target.',
+      'pt-BR': 'A pressão do pneu é a pressão de inflação medida dentro do pneu; é uma leitura, não um alvo universal de setup.',
+      es: 'La presión del neumático es la presión de inflado medida dentro del neumático; es una lectura, no un objetivo universal de configuración.',
+      fr: 'La pression du pneu est la pression de gonflage mesurée dans le pneu ; c’est une mesure, pas une cible de réglage universelle.',
+      de: 'Der Reifendruck ist der gemessene Fülldruck im Reifen; er ist ein Messwert und kein universelles Setup-Ziel.',
+      zh: '胎压是轮胎内部测得的充气压力；它是一项读数，不是通用的设定目标。',
+      ja: 'タイヤ空気圧はタイヤ内部で測定される充填圧です。これは測定値であり、普遍的なセットアップ目標ではありません。'
     }
   }
   return definitions[topic][language]

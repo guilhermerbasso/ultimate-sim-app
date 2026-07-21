@@ -6,6 +6,7 @@ import {
   buildQualiStartSummary,
   buildRacecraftAdvice as buildAdvice,
   buildRacecraftHistoryEvidence,
+  classifyTyrePressureQuery,
   classifyCoachTrackCondition,
   comparableCoachLaps,
   controlledDefinitionResponse,
@@ -308,7 +309,6 @@ describe('racecraft question routing', () => {
   it.each([
     'Define tyre compound.',
     'What does tyre compound mean?',
-    'Explain tyre pressure.',
     'Define tyre change.',
     'What does tyre change mean?',
     'What does change tyres mean?',
@@ -340,6 +340,44 @@ describe('racecraft question routing', () => {
       'controlled glossary'
     )
   })
+
+  it.each([
+    ['en-US', 'Explain tyre pressure.'],
+    ['en-US', 'What does the concept tyre pressure mean?'],
+    ['pt-BR', 'O que significa a pressão dos pneus?'],
+    ['pt-BR', 'Por favor, defina o conceito pressão dos pneus.'],
+    ['pt-BR', 'O que significa a expressão "pressão dos pneus"?'],
+    ['es', '¿Qué significa la presión de los neumáticos?'],
+    ['es', 'Por favor, explique el concepto presión de los neumáticos.'],
+    ['es', '¿Qué significa la expresión "presión de los neumáticos"?'],
+    ['fr', 'Que signifie la pression des pneus ?'],
+    ['fr', 'S’il vous plaît, définissez le concept pression des pneus.'],
+    ['fr', 'Que signifie l’expression « pression des pneus » ?'],
+    ['de', 'Was bedeutet Reifendruck?'],
+    ['de', 'Bitte definieren Sie den Begriff Reifendruck.'],
+    ['de', 'Was bedeutet der Ausdruck „Reifendruck“?']
+  ] as const)(
+    'keeps only an exact tyre-pressure concept definition in the controlled glossary: %s — %s',
+    (language, question) => {
+      const marker = {
+        'en-US': 'measured inflation pressure',
+        'pt-BR': 'pressão de inflação medida',
+        es: 'presión de inflado medida',
+        fr: 'pression de gonflage mesurée',
+        de: 'gemessene Fülldruck'
+      } as const
+      expect(classifyTyrePressureQuery(question)).toEqual({
+        kind: 'concept-definition',
+        language
+      })
+      expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
+      expect(parseDefinitionQuestion(question)).toMatchObject({
+        pure: true,
+        topic: 'tyre-pressure'
+      })
+      expect(controlledDefinitionResponse(question, language)).toContain(marker[language])
+    }
+  )
 
   it.each([
     'I definitely need to save fuel.',
@@ -456,6 +494,8 @@ describe('racecraft question routing', () => {
 
   it.each([
     ['en-US', 'Explain what the ideal tyre pressure is.'],
+    ['en-US', 'Explain the customary tyre pressure.'],
+    ['en-US', 'For the tyres, what pressure works in this session?'],
     ['pt-BR', 'Explique qual é a pressão ideal dos pneus.'],
     ['pt-BR', 'Você pode explicar quais são as pressões ótimas dos pneus?'],
     ['pt-BR', 'Qual é a pressão-alvo do pneu dianteiro?'],
@@ -472,11 +512,31 @@ describe('racecraft question routing', () => {
     ['de', 'Könnten Sie erklären, welche Reifendrücke optimal sind?'],
     ['de', 'Was ist der Zielreifendruck?'],
     ['de', 'Welcher Reifendruck ist der Zielwert?'],
-    ['de', 'Erklären Sie den empfohlenen Druck für die Reifen.']
+    ['de', 'Erklären Sie den empfohlenen Druck für die Reifen.'],
+    ['pt-BR', 'Qual é a pressão aconselhada dos pneus?'],
+    ['pt-BR', 'Explique a pressão correta para o pneu dianteiro.'],
+    ['pt-BR', 'A melhor pressão dos pneus seria qual?'],
+    ['pt-BR', 'Minha pressão dos pneus serve para esta sessão?'],
+    ['es', '¿Cuál es la presión aconsejada de los neumáticos?'],
+    ['es', 'Explique la presión correcta para el neumático delantero.'],
+    ['es', '¿La mejor presión de los neumáticos sería cuál?'],
+    ['es', '¿Mi presión de los neumáticos sirve para esta sesión?'],
+    ['fr', 'Quelle est la pression conseillée des pneus ?'],
+    ['fr', 'Expliquez la pression correcte pour le pneu avant.'],
+    ['fr', 'La meilleure pression des pneus serait laquelle ?'],
+    ['fr', 'Ma pression des pneus convient-elle à cette session ?'],
+    ['de', 'Was ist der richtige Reifendruck?'],
+    ['de', 'Erklären Sie den besten Reifendruck.'],
+    ['de', 'Welcher empfohlene Reifendruck passt zum Vorderreifen?'],
+    ['de', 'Passt mein Reifendruck zu dieser Sitzung?']
   ] as const)(
-    'routes localized target tyre pressure semantics as setup advice: %s — %s',
+    'defaults every non-allowlisted tyre-pressure query to setup advice: %s — %s',
     (language, question) => {
       expect(recognizeAnchoredTyreStatusQuery(question)).toBeNull()
+      expect(classifyTyrePressureQuery(question)).toEqual({
+        kind: 'setup-advice',
+        language
+      })
       expect(detectTyrePressureSetupAdviceLanguage(question)).toBe(language)
       expect(detectTyreSelectionQuestionLanguage(question)).toBe(language)
       expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
@@ -530,6 +590,12 @@ describe('racecraft question routing', () => {
     (language, metric, question) => {
       expect(recognizeAnchoredTyreStatusQuery(question)).toEqual({ language, metric })
       expect(detectTyreSelectionQuestionLanguage(question)).toBeNull()
+      if (metric === 'pressure') {
+        expect(classifyTyrePressureQuery(question)).toEqual({
+          kind: 'current-reading',
+          language
+        })
+      }
     }
   )
 

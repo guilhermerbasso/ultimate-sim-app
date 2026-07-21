@@ -641,9 +641,29 @@ describe('createEngineerOrchestrator.ask', () => {
     ['de', 'Könnten Sie erklären, welche Reifendrücke optimal sind?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
     ['de', 'Was ist der Zielreifendruck?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
     ['de', 'Welcher Reifendruck ist der Zielwert?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
-    ['de', 'Erklären Sie den empfohlenen Druck für die Reifen.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab']
+    ['de', 'Erklären Sie den empfohlenen Druck für die Reifen.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['pt-BR', 'Qual é a pressão aconselhada dos pneus?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['pt-BR', 'Explique a pressão correta para o pneu dianteiro.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['pt-BR', 'A melhor pressão dos pneus seria qual?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['pt-BR', 'Por favor, explique se 182 kPa é uma pressão sensata para os pneus.', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['pt-BR', 'Para os pneus, qual pressão funciona nesta sessão?', 'TÁTICA PAUSADA', 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL', 'A pressão-alvo dos pneus depende do setup'],
+    ['es', '¿Cuál es la presión aconsejada de los neumáticos?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['es', 'Explique la presión correcta para el neumático delantero.', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['es', '¿La mejor presión de los neumáticos sería cuál?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['es', '¿Podría decir si 182 kPa es una presión sensata para los neumáticos?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['es', 'Para los neumáticos, ¿qué presión funciona en esta sesión?', 'TÁCTICA EN PAUSA', 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE', 'La presión objetivo de los neumáticos depende de la configuración'],
+    ['fr', 'Quelle est la pression conseillée des pneus ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['fr', 'Expliquez la pression correcte pour le pneu avant.', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['fr', 'La meilleure pression des pneus serait laquelle ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['fr', 'Pourriez-vous dire si 182 kPa est une pression raisonnable pour les pneus ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['fr', 'Pour les pneus, quelle pression convient à cette session ?', 'TACTIQUE EN PAUSE', 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE', 'La pression cible des pneus dépend du réglage'],
+    ['de', 'Was ist der richtige Reifendruck?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Erklären Sie den besten Reifendruck.', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Welcher empfohlene Reifendruck passt zum Vorderreifen?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Ist 182 kPa ein passender Druck für die Reifen?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab'],
+    ['de', 'Welcher Druck für die Reifen funktioniert in dieser Sitzung?', 'TAKTIK PAUSIERT', 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR', 'Der Zielreifendruck hängt vom Setup ab']
   ] as const)(
-    'routes localized target tyre pressure as setup advice before definitions: %s — %s',
+    'structurally routes every non-allowlisted tyre-pressure query as setup advice: %s — %s',
     async (language, question, pausedMarker, unknownMarker, greenMarker) => {
       for (const [label, safety, expectedSafetyMarker] of [
         ['green', KNOWN_SAFE_RACE, null],
@@ -694,6 +714,50 @@ describe('createEngineerOrchestrator.ask', () => {
         }
         expect(harness.runtime.generateWithTools, `${label}:${question}`).not.toHaveBeenCalled()
         expect(harness.modelManager.ensureModel, `${label}:${question}`).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  it.each([
+    ['en-US', 'What does tyre pressure mean?', 'measured inflation pressure'],
+    ['pt-BR', 'O que significa a pressão dos pneus?', 'pressão de inflação medida'],
+    ['es', '¿Qué significa la presión de los neumáticos?', 'presión de inflado medida'],
+    ['fr', 'Que signifie la pression des pneus ?', 'pression de gonflage mesurée'],
+    ['de', 'Was bedeutet Reifendruck?', 'gemessene Fülldruck']
+  ] as const)(
+    'keeps exact tyre-pressure concept definitions controlled without a model: %s — %s',
+    async (language, question, marker) => {
+      for (const [safetyLabel, safety] of [
+        ['green', KNOWN_SAFE_RACE],
+        ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }],
+        [
+          'unknown',
+          {
+            connected: true,
+            onTrack: true,
+            flagsKnown: false,
+            pitStateKnown: false,
+            paceStateKnown: false
+          }
+        ]
+      ] as const) {
+        const harness = makeHarness({
+          config: {
+            language: language === 'pt-BR' ? 'pt-BR' : 'en-US'
+          },
+          racecraftLanguage: language,
+          racecraftContext: { safety }
+        })
+
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.source, `${safetyLabel}:${question}`).toBe('intent')
+        expect(answer.lang, `${safetyLabel}:${question}`).toBe(language)
+        expect(answer.text, `${safetyLabel}:${question}`).toContain(marker)
+        expect(answer.text, `${safetyLabel}:${question}`).not.toContain('Setup Experiment Twin')
+        expect(answer.speak, `${safetyLabel}:${question}`).not.toBe(false)
+        expect(harness.runtime.generateWithTools, `${safetyLabel}:${question}`).not.toHaveBeenCalled()
+        expect(harness.modelManager.ensureModel, `${safetyLabel}:${question}`).not.toHaveBeenCalled()
       }
     }
   )
@@ -763,7 +827,6 @@ describe('createEngineerOrchestrator.ask', () => {
   it.each([
     'Define tyre compound.',
     'What does tyre compound mean?',
-    'Explain tyre pressure.',
     'Define tyre change.',
     'What does tyre change mean?',
     'What does change tyres mean?',
