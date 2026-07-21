@@ -237,8 +237,24 @@ describe('inert gallery previews (Electron Chromium)', () => {
       electronApp = await _electron.launch({ executablePath, args: ['--no-sandbox', main], env: { ...process.env, INERT_PREVIEW_URL: 'http://127.0.0.1:' + address.port + '/__inert-preview' } })
       const page = await electronApp.firstWindow()
       page.on('pageerror', (error) => console.error(error))
-      await page.waitForFunction(() => Boolean((window as typeof window & { __inertPreviewApi?: unknown }).__inertPreviewApi))
-      const result = await page.evaluate(() => (window as typeof window & { __inertPreviewApi: { run(): Promise<any> } }).__inertPreviewApi.run())
+      let result
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await page.waitForFunction(() => Boolean((window as typeof window & { __inertPreviewApi?: unknown }).__inertPreviewApi))
+        try {
+          result = await page.evaluate(() => (window as typeof window & { __inertPreviewApi: { run(): Promise<any> } }).__inertPreviewApi.run())
+          break
+        } catch (error) {
+          if (
+            attempt === 0 &&
+            error instanceof Error &&
+            /execution context was destroyed/i.test(error.message)
+          ) {
+            continue
+          }
+          throw error
+        }
+      }
+      if (!result) throw new Error('The inert-preview browser harness did not return a result.')
       expect(result.frameworkCount).toBe(423)
       expect(result.catalogFrameworkCount).toBe(423)
       expect(result.oneToOne).toBe(true)
