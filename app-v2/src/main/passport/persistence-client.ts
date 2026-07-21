@@ -142,6 +142,7 @@ export interface PersistenceClientOptions {
 export class PassportPersistenceClient {
   private readonly queue: QueueEntry[] = []
   private worker: WorkerLike | null = null
+  private initialized = false
   private inFlight: QueueEntry | null = null
   private inFlightTimer: ReturnType<typeof setTimeout> | null = null
   private requestId = 0
@@ -178,7 +179,7 @@ export class PassportPersistenceClient {
           ? 'quarantined'
         : this.circuitOpen
           ? 'open-circuit'
-          : this.worker
+          : this.worker && this.initialized
             ? this.failures > 0 ? 'degraded' : 'ready'
             : 'starting',
       queued: this.queue.length,
@@ -451,7 +452,9 @@ export class PassportPersistenceClient {
       return Promise.reject(new Error('Passport persistence client is closing.'))
     }
     if (this.circuitOpen && !options.bypassCircuit) {
-      return Promise.reject(new Error('Passport persistence circuit is open.'))
+      return Promise.reject(persistenceHealthError(
+        new Error('Passport persistence circuit is open.')
+      ))
     }
     const bypassKill = options.bypassKill === true
     const bypassCircuit = options.bypassCircuit === true
@@ -459,7 +462,9 @@ export class PassportPersistenceClient {
     if (bypassCircuit && !this.worker) {
       this.startWorker()
       if (!this.worker) {
-        return Promise.reject(new Error('Passport persistence recovery worker is unavailable.'))
+        return Promise.reject(persistenceHealthError(
+          new Error('Passport persistence recovery worker is unavailable.')
+        ))
       }
     }
     const request: RpcRequest = { id: ++this.requestId, method, args }
@@ -499,6 +504,7 @@ export class PassportPersistenceClient {
     try {
       const worker = this.workerFactory()
       this.worker = worker
+      this.initialized = false
       worker.on('message', (value) => this.onMessage(worker, value))
       worker.on('error', (error) => this.onWorkerFailure(worker, error))
       worker.on('exit', (code) => {
@@ -513,9 +519,7 @@ export class PassportPersistenceClient {
         front: true,
         allowDuringClose: true,
         bypassBackpressure: true
-      }).catch((error) => {
-        this.onWorkerFailure(worker, error instanceof Error ? error : new Error(String(error)))
-      })
+      }).catch(() => undefined)
     } catch (error) {
       this.onWorkerFailure(null, error instanceof Error ? error : new Error(String(error)))
     }
@@ -525,7 +529,8 @@ export class PassportPersistenceClient {
     if (!this.worker || this.inFlight || this.closed) return
     const index = this.queue.findIndex((entry) =>
       (!this.killed || entry.bypassKill) &&
-      (!this.circuitOpen || entry.bypassCircuit)
+      (!this.circuitOpen || entry.bypassCircuit) &&
+      (this.initialized || entry.request.method === 'initialize')
     )
     if (index < 0) return
     const [entry] = this.queue.splice(index, 1)
@@ -558,7 +563,9 @@ export class PassportPersistenceClient {
     this.inFlightTimer = null
     this.inFlight = null
     if (response.ok) {
-      if (entry.request.method !== 'initialize') {
+      if (entry.request.method === 'initialize') {
+        this.initialized = true
+      } else {
         this.failures = 0
         this.restartAttempts = 0
       }
@@ -568,10 +575,16 @@ export class PassportPersistenceClient {
       ;(error as Error & { code?: string }).code = response.code
       if (response.code === 'PERSISTENCE_QUARANTINED') this.quarantined = true
       entry.reject(error)
-      if (response.code === PASSPORT_DOMAIN_ERROR_CODE) {
+      if (entry.request.method === 'initialize') {
+        this.rejectQueued(error)
+        const initializationFailure = new Error(error.message)
+        ;(initializationFailure as Error & { code?: string }).code = response.code
+        this.onWorkerFailure(worker, initializationFailure)
+        return
+      } else if (response.code === PASSPORT_DOMAIN_ERROR_CODE) {
         this.failures = 0
         this.restartAttempts = 0
-      } else if (entry.request.method !== 'initialize') {
+      } else {
         this.recordFailure(error)
       }
     }
@@ -590,6 +603,7 @@ export class PassportPersistenceClient {
     }
     const activeWorker = this.worker
     this.worker = null
+    this.initialized = false
     if (activeWorker) {
       void this.terminateWorker(activeWorker)
     }

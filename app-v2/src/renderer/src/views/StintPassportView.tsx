@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from 'react'
 import type { AppViewProps } from '../App'
@@ -29,6 +30,30 @@ import {
 } from '../../../shared/stint-passport'
 
 type TabId = 'current' | 'history' | 'roster' | 'configuration' | 'privacy'
+type PrivacyField = 'identityPersistenceOptIn' | PassportDataClass
+
+function privacyFieldValue(
+  privacy: PassportPrivacySettings,
+  field: PrivacyField
+): boolean | number {
+  return field === 'identityPersistenceOptIn'
+    ? privacy.identityPersistenceOptIn
+    : privacy.retentionDays[field]
+}
+
+function withPrivacyField(
+  privacy: PassportPrivacySettings,
+  field: PrivacyField,
+  value: boolean | number
+): PassportPrivacySettings {
+  if (field === 'identityPersistenceOptIn') {
+    return { ...privacy, identityPersistenceOptIn: value as boolean }
+  }
+  return {
+    ...privacy,
+    retentionDays: { ...privacy.retentionDays, [field]: value as number }
+  }
+}
 
 const page: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16 }
 const panel: CSSProperties = {
@@ -247,6 +272,11 @@ export default function StintPassportView({
   const [memberRoles, setMemberRoles] = useState<PassportRole[]>(['engineer'])
   const [config, setConfig] = useState<PassportConfig | null>(null)
   const [privacy, setPrivacy] = useState<PassportPrivacySettings | null>(null)
+  const privacyRef = useRef<PassportPrivacySettings | null>(null)
+  const privacyAuthorityRef = useRef<PassportPrivacySettings | null>(null)
+  const privacyDirtyFieldsRef = useRef<Set<PrivacyField>>(new Set())
+  const privacyConflictFieldsRef = useRef<Set<PrivacyField>>(new Set())
+  const [privacyConflictFields, setPrivacyConflictFields] = useState<PrivacyField[]>([])
   const [packageHash, setPackageHash] = useState('')
   const [repairTokenRevealed, setRepairTokenRevealed] = useState(false)
   const [repairTokenConfirmation, setRepairTokenConfirmation] = useState('')
@@ -258,7 +288,44 @@ export default function StintPassportView({
       setSnapshot(next)
       setSnapshotFresh(true)
       setConfig((current) => current ?? next.config)
-      setPrivacy((current) => current ?? next.privacy)
+      const incomingPrivacy: PassportPrivacySettings = {
+        ...next.privacy,
+        retentionDays: { ...next.privacy.retentionDays }
+      }
+      const previousAuthority = privacyAuthorityRef.current
+      const currentPrivacy = privacyRef.current
+      const dirtyFields = new Set(privacyDirtyFieldsRef.current)
+      const conflicts = new Set(privacyConflictFieldsRef.current)
+      let mergedPrivacy = incomingPrivacy
+      if (previousAuthority && currentPrivacy) {
+        for (const field of dirtyFields) {
+          const previousValue = privacyFieldValue(previousAuthority, field)
+          const incomingValue = privacyFieldValue(incomingPrivacy, field)
+          const localValue = privacyFieldValue(currentPrivacy, field)
+          if (!Object.is(previousValue, incomingValue)) {
+            if (Object.is(localValue, incomingValue)) {
+              dirtyFields.delete(field)
+              conflicts.delete(field)
+              continue
+            }
+            conflicts.add(field)
+            if (field === 'identityPersistenceOptIn' && incomingValue === false) {
+              dirtyFields.delete(field)
+              continue
+            }
+          }
+          mergedPrivacy = withPrivacyField(mergedPrivacy, field, localValue)
+        }
+      } else {
+        dirtyFields.clear()
+        conflicts.clear()
+      }
+      privacyAuthorityRef.current = incomingPrivacy
+      privacyDirtyFieldsRef.current = dirtyFields
+      privacyConflictFieldsRef.current = conflicts
+      privacyRef.current = mergedPrivacy
+      setPrivacy(mergedPrivacy)
+      setPrivacyConflictFields([...conflicts])
       setError(null)
     } catch (cause) {
       setSnapshotFresh(false)
@@ -447,9 +514,14 @@ export default function StintPassportView({
 
   const savePrivacy = (event: FormEvent): void => {
     event.preventDefault()
-    if (!privacy) return
+    if (!privacy || privacyConflictFields.length > 0) return
     void run('privacy', async () => {
       const saved = await mutate<PassportPrivacySettings>(STINT_PASSPORT_CHANNELS.setPrivacy, privacy)
+      privacyAuthorityRef.current = saved
+      privacyDirtyFieldsRef.current.clear()
+      privacyConflictFieldsRef.current.clear()
+      privacyRef.current = saved
+      setPrivacyConflictFields([])
       setPrivacy(saved)
       await refresh()
     })
@@ -469,6 +541,19 @@ export default function StintPassportView({
     if (window.confirm(tt(language, 'passport.confirmDelete', { class: value })) === false) return
     void run(`delete-${value}`, async () => {
       await mutate(STINT_PASSPORT_CHANNELS.deleteByClass, value)
+      if (value === 'D3') {
+        privacyDirtyFieldsRef.current.delete('identityPersistenceOptIn')
+        privacyConflictFieldsRef.current.delete('identityPersistenceOptIn')
+        setPrivacyConflictFields((fields) =>
+          fields.filter((field) => field !== 'identityPersistenceOptIn')
+        )
+        const currentPrivacy = privacyRef.current
+        if (currentPrivacy?.identityPersistenceOptIn) {
+          const sanitized = { ...currentPrivacy, identityPersistenceOptIn: false }
+          privacyRef.current = sanitized
+          setPrivacy(sanitized)
+        }
+      }
       await refresh()
     })
   }
@@ -713,15 +798,90 @@ export default function StintPassportView({
       {tab === 'privacy' && privacy && snapshot && (
         <section role="tabpanel" id="passport-panel-privacy" aria-labelledby="passport-tab-privacy" style={panel}>
           <h3>{tt(language, 'passport.privacyTitle')}</h3>
+          {privacyConflictFields.length > 0 && (
+            <div role="alert" style={{ color: 'var(--accent-danger)' }}>
+              <p>{tt(language, 'passport.privacyConflict')}</p>
+              <button
+                style={secondaryButton}
+                onClick={() => {
+                  const authoritative = privacyAuthorityRef.current
+                  const currentPrivacy = privacyRef.current
+                  if (!authoritative || !currentPrivacy) return
+                  let rebased = currentPrivacy
+                  for (const field of privacyConflictFields) {
+                    rebased = withPrivacyField(
+                      rebased,
+                      field,
+                      privacyFieldValue(authoritative, field)
+                    )
+                    privacyDirtyFieldsRef.current.delete(field)
+                  }
+                  privacyRef.current = rebased
+                  privacyConflictFieldsRef.current.clear()
+                  setPrivacy(rebased)
+                  setPrivacyConflictFields([])
+                }}
+                type="button"
+              >
+                {tt(language, 'passport.useLatestPrivacy')}
+              </button>
+            </div>
+          )}
           <form onSubmit={savePrivacy} style={grid}>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input type="checkbox" checked={privacy.identityPersistenceOptIn} onChange={(event) => setPrivacy({ ...privacy, identityPersistenceOptIn: event.target.checked })} />
+              <input
+                type="checkbox"
+                checked={privacy.identityPersistenceOptIn}
+                onChange={(event) => {
+                  privacyDirtyFieldsRef.current.add('identityPersistenceOptIn')
+                  privacyConflictFieldsRef.current.delete('identityPersistenceOptIn')
+                  setPrivacyConflictFields((fields) =>
+                    fields.filter((field) => field !== 'identityPersistenceOptIn')
+                  )
+                  const updated = {
+                    ...privacy,
+                    identityPersistenceOptIn: event.target.checked
+                  }
+                  privacyRef.current = updated
+                  setPrivacy(updated)
+                }}
+              />
               {tt(language, 'passport.identityOptIn')}
             </label>
             {(['D1', 'D2', 'D3'] as PassportDataClass[]).map((value) => (
-              <label key={value}><span style={label}>{tt(language, 'passport.retentionDays', { class: value })}</span><input style={input} type="number" min="1" value={privacy.retentionDays[value]} onChange={(event) => setPrivacy({ ...privacy, retentionDays: { ...privacy.retentionDays, [value]: Number(event.target.value) } })} /></label>
+              <label key={value}>
+                <span style={label}>{tt(language, 'passport.retentionDays', { class: value })}</span>
+                <input
+                  style={input}
+                  type="number"
+                  min="1"
+                  value={privacy.retentionDays[value]}
+                  onChange={(event) => {
+                    privacyDirtyFieldsRef.current.add(value)
+                    privacyConflictFieldsRef.current.delete(value)
+                    setPrivacyConflictFields((fields) =>
+                      fields.filter((field) => field !== value)
+                    )
+                    const updated = {
+                      ...privacy,
+                      retentionDays: {
+                        ...privacy.retentionDays,
+                        [value]: Number(event.target.value)
+                      }
+                    }
+                    privacyRef.current = updated
+                    setPrivacy(updated)
+                  }}
+                />
+              </label>
             ))}
-            <button style={button} disabled={busy !== null} type="submit">{tt(language, 'passport.savePrivacy')}</button>
+            <button
+              style={button}
+              disabled={busy !== null || privacyConflictFields.length > 0}
+              type="submit"
+            >
+              {tt(language, 'passport.savePrivacy')}
+            </button>
           </form>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <button style={secondaryButton} onClick={() => void run('kill', async () => { await mutate(STINT_PASSPORT_CHANNELS.setKillSwitch, !snapshot.runtime.queue.killSwitch); await refresh() })} type="button">

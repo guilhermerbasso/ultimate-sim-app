@@ -1645,4 +1645,419 @@ describe('PassportStore privacy and incremental integrity', () => {
     expect(raceOnly).not.toContain('Acknowledged by Alice')
     expect(raceOnly).toContain('[member redacted]')
   })
+
+  it.each([
+    {
+      dataClass: 'D1' as const,
+      itemId: 'audio-comms' as const,
+      unrelatedItemId: 'fuel-load' as const,
+      deletedSentinel: 'D1-MIGRATION-DELETE-SENTINEL',
+      survivingSentinel: 'D2-MIGRATION-SURVIVING-EVIDENCE'
+    },
+    {
+      dataClass: 'D2' as const,
+      itemId: 'fuel-load' as const,
+      unrelatedItemId: 'audio-comms' as const,
+      deletedSentinel: 'D2-MIGRATION-DELETE-SENTINEL',
+      survivingSentinel: 'D1-MIGRATION-SURVIVING-EVIDENCE'
+    }
+  ])(
+    '[spec-gap] rebases a roster-complete migration after $dataClass deletion without restoring $itemId evidence',
+    ({
+      dataClass,
+      itemId,
+      unrelatedItemId,
+      deletedSentinel,
+      survivingSentinel
+    }) => {
+      const path = join(scratch(`migration-rebase-${dataClass.toLowerCase()}`), 'passport.db')
+      const first = open(path, 10_000).store
+      const generationBefore = first.getPrivacyMutationGeneration()
+      const nextGeneration = generationBefore + 1
+      const migrationOperationId = `privacy-migration:${dataClass}:roster-complete`
+      const deleteOperationId = `privacy-delete:${dataClass}:migration-rebase`
+      const stintId = `migration-${dataClass.toLowerCase()}-stint`
+      const deletedHash = createHash('sha256').update(deletedSentinel, 'utf8').digest('hex')
+      const survivingHash = createHash('sha256').update(survivingSentinel, 'utf8').digest('hex')
+      const roster: PassportRosterMember[] = [{
+        memberId: `migration-${dataClass.toLowerCase()}-driver`,
+        displayName: `${dataClass} Migration Driver`,
+        roles: ['driver'],
+        active: true
+      }]
+      const migrationPassport = passport(stintId, 9_000)
+      migrationPassport.items = migrationPassport.items.map((item) => {
+        if (item.id === itemId) {
+          return {
+            ...item,
+            owner: undefined,
+            detail: deletedSentinel,
+            overrideReason: undefined,
+            reasonCode: undefined,
+            evidence: {
+              source: 'migration-fixture',
+              summary: deletedSentinel,
+              contentHash: deletedHash,
+              capturedAt: 9_000,
+              state: 'available'
+            }
+          }
+        }
+        if (item.id === unrelatedItemId) {
+          return {
+            ...item,
+            owner: undefined,
+            detail: survivingSentinel,
+            overrideReason: undefined,
+            reasonCode: undefined,
+            evidence: {
+              source: 'migration-fixture',
+              summary: survivingSentinel,
+              contentHash: survivingHash,
+              capturedAt: 9_000,
+              state: 'available'
+            }
+          }
+        }
+        return item
+      })
+      const migrationEvent = event(
+        dataClass === 'D1' ? 101 : 102,
+        `migration-${dataClass.toLowerCase()}-passport`,
+        stintId
+      )
+      const provenance = migrationEvent.canonicalEvent.facts[0].provenance!
+      migrationEvent.dataClass = dataClass
+      migrationEvent.itemId = itemId
+      migrationEvent.canonicalEvent.privacyClass = dataClass
+      migrationEvent.canonicalEvent.facts = [
+        {
+          ...migrationEvent.canonicalEvent.facts[0],
+          name: 'passport.migration.deleted_sentinel',
+          canonicalUnit: 'text',
+          value: { kind: 'string', value: deletedSentinel },
+          provenance: {
+            ...provenance,
+            canonicalUnit: 'text',
+            privacyClass: dataClass
+          }
+        },
+        {
+          name: 'passport.migration.deleted_hash',
+          canonicalUnit: 'sha256',
+          value: { kind: 'string', value: deletedHash },
+          provenance: {
+            ...provenance,
+            canonicalUnit: 'sha256',
+            privacyClass: dataClass
+          }
+        }
+      ]
+
+      first.setPrivacy(
+        {
+          ...DEFAULT_PASSPORT_PRIVACY,
+          identityPersistenceOptIn: true,
+          updatedAt: 0
+        },
+        generationBefore,
+        migrationOperationId,
+        {
+          operationId: migrationOperationId,
+          privacyMutationGeneration: generationBefore,
+          roster,
+          passport: migrationPassport,
+          event: migrationEvent
+        }
+      )
+      first.saveRoster(
+        roster,
+        first.getRosterMutationGeneration(),
+        `${migrationOperationId}:roster`
+      )
+      first.advancePersistenceMigration(migrationOperationId, 'roster')
+
+      const beforeDelete = first.getAuthoritativeState()
+      const markerBeforeDelete = beforeDelete.persistenceMigration
+      expect.soft(markerBeforeDelete).toMatchObject({
+        operationId: migrationOperationId,
+        privacyMutationGeneration: generationBefore,
+        rosterComplete: true,
+        passportComplete: false
+      })
+      expect.soft(markerBeforeDelete?.roster).toEqual(roster)
+      const markerBeforeDeleteSerialized = JSON.stringify(markerBeforeDelete)
+      expect.soft(markerBeforeDeleteSerialized).toContain(deletedSentinel)
+      expect.soft(markerBeforeDeleteSerialized).toContain(deletedHash)
+      const unrelatedEvidenceBefore = structuredClone(
+        markerBeforeDelete?.passport?.items.find((item) => item.id === unrelatedItemId)?.evidence
+      )
+      expect.soft(unrelatedEvidenceBefore).toMatchObject({
+        summary: survivingSentinel,
+        contentHash: survivingHash
+      })
+
+      expect.soft(first.deleteByClass(dataClass, nextGeneration, deleteOperationId)).toMatchObject({
+        dataClass,
+        deletedStints: 0
+      })
+      const authoritative = first.getAuthoritativeState(deleteOperationId)
+      expect.soft(authoritative.privacy.identityPersistenceOptIn).toBe(true)
+      expect.soft(authoritative.privacyMutationGeneration).toBe(nextGeneration)
+      expect.soft(authoritative.mutation).toMatchObject({
+        operationId: deleteOperationId,
+        kind: `privacy-delete:${dataClass}`,
+        generation: nextGeneration,
+        result: { dataClass }
+      })
+      const rebasedMarker = authoritative.persistenceMigration
+      expect.soft(rebasedMarker).toMatchObject({
+        operationId: migrationOperationId,
+        privacyMutationGeneration: nextGeneration,
+        rosterComplete: true,
+        passportComplete: false
+      })
+      expect.soft(rebasedMarker?.roster).toEqual(roster)
+      const deletedItem = rebasedMarker?.passport?.items.find((item) => item.id === itemId)
+      expect.soft(deletedItem).toMatchObject({ status: 'unknown', evidence: undefined })
+      const unrelatedEvidenceAfter = rebasedMarker?.passport?.items
+        .find((item) => item.id === unrelatedItemId)?.evidence
+      expect.soft(unrelatedEvidenceAfter).toMatchObject({
+        summary: survivingSentinel,
+        contentHash: survivingHash
+      })
+      expect.soft(unrelatedEvidenceAfter).toEqual(unrelatedEvidenceBefore)
+      const rebasedSerialized = JSON.stringify({
+        passport: rebasedMarker?.passport,
+        event: rebasedMarker?.event
+      })
+      expect.soft(rebasedSerialized).not.toContain(deletedSentinel)
+      expect.soft(rebasedSerialized).not.toContain(deletedHash)
+      expect.soft(rebasedSerialized).toContain(survivingSentinel)
+
+      closeTracked(first)
+      const reopened = open(path, 20_000).store
+      const reopenedAuthoritative = reopened.getAuthoritativeState(deleteOperationId)
+      expect.soft(reopenedAuthoritative.mutation).toEqual(authoritative.mutation)
+      expect.soft(reopenedAuthoritative.persistenceMigration).toEqual(rebasedMarker)
+      expect.soft(reopenedAuthoritative.persistenceMigration).toMatchObject({
+        operationId: migrationOperationId,
+        privacyMutationGeneration: nextGeneration,
+        rosterComplete: true,
+        passportComplete: false
+      })
+      expect.soft(reopened.getIntegrity()).toMatchObject({ state: 'anchored', verified: true })
+
+      const reopenedMarker = reopenedAuthoritative.persistenceMigration
+      expect.soft({
+        markerPresent: reopenedMarker !== undefined,
+        passportPresent: reopenedMarker?.passport !== undefined,
+        eventPresent: reopenedMarker?.event !== undefined
+      }).toEqual({
+        markerPresent: true,
+        passportPresent: true,
+        eventPresent: true
+      })
+      if (reopenedMarker?.passport && reopenedMarker.event) {
+        const persisted = reopened.persistPassport(
+          reopenedMarker.passport,
+          reopenedMarker.event,
+          nextGeneration
+        )
+        expect.soft(persisted).toMatchObject({ persisted: true, durability: 'durable' })
+        expect.soft(reopened.getAuthoritativeState().persistenceMigration).toEqual(reopenedMarker)
+        expect.soft(
+          reopened.advancePersistenceMigration(migrationOperationId, 'passport')
+        ).toBeUndefined()
+        expect.soft(reopened.getAuthoritativeState().persistenceMigration).toBeUndefined()
+        expect.soft(reopened.eventHeaders(stintId)).toHaveLength(1)
+        expect.soft(reopened.verifyActiveStint(stintId)).toMatchObject({
+          state: 'anchored',
+          verified: true
+        })
+        const durablePassport = reopened.getPassport(stintId)
+        expect.soft(durablePassport).toMatchObject({
+          identity: { stintId },
+          persisted: true,
+          durability: 'durable'
+        })
+        expect.soft(durablePassport?.items.find((item) => item.id === itemId)).toMatchObject({
+          status: 'unknown',
+          evidence: undefined
+        })
+        const durableUnrelatedEvidence = durablePassport?.items
+          .find((item) => item.id === unrelatedItemId)?.evidence
+        expect.soft(durableUnrelatedEvidence).toMatchObject({
+          summary: survivingSentinel,
+          contentHash: survivingHash
+        })
+        expect.soft(durableUnrelatedEvidence).toEqual(unrelatedEvidenceBefore)
+        const durableSerialized = JSON.stringify([
+          reopened.getAuthoritativeState(),
+          reopened.exportPackage('full-local')
+        ])
+        expect.soft(durableSerialized).not.toContain(deletedSentinel)
+        expect.soft(durableSerialized).not.toContain(deletedHash)
+        expect.soft(durableSerialized).toContain(survivingSentinel)
+      }
+    }
+  )
+
+  it.each([
+    { staleSource: 'current' as const },
+    { staleSource: 'ephemeralHistory' as const }
+  ])(
+    '[spec-gap] keeps durable rev2 authoritative over stale rev1 supplied through $staleSource',
+    ({ staleSource }) => {
+      const path = join(scratch(`export-revision-authority-${staleSource}`), 'passport.db')
+      const first = open(path, 10_000).store
+      enablePersistence(first)
+      const stintId = 'export-revision-authority-stint'
+      const staleSentinel = 'STALE-REV1-CALLER-SUPPLIED-SENTINEL'
+      const staleHash = createHash('sha256').update(staleSentinel, 'utf8').digest('hex')
+      const durableSentinel = 'DURABLE-REV2-RESOLVED-EVIDENCE'
+      const durableHash = createHash('sha256').update(durableSentinel, 'utf8').digest('hex')
+      const staleRev1 = passport(stintId, 1_000)
+      staleRev1.items = staleRev1.items.map((item) =>
+        item.id === 'fuel-load'
+          ? {
+              ...item,
+              status: 'mismatch',
+              owner: undefined,
+              detail: staleSentinel,
+              overrideReason: undefined,
+              reasonCode: undefined,
+              evidence: {
+                source: 'stale-local-state',
+                summary: staleSentinel,
+                contentHash: staleHash,
+                capturedAt: 1_000,
+                state: 'available'
+              }
+            }
+          : item
+      )
+      const durableRev2 = structuredClone(staleRev1)
+      durableRev2.revision = 2
+      durableRev2.items = durableRev2.items.map((item) =>
+        item.id === 'fuel-load'
+          ? {
+              ...item,
+              status: 'verified',
+              detail: durableSentinel,
+              verifiedAt: 2_000,
+              evidence: {
+                source: 'durable-resolution',
+                summary: durableSentinel,
+                contentHash: durableHash,
+                capturedAt: 2_000,
+                state: 'available'
+              },
+              revision: 2
+            }
+          : item
+      )
+      const durableEvent = event(201, 'export-durable-rev2', stintId)
+      durableEvent.itemId = 'fuel-load'
+      first.persistPassport(durableRev2, durableEvent)
+      closeTracked(first)
+
+      const reopened = open(path, 20_000).store
+      expect.soft(reopened.getPassport(stintId)).toMatchObject({
+        revision: 2,
+        persisted: true,
+        durability: 'durable'
+      })
+      expect.soft(reopened.verifyActiveStint(stintId)).toMatchObject({
+        state: 'anchored',
+        verified: true
+      })
+      const durableOnly = reopened.exportPackage('full-local')
+      const exported = staleSource === 'current'
+        ? reopened.exportPackage('full-local', staleRev1, [])
+        : reopened.exportPackage('full-local', null, [staleRev1])
+      const alternateSource = staleSource === 'current'
+        ? reopened.exportPackage('full-local', null, [staleRev1])
+        : reopened.exportPackage('full-local', staleRev1, [])
+
+      expect.soft(durableOnly.packageHash).toMatch(/^[a-f0-9]{64}$/)
+      const callerExports = [
+        { callerSource: staleSource, bundle: exported },
+        {
+          callerSource: staleSource === 'current' ? 'ephemeralHistory' : 'current',
+          bundle: alternateSource
+        }
+      ]
+      for (const { callerSource, bundle } of callerExports) {
+        const exportedPassport = bundle.passports[0]
+        const resolvedItem = exportedPassport?.items.find((item) => item.id === 'fuel-load')
+        const serialized = JSON.stringify(bundle)
+
+        expect.soft({
+          callerSource,
+          passportCount: bundle.passports.length
+        }).toEqual({
+          callerSource,
+          passportCount: 1
+        })
+        expect.soft({
+          callerSource,
+          passport: exportedPassport && {
+            revision: exportedPassport.revision,
+            persisted: exportedPassport.persisted,
+            durability: exportedPassport.durability
+          }
+        }).toEqual({
+          callerSource,
+          passport: {
+            revision: 2,
+            persisted: true,
+            durability: 'durable'
+          }
+        })
+        expect.soft({
+          callerSource,
+          resolvedItem
+        }).toEqual({
+          callerSource,
+          resolvedItem: expect.objectContaining({
+            status: 'verified',
+            detail: durableSentinel,
+            evidence: {
+              source: 'durable-resolution',
+              summary: durableSentinel,
+              contentHash: durableHash,
+              capturedAt: 2_000,
+              state: 'available'
+            },
+            revision: 2
+          })
+        })
+        expect.soft({
+          callerSource,
+          staleSentinelOccurrences: serialized.split(staleSentinel).length - 1,
+          staleHashOccurrences: serialized.split(staleHash).length - 1
+        }).toEqual({
+          callerSource,
+          staleSentinelOccurrences: 0,
+          staleHashOccurrences: 0
+        })
+        expect.soft({
+          callerSource,
+          passports: bundle.passports
+        }).toEqual({
+          callerSource,
+          passports: durableOnly.passports
+        })
+        expect.soft({
+          callerSource,
+          packageHash: bundle.packageHash
+        }).toEqual({
+          callerSource,
+          packageHash: durableOnly.packageHash
+        })
+        expect.soft(bundle.packageHash).toMatch(/^[a-f0-9]{64}$/)
+      }
+    }
+  )
 })

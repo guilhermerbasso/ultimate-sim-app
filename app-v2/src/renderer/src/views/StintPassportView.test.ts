@@ -706,6 +706,224 @@ describe('Stint Passport mutation, destructive, and replay boundaries', () => {
       'success'
     ))
   })
+
+  it('[spec-gap] adopts authoritative false after D3 deletion and never resubmits stale opt-in', async () => {
+    const initial = emptySnapshot()
+    initial.mutationCapability = 'delete-capability'
+    initial.privacy = {
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 90, D2: 30, D3: 7 },
+      updatedAt: 1_700_000_000_000
+    }
+    const authoritative: PassportSnapshot = {
+      ...initial,
+      mutationCapability: 'post-delete-capability',
+      privacy: {
+        identityPersistenceOptIn: false,
+        retentionDays: { D1: 90, D2: 30, D3: 7 },
+        updatedAt: 1_700_000_005_000
+      }
+    }
+    let snapshotReads = 0
+    let releaseDeleteRefresh!: (value: PassportSnapshot) => void
+    const deleteRefresh = new Promise<PassportSnapshot>((resolve) => {
+      releaseDeleteRefresh = resolve
+    })
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string, input?: unknown) => {
+      if (channel === 'stintPassport:getSnapshot') {
+        snapshotReads += 1
+        return snapshotReads === 1 ? initial : deleteRefresh
+      }
+      if (channel === 'stintPassport:deleteByClass') {
+        return { deletedStints: 1, redactedEvidence: 2, dataClass: 'D3' }
+      }
+      if (channel === 'stintPassport:setPrivacy') {
+        return (input as { payload: PassportSnapshot['privacy'] }).payload
+      }
+      return authoritative
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderPassport(initial, invoke, showToast)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    const optIn = screen.getByLabelText(/Explicitly persist D3/i) as HTMLInputElement
+    const save = screen.getByRole('button', { name: 'Save privacy controls' }) as HTMLButtonElement
+    expect(optIn.checked).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete/redact D3 data' }))
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      'stintPassport:deleteByClass',
+      { capability: 'delete-capability', payload: 'D3' }
+    ))
+    await waitFor(() => expect(snapshotReads).toBe(2))
+    expect(save.disabled).toBe(true)
+    expect(showToast.mock.calls.some(([, tone]) => tone === 'success')).toBe(false)
+    expect(invoke.mock.calls.map(([channel]) => channel)).toEqual([
+      'stintPassport:getSnapshot',
+      'stintPassport:deleteByClass',
+      'stintPassport:getSnapshot'
+    ])
+
+    releaseDeleteRefresh(authoritative)
+    await waitFor(() => expect(save.disabled).toBe(false))
+    expect.soft(optIn.checked).toBe(false)
+    fireEvent.click(save)
+
+    await waitFor(() => expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:setPrivacy'
+    )).toHaveLength(1))
+    const privacyCalls = invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:setPrivacy'
+    )
+    expect.soft(privacyCalls[0]?.[1]).toEqual({
+      capability: 'post-delete-capability',
+      payload: authoritative.privacy
+    })
+    expect.soft(privacyCalls.some(([, request]) =>
+      (request as { payload: PassportSnapshot['privacy'] }).payload.identityPersistenceOptIn
+    )).toBe(false)
+  })
+
+  it('[spec-gap] blocks an overlapping dirty privacy save when a newer snapshot makes opt-in authoritative false', async () => {
+    const initial = emptySnapshot()
+    initial.privacy = {
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 90, D2: 30, D3: 7 },
+      updatedAt: 1_700_000_010_000
+    }
+    const authoritative: PassportSnapshot = {
+      ...initial,
+      mutationCapability: 'conflict-capability',
+      privacy: {
+        identityPersistenceOptIn: false,
+        retentionDays: { D1: 45, D2: 30, D3: 7 },
+        updatedAt: 1_700_000_020_000
+      }
+    }
+    let current = initial
+    let updated: (() => void) | undefined
+    const subscribe = vi.fn((_channel: string, callback: () => void) => {
+      updated = callback
+      return () => undefined
+    })
+    const showToast = vi.fn()
+    const invoke = vi.fn(async (channel: string, input?: unknown) => {
+      if (channel === 'stintPassport:getSnapshot') return current
+      if (channel === 'stintPassport:setPrivacy') {
+        return (input as { payload: PassportSnapshot['privacy'] }).payload
+      }
+      return current
+    })
+    renderPassport(initial, invoke, showToast, subscribe)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    const d1Retention = screen.getByLabelText('D1 retention days') as HTMLInputElement
+    fireEvent.change(d1Retention, { target: { value: '120' } })
+    expect(d1Retention.value).toBe('120')
+
+    current = authoritative
+    expect(updated).toBeTypeOf('function')
+    updated?.()
+    await waitFor(() => expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:getSnapshot'
+    )).toHaveLength(2))
+    updated?.()
+    await waitFor(() => expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:getSnapshot'
+    )).toHaveLength(3))
+
+    const optIn = screen.getByLabelText(/Explicitly persist D3/i) as HTMLInputElement
+    const save = screen.getByRole('button', {
+      name: 'Save privacy controls'
+    }) as HTMLButtonElement
+    expect.soft(d1Retention.value).toBe('120')
+    expect.soft(optIn.checked).toBe(false)
+    const conflictMessage = [
+      ...screen.queryAllByRole('alert'),
+      ...screen.queryAllByRole('status')
+    ].find((element) => {
+      const message = element.textContent ?? ''
+      return /(privacy|retention)/i.test(message) &&
+        /(conflict|changed|newer|reload|refresh)/i.test(message)
+    })
+    expect.soft(conflictMessage).toBeDefined()
+    expect.soft(save.disabled).toBe(true)
+    expect(showToast.mock.calls.some(([, tone]) => tone === 'success')).toBe(false)
+
+    fireEvent.click(save)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    expect.soft(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:setPrivacy'
+    )).toHaveLength(0)
+  })
+
+  it('[spec-gap] preserves a non-overlapping dirty retention edit while rebasing authoritative opt-in false', async () => {
+    const initial = emptySnapshot()
+    initial.privacy = {
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 90, D2: 30, D3: 7 },
+      updatedAt: 1_700_000_030_000
+    }
+    const authoritative: PassportSnapshot = {
+      ...initial,
+      mutationCapability: 'rebased-capability',
+      privacy: {
+        identityPersistenceOptIn: false,
+        retentionDays: { D1: 90, D2: 14, D3: 7 },
+        updatedAt: 1_700_000_040_000
+      }
+    }
+    let current = initial
+    let updated: (() => void) | undefined
+    const subscribe = vi.fn((_channel: string, callback: () => void) => {
+      updated = callback
+      return () => undefined
+    })
+    const invoke = vi.fn(async (channel: string, input?: unknown) => {
+      if (channel === 'stintPassport:getSnapshot') return current
+      if (channel === 'stintPassport:setPrivacy') {
+        return (input as { payload: PassportSnapshot['privacy'] }).payload
+      }
+      return current
+    })
+    renderPassport(initial, invoke, vi.fn(), subscribe)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Privacy & export' }))
+    const d1Retention = screen.getByLabelText('D1 retention days') as HTMLInputElement
+    fireEvent.change(d1Retention, { target: { value: '120' } })
+
+    current = authoritative
+    expect(updated).toBeTypeOf('function')
+    updated?.()
+    await waitFor(() => expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:getSnapshot'
+    )).toHaveLength(2))
+
+    expect.soft(d1Retention.value).toBe('120')
+    expect.soft((screen.getByLabelText('D2 retention days') as HTMLInputElement).value).toBe('14')
+    expect.soft((screen.getByLabelText(/Explicitly persist D3/i) as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Save privacy controls' }))
+
+    await waitFor(() => expect(invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:setPrivacy'
+    )).toHaveLength(1))
+    const privacyCalls = invoke.mock.calls.filter(([channel]) =>
+      channel === 'stintPassport:setPrivacy'
+    )
+    const request = privacyCalls[0]?.[1] as {
+      capability: string
+      payload: PassportSnapshot['privacy']
+    }
+    expect.soft(request.capability).toBe('rebased-capability')
+    expect.soft(request.payload).toMatchObject({
+      identityPersistenceOptIn: false,
+      retentionDays: { D1: 120, D2: 14, D3: 7 }
+    })
+    expect.soft(request.payload.updatedAt).toBeGreaterThanOrEqual(authoritative.privacy.updatedAt)
+    expect.soft(request.payload.updatedAt).not.toBe(initial.privacy.updatedAt)
+    expect.soft(privacyCalls.some(([, candidate]) =>
+      (candidate as { payload: PassportSnapshot['privacy'] }).payload.identityPersistenceOptIn
+    )).toBe(false)
+  })
 })
 
 describe('Stint Passport repair failure truth', () => {

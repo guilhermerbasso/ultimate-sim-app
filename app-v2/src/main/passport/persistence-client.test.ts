@@ -2,6 +2,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { DEFAULT_PASSPORT_PRIVACY } from '../../shared/stint-passport'
 import { PassportPersistenceClient } from './persistence-client'
 import {
+  PASSPORT_DOMAIN_ERROR_CODE,
+  PASSPORT_HEALTH_ERROR_CODE
+} from './persistence-errors'
+import {
   buildPassportWorkerTestFixture,
   type PassportWorkerTestFixture
 } from './passport-worker-test-fixture'
@@ -278,6 +282,130 @@ describe('PassportPersistenceClient failure domain', () => {
     })
     expect(client.status().state).toBe('ready')
   })
+
+  it.each([
+    {
+      failureKind: 'domain/config',
+      initializationCause: 'explicit invalid passport configuration',
+      errorCode: PASSPORT_DOMAIN_ERROR_CODE
+    },
+    {
+      failureKind: 'generic repair/bootstrap',
+      initializationCause: 'generic invalid repair/bootstrap state',
+      errorCode: undefined
+    },
+    {
+      failureKind: 'SQLite/schema',
+      initializationCause: 'schema/database initialization failure',
+      errorCode: 'ERR_SQLITE_ERROR'
+    }
+  ])(
+    '[spec-gap] exhausts exactly three restarts when $failureKind initialize rejects and settles every queued caller',
+    async ({ initializationCause, errorCode }) => {
+      const MAX_RESTARTS = 3
+      const expectedWorkerCount = 1 + MAX_RESTARTS
+      const rejectInitialize = (worker: FakeWorker, request: Request) => {
+        if (request.method === 'initialize') {
+          worker.fail(request, initializationCause, errorCode)
+        }
+      }
+      const { client, workers } = createClient([rejectInitialize])
+
+      const queuedRequests = [
+        client.getConfig(),
+        client.getPrivacy(),
+        client.listRoster()
+      ]
+      const queuedSettlement = Promise.allSettled(queuedRequests)
+      const queuedOutcomes = await Promise.race([
+        queuedSettlement,
+        new Promise<never>((_, reject) => setTimeout(
+          () => reject(new Error('initialize rejection settlement deadline exceeded')),
+          250
+        ))
+      ])
+
+      await waitUntil(
+        () => client.status().state === 'open-circuit' ||
+          workers.length > expectedWorkerCount,
+        250
+      )
+      const exhaustedStatus = client.status()
+
+      const postExhaustionSettlement = Promise.allSettled([client.getConfig()])
+      const postExhaustionOutcomes = await Promise.race([
+        postExhaustionSettlement,
+        new Promise<never>((_, reject) => setTimeout(
+          () => reject(new Error('post-exhaustion rejection deadline exceeded')),
+          250
+        ))
+      ])
+
+      await waitUntil(
+        () => workers.every((worker) => worker.terminated) ||
+          workers.length > expectedWorkerCount,
+        250
+      )
+      const observedWorkerCount = workers.length
+      const observedWorkerMethods = workers.map((worker) =>
+        worker.requests.map((request) => request.method)
+      )
+      const workersTerminatedAfterExhaustion =
+        workers.every((worker) => worker.terminated)
+      await client.close().catch(() => undefined)
+
+      expect.soft(queuedOutcomes.map((outcome) => outcome.status)).toEqual([
+        'rejected',
+        'rejected',
+        'rejected'
+      ])
+      for (const outcome of queuedOutcomes) {
+        if (outcome.status === 'rejected') {
+          const reason = outcome.reason as (Error & { code?: string }) | undefined
+          expect.soft(reason).toBeInstanceOf(Error)
+          expect.soft(reason instanceof Error ? reason.message : undefined)
+            .toBe(initializationCause)
+          expect.soft(reason?.code).toBe(errorCode)
+        }
+      }
+      expect.soft({
+        state: exhaustedStatus.state,
+        restarts: exhaustedStatus.restarts,
+        queued: exhaustedStatus.queued,
+        queuedBytes: exhaustedStatus.queuedBytes,
+        inFlight: exhaustedStatus.inFlight
+      }).toEqual({
+        state: 'open-circuit',
+        restarts: MAX_RESTARTS,
+        queued: 0,
+        queuedBytes: 0,
+        inFlight: false
+      })
+      expect.soft(observedWorkerCount).toBe(expectedWorkerCount)
+      expect.soft(observedWorkerMethods).toEqual(
+        Array.from({ length: expectedWorkerCount }, () => ['initialize'])
+      )
+      expect.soft(workersTerminatedAfterExhaustion).toBe(true)
+      expect.soft(postExhaustionOutcomes).toHaveLength(1)
+      const [postExhaustionOutcome] = postExhaustionOutcomes
+      expect.soft(postExhaustionOutcome.status).toBe('rejected')
+      if (postExhaustionOutcome.status === 'rejected') {
+        const reason = postExhaustionOutcome.reason as
+          (Error & { code?: string }) | undefined
+        expect.soft({
+          isError: reason instanceof Error,
+          name: reason instanceof Error ? reason.name : undefined,
+          message: reason instanceof Error ? reason.message : undefined,
+          code: reason?.code
+        }).toEqual({
+          isError: true,
+          name: 'Error',
+          message: expect.stringMatching(/circuit/i),
+          code: PASSPORT_HEALTH_ERROR_CODE
+        })
+      }
+    }
+  )
 })
 
 import { mkdtempSync, rmSync } from 'node:fs'

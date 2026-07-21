@@ -2798,6 +2798,1066 @@ describe('B11 – Serialized validated mutation intents', () => {
         expect(restartedExport.passports).toEqual([])
       }
     })
+
+    function hardStopPassportRuntime(
+      service: StintPassportService,
+      store: PassportPersistenceEngine
+    ): void {
+      const internal = service as unknown as {
+        subscription: Phase02TapSubscription
+        retentionTimer: ReturnType<typeof setInterval> | null
+        broadcastTimer: ReturnType<typeof setTimeout> | null
+      }
+      internal.subscription.dispose()
+      if (internal.retentionTimer) clearInterval(internal.retentionTimer)
+      if (internal.broadcastTimer) clearTimeout(internal.broadcastTimer)
+      const serviceIndex = services.indexOf(service)
+      if (serviceIndex >= 0) services.splice(serviceIndex, 1)
+      store.close()
+      const storeIndex = stores.indexOf(store)
+      if (storeIndex >= 0) stores.splice(storeIndex, 1)
+    }
+
+    function hardRestartPassportRuntime(
+      test: ReturnType<typeof harness>,
+      active: {
+        service: StintPassportService
+        store: PassportPersistenceEngine
+      },
+      now: number,
+      configureClient?: (client: IPassportPersistenceClient) => void
+    ) {
+      hardStopPassportRuntime(active.service, active.store)
+      const store = new PassportPersistenceEngine({
+        path: join(test.dir, 'passport.db'),
+        now: () => now
+      })
+      stores.push(store)
+      const client = clientFor(store)
+      configureClient?.(client)
+      const tap = new FakeTap()
+      const service = new StintPassportService(
+        { ...test.ctx, phase02Tap: tap } as unknown as ModuleContext,
+        client,
+        () => now
+      )
+      services.push(service)
+      return { store, client, tap, service }
+    }
+
+    function isPersistenceMigrationPublish(
+      args: Parameters<IPassportPersistenceClient['persistPassport']>
+    ): boolean {
+      return args[1].canonicalEvent.eventType ===
+        'ultimate.sim.raceops.passport.persistence-migrated.v1'
+    }
+
+    type Phase4Observation<T> =
+      | { status: 'fulfilled'; value: T }
+      | { status: 'rejected'; error: unknown }
+      | { status: 'timed-out' }
+
+    async function observePhase4<T>(
+      operation: Promise<T>,
+      timeoutMs = 1_000
+    ): Promise<Phase4Observation<T>> {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const settled: Promise<Phase4Observation<T>> = operation.then(
+          (value) => ({ status: 'fulfilled', value }),
+          (error: unknown) => ({ status: 'rejected', error })
+        )
+        return await Promise.race([
+          settled,
+          new Promise<Phase4Observation<T>>((resolve) => {
+            timer = setTimeout(() => resolve({ status: 'timed-out' }), timeoutMs)
+          })
+        ])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
+    async function awaitPhase4Signal(signal: Promise<void>): Promise<boolean> {
+      return (await observePhase4(signal)).status === 'fulfilled'
+    }
+
+    it.each([
+      {
+        destructiveIntent: 'opt-out' as const,
+        recoveryBoundary: 'roster' as const
+      },
+      {
+        destructiveIntent: 'explicit D3 deletion' as const,
+        recoveryBoundary: 'passport' as const
+      }
+    ])(
+      '[blocker-B12-g] failed startup migration is superseded by $destructiveIntent without republishing D3',
+      async ({ destructiveIntent, recoveryBoundary }) => {
+        const slug = destructiveIntent === 'opt-out' ? 'optout' : 'd3-delete'
+        const test = harness(`B12-startup-migration-${slug}`)
+        const identitySentinel = `D3-STARTUP-${slug.toUpperCase()}-IDENTITY`
+        const evidenceSentinel = `D3-STARTUP-${slug.toUpperCase()}-EVIDENCE`
+        await test.service.setConfig(test.config)
+        await test.tap.emit(delivery(telemetry(identitySentinel, 70), 1n))
+        const current = (await test.service.snapshot()).current!
+        await configureRoster(test, current.identity.driverRef)
+        await test.service.resolveItem({
+          stintId: current.identity.stintId,
+          itemId: 'incoming-driver',
+          status: 'manual-confirmed',
+          owner: { memberId: current.identity.driverRef, role: 'driver' },
+          reasonCode: evidenceSentinel
+        })
+        const evidenceHash = (await test.service.snapshot()).current?.items.find((item) =>
+          item.id === 'incoming-driver'
+        )?.evidence?.contentHash
+        expect(evidenceHash).toMatch(/^[0-9a-f]{64}$/)
+
+        const originalInitialSaveRoster = test.client.saveRoster.bind(test.client)
+        const originalInitialPersistPassport = test.client.persistPassport.bind(test.client)
+        test.client.saveRoster = vi.fn(async (
+          ...args: Parameters<typeof test.client.saveRoster>
+        ) => {
+          if (recoveryBoundary === 'roster' && args[2]?.endsWith(':roster')) {
+            throw new Error('Injected startup migration roster recovery failure.')
+          }
+          return originalInitialSaveRoster(...args)
+        }) as typeof test.client.saveRoster
+        test.client.persistPassport = vi.fn(async (
+          ...args: Parameters<typeof test.client.persistPassport>
+        ) => {
+          if (recoveryBoundary === 'passport' && isPersistenceMigrationPublish(args)) {
+            throw new Error('Injected startup migration passport recovery failure.')
+          }
+          return originalInitialPersistPassport(...args)
+        }) as typeof test.client.persistPassport
+        const desiredOptIn = {
+          ...DEFAULT_PASSPORT_PRIVACY,
+          identityPersistenceOptIn: true,
+          updatedAt: 20_000
+        }
+
+        await expect(test.service.setPrivacy(desiredOptIn))
+          .rejects.toThrow(/migration|recovery|unresolved/i)
+        const seededMarker = test.store.getAuthoritativeState().persistenceMigration
+        expect(seededMarker).toMatchObject({
+          rosterComplete: recoveryBoundary === 'passport',
+          passportComplete: false
+        })
+        expect(JSON.stringify(seededMarker)).toContain(identitySentinel)
+        expect(JSON.stringify(seededMarker)).toContain(evidenceSentinel)
+        expect(JSON.stringify(seededMarker)).toContain(evidenceHash)
+
+        let destructiveOperationId: string | undefined
+        let destructiveIntentRequested = false
+        const migrationPublishesAfterIntent: string[] = []
+        const restarted = hardRestartPassportRuntime(
+          test,
+          { service: test.service, store: test.store },
+          50_000,
+          (client) => {
+            const saveRoster = client.saveRoster.bind(client)
+            client.saveRoster = vi.fn(async (
+              ...args: Parameters<typeof client.saveRoster>
+            ) => {
+              if (args[2]?.endsWith(':roster')) {
+                if (destructiveIntentRequested) {
+                  migrationPublishesAfterIntent.push(`saveRoster:${args[2]}`)
+                }
+                if (recoveryBoundary === 'roster') {
+                  throw new Error('Injected restarted migration roster recovery failure.')
+                }
+              }
+              return saveRoster(...args)
+            }) as typeof client.saveRoster
+
+            const persistPassport = client.persistPassport.bind(client)
+            client.persistPassport = vi.fn(async (
+              ...args: Parameters<typeof client.persistPassport>
+            ) => {
+              if (isPersistenceMigrationPublish(args)) {
+                if (destructiveIntentRequested) {
+                  migrationPublishesAfterIntent.push('persistPassport:migration')
+                }
+                if (recoveryBoundary === 'passport') {
+                  throw new Error('Injected restarted migration passport recovery failure.')
+                }
+              }
+              return persistPassport(...args)
+            }) as typeof client.persistPassport
+
+            const setPrivacy = client.setPrivacy.bind(client)
+            client.setPrivacy = vi.fn(async (
+              ...args: Parameters<typeof client.setPrivacy>
+            ) => {
+              if (!args[0].identityPersistenceOptIn) destructiveOperationId = args[2]
+              return setPrivacy(...args)
+            }) as typeof client.setPrivacy
+
+            const deleteByClass = client.deleteByClass.bind(client)
+            client.deleteByClass = vi.fn(async (
+              ...args: Parameters<typeof client.deleteByClass>
+            ) => {
+              if (args[0] === 'D3') destructiveOperationId = args[2]
+              return deleteByClass(...args)
+            }) as typeof client.deleteByClass
+          }
+        )
+
+        await restarted.service.snapshot()
+        expect((restarted.service as unknown as {
+          pendingMutationRecovery?: { kind: string; operationId: string }
+        }).pendingMutationRecovery).toMatchObject({
+          kind: 'persistence-migration',
+          operationId: seededMarker?.operationId
+        })
+
+        const generationBefore = restarted.store.getPrivacyMutationGeneration()
+        migrationPublishesAfterIntent.length = 0
+        destructiveIntentRequested = true
+        const destructivePrivacy = {
+          ...DEFAULT_PASSPORT_PRIVACY,
+          identityPersistenceOptIn: false,
+          updatedAt: 60_000
+        }
+        const destructivePromise: Promise<unknown> = destructiveIntent === 'opt-out'
+          ? restarted.service.setPrivacy(destructivePrivacy)
+          : restarted.service.deleteByClass('D3')
+        const destructive = await observePhase4(destructivePromise)
+        const destructiveValue = destructive.status === 'fulfilled'
+          ? destructive.value
+          : undefined
+        const expectedGeneration = generationBefore + 1
+        const authoritativeObservation = await observePhase4(
+          Promise.resolve().then(() =>
+            restarted.store.getAuthoritativeState(destructiveOperationId)
+          )
+        )
+        const authoritative = authoritativeObservation.status === 'fulfilled'
+          ? authoritativeObservation.value
+          : undefined
+
+        expect.soft(
+          migrationPublishesAfterIntent,
+          `${destructiveIntent}: migration must not republish after destructive intent`
+        ).toEqual([])
+        expect.soft(
+          destructive.status,
+          `${destructiveIntent}: destructive intent must fulfill`
+        ).toBe('fulfilled')
+        if (destructiveIntent === 'opt-out') {
+          expect.soft(
+            destructiveValue,
+            `${destructiveIntent}: opt-out result`
+          ).toMatchObject({ identityPersistenceOptIn: false })
+        } else {
+          expect.soft(
+            destructiveValue,
+            `${destructiveIntent}: deletion result`
+          ).toMatchObject({ dataClass: 'D3' })
+        }
+        expect.soft(
+          destructiveOperationId
+            ? (destructiveIntent === 'opt-out'
+                ? /^privacy:/.test(destructiveOperationId)
+                : /^privacy-delete:D3:/.test(destructiveOperationId))
+            : undefined,
+          `${destructiveIntent}: durable operation ID`
+        ).toBe(true)
+        expect.soft(
+          authoritativeObservation.status,
+          `${destructiveIntent}: authoritative state read`
+        ).toBe('fulfilled')
+        expect.soft(
+          authoritative?.privacyMutationGeneration,
+          `${destructiveIntent}: privacy generation`
+        ).toBe(expectedGeneration)
+        expect.soft(authoritative?.mutation, `${destructiveIntent}: durable receipt`).toMatchObject({
+          operationId: destructiveOperationId,
+          kind: destructiveIntent === 'opt-out'
+            ? 'privacy-settings'
+            : 'privacy-delete:D3',
+          generation: expectedGeneration
+        })
+        expect.soft(authoritative, `${destructiveIntent}: authoritative erasure`).toMatchObject({
+          privacy: { identityPersistenceOptIn: false },
+          roster: [],
+          passports: [],
+          persistenceMigration: undefined
+        })
+
+        const liveObservation = await observePhase4(restarted.service.snapshot())
+        const live = liveObservation.status === 'fulfilled'
+          ? liveObservation.value
+          : undefined
+        expect.soft(
+          liveObservation.status,
+          `${destructiveIntent}: live snapshot must remain observable`
+        ).toBe('fulfilled')
+        expect.soft(live, `${destructiveIntent}: live erasure`).toMatchObject({
+          current: null,
+          history: [],
+          roster: [],
+          privacy: { identityPersistenceOptIn: false }
+        })
+        const exportObservation = await observePhase4(
+          restarted.service.exportPackage('full-local')
+        )
+        const exported = exportObservation.status === 'fulfilled'
+          ? exportObservation.value
+          : undefined
+        expect.soft(
+          exportObservation.status,
+          `${destructiveIntent}: full-local export must remain observable`
+        ).toBe('fulfilled')
+        expect.soft(exported?.passports, `${destructiveIntent}: exported passports`).toEqual([])
+        expect.soft(exported?.roster, `${destructiveIntent}: exported roster`).toEqual([])
+        const observedErasure = JSON.stringify([authoritative, live, exported])
+        expect.soft(observedErasure, `${destructiveIntent}: identity erasure`)
+          .not.toContain(identitySentinel)
+        expect.soft(observedErasure, `${destructiveIntent}: evidence erasure`)
+          .not.toContain(evidenceSentinel)
+        expect.soft(observedErasure, `${destructiveIntent}: evidence hash erasure`)
+          .not.toContain(evidenceHash)
+        expect.soft(
+          migrationPublishesAfterIntent,
+          `${destructiveIntent}: observations must not retry migration publish`
+        ).toEqual([])
+
+        const idempotentReplay = destructiveOperationId
+          ? await observePhase4(Promise.resolve().then(() => {
+              if (destructiveIntent === 'opt-out') {
+                restarted.store.setPrivacy(
+                  destructivePrivacy,
+                  expectedGeneration,
+                  destructiveOperationId
+                )
+              } else {
+                restarted.store.deleteByClass(
+                  'D3',
+                  expectedGeneration,
+                  destructiveOperationId
+                )
+              }
+              return restarted.store.getPrivacyMutationGeneration()
+            }))
+          : ({ status: 'unavailable' } as const)
+        expect.soft(
+          idempotentReplay.status,
+          `${destructiveIntent}: operation-ID replay must be available and fulfill`
+        ).toBe('fulfilled')
+        expect.soft(
+          idempotentReplay.status === 'fulfilled' ? idempotentReplay.value : undefined,
+          `${destructiveIntent}: operation-ID replay must not advance generation`
+        ).toBe(expectedGeneration)
+
+        const reopened = hardRestartPassportRuntime(test, restarted, 80_000)
+        const reopenedAuthoritativeObservation = await observePhase4(
+          Promise.resolve().then(() => reopened.store.getAuthoritativeState())
+        )
+        const reopenedAuthoritative =
+          reopenedAuthoritativeObservation.status === 'fulfilled'
+            ? reopenedAuthoritativeObservation.value
+            : undefined
+        const reopenedSnapshotObservation = await observePhase4(
+          reopened.service.snapshot()
+        )
+        const reopenedSnapshot = reopenedSnapshotObservation.status === 'fulfilled'
+          ? reopenedSnapshotObservation.value
+          : undefined
+        const reopenedExportObservation = await observePhase4(
+          reopened.service.exportPackage('full-local')
+        )
+        const reopenedExport = reopenedExportObservation.status === 'fulfilled'
+          ? reopenedExportObservation.value
+          : undefined
+        expect.soft(
+          reopenedAuthoritativeObservation.status,
+          `${destructiveIntent}: hard-restart authoritative read`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedSnapshotObservation.status,
+          `${destructiveIntent}: hard-restart snapshot`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedExportObservation.status,
+          `${destructiveIntent}: hard-restart export`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedAuthoritative,
+          `${destructiveIntent}: hard-restart authoritative emptiness`
+        ).toMatchObject({
+          privacy: { identityPersistenceOptIn: false },
+          roster: [],
+          passports: [],
+          persistenceMigration: undefined
+        })
+        expect.soft(reopenedSnapshot, `${destructiveIntent}: hard-restart live emptiness`)
+          .toMatchObject({
+          current: null,
+          history: [],
+          roster: [],
+          privacy: { identityPersistenceOptIn: false }
+        })
+        expect.soft(
+          reopenedExport?.passports,
+          `${destructiveIntent}: hard-restart exported passports`
+        ).toEqual([])
+        expect.soft(
+          reopenedExport?.roster,
+          `${destructiveIntent}: hard-restart exported roster`
+        ).toEqual([])
+        const reopenedErasure = JSON.stringify([
+          reopenedAuthoritative,
+          reopenedSnapshot,
+          reopenedExport
+        ])
+        expect.soft(reopenedErasure, `${destructiveIntent}: hard-restart identity erasure`)
+          .not.toContain(identitySentinel)
+        expect.soft(reopenedErasure, `${destructiveIntent}: hard-restart evidence erasure`)
+          .not.toContain(evidenceSentinel)
+        expect.soft(reopenedErasure, `${destructiveIntent}: hard-restart hash erasure`)
+          .not.toContain(evidenceHash)
+      }
+    )
+
+    it.each([
+      {
+        dataClass: 'D1' as const,
+        itemId: 'audio-comms' as const,
+        unrelatedItemId: 'fuel-load' as const,
+        deletedSentinel: 'D1-PARTIAL-MIGRATION-DELETED-RETRY',
+        survivingSentinel: 'D2-PARTIAL-MIGRATION-SURVIVES-RETRY',
+        continuation: 'retry' as const
+      },
+      {
+        dataClass: 'D1' as const,
+        itemId: 'audio-comms' as const,
+        unrelatedItemId: 'fuel-load' as const,
+        deletedSentinel: 'D1-PARTIAL-MIGRATION-DELETED-RESTART',
+        survivingSentinel: 'D2-PARTIAL-MIGRATION-SURVIVES-RESTART',
+        continuation: 'restart' as const
+      },
+      {
+        dataClass: 'D2' as const,
+        itemId: 'fuel-load' as const,
+        unrelatedItemId: 'audio-comms' as const,
+        deletedSentinel: 'D2-PARTIAL-MIGRATION-DELETED-RETRY',
+        survivingSentinel: 'D1-PARTIAL-MIGRATION-SURVIVES-RETRY',
+        continuation: 'retry' as const
+      },
+      {
+        dataClass: 'D2' as const,
+        itemId: 'fuel-load' as const,
+        unrelatedItemId: 'audio-comms' as const,
+        deletedSentinel: 'D2-PARTIAL-MIGRATION-DELETED-RESTART',
+        survivingSentinel: 'D1-PARTIAL-MIGRATION-SURVIVES-RESTART',
+        continuation: 'restart' as const
+      }
+    ])(
+      '[blocker-B12-h] partial migration after $dataClass deletion resumes only sanitized remainder by $continuation',
+      async ({
+        dataClass,
+        itemId,
+        unrelatedItemId,
+        deletedSentinel,
+        survivingSentinel,
+        continuation
+      }) => {
+        const test = harness(
+          `B12-partial-${dataClass.toLowerCase()}-${continuation}`
+        )
+        await test.service.setConfig(test.config)
+        await test.tap.emit(delivery(telemetry(), 1n))
+        const current = (await test.service.snapshot()).current!
+        await configureRoster(test, current.identity.driverRef)
+        await test.service.resolveItem({
+          stintId: current.identity.stintId,
+          itemId: 'audio-comms',
+          status: 'manual-confirmed',
+          owner: { memberId: 'spotter-1', role: 'spotter' },
+          reasonCode: 'AUDIO_PARTIAL_MIGRATION_FIXTURE'
+        })
+        await test.service.resolveItem({
+          stintId: current.identity.stintId,
+          itemId: 'fuel-load',
+          status: 'manual-confirmed',
+          owner: { memberId: 'engineer-1', role: 'engineer' },
+          reasonCode: 'FUEL_PARTIAL_MIGRATION_FIXTURE'
+        })
+
+        const staged = (await test.service.snapshot()).current!
+        const targetEvidence = staged.items.find((item) => item.id === itemId)?.evidence
+        const unrelatedEvidence = staged.items.find((item) =>
+          item.id === unrelatedItemId
+        )?.evidence
+        if (!targetEvidence || !unrelatedEvidence) {
+          throw new Error('The partial migration fixture requires both evidence classes.')
+        }
+        const deletedHash = targetEvidence.contentHash
+        const survivingEvidence = {
+          ...structuredClone(unrelatedEvidence),
+          summary: survivingSentinel
+        }
+        const internal = test.service as unknown as { current: StintPassport | null }
+        internal.current = {
+          ...staged,
+          items: staged.items.map((item) => {
+            if (item.id === itemId) {
+              return {
+                ...item,
+                detail: deletedSentinel,
+                evidence: {
+                  ...item.evidence!,
+                  summary: deletedSentinel
+                }
+              }
+            }
+            if (item.id === unrelatedItemId) {
+              return {
+                ...item,
+                detail: survivingSentinel,
+                evidence: survivingEvidence
+              }
+            }
+            return item
+          })
+        }
+
+        const originalPersistPassport = test.client.persistPassport.bind(test.client)
+        let deleteRequested = false
+        const migrationPublishesAfterDelete: string[] = []
+        test.client.persistPassport = vi.fn(async (
+          ...args: Parameters<typeof test.client.persistPassport>
+        ) => {
+          if (isPersistenceMigrationPublish(args)) {
+            if (deleteRequested) migrationPublishesAfterDelete.push(JSON.stringify(args))
+            throw new Error('Injected partial migration passport persistence failure.')
+          }
+          return originalPersistPassport(...args)
+        }) as typeof test.client.persistPassport
+        const desiredOptIn = {
+          ...DEFAULT_PASSPORT_PRIVACY,
+          identityPersistenceOptIn: true,
+          retentionDays: { D1: 91, D2: 92, D3: 93 },
+          updatedAt: 20_000
+        }
+
+        await expect(test.service.setPrivacy(desiredOptIn))
+          .rejects.toThrow(/migration|persistence|unresolved/i)
+        const markerBeforeDelete = test.store.getAuthoritativeState().persistenceMigration
+        expect(markerBeforeDelete).toMatchObject({
+          rosterComplete: true,
+          passportComplete: false
+        })
+        expect(JSON.stringify(markerBeforeDelete)).toContain(deletedSentinel)
+        expect(JSON.stringify(markerBeforeDelete)).toContain(deletedHash)
+        expect(JSON.stringify(markerBeforeDelete)).toContain(survivingSentinel)
+        expect((test.service as unknown as {
+          pendingMutationRecovery?: { kind: string }
+        }).pendingMutationRecovery?.kind).toBe('privacy-settings')
+
+        let deleteOperationId: string | undefined
+        const deleteByClass = test.client.deleteByClass.bind(test.client)
+        test.client.deleteByClass = vi.fn(async (
+          ...args: Parameters<typeof test.client.deleteByClass>
+        ) => {
+          deleteOperationId = args[2]
+          return deleteByClass(...args)
+        }) as typeof test.client.deleteByClass
+        const generationBefore = test.store.getPrivacyMutationGeneration()
+        deleteRequested = true
+        const deletionObservation = await observePhase4(
+          test.service.deleteByClass(dataClass)
+        )
+        const deletionResult = deletionObservation.status === 'fulfilled'
+          ? deletionObservation.value
+          : undefined
+        const expectedGeneration = generationBefore + 1
+        const authoritativeObservation = await observePhase4(
+          Promise.resolve().then(() =>
+            test.store.getAuthoritativeState(deleteOperationId)
+          )
+        )
+        const authoritative = authoritativeObservation.status === 'fulfilled'
+          ? authoritativeObservation.value
+          : undefined
+
+        expect.soft(
+          deletionObservation.status,
+          `${dataClass} ${continuation}: deletion must fulfill`
+        ).toBe('fulfilled')
+        expect.soft(
+          deletionResult,
+          `${dataClass} ${continuation}: deletion result`
+        ).toMatchObject({ dataClass })
+        expect.soft(
+          migrationPublishesAfterDelete,
+          `${dataClass} ${continuation}: deletion must not republish unsanitized migration`
+        ).toEqual([])
+        expect.soft(
+          deleteOperationId
+            ? new RegExp(`^privacy-delete:${dataClass}:`).test(deleteOperationId)
+            : undefined,
+          `${dataClass} ${continuation}: deletion operation ID`
+        ).toBe(true)
+        expect.soft(
+          authoritativeObservation.status,
+          `${dataClass} ${continuation}: authoritative deletion read`
+        ).toBe('fulfilled')
+        expect.soft(
+          authoritative?.privacy.identityPersistenceOptIn,
+          `${dataClass} ${continuation}: opt-in remains enabled`
+        ).toBe(true)
+        expect.soft(
+          authoritative?.privacyMutationGeneration,
+          `${dataClass} ${continuation}: deletion advances generation once`
+        ).toBe(expectedGeneration)
+        expect.soft(
+          authoritative?.mutation,
+          `${dataClass} ${continuation}: class-correct deletion receipt`
+        ).toMatchObject({
+          operationId: deleteOperationId,
+          kind: `privacy-delete:${dataClass}`,
+          generation: expectedGeneration,
+          result: { dataClass }
+        })
+        const rebasedMarker = authoritative?.persistenceMigration
+        expect.soft(
+          rebasedMarker,
+          `${dataClass} ${continuation}: migration marker must be rebased, not cleared`
+        ).toMatchObject({
+          operationId: markerBeforeDelete?.operationId,
+          privacyMutationGeneration: expectedGeneration,
+          rosterComplete: true,
+          passportComplete: false
+        })
+        expect.soft(
+          rebasedMarker?.passport?.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: rebased marker deletes target evidence`
+        )
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          rebasedMarker?.passport?.items.find((item) =>
+            item.id === unrelatedItemId
+          )?.evidence,
+          `${dataClass} ${continuation}: rebased marker retains unrelated evidence`
+        ).toEqual(survivingEvidence)
+        const rebasedSerialized = rebasedMarker?.passport && rebasedMarker.event
+          ? JSON.stringify({
+              passport: rebasedMarker.passport,
+              event: rebasedMarker.event
+            })
+          : undefined
+        expect.soft(
+          rebasedSerialized?.includes(deletedSentinel),
+          `${dataClass} ${continuation}: rebased marker erases deleted sentinel`
+        ).toBe(false)
+        expect.soft(
+          rebasedSerialized?.includes(deletedHash),
+          `${dataClass} ${continuation}: rebased marker erases deleted hash`
+        ).toBe(false)
+        expect.soft(
+          rebasedSerialized?.includes(survivingSentinel),
+          `${dataClass} ${continuation}: rebased marker retains surviving sentinel`
+        ).toBe(true)
+
+        let migrationPersistStarted!: () => void
+        let releaseMigrationPersist!: () => void
+        const migrationPersistStart = new Promise<void>((resolve) => {
+          migrationPersistStarted = resolve
+        })
+        const migrationPersistBarrier = new Promise<void>((resolve) => {
+          releaseMigrationPersist = resolve
+        })
+        const remainingPublishes: Array<{
+          passport: Parameters<IPassportPersistenceClient['persistPassport']>[0]
+          event: Parameters<IPassportPersistenceClient['persistPassport']>[1]
+        }> = []
+        const repeatedRosterMigrations: string[] = []
+        const installContinuationSpies = (client: IPassportPersistenceClient): void => {
+          const persistPassport = client.persistPassport.bind(client)
+          client.persistPassport = vi.fn(async (
+            ...args: Parameters<typeof client.persistPassport>
+          ) => {
+            if (isPersistenceMigrationPublish(args)) {
+              remainingPublishes.push({
+                passport: structuredClone(args[0]),
+                event: structuredClone(args[1])
+              })
+              migrationPersistStarted()
+              await migrationPersistBarrier
+            }
+            return persistPassport(...args)
+          }) as typeof client.persistPassport
+          const saveRoster = client.saveRoster.bind(client)
+          client.saveRoster = vi.fn(async (
+            ...args: Parameters<typeof client.saveRoster>
+          ) => {
+            if (args[2]?.endsWith(':roster')) repeatedRosterMigrations.push(args[2])
+            return saveRoster(...args)
+          }) as typeof client.saveRoster
+        }
+
+        let active: {
+          service: StintPassportService
+          store: PassportPersistenceEngine
+          client: IPassportPersistenceClient
+          tap: FakeTap
+        }
+        let continuationPromise: Promise<unknown>
+        if (continuation === 'retry') {
+          test.client.persistPassport =
+            originalPersistPassport as typeof test.client.persistPassport
+          installContinuationSpies(test.client)
+          active = {
+            service: test.service,
+            store: test.store,
+            client: test.client,
+            tap: test.tap
+          }
+          continuationPromise = test.service.setPrivacy(desiredOptIn)
+        } else {
+          const restarted = hardRestartPassportRuntime(
+            test,
+            { service: test.service, store: test.store },
+            60_000,
+            installContinuationSpies
+          )
+          active = restarted
+          continuationPromise = restarted.service.snapshot()
+        }
+        const continuationResult = continuationPromise.then(
+          (value) => ({ status: 'fulfilled' as const, value }),
+          (error: unknown) => ({ status: 'rejected' as const, error })
+        )
+
+        let migrationPersistObserved = false
+        let markerWhilePersistBlockedObservation:
+          Phase4Observation<ReturnType<PassportPersistenceEngine['getAuthoritativeState']>>
+          | undefined
+        try {
+          migrationPersistObserved = await awaitPhase4Signal(migrationPersistStart)
+          markerWhilePersistBlockedObservation = await observePhase4(
+            Promise.resolve().then(() => active.store.getAuthoritativeState())
+          )
+        } finally {
+          releaseMigrationPersist()
+        }
+        const markerWhilePersistBlocked =
+          markerWhilePersistBlockedObservation?.status === 'fulfilled'
+            ? markerWhilePersistBlockedObservation.value.persistenceMigration
+            : undefined
+        expect.soft(
+          migrationPersistObserved,
+          `${dataClass} ${continuation}: sanitized remaining persist must start`
+        ).toBe(true)
+        expect.soft(
+          markerWhilePersistBlockedObservation?.status,
+          `${dataClass} ${continuation}: marker must be readable before persist release`
+        ).toBe('fulfilled')
+        expect.soft(
+          markerWhilePersistBlocked,
+          `${dataClass} ${continuation}: marker must remain until persist succeeds`
+        ).toMatchObject({
+          operationId: markerBeforeDelete?.operationId,
+          privacyMutationGeneration: expectedGeneration,
+          rosterComplete: true,
+          passportComplete: false
+        })
+
+        const continuationObservation = await observePhase4(continuationResult)
+        const settledContinuation = continuationObservation.status === 'fulfilled'
+          ? continuationObservation.value
+          : undefined
+        expect.soft(
+          continuationObservation.status,
+          `${dataClass} ${continuation}: continuation must settle within the bound`
+        ).toBe('fulfilled')
+        expect.soft(
+          settledContinuation?.status,
+          `${dataClass} ${continuation}: continuation must fulfill`
+        ).toBe('fulfilled')
+
+        expect.soft(
+          repeatedRosterMigrations,
+          `${dataClass} ${continuation}: completed roster migration must not repeat`
+        ).toEqual([])
+        expect.soft(
+          remainingPublishes,
+          `${dataClass} ${continuation}: exactly one sanitized passport persist remains`
+        ).toHaveLength(1)
+        const remainingPublish = remainingPublishes[0]
+        expect.soft(
+          remainingPublish?.passport.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: remaining persist deletes target evidence`
+        )
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          remainingPublish?.passport.items.find((item) =>
+            item.id === unrelatedItemId
+          )?.evidence,
+          `${dataClass} ${continuation}: remaining persist retains unrelated evidence`
+        ).toEqual(survivingEvidence)
+        const remainingSerialized = remainingPublish
+          ? JSON.stringify(remainingPublish)
+          : undefined
+        expect.soft(
+          remainingSerialized?.includes(deletedSentinel),
+          `${dataClass} ${continuation}: remaining persist erases deleted sentinel`
+        ).toBe(false)
+        expect.soft(
+          remainingSerialized?.includes(deletedHash),
+          `${dataClass} ${continuation}: remaining persist erases deleted hash`
+        ).toBe(false)
+
+        const completedAuthoritativeObservation = await observePhase4(
+          Promise.resolve().then(() => active.store.getAuthoritativeState())
+        )
+        const completedAuthoritative =
+          completedAuthoritativeObservation.status === 'fulfilled'
+            ? completedAuthoritativeObservation.value
+            : undefined
+        expect.soft(
+          completedAuthoritativeObservation.status,
+          `${dataClass} ${continuation}: post-continuation authoritative read`
+        ).toBe('fulfilled')
+        expect.soft(
+          completedAuthoritative?.persistenceMigration,
+          `${dataClass} ${continuation}: marker clears after successful remaining persist`
+        ).toBeUndefined()
+
+        const durableObservation = await observePhase4(
+          Promise.resolve().then(() =>
+            active.store.getPassport(current.identity.stintId)
+          )
+        )
+        const durable = durableObservation.status === 'fulfilled'
+          ? durableObservation.value
+          : undefined
+        expect.soft(
+          durableObservation.status,
+          `${dataClass} ${continuation}: durable passport read`
+        ).toBe('fulfilled')
+        expect.soft(durable, `${dataClass} ${continuation}: durable passport`).toMatchObject({
+          persisted: true,
+          durability: 'durable'
+        })
+        expect.soft(
+          durable?.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: durable target erasure`
+        )
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          durable?.items.find((item) => item.id === unrelatedItemId)?.evidence,
+          `${dataClass} ${continuation}: durable surviving evidence`
+        ).toEqual(survivingEvidence)
+        const durableIntegrityObservation = await observePhase4(
+          Promise.resolve().then(() =>
+            active.store.verifyActiveStint(current.identity.stintId)
+          )
+        )
+        const durableIntegrity = durableIntegrityObservation.status === 'fulfilled'
+          ? durableIntegrityObservation.value
+          : undefined
+        expect.soft(
+          durableIntegrityObservation.status,
+          `${dataClass} ${continuation}: durable integrity read`
+        ).toBe('fulfilled')
+        expect.soft(
+          durableIntegrity,
+          `${dataClass} ${continuation}: durable integrity`
+        ).toMatchObject({
+          state: 'anchored',
+          verified: true
+        })
+
+        const liveObservation = await observePhase4(active.service.snapshot())
+        const live = liveObservation.status === 'fulfilled'
+          ? liveObservation.value
+          : undefined
+        expect.soft(
+          liveObservation.status,
+          `${dataClass} ${continuation}: live snapshot`
+        ).toBe('fulfilled')
+        const livePassport = live?.current?.identity.stintId === current.identity.stintId
+          ? live.current
+          : live?.history.find((passport) =>
+              passport.identity.stintId === current.identity.stintId
+            )
+        expect.soft(
+          livePassport?.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: live target erasure`
+        )
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          livePassport?.items.find((item) => item.id === unrelatedItemId)?.evidence,
+          `${dataClass} ${continuation}: live surviving evidence`
+        ).toEqual(survivingEvidence)
+        expect.soft(
+          live?.integrity,
+          `${dataClass} ${continuation}: live integrity`
+        ).toMatchObject({ state: 'anchored', verified: true })
+        const exportObservation = await observePhase4(
+          active.service.exportPackage('full-local')
+        )
+        const exported = exportObservation.status === 'fulfilled'
+          ? exportObservation.value
+          : undefined
+        expect.soft(
+          exportObservation.status,
+          `${dataClass} ${continuation}: full-local export`
+        ).toBe('fulfilled')
+        const exportedPassport = exported?.passports.find((passport) =>
+          passport.identity.stintId === current.identity.stintId
+        )
+        expect.soft(
+          exportedPassport?.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: exported target erasure`
+        )
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          exportedPassport?.items.find((item) => item.id === unrelatedItemId)?.evidence,
+          `${dataClass} ${continuation}: exported surviving evidence`
+        ).toEqual(survivingEvidence)
+        const liveAndExport = JSON.stringify([live, exported])
+        expect.soft(
+          liveAndExport,
+          `${dataClass} ${continuation}: live/export deleted sentinel erasure`
+        ).not.toContain(deletedSentinel)
+        expect.soft(
+          liveAndExport,
+          `${dataClass} ${continuation}: live/export deleted hash erasure`
+        ).not.toContain(deletedHash)
+
+        const reopened = hardRestartPassportRuntime(test, active, 90_000)
+        const reopenedSnapshotObservation = await observePhase4(
+          reopened.service.snapshot()
+        )
+        const reopenedSnapshot = reopenedSnapshotObservation.status === 'fulfilled'
+          ? reopenedSnapshotObservation.value
+          : undefined
+        const reopenedExportObservation = await observePhase4(
+          reopened.service.exportPackage('full-local')
+        )
+        const reopenedExport = reopenedExportObservation.status === 'fulfilled'
+          ? reopenedExportObservation.value
+          : undefined
+        const reopenedAuthoritativeObservation = await observePhase4(
+          Promise.resolve().then(() => reopened.store.getAuthoritativeState())
+        )
+        const reopenedAuthoritative =
+          reopenedAuthoritativeObservation.status === 'fulfilled'
+            ? reopenedAuthoritativeObservation.value
+            : undefined
+        const reopenedPassportObservation = await observePhase4(
+          Promise.resolve().then(() =>
+            reopened.store.getPassport(current.identity.stintId)
+          )
+        )
+        const reopenedPassport = reopenedPassportObservation.status === 'fulfilled'
+          ? reopenedPassportObservation.value
+          : undefined
+        const reopenedLivePassport =
+          reopenedSnapshot?.current?.identity.stintId === current.identity.stintId
+            ? reopenedSnapshot.current
+            : reopenedSnapshot?.history.find((passport) =>
+                passport.identity.stintId === current.identity.stintId
+              )
+        expect.soft(
+          reopenedSnapshotObservation.status,
+          `${dataClass} ${continuation}: final restart snapshot`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedExportObservation.status,
+          `${dataClass} ${continuation}: final restart export`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedAuthoritativeObservation.status,
+          `${dataClass} ${continuation}: final restart authoritative read`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedPassportObservation.status,
+          `${dataClass} ${continuation}: final restart passport read`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedAuthoritative?.persistenceMigration,
+          `${dataClass} ${continuation}: final restart marker remains cleared`
+        ).toBeUndefined()
+        expect.soft(
+          reopenedPassport?.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: final durable target erasure`
+        )
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          reopenedPassport?.items.find((item) => item.id === unrelatedItemId)?.evidence,
+          `${dataClass} ${continuation}: final durable surviving evidence`
+        ).toEqual(survivingEvidence)
+        expect.soft(
+          reopenedLivePassport?.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: final live target erasure`
+        )
+          .toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          reopenedLivePassport?.items.find((item) => item.id === unrelatedItemId)?.evidence,
+          `${dataClass} ${continuation}: final live surviving evidence`
+        ).toEqual(survivingEvidence)
+        const reopenedExportPassport = reopenedExport?.passports.find((passport) =>
+          passport.identity.stintId === current.identity.stintId
+        )
+        expect.soft(
+          reopenedExportPassport?.items.find((item) => item.id === itemId),
+          `${dataClass} ${continuation}: final exported target erasure`
+        ).toMatchObject({ status: 'unknown', evidence: undefined })
+        expect.soft(
+          reopenedExportPassport?.items.find((item) =>
+            item.id === unrelatedItemId
+          )?.evidence,
+          `${dataClass} ${continuation}: final exported surviving evidence`
+        )
+          .toEqual(survivingEvidence)
+        const reopenedIntegrityObservation = await observePhase4(
+          Promise.resolve().then(() =>
+            reopened.store.verifyActiveStint(current.identity.stintId)
+          )
+        )
+        const reopenedIntegrity = reopenedIntegrityObservation.status === 'fulfilled'
+          ? reopenedIntegrityObservation.value
+          : undefined
+        expect.soft(
+          reopenedIntegrityObservation.status,
+          `${dataClass} ${continuation}: final durable integrity read`
+        ).toBe('fulfilled')
+        expect.soft(
+          reopenedIntegrity,
+          `${dataClass} ${continuation}: final durable integrity`
+        ).toMatchObject({
+          state: 'anchored',
+          verified: true
+        })
+        expect.soft(
+          reopenedSnapshot?.integrity,
+          `${dataClass} ${continuation}: final live integrity`
+        ).toMatchObject({
+          state: 'anchored',
+          verified: true
+        })
+        const reopenedSerialized = JSON.stringify([
+          reopenedAuthoritative,
+          reopenedSnapshot,
+          reopenedExport
+        ])
+        expect.soft(
+          reopenedSerialized,
+          `${dataClass} ${continuation}: final restart deleted sentinel erasure`
+        ).not.toContain(deletedSentinel)
+        expect.soft(
+          reopenedSerialized,
+          `${dataClass} ${continuation}: final restart deleted hash erasure`
+        ).not.toContain(deletedHash)
+      }
+    )
   })
 
   it('[blocker-B11-f] repair COMMIT response loss blocks stale export and retries with the stable operation', async () => {

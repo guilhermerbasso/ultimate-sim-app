@@ -1321,7 +1321,10 @@ export class PassportPersistenceEngine {
         'Passport privacy deletion generation conflict.'
       )
       this.writeMetaGeneration('privacy_mutation_generation', nextPrivacyGeneration)
-      this.clearPersistenceMigrationInTransaction()
+      this.rebasePersistenceMigrationAfterDeletionInTransaction(
+        dataClass,
+        nextPrivacyGeneration
+      )
       const result: PassportDeleteResult = {
         deletedStints: 0,
         redactedEvidence: this.redactEvidenceByClass(
@@ -1354,7 +1357,19 @@ export class PassportPersistenceEngine {
     const persisted = this.listPassports(500)
     const byId = new Map<string, StintPassport>()
     for (const passport of [...persisted, ...ephemeralHistory, ...(current ? [current] : [])]) {
-      byId.set(passport.identity.stintId, passport)
+      const existing = byId.get(passport.identity.stintId)
+      if (
+        !existing ||
+        passport.revision > existing.revision ||
+        (
+          passport.revision === existing.revision &&
+          passport.persisted &&
+          passport.durability === 'durable' &&
+          (!existing.persisted || existing.durability !== 'durable')
+        )
+      ) {
+        byId.set(passport.identity.stintId, passport)
+      }
     }
     const roster = this.getPrivacy().identityPersistenceOptIn
       ? this.listRoster()
@@ -1693,6 +1708,58 @@ export class PassportPersistenceEngine {
 
   private clearPersistenceMigrationInTransaction(): void {
     this.db.prepare("DELETE FROM passport_meta WHERE key = 'persistence_migration'").run()
+  }
+
+  private rebasePersistenceMigrationAfterDeletionInTransaction(
+    dataClass: 'D1' | 'D2',
+    privacyMutationGeneration: number
+  ): void {
+    const migration = this.readPersistenceMigration()
+    if (!migration) return
+    const deletedEvidenceHashes = new Set<string>()
+    const passport = migration.passport
+      ? (() => {
+          const items = migration.passport.items.map((item): PassportItem => {
+            if (itemDataClass(item.id) !== dataClass) return item
+            if (item.evidence?.contentHash) deletedEvidenceHashes.add(item.evidence.contentHash)
+            return {
+              ...item,
+              status: 'unknown',
+              detail: 'Evidence removed by data-class deletion.',
+              verifiedAt: undefined,
+              expiresAt: undefined,
+              evidence: undefined,
+              revision: item.revision + 1
+            }
+          })
+          return coherentAfterPrivacyRedaction({
+            ...migration.passport,
+            items,
+            ...calculatePassportCoverage(items)
+          })
+        })()
+      : undefined
+    const event = migration.event
+      ? {
+          ...migration.event,
+          canonicalEvent: {
+            ...migration.event.canonicalEvent,
+            facts: migration.event.canonicalEvent.facts.filter((fact) =>
+              migration.event?.dataClass !== dataClass &&
+              fact.provenance?.privacyClass !== dataClass
+            ),
+            evidenceRefs: migration.event.canonicalEvent.evidenceRefs.filter((reference) =>
+              !deletedEvidenceHashes.has(reference)
+            )
+          }
+        }
+      : undefined
+    this.writePersistenceMigrationInTransaction({
+      ...migration,
+      privacyMutationGeneration,
+      passport,
+      event
+    })
   }
 
   private normalizePersistenceMigration(

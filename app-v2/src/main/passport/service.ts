@@ -253,7 +253,11 @@ interface ReadinessRefreshFence {
 
 interface ServiceMutationIntent {
   operationId: string
-  kind: PassportMutationKind | 'persistence-migration' | 'persistence-repair'
+  kind:
+    | PassportMutationKind
+    | 'passport-persist'
+    | 'persistence-migration'
+    | 'persistence-repair'
   deletingClasses: readonly PassportDataClass[]
   deletionFenceActive: boolean
 }
@@ -350,7 +354,9 @@ export class StintPassportService {
       DEFAULT_PASSPORT_TAP_BUDGETS,
       (delivery) => this.consume(delivery)
     )
-    this.ready = this.initialize()
+    const ready = this.initialize()
+    void ready.catch(() => undefined)
+    this.ready = ready
   }
 
   async dispose(): Promise<void> {
@@ -518,6 +524,12 @@ export class StintPassportService {
     this.applyInitialAuthoritativeState(authoritative)
     if (authoritative.persistenceMigration) {
       const operationId = authoritative.persistenceMigration.operationId
+      const migrationFence: PersistenceMigrationFence = {
+        operationId,
+        privacyMutationGeneration:
+          authoritative.persistenceMigration.privacyMutationGeneration,
+        deletionGeneration: { ...this.privacyClassDeletionGeneration }
+      }
       const migrationIntent = this.createMutationIntent(
         'persistence-migration',
         [],
@@ -530,7 +542,7 @@ export class StintPassportService {
           if (migration.operationId !== operationId) {
             throw new Error('Persistence migration was superseded by authoritative durable state.')
           }
-          await this.resumePersistenceMigration(migration)
+          await this.resumePersistenceMigration(migration, migrationFence)
           state = await this.readAuthoritativeState(operationId)
         }
         if (state.persistenceMigration?.operationId === operationId) {
@@ -711,6 +723,19 @@ export class StintPassportService {
     const retainedText = definition.dataClass === 'D3' && this.privacy.identityPersistenceOptIn
       ? freeText
       : ''
+    const desiredEvidenceSummary = definition.dataClass === 'D3'
+      ? retainedText || reasonCode || `Confirmed for ${input.owner.role}.`
+      : lowerClassAttestationSummary(input.status)
+    const existingItem = current.items.find((item) => item.id === input.itemId)
+    if (
+      existingItem?.status === input.status &&
+      existingItem.owner?.memberId === input.owner.memberId &&
+      existingItem.owner.role === input.owner.role &&
+      (existingItem.reasonCode ?? '') === reasonCode &&
+      existingItem.evidence?.summary === desiredEvidenceSummary
+    ) {
+      return current
+    }
     const now = this.now()
     const items = current.items.map((item): PassportItem =>
       item.id === input.itemId
@@ -729,9 +754,7 @@ export class StintPassportService {
             expiresAt: now + definition.ttlMs,
             evidence: {
               source: 'human-attestation',
-              summary: definition.dataClass === 'D3'
-                ? retainedText || reasonCode || `Confirmed for ${input.owner.role}.`
-                : lowerClassAttestationSummary(input.status),
+              summary: desiredEvidenceSummary,
               contentHash: evidenceHash(definition.dataClass === 'D3'
                 ? {
                     itemId: input.itemId,
@@ -1432,8 +1455,116 @@ export class StintPassportService {
         challengeCompletedAt: undefined,
         challengeOwner: undefined
       }
+      if (this.isAmbiguousPersistenceFailure(error)) {
+        const intent = this.createMutationIntent(
+          'passport-persist',
+          [],
+          operationKey
+        )
+        this.installPendingRecovery(
+          intent,
+          durablePassportStateKey({
+            ...attempted.passport,
+            persisted: true,
+            durability: 'durable'
+          }),
+          async () => {
+            await this.recoverPassportPersistenceAttempt(
+              attempted,
+              privacyMutationGeneration,
+              superseded
+            )
+          }
+        )
+      }
       this.notify()
       throw error
+    }
+  }
+
+  private async recoverPassportPersistenceAttempt(
+    attempted: { passport: StintPassport; event: PassportStoreEvent },
+    privacyMutationGeneration: number,
+    superseded: () => boolean
+  ): Promise<void> {
+    const operationKey = attempted.event.canonicalEvent.dedupeKey
+    const readCommitted = async (): Promise<StintPassport | undefined> => {
+      const [state, durable, headers] = await Promise.all([
+        this.readAuthoritativeState(),
+        this.trackStoreOperation(
+          this.store.getPassport(attempted.passport.identity.stintId)
+        ),
+        this.trackStoreOperation(
+          this.store.eventHeaders(attempted.passport.identity.stintId)
+        )
+      ])
+      if (
+        state.privacyMutationGeneration !== privacyMutationGeneration ||
+        !state.privacy.identityPersistenceOptIn ||
+        superseded()
+      ) {
+        this.reconcileAuthoritativeState(state, {
+          reconcileRoster: true,
+          reconcilePassports: true
+        })
+        throw passportDomainError(
+          'Passport persistence was superseded by authoritative durable state.'
+        )
+      }
+      const receiptExists = headers.some((header) =>
+        header.dedupeKey === operationKey
+      )
+      if (
+        !receiptExists ||
+        !durable ||
+        durable.revision < attempted.passport.revision
+      ) {
+        return undefined
+      }
+      this.reconcileAuthoritativeState(state, { reconcilePassports: true })
+      if (this.current?.identity.stintId === durable.identity.stintId) {
+        this.current = { ...durable, durability: 'durable' }
+      }
+      const historyIndex = this.ephemeralHistory.findIndex((passport) =>
+        passport.identity.stintId === durable.identity.stintId
+      )
+      if (historyIndex >= 0) {
+        this.ephemeralHistory[historyIndex] = {
+          ...durable,
+          durability: 'durable'
+        }
+      }
+      this.ambiguousMutations.delete(operationKey)
+      this.lastError = undefined
+      this.notify()
+      return durable
+    }
+
+    if (await readCommitted()) return
+    this.assertPrivacyMutationGeneration(
+      privacyMutationGeneration,
+      'Passport persistence recovery'
+    )
+    if (superseded()) {
+      throw passportDomainError(
+        'Passport persistence recovery was superseded by a newer mutation.'
+      )
+    }
+    try {
+      await this.trackStoreOperation(
+        this.store.persistPassport(
+          attempted.passport,
+          attempted.event,
+          privacyMutationGeneration
+        )
+      )
+    } catch (error) {
+      if (await readCommitted()) return
+      this.recordPersistenceError(error)
+      return
+    }
+    if (!await readCommitted()) {
+      throw new Error('Passport persistence receipt could not be proven durable.')
     }
   }
 
@@ -2125,7 +2256,16 @@ export class StintPassportService {
       pending.desiredIdentityPersistenceOptIn === true &&
       erased.size > 0 &&
       (intent.kind === 'privacy-settings' || intent.kind.startsWith('privacy-delete:'))
-    if (!repairsEverything && !supersedesDeletion && !supersedesOptIn) {
+    const supersedesMigration =
+      pending.kind === 'persistence-migration' &&
+      erased.size > 0 &&
+      (intent.kind === 'privacy-settings' || intent.kind.startsWith('privacy-delete:'))
+    if (
+      !repairsEverything &&
+      !supersedesDeletion &&
+      !supersedesOptIn &&
+      !supersedesMigration
+    ) {
       return false
     }
     this.pendingMutationRecovery = undefined
@@ -2399,6 +2539,48 @@ export class StintPassportService {
     }
   }
 
+  private installPersistenceMigrationRecovery(
+    migration: PassportPersistenceMigrationState
+  ): void {
+    const intent = this.createMutationIntent(
+      'persistence-migration',
+      [],
+      migration.operationId
+    )
+    const fence: PersistenceMigrationFence = {
+      operationId: migration.operationId,
+      privacyMutationGeneration: migration.privacyMutationGeneration,
+      deletionGeneration: { ...this.privacyClassDeletionGeneration }
+    }
+    const resume = async (): Promise<void> => {
+      let state = await this.readAuthoritativeState(migration.operationId)
+      const authoritativeMigration = state.persistenceMigration
+      if (authoritativeMigration) {
+        if (authoritativeMigration.operationId !== migration.operationId) {
+          throw passportDomainError(
+            'Persistence migration was superseded by authoritative durable state.'
+          )
+        }
+        await this.resumePersistenceMigration(authoritativeMigration, fence)
+        state = await this.readAuthoritativeState(migration.operationId)
+      }
+      if (state.persistenceMigration?.operationId === migration.operationId) {
+        throw new Error('Persistence migration remains incomplete.')
+      }
+      this.reconcileAuthoritativeState(state, {
+        reconcileRoster: true,
+        reconcilePassports: true
+      })
+    }
+    this.installPendingRecovery(
+      intent,
+      `persistence-migration:${migration.operationId}`,
+      resume,
+      true,
+      true
+    )
+  }
+
   private assertPersistenceMigrationFence(
     migration: PassportPersistenceMigrationPlan,
     fence?: PersistenceMigrationFence,
@@ -2441,8 +2623,19 @@ export class StintPassportService {
     intent: ServiceMutationIntent,
     desired: PassportPrivacySettings
   ): Promise<PassportPrivacySettings> {
-    const initial = await this.readAuthoritativeState(intent.operationId)
+    let initial = await this.readAuthoritativeState(intent.operationId)
     this.reconcileAuthoritativeState(initial)
+    if (desired.identityPersistenceOptIn && initial.persistenceMigration) {
+      await this.resumePersistenceMigration(initial.persistenceMigration)
+      initial = await this.readAuthoritativeState(intent.operationId)
+      if (initial.persistenceMigration) {
+        throw new Error('Persistence migration remains incomplete.')
+      }
+      this.reconcileAuthoritativeState(initial, {
+        reconcileRoster: true,
+        reconcilePassports: true
+      })
+    }
     const previous = {
       ...this.privacy,
       retentionDays: { ...this.privacy.retentionDays }
@@ -2768,6 +2961,9 @@ export class StintPassportService {
           reconcilePassports: true,
           deletedClasses: [dataClass]
         })
+        if (state?.persistenceMigration) {
+          this.installPersistenceMigrationRecovery(state.persistenceMigration)
+        }
       }
       this.lastError = undefined
       this.notify()

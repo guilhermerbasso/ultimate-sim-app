@@ -39,7 +39,8 @@ interface RpcResponse {
 }
 
 type InjectedIoOperation = 'mkdir' | 'open' | 'write' | 'fsync' | 'rename'
-type InjectedIoCode = 'ENOSPC' | 'EIO'
+type InjectedIoCode = 'ENOSPC' | 'EIO' | 'EPERM'
+type InjectedIoDescriptorKind = 'file' | 'directory'
 type CleanupFaultPoint =
   | 'after-completed-authority-promotion'
   | 'after-cleanup-rename'
@@ -53,6 +54,8 @@ interface InjectedIoFault {
   code: InjectedIoCode
   occurrence?: number
   tracePath?: string
+  descriptorKind?: InjectedIoDescriptorKind
+  exitAfterDirectoryFsyncFault?: boolean
 }
 
 interface InjectedCleanupFault {
@@ -77,6 +80,7 @@ if (raw) {
   const original = {
     appendFileSync: fs.appendFileSync.bind(fs),
     closeSync: fs.closeSync.bind(fs),
+    fstatSync: fs.fstatSync.bind(fs),
     fsyncSync: fs.fsyncSync.bind(fs),
     mkdirSync: fs.mkdirSync.bind(fs),
     openSync: fs.openSync.bind(fs),
@@ -103,23 +107,41 @@ if (raw) {
       'utf8'
     )
   }
+  const injectedErrno = () => ({
+    ENOSPC: -4055,
+    EIO: -4070,
+    EPERM: -4048
+  })[config.code] || -4094
   const injectedError = (operation, target) => {
     const error = new Error(
       config.code + ': injected Passport worker ' + operation + ' fault for ' + target
     )
     error.code = config.code
-    error.errno = config.code === 'ENOSPC' ? -4055 : -4070
+    error.errno = injectedErrno()
     error.syscall = operation
     error.path = target
     return error
   }
-  const shouldInjectIo = (operation, targets) => {
+  const shouldInjectIo = (operation, targets, details = {}) => {
     if (config.kind !== 'io' || config.operation !== operation) return false
     const expected = comparable(config.path)
-    if (!targets.some((target) => target !== undefined && comparable(target) === expected)) {
-      return false
-    }
+    const matchedTarget = targets.find(
+      (target) => target !== undefined && comparable(target) === expected
+    )
+    if (matchedTarget === undefined) return false
+    if (
+      config.descriptorKind !== undefined &&
+      details.descriptorKind !== config.descriptorKind
+    ) return false
     ioMatches += 1
+    record({
+      event: 'io-match',
+      operation,
+      target: String(matchedTarget),
+      code: config.code,
+      occurrence: ioMatches,
+      ...details
+    })
     return ioMatches === (config.occurrence || 1)
   }
   const writePartial = (args) => {
@@ -159,13 +181,18 @@ if (raw) {
       throw injectedError('open', target)
     }
     const descriptor = original.openSync(...args)
-    descriptors.set(descriptor, target)
-    record({ event: 'open', target, flags: args[1] })
+    const descriptorKind = original.fstatSync(descriptor).isDirectory()
+      ? 'directory'
+      : 'file'
+    descriptors.set(descriptor, { target, descriptorKind })
+    record({ event: 'open', target, flags: args[1], descriptor, descriptorKind })
     return descriptor
   }
 
   fs.writeSync = function (...args) {
-    const target = descriptors.get(args[0])
+    const descriptor = args[0]
+    const descriptorState = descriptors.get(descriptor)
+    const target = descriptorState?.target
     if (shouldInjectIo('write', [target])) {
       const written = writePartial(args)
       record({
@@ -173,6 +200,8 @@ if (raw) {
         operation: 'write',
         target,
         code: config.code,
+        descriptor,
+        descriptorKind: descriptorState?.descriptorKind,
         partialBytes: written
       })
       throw injectedError('write', target)
@@ -191,18 +220,43 @@ if (raw) {
       })
     }
     const result = original.writeSync(...args)
-    record({ event: 'write', target, bytes: result })
+    record({
+      event: 'write',
+      target,
+      descriptor,
+      descriptorKind: descriptorState?.descriptorKind,
+      bytes: result
+    })
     return result
   }
 
   fs.fsyncSync = function (...args) {
-    const target = descriptors.get(args[0])
-    if (shouldInjectIo('fsync', [target])) {
-      record({ event: 'io-fault', operation: 'fsync', target, code: config.code })
+    const descriptor = args[0]
+    const descriptorState = descriptors.get(descriptor)
+    const target = descriptorState?.target
+    const descriptorKind = descriptorState?.descriptorKind
+    if (shouldInjectIo('fsync', [target], { descriptor, descriptorKind })) {
+      record({
+        event: 'io-fault',
+        operation: 'fsync',
+        target,
+        path: target,
+        code: config.code,
+        errno: injectedErrno(),
+        syscall: 'fsync',
+        occurrence: ioMatches,
+        descriptor,
+        descriptorKind,
+        powerLossExit: config.exitAfterDirectoryFsyncFault === true
+      })
+      if (
+        config.exitAfterDirectoryFsyncFault === true &&
+        descriptorKind === 'directory'
+      ) process.exit(121)
       throw injectedError('fsync', target)
     }
     const result = original.fsyncSync(...args)
-    record({ event: 'fsync', target })
+    record({ event: 'fsync', target, descriptor, descriptorKind })
     return result
   }
 
@@ -892,10 +946,19 @@ interface RepairReceiptTestState {
 interface WorkerFaultTrace {
   event: string
   point?: string
+  operation?: InjectedIoOperation
   source?: string
   destination?: string
   artifactPath?: string
   target?: string
+  path?: string
+  code?: InjectedIoCode
+  errno?: number
+  syscall?: string
+  occurrence?: number
+  descriptor?: number
+  descriptorKind?: InjectedIoDescriptorKind
+  powerLossExit?: boolean
 }
 
 interface BootstrapFaultBoundary {
@@ -2869,4 +2932,1135 @@ describe('packaged Passport persistence worker', () => {
       expect(readFileSync(artifactPath)).toEqual(unreadableArtifact)
     }
   }, 120_000)
+})
+
+type ParentFsyncBoundary = 'authority' | 'journal' | 'high-water' | 'cleanup'
+
+interface ParentFsyncTransition {
+  durableFile: string
+  rename?: {
+    source: string
+    destination: string
+  }
+  remove?: {
+    event: 'rm' | 'unlink'
+    target: string
+  }
+}
+
+type FaultableWorkerOperation = (
+  fault?: PersistenceProcessFault
+) => Promise<RpcResponse>
+
+interface ParentFsyncObservation {
+  response: RpcResponse
+  preBoundary: string
+  crashVisible: string
+}
+
+interface ParentFsyncRecoveryOracle {
+  mode: 'bootstrap' | 'repair'
+  databaseId?: string
+  operationId?: string
+  oldStintId: string
+  oldSentinel: string
+  guardPath: string
+  guardBytes: Buffer
+}
+
+const parentFsyncFaultMatrix: ReadonlyArray<{
+  boundary: ParentFsyncBoundary
+  code: InjectedIoCode
+}> = [
+  { boundary: 'authority', code: 'EIO' },
+  { boundary: 'authority', code: 'ENOSPC' },
+  { boundary: 'authority', code: 'EPERM' },
+  { boundary: 'journal', code: 'EIO' },
+  { boundary: 'journal', code: 'ENOSPC' },
+  { boundary: 'journal', code: 'EPERM' },
+  { boundary: 'high-water', code: 'EIO' },
+  { boundary: 'high-water', code: 'ENOSPC' },
+  { boundary: 'high-water', code: 'EPERM' },
+  { boundary: 'cleanup', code: 'EIO' },
+  { boundary: 'cleanup', code: 'ENOSPC' },
+  { boundary: 'cleanup', code: 'EPERM' }
+]
+
+const injectedIoErrnos: Record<InjectedIoCode, number> = {
+  ENOSPC: -4055,
+  EIO: -4070,
+  EPERM: -4048
+}
+
+const parentFsyncCrashExitCode = 121
+
+function comparableWorkerPath(value: string): string {
+  const normalized = value.replace(/\\/g, '/')
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+function workerPathsEqual(left: string | undefined, right: string): boolean {
+  return left !== undefined && comparableWorkerPath(left) === comparableWorkerPath(right)
+}
+
+function parentFsyncTracePath(label: string): string {
+  const safeLabel = label.replace(/[^a-z0-9-]+/gi, '-').toLowerCase()
+  const directory = mkdtempSync(
+    join(process.cwd(), `.passport-worker-parent-fsync-${safeLabel}-`)
+  )
+  directories.push(directory)
+  return join(directory, 'trace.jsonl')
+}
+
+function snapshotDirectoryTree(path: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  snapshotTree(path, 'root', result)
+  return result
+}
+
+async function runInitializeBoundaryOperation(
+  path: string,
+  fault?: PersistenceProcessFault
+): Promise<RpcResponse> {
+  const worker = spawnWorker(fault)
+  try {
+    return await rpc(worker, 'initialize', [path], 15_000)
+  } finally {
+    await worker.terminate()
+  }
+}
+
+async function runRepairBoundaryOperation(
+  path: string,
+  operationId: string,
+  fault?: PersistenceProcessFault
+): Promise<RpcResponse> {
+  const worker = spawnWorker(fault)
+  try {
+    await expect(rpc(worker, 'initialize', [path], 15_000))
+      .resolves.toMatchObject({ ok: true })
+    const integrity = await rpc(worker, 'getIntegrity')
+    const repairToken = (integrity.result as { repairToken?: string }).repairToken ?? ''
+    expect(repairToken).toMatch(/^[a-f0-9]+$/)
+    return await rpc(
+      worker,
+      'repairPersistence',
+      [repairToken, operationId],
+      30_000
+    )
+  } finally {
+    await worker.terminate()
+  }
+}
+
+function lastTraceIndexBefore(
+  trace: readonly WorkerFaultTrace[],
+  before: number,
+  predicate: (entry: WorkerFaultTrace) => boolean
+): number {
+  for (let index = before - 1; index >= 0; index -= 1) {
+    if (predicate(trace[index])) return index
+  }
+  return -1
+}
+
+function locateParentFsyncTrace(
+  trace: readonly WorkerFaultTrace[],
+  parentDirectory: string,
+  transition: ParentFsyncTransition
+): { occurrence: number; matchIndex: number } {
+  expect(
+    Number(transition.rename !== undefined) + Number(transition.remove !== undefined),
+    'a parent-fsync transition must have at most one rename/remove boundary'
+  ).toBeLessThanOrEqual(1)
+  const transitionIndex = transition.rename
+    ? trace.findIndex((entry) =>
+        entry.event === 'rename' &&
+        workerPathsEqual(entry.source, transition.rename!.source) &&
+        workerPathsEqual(entry.destination, transition.rename!.destination)
+      )
+    : transition.remove
+      ? trace.findIndex((entry) =>
+          entry.event === transition.remove!.event &&
+          workerPathsEqual(entry.target, transition.remove!.target)
+        )
+      : trace.findIndex((entry) =>
+          entry.event === 'fsync' &&
+          entry.descriptorKind === 'file' &&
+          workerPathsEqual(entry.target, transition.durableFile)
+        )
+  expect(transitionIndex, 'the intended artifact transition must be traced').toBeGreaterThanOrEqual(0)
+
+  const durableFsyncIndex = transition.rename || transition.remove
+    ? lastTraceIndexBefore(trace, transitionIndex, (entry) =>
+        entry.event === 'fsync' &&
+        entry.descriptorKind === 'file' &&
+        workerPathsEqual(entry.target, transition.durableFile)
+      )
+    : transitionIndex
+  expect(
+    durableFsyncIndex,
+    'the artifact file fsync must complete before its directory transition'
+  ).toBeGreaterThanOrEqual(0)
+  expect(durableFsyncIndex).toBeLessThanOrEqual(transitionIndex)
+
+  const matchIndex = trace.findIndex((entry, index) =>
+    index > transitionIndex &&
+    entry.event === 'io-match' &&
+    entry.operation === 'fsync' &&
+    entry.descriptorKind === 'directory' &&
+    workerPathsEqual(entry.target, parentDirectory)
+  )
+  expect(
+    matchIndex,
+    'the next matched fsync must use the exact parent-directory descriptor'
+  ).toBeGreaterThan(transitionIndex)
+  const match = trace[matchIndex]
+  expect(match.descriptor).toEqual(expect.any(Number))
+  expect(match.occurrence).toEqual(expect.any(Number))
+
+  const directoryOpenIndex = lastTraceIndexBefore(trace, matchIndex, (entry) =>
+    entry.event === 'open' &&
+    entry.descriptor === match.descriptor &&
+    entry.descriptorKind === 'directory' &&
+    workerPathsEqual(entry.target, parentDirectory)
+  )
+  expect(directoryOpenIndex).toBeGreaterThan(transitionIndex)
+
+  const durableFsync = trace[durableFsyncIndex]
+  expect(durableFsync.descriptor).toEqual(expect.any(Number))
+  expect(durableFsync.descriptorKind).toBe('file')
+  const durableFileOpenIndex = lastTraceIndexBefore(trace, durableFsyncIndex, (entry) =>
+    entry.event === 'open' &&
+    entry.descriptor === durableFsync.descriptor &&
+    entry.descriptorKind === 'file' &&
+    workerPathsEqual(entry.target, transition.durableFile)
+  )
+  expect(durableFileOpenIndex).toBeGreaterThanOrEqual(0)
+  expect(durableFileOpenIndex).toBeLessThan(durableFsyncIndex)
+  return {
+    occurrence: Number(match.occurrence),
+    matchIndex
+  }
+}
+
+function expectInjectedParentFsyncTrace(
+  trace: readonly WorkerFaultTrace[],
+  parentDirectory: string,
+  transition: ParentFsyncTransition,
+  occurrence: number,
+  code: InjectedIoCode,
+  powerLossExit: boolean
+): number {
+  const located = locateParentFsyncTrace(trace, parentDirectory, transition)
+  expect(located.occurrence).toBe(occurrence)
+  const faultIndex = trace.findIndex((entry, index) =>
+    index > located.matchIndex &&
+    entry.event === 'io-fault' &&
+    entry.operation === 'fsync' &&
+    entry.occurrence === occurrence &&
+    entry.descriptorKind === 'directory' &&
+    workerPathsEqual(entry.target, parentDirectory)
+  )
+  expect(faultIndex).toBe(located.matchIndex + 1)
+  expect(trace[faultIndex]).toMatchObject({
+    code,
+    errno: injectedIoErrnos[code],
+    syscall: 'fsync',
+    descriptorKind: 'directory',
+    occurrence,
+    powerLossExit
+  })
+  expect(workerPathsEqual(trace[faultIndex].path, parentDirectory)).toBe(true)
+  expect(trace[faultIndex].descriptor).toBe(trace[located.matchIndex].descriptor)
+  return faultIndex
+}
+
+async function prepareRenameLostTree(
+  durableBase: string,
+  root: string,
+  operation: FaultableWorkerOperation,
+  destination: string,
+  label: string
+): Promise<string> {
+  restoreDirectory(durableBase, root)
+  const response = await operation({
+    kind: 'io',
+    operation: 'rename',
+    path: destination,
+    code: 'EIO'
+  })
+  expect(response).toMatchObject({
+    ok: false,
+    error: expect.stringMatching(/EIO/i),
+    code: 'EIO'
+  })
+  return cloneDirectory(root, `${label}-rename-lost`)
+}
+
+async function observeParentFsyncFault(
+  operationBase: string,
+  preBoundary: string,
+  root: string,
+  parentDirectory: string,
+  transition: ParentFsyncTransition,
+  operation: FaultableWorkerOperation,
+  code: InjectedIoCode,
+  label: string
+): Promise<ParentFsyncObservation> {
+  restoreDirectory(operationBase, root)
+  const baselineTracePath = parentFsyncTracePath(`${label}-baseline`)
+  const baseline = await operation({
+    kind: 'io',
+    operation: 'fsync',
+    path: parentDirectory,
+    code: 'EIO',
+    occurrence: Number.MAX_SAFE_INTEGER,
+    descriptorKind: 'directory',
+    tracePath: baselineTracePath
+  })
+  expect(baseline).toMatchObject({ ok: true })
+  const baselineTrace = readWorkerFaultTrace(baselineTracePath)
+  expect(baselineTrace.some((entry) => entry.event === 'io-fault')).toBe(false)
+  const { occurrence } = locateParentFsyncTrace(
+    baselineTrace,
+    parentDirectory,
+    transition
+  )
+
+  restoreDirectory(operationBase, root)
+  const faultTracePath = parentFsyncTracePath(`${label}-fault`)
+  const response = await operation({
+    kind: 'io',
+    operation: 'fsync',
+    path: parentDirectory,
+    code,
+    occurrence,
+    descriptorKind: 'directory',
+    tracePath: faultTracePath
+  })
+  const faultTrace = readWorkerFaultTrace(faultTracePath)
+  expectInjectedParentFsyncTrace(
+    faultTrace,
+    parentDirectory,
+    transition,
+    occurrence,
+    code,
+    false
+  )
+  const crashVisible = await captureParentFsyncCrashVisibleTree(
+    operationBase,
+    root,
+    parentDirectory,
+    transition,
+    operation,
+    occurrence,
+    code,
+    label
+  )
+  return {
+    response,
+    preBoundary,
+    crashVisible
+  }
+}
+
+async function captureParentFsyncCrashVisibleTree(
+  operationBase: string,
+  root: string,
+  parentDirectory: string,
+  transition: ParentFsyncTransition,
+  operation: FaultableWorkerOperation,
+  occurrence: number,
+  code: InjectedIoCode,
+  label: string
+): Promise<string> {
+  restoreDirectory(operationBase, root)
+  const tracePath = parentFsyncTracePath(`${label}-power-loss`)
+  let crashError: unknown
+  try {
+    await operation({
+      kind: 'io',
+      operation: 'fsync',
+      path: parentDirectory,
+      code,
+      occurrence,
+      descriptorKind: 'directory',
+      tracePath,
+      exitAfterDirectoryFsyncFault: true
+    })
+  } catch (error) {
+    crashError = error
+  }
+  expect(crashError).toBeInstanceOf(Error)
+  expect((crashError as Error).message).toMatch(
+    new RegExp(
+      `^Worker exited with code ${parentFsyncCrashExitCode} before response \\d+\\.$`
+    )
+  )
+  const trace = readWorkerFaultTrace(tracePath)
+  const faultIndex = expectInjectedParentFsyncTrace(
+    trace,
+    parentDirectory,
+    transition,
+    occurrence,
+    code,
+    true
+  )
+  expect(
+    faultIndex,
+    'the power-loss process must exit immediately after the matched directory fsync fault'
+  ).toBe(trace.length - 1)
+  return cloneDirectory(root, `${label}-crash-visible`)
+}
+
+function expectParentFsyncRpcFailure(
+  response: RpcResponse,
+  code: InjectedIoCode,
+  parentDirectory: string
+): void {
+  const context = `${code} parent-directory fsync must fail its initiating RPC`
+  expect.soft(response.ok, context).toBe(false)
+  expect.soft(response.code, `${context}: exact classified code`).toBe(code)
+  expect.soft(response.error, `${context}: exact injected error`).toBe(
+    `${code}: injected Passport worker fsync fault for ${parentDirectory}`
+  )
+  expect.soft(response.result, `${context}: no success result`).toBeUndefined()
+  const serializedResult = JSON.stringify(response.result ?? null)
+  expect.soft(
+    serializedResult,
+    `${context}: no success receipt, process ID, or quarantine acknowledgement`
+  ).not.toMatch(/quarantinedPath|isolatedProcessId|repairReceipt|receipt/i)
+  expect.soft(
+    JSON.stringify(response),
+    `${context}: no quarantined-path acknowledgement`
+  ).not.toContain('quarantinedPath')
+}
+
+function installUnauthenticatedD3Guard(
+  root: string,
+  label: string
+): { path: string; bytes: Buffer } {
+  const path = join(root, 'unauthenticated-d3.guard')
+  const bytes = Buffer.from(`UNAUTHENTICATED-D3-ERASE-GUARD-${label}`)
+  writeFileSync(path, bytes)
+  return { path, bytes }
+}
+
+function expectNoRepairJournalTransition(path: string): void {
+  for (const suffix of [
+    '.repair-journal.json',
+    '.repair-journal.json.pending',
+    '.repair-journal.json.cleanup'
+  ]) {
+    expect(existsSync(`${path}${suffix}`)).toBe(false)
+  }
+  expect(existsSync(`${path}.repair-authority.json.pending`)).toBe(false)
+  for (const copy of ['a', 'b'] as const) {
+    expect(
+      readdirSync(`${path}.repair-high-water-${copy}`)
+        .some((name) => name.endsWith('.pending'))
+    ).toBe(false)
+  }
+}
+
+function expectTreeDoesNotContainValues(
+  root: string,
+  guardPath: string,
+  values: readonly string[]
+): void {
+  const guardKey = `root/${basename(guardPath)}`
+  for (const [key, value] of Object.entries(snapshotDirectoryTree(root))) {
+    if (key === guardKey) continue
+    const bytes = Buffer.from(value, 'base64')
+    for (const forbidden of values) {
+      expect(
+        bytes.includes(Buffer.from(forbidden)),
+        `${key} must not republish old D3 identity material`
+      ).toBe(false)
+    }
+  }
+}
+
+function expectTreeDoesNotContainSentinel(
+  root: string,
+  guardPath: string,
+  sentinel: string
+): void {
+  expectTreeDoesNotContainValues(root, guardPath, [sentinel])
+}
+
+function expectNoPendingOrphanRepairArtifacts(root: string, path: string): void {
+  const prefix = `root/${basename(path)}`
+  const orphanArtifacts = Object.keys(snapshotDirectoryTree(root))
+    .filter((key) => key.startsWith(prefix))
+    .filter((key) =>
+      key.includes('.pending') ||
+      key.endsWith('.repair-journal.json.cleanup') ||
+      key.includes('.repair-create-')
+    )
+  expect(orphanArtifacts).toEqual([])
+}
+
+function expectCompletedRepairProof(
+  path: string,
+  operationId: string,
+  oldStintId: string
+): void {
+  const authority = readRepairAuthorityState(path)
+  const highWater = readCurrentRepairHighWater(path)
+  const receipt = readRepairReceiptState(path)
+  expect(authority.completedEpoch).toBeGreaterThan(0)
+  expect(authority.lastCompleted).toMatchObject({
+    repairEpoch: authority.completedEpoch,
+    operationId,
+    databaseId: authority.currentDatabaseId,
+    journalCleanupPending: false
+  })
+  expect(highWater).toMatchObject({
+    authorityId: authority.authorityId,
+    profileBinding: authority.profileBinding,
+    revision: authority.highWaterRevision,
+    repairEpoch: authority.completedEpoch,
+    phase: 'completed',
+    databaseId: authority.currentDatabaseId,
+    operationId
+  })
+  expect(receipt).toMatchObject({
+    operationId,
+    databaseId: authority.currentDatabaseId,
+    tokenHash: authority.lastCompleted?.tokenHash
+  })
+  const database = readWorkerDatabaseSnapshot(path, oldStintId)
+  expect(database.databaseId).toBe(authority.currentDatabaseId)
+  expect(database.passportJson).toBeUndefined()
+  expect(JSON.parse(database.privacyJson)).toMatchObject({
+    identityPersistenceOptIn: false
+  })
+  expectNoRepairJournalTransition(path)
+}
+
+async function expectPowerLossRecovery(
+  snapshot: string,
+  root: string,
+  path: string,
+  variant: 'pre-boundary' | 'crash-visible',
+  oracle: ParentFsyncRecoveryOracle
+): Promise<void> {
+  restoreDirectory(snapshot, root)
+  const before = snapshotDirectoryTree(root)
+  let attempt = await runParentFsyncRecoveryAttempt(path)
+  if (!attempt.initialized.ok) {
+    expectClassifiedParentFsyncRecoveryFailure(attempt.initialized, variant)
+    expect.soft(
+      snapshotDirectoryTree(root),
+      `${variant} fail-closed initialization must leave the tree unchanged`
+    ).toEqual(before)
+    expect.soft(readFileSync(oracle.guardPath)).toEqual(oracle.guardBytes)
+
+    const firstFailure = attempt.initialized
+    attempt = await runParentFsyncRecoveryAttempt(path)
+    if (!attempt.initialized.ok) {
+      expectClassifiedParentFsyncRecoveryFailure(attempt.initialized, variant)
+      expect.soft(
+        attempt.initialized.code,
+        `${variant} fail-closed retry must have a deterministic classification`
+      ).toBe(firstFailure.code)
+      expect.soft(
+        attempt.initialized.error,
+        `${variant} fail-closed retry must have a deterministic error`
+      ).toBe(firstFailure.error)
+      expect.soft(
+        snapshotDirectoryTree(root),
+        `${variant} fail-closed retry must leave the tree unchanged`
+      ).toEqual(before)
+      expect.soft(readFileSync(oracle.guardPath)).toEqual(oracle.guardBytes)
+      return
+    }
+  }
+
+  const authoritative = attempt.authoritative
+  expect(authoritative).toMatchObject({ ok: true })
+  const state = authoritative!.result as {
+    privacy: PassportPrivacySettings
+    roster: unknown[]
+    passports: unknown[]
+  }
+  expect(state.privacy).toMatchObject({ identityPersistenceOptIn: false })
+  expect(state.roster).toEqual([])
+  expect(state.passports).toEqual([])
+  expect(JSON.stringify(state)).not.toContain(oracle.oldStintId)
+  expect(JSON.stringify(state)).not.toContain(oracle.oldSentinel)
+  expect(readFileSync(oracle.guardPath)).toEqual(oracle.guardBytes)
+
+  if (oracle.mode === 'bootstrap') {
+    expect(oracle.databaseId).toEqual(expect.any(String))
+    expectInitialRepairSecurity(path, oracle.databaseId!)
+    const database = readWorkerDatabaseSnapshot(path, oracle.oldStintId)
+    expect(database.passportJson).toBeUndefined()
+    expect(JSON.parse(database.privacyJson)).toMatchObject({
+      identityPersistenceOptIn: false
+    })
+  } else {
+    expect(oracle.operationId).toEqual(expect.any(String))
+    expectCompletedRepairProof(path, oracle.operationId!, oracle.oldStintId)
+  }
+  expectNoRepairJournalTransition(path)
+  expectNoPendingOrphanRepairArtifacts(root, path)
+  expectTreeDoesNotContainValues(
+    root,
+    oracle.guardPath,
+    [oracle.oldStintId, oracle.oldSentinel]
+  )
+}
+
+async function runParentFsyncRecoveryAttempt(path: string): Promise<{
+  initialized: RpcResponse
+  authoritative?: RpcResponse
+}> {
+  const worker = spawnWorker()
+  try {
+    const initialized = await rpc(worker, 'initialize', [path], 30_000)
+    if (!initialized.ok) return { initialized }
+    return {
+      initialized,
+      authoritative: await rpc(worker, 'getAuthoritativeState', [], 15_000)
+    }
+  } finally {
+    await worker.terminate()
+  }
+}
+
+function expectClassifiedParentFsyncRecoveryFailure(
+  response: RpcResponse,
+  variant: 'pre-boundary' | 'crash-visible'
+): void {
+  const classifiedStorageHealthCode =
+    response.code === 'PERSISTENCE_HEALTH_ERROR' ||
+    response.code === 'EACCES' ||
+    response.code === 'EBUSY' ||
+    response.code === 'EIO' ||
+    response.code === 'EMFILE' ||
+    response.code === 'ENFILE' ||
+    response.code === 'ENOSPC' ||
+    response.code === 'EPERM' ||
+    response.code === 'EROFS' ||
+    response.code === 'ERR_SQLITE_ERROR' ||
+    response.code?.startsWith('SQLITE_') === true ||
+    response.code?.startsWith('ERR_SQLITE_') === true
+  expect.soft(response.ok, `${variant} recovery must fail closed`).toBe(false)
+  expect.soft(
+    classifiedStorageHealthCode,
+    `${variant} recovery failure must have a storage/health classification`
+  ).toBe(true)
+  expect.soft(
+    response.error,
+    `${variant} recovery failure must identify the failed durable state`
+  ).toEqual(expect.stringMatching(
+    /passport|persistence|repair|database|storage|sqlite|authority|high-water|journal|cleanup/i
+  ))
+  expect.soft(response.result).toBeUndefined()
+  expect.soft(JSON.stringify(response)).not.toContain('quarantinedPath')
+}
+
+async function expectParentFsyncPowerLossPair(
+  observation: ParentFsyncObservation,
+  root: string,
+  path: string,
+  oracle: ParentFsyncRecoveryOracle
+): Promise<void> {
+  await expectPowerLossRecovery(
+    observation.preBoundary,
+    root,
+    path,
+    'pre-boundary',
+    oracle
+  )
+  await expectPowerLossRecovery(
+    observation.crashVisible,
+    root,
+    path,
+    'crash-visible',
+    oracle
+  )
+}
+
+function expectIdleRepairProof(path: string, databaseId: string): void {
+  const authority = readRepairAuthorityState(path)
+  const highWater = readCurrentRepairHighWater(path)
+  expect(authority).toMatchObject({
+    completedEpoch: 0,
+    highWaterRevision: 0,
+    currentDatabaseId: databaseId
+  })
+  expect(authority.lastCompleted).toBeUndefined()
+  expect(highWater).toMatchObject({
+    revision: 0,
+    repairEpoch: 0,
+    phase: 'idle',
+    databaseId
+  })
+}
+
+async function exerciseAuthorityParentFsync(
+  code: InjectedIoCode
+): Promise<void> {
+  const path = tempDatabase(`parent-authority-${code.toLowerCase()}`)
+  const root = dirname(path)
+  const pristine = await createPristineWorkerProfile(path)
+  removeRepairSecurityComponent(path, 'key')
+  removeRepairSecurityComponent(path, 'high-water')
+  removeRepairSecurityComponent(path, 'authority')
+  const oldStintId = `old-authority-${code.toLowerCase()}`
+  const oldSentinel = `OLD-D3-AUTHORITY-${code}`
+  const guard = installUnauthenticatedD3Guard(root, `AUTHORITY-${code}`)
+  const durableBase = cloneDirectory(root, `parent-authority-${code}-base`)
+  const initialize = (fault?: PersistenceProcessFault) =>
+    runInitializeBoundaryOperation(path, fault)
+  const authorityPath = `${path}.repair-authority.json`
+  const keyPath = `${path}.repair-authority.key`
+
+  const statePreBoundary = await prepareRenameLostTree(
+    durableBase,
+    root,
+    initialize,
+    authorityPath,
+    `parent-authority-state-${code}`
+  )
+  restoreDirectory(statePreBoundary, root)
+  expect(existsSync(`${authorityPath}.pending`)).toBe(true)
+  expect(existsSync(authorityPath)).toBe(false)
+  expect(readCurrentRepairHighWater(path)).toMatchObject({
+    revision: 0,
+    repairEpoch: 0,
+    phase: 'idle'
+  })
+
+  const keyObservation = await observeParentFsyncFault(
+    durableBase,
+    durableBase,
+    root,
+    root,
+    { durableFile: keyPath },
+    initialize,
+    code,
+    `parent-authority-key-${code}`
+  )
+  const stateObservation = await observeParentFsyncFault(
+    durableBase,
+    statePreBoundary,
+    root,
+    root,
+    {
+      durableFile: `${authorityPath}.pending`,
+      rename: {
+        source: `${authorityPath}.pending`,
+        destination: authorityPath
+      }
+    },
+    initialize,
+    code,
+    `parent-authority-state-${code}`
+  )
+
+  expectParentFsyncRpcFailure(keyObservation.response, code, root)
+  expectParentFsyncRpcFailure(stateObservation.response, code, root)
+
+  restoreDirectory(keyObservation.crashVisible, root)
+  expect(readFileSync(keyPath, 'utf8')).toMatch(/^[a-f0-9]{64}\n$/)
+  expect(existsSync(authorityPath)).toBe(false)
+  expect(existsSync(`${authorityPath}.pending`)).toBe(false)
+  expect(existsSync(`${path}.repair-high-water-a`)).toBe(false)
+  expect(existsSync(`${path}.repair-high-water-b`)).toBe(false)
+  expect(readWorkerDatabaseSnapshot(path, oldStintId)).toMatchObject({
+    databaseId: pristine.databaseId,
+    passportJson: undefined
+  })
+
+  restoreDirectory(stateObservation.crashVisible, root)
+  expectInitialRepairSecurity(path, pristine.databaseId)
+  expect(readRepairAuthorityState(path)).toMatchObject({
+    completedEpoch: 0,
+    highWaterRevision: 0
+  })
+
+  const oracle: ParentFsyncRecoveryOracle = {
+    mode: 'bootstrap',
+    databaseId: pristine.databaseId,
+    oldStintId,
+    oldSentinel,
+    guardPath: guard.path,
+    guardBytes: guard.bytes
+  }
+  await expectParentFsyncPowerLossPair(keyObservation, root, path, oracle)
+  await expectParentFsyncPowerLossPair(stateObservation, root, path, oracle)
+}
+
+async function seedCorruptD3BoundaryBase(
+  path: string,
+  stintId: string,
+  sentinel: string
+): Promise<WorkerDatabaseSnapshot> {
+  await seedWorkerDatabase(path, stintId, sentinel)
+  markWorkerDatabaseCorrupt(path)
+  const snapshot = readWorkerDatabaseSnapshot(path, stintId)
+  expect(snapshot.passportJson).toContain(sentinel)
+  expect(JSON.parse(snapshot.privacyJson)).toMatchObject({
+    identityPersistenceOptIn: true
+  })
+  return snapshot
+}
+
+async function exerciseJournalParentFsync(
+  code: InjectedIoCode
+): Promise<void> {
+  const path = tempDatabase(`parent-journal-${code.toLowerCase()}`)
+  const root = dirname(path)
+  const stintId = `old-journal-${code.toLowerCase()}`
+  const sentinel = `OLD-D3-JOURNAL-${code}`
+  const original = await seedCorruptD3BoundaryBase(path, stintId, sentinel)
+  const guard = installUnauthenticatedD3Guard(root, `JOURNAL-${code}`)
+  const durableBase = cloneDirectory(root, `parent-journal-${code}-base`)
+  const operationId = `repair:parent-fsync:journal:${code}`
+  const repair = (fault?: PersistenceProcessFault) =>
+    runRepairBoundaryOperation(path, operationId, fault)
+  const journalPath = `${path}.repair-journal.json`
+
+  const preBoundary = await prepareRenameLostTree(
+    durableBase,
+    root,
+    repair,
+    journalPath,
+    `parent-journal-${code}`
+  )
+  restoreDirectory(preBoundary, root)
+  expect(existsSync(`${journalPath}.pending`)).toBe(true)
+  expect(existsSync(journalPath)).toBe(false)
+  expectIdleRepairProof(path, original.databaseId)
+  expect(readWorkerDatabaseSnapshot(path, stintId).passportJson).toContain(sentinel)
+
+  const observation = await observeParentFsyncFault(
+    durableBase,
+    preBoundary,
+    root,
+    root,
+    {
+      durableFile: `${journalPath}.pending`,
+      rename: {
+        source: `${journalPath}.pending`,
+        destination: journalPath
+      }
+    },
+    repair,
+    code,
+    `parent-journal-${code}`
+  )
+  expectParentFsyncRpcFailure(observation.response, code, root)
+
+  restoreDirectory(observation.crashVisible, root)
+  expect(existsSync(`${journalPath}.pending`)).toBe(false)
+  expect(JSON.parse(readFileSync(journalPath, 'utf8'))).toMatchObject({
+    operationId,
+    phase: 'authorized'
+  })
+  expectIdleRepairProof(path, original.databaseId)
+  expect(existsSync(`${path}.repair-receipt.json`)).toBe(false)
+  expect(existsSync(`${path}.repair-receipt.json.pending`)).toBe(false)
+  expect(readWorkerDatabaseSnapshot(path, stintId).passportJson).toContain(sentinel)
+
+  const oracle: ParentFsyncRecoveryOracle = {
+    mode: 'repair',
+    operationId,
+    oldStintId: stintId,
+    oldSentinel: sentinel,
+    guardPath: guard.path,
+    guardBytes: guard.bytes
+  }
+  await expectParentFsyncPowerLossPair(observation, root, path, oracle)
+}
+
+function highWaterMarkerPath(
+  path: string,
+  copy: 'a' | 'b',
+  revision: number
+): string {
+  return join(
+    `${path}.repair-high-water-${copy}`,
+    `${String(revision).padStart(16, '0')}.json`
+  )
+}
+
+async function exerciseHighWaterParentFsync(
+  code: InjectedIoCode
+): Promise<void> {
+  const path = tempDatabase(`parent-high-water-${code.toLowerCase()}`)
+  const root = dirname(path)
+  const stintId = `old-high-water-${code.toLowerCase()}`
+  const sentinel = `OLD-D3-HIGH-WATER-${code}`
+  const original = await seedCorruptD3BoundaryBase(path, stintId, sentinel)
+  const guard = installUnauthenticatedD3Guard(root, `HIGH-WATER-${code}`)
+  const durableBase = cloneDirectory(root, `parent-high-water-${code}-base`)
+  const operationId = `repair:parent-fsync:high-water:${code}`
+  const repair = (fault?: PersistenceProcessFault) =>
+    runRepairBoundaryOperation(path, operationId, fault)
+
+  const oracle: ParentFsyncRecoveryOracle = {
+    mode: 'repair',
+    operationId,
+    oldStintId: stintId,
+    oldSentinel: sentinel,
+    guardPath: guard.path,
+    guardBytes: guard.bytes
+  }
+
+  for (const copy of ['a', 'b'] as const) {
+    const marker = highWaterMarkerPath(path, copy, 1)
+    const parentDirectory = `${path}.repair-high-water-${copy}`
+    const preBoundary = await prepareRenameLostTree(
+      durableBase,
+      root,
+      repair,
+      marker,
+      `parent-high-water-${copy}-${code}`
+    )
+    restoreDirectory(preBoundary, root)
+    expect(existsSync(`${marker}.pending`)).toBe(true)
+    expect(existsSync(marker)).toBe(false)
+    expect(readRepairAuthorityState(path)).toMatchObject({
+      completedEpoch: 0,
+      highWaterRevision: 0,
+      currentDatabaseId: original.databaseId
+    })
+    expect(JSON.parse(readFileSync(`${path}.repair-journal.json`, 'utf8')))
+      .toMatchObject({ operationId, phase: 'authorized', highWaterRevision: 1 })
+    const pending = JSON.parse(
+      readFileSync(`${marker}.pending`, 'utf8')
+    ) as RepairHighWaterTestState
+    expect(pending).toMatchObject({
+      revision: 1,
+      repairEpoch: 1,
+      phase: 'authorized',
+      operationId
+    })
+    if (copy === 'a') {
+      expect(existsSync(highWaterMarkerPath(path, 'b', 1))).toBe(false)
+    } else {
+      expect(JSON.parse(
+        readFileSync(highWaterMarkerPath(path, 'a', 1), 'utf8')
+      )).toMatchObject({
+        revision: 1,
+        repairEpoch: 1,
+        phase: 'authorized',
+        operationId
+      })
+    }
+    expect(readWorkerDatabaseSnapshot(path, stintId).passportJson).toContain(sentinel)
+
+    const observation = await observeParentFsyncFault(
+      durableBase,
+      preBoundary,
+      root,
+      parentDirectory,
+      {
+        durableFile: `${marker}.pending`,
+        rename: {
+          source: `${marker}.pending`,
+          destination: marker
+        }
+      },
+      repair,
+      code,
+      `parent-high-water-${copy}-${code}`
+    )
+    expectParentFsyncRpcFailure(observation.response, code, parentDirectory)
+
+    restoreDirectory(observation.crashVisible, root)
+    const authority = readRepairAuthorityState(path)
+    const highWaterA = JSON.parse(
+      readFileSync(highWaterMarkerPath(path, 'a', 1), 'utf8')
+    ) as RepairHighWaterTestState
+    expect(authority).toMatchObject({
+      completedEpoch: 0,
+      highWaterRevision: 0,
+      currentDatabaseId: original.databaseId
+    })
+    expect(highWaterA).toMatchObject({
+      revision: 1,
+      repairEpoch: 1,
+      phase: 'authorized',
+      operationId
+    })
+    if (copy === 'a') {
+      const highWaterB = JSON.parse(
+        readFileSync(highWaterMarkerPath(path, 'b', 0), 'utf8')
+      ) as RepairHighWaterTestState
+      expect(highWaterB).toMatchObject({
+        revision: 0,
+        repairEpoch: 0,
+        phase: 'idle',
+        databaseId: original.databaseId
+      })
+      expect(highWaterA.signature).not.toBe(highWaterB.signature)
+      expect(existsSync(highWaterMarkerPath(path, 'b', 1))).toBe(false)
+    } else {
+      const highWaterB = JSON.parse(
+        readFileSync(highWaterMarkerPath(path, 'b', 1), 'utf8')
+      ) as RepairHighWaterTestState
+      expect(highWaterB).toEqual(highWaterA)
+    }
+    expect(existsSync(`${path}.repair-receipt.json`)).toBe(false)
+    expect(readWorkerDatabaseSnapshot(path, stintId).passportJson).toContain(sentinel)
+    expect(readFileSync(guard.path)).toEqual(guard.bytes)
+
+    await expectParentFsyncPowerLossPair(observation, root, path, oracle)
+  }
+}
+
+function expectCleanupPendingProof(path: string, operationId: string): void {
+  const authority = readRepairAuthorityState(path)
+  const highWater = readCurrentRepairHighWater(path)
+  const receipt = readRepairReceiptState(path)
+  expect(authority.lastCompleted).toMatchObject({
+    repairEpoch: authority.completedEpoch,
+    operationId,
+    databaseId: authority.currentDatabaseId,
+    journalCleanupPending: true
+  })
+  expect(highWater).toMatchObject({
+    revision: authority.highWaterRevision,
+    repairEpoch: authority.completedEpoch,
+    phase: 'completed',
+    databaseId: authority.currentDatabaseId,
+    operationId
+  })
+  expect(receipt).toMatchObject({
+    operationId,
+    databaseId: authority.currentDatabaseId,
+    tokenHash: authority.lastCompleted?.tokenHash
+  })
+}
+
+async function exerciseCleanupParentFsync(
+  code: InjectedIoCode
+): Promise<void> {
+  const path = tempDatabase(`parent-cleanup-${code.toLowerCase()}`)
+  const root = dirname(path)
+  const stintId = `old-cleanup-${code.toLowerCase()}`
+  const sentinel = `OLD-D3-CLEANUP-${code}`
+  await seedCorruptD3BoundaryBase(path, stintId, sentinel)
+  const guard = installUnauthenticatedD3Guard(root, `CLEANUP-${code}`)
+  const durableBase = cloneDirectory(root, `parent-cleanup-${code}-base`)
+  const operationId = `repair:parent-fsync:cleanup:${code}`
+  const repair = (fault?: PersistenceProcessFault) =>
+    runRepairBoundaryOperation(path, operationId, fault)
+  const initialize = (fault?: PersistenceProcessFault) =>
+    runInitializeBoundaryOperation(path, fault)
+  const journalPath = `${path}.repair-journal.json`
+  const cleanupPath = `${journalPath}.cleanup`
+
+  restoreDirectory(durableBase, root)
+  await captureReceiptStagedRepairForExistingDatabase(path, operationId)
+  await crashCompletedJournalCleanup(
+    path,
+    'after-completed-authority-promotion',
+    `parent-fsync-cleanup-${code}`
+  )
+  expectCleanupPendingProof(path, operationId)
+  expect(existsSync(journalPath)).toBe(true)
+  expect(existsSync(cleanupPath)).toBe(false)
+  expect(readWorkerDatabaseSnapshot(path, stintId).passportJson).toBeUndefined()
+  expectTreeDoesNotContainSentinel(root, guard.path, sentinel)
+  const promotionPreBoundary = cloneDirectory(
+    root,
+    `parent-cleanup-promotion-${code}-pre-boundary`
+  )
+
+  const promotionObservation = await observeParentFsyncFault(
+    durableBase,
+    promotionPreBoundary,
+    root,
+    root,
+    {
+      durableFile: `${journalPath}.pending`,
+      rename: {
+        source: journalPath,
+        destination: cleanupPath
+      }
+    },
+    repair,
+    code,
+    `parent-cleanup-promotion-${code}`
+  )
+  expectParentFsyncRpcFailure(promotionObservation.response, code, root)
+
+  restoreDirectory(promotionObservation.crashVisible, root)
+  expect(existsSync(journalPath)).toBe(false)
+  expect(existsSync(cleanupPath)).toBe(true)
+  expect(JSON.parse(readFileSync(cleanupPath, 'utf8'))).toMatchObject({
+    operationId,
+    phase: 'receipt-staged'
+  })
+  expectCleanupPendingProof(path, operationId)
+  expect(readWorkerDatabaseSnapshot(path, stintId).passportJson).toBeUndefined()
+  expectTreeDoesNotContainSentinel(root, guard.path, sentinel)
+
+  const unlinkPreBoundary = promotionObservation.crashVisible
+  restoreDirectory(unlinkPreBoundary, root)
+  expect(existsSync(journalPath)).toBe(false)
+  expect(existsSync(cleanupPath)).toBe(true)
+  expectCleanupPendingProof(path, operationId)
+  const unlinkObservation = await observeParentFsyncFault(
+    unlinkPreBoundary,
+    unlinkPreBoundary,
+    root,
+    root,
+    {
+      durableFile: cleanupPath,
+      remove: {
+        event: 'rm',
+        target: cleanupPath
+      }
+    },
+    initialize,
+    code,
+    `parent-cleanup-unlink-${code}`
+  )
+  expectParentFsyncRpcFailure(unlinkObservation.response, code, root)
+
+  restoreDirectory(unlinkObservation.crashVisible, root)
+  expect(existsSync(journalPath)).toBe(false)
+  expect(existsSync(cleanupPath)).toBe(false)
+  expectCleanupPendingProof(path, operationId)
+  expect(readWorkerDatabaseSnapshot(path, stintId).passportJson).toBeUndefined()
+  expectTreeDoesNotContainSentinel(root, guard.path, sentinel)
+  expect(readFileSync(guard.path)).toEqual(guard.bytes)
+
+  const oracle: ParentFsyncRecoveryOracle = {
+    mode: 'repair',
+    operationId,
+    oldStintId: stintId,
+    oldSentinel: sentinel,
+    guardPath: guard.path,
+    guardBytes: guard.bytes
+  }
+  await expectParentFsyncPowerLossPair(promotionObservation, root, path, oracle)
+  await expectParentFsyncPowerLossPair(unlinkObservation, root, path, oracle)
+}
+
+describe('packaged Passport persistence worker parent-directory fsync durability', () => {
+  it.each(parentFsyncFaultMatrix)(
+    '[spec-gap] propagates $code from $boundary parent-directory fsync and survives power loss',
+    async ({ boundary, code }) => {
+      if (boundary === 'authority') {
+        await exerciseAuthorityParentFsync(code)
+      } else if (boundary === 'journal') {
+        await exerciseJournalParentFsync(code)
+      } else if (boundary === 'high-water') {
+        await exerciseHighWaterParentFsync(code)
+      } else {
+        await exerciseCleanupParentFsync(code)
+      }
+    },
+    90_000
+  )
 })

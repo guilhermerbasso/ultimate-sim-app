@@ -1256,4 +1256,284 @@ describe('StintPassportService lifecycle and privacy', () => {
     })
   })
 
+  describe('StintPassportService Phase 3 reconciliation and readiness containment', () => {
+    it('[spec-gap] reconciles an ordinary passport COMMIT/no-response to durable rev2 before export or snapshot', async () => {
+      const test = harness('passport-commit-no-response')
+      const before = await persistentCurrent(test)
+      const staleItem = before.items.find((item) => item.id === 'fuel-load')
+      const headersBefore = test.store.eventHeaders(before.identity.stintId)
+      const persist = test.client.persistPassport.bind(test.client)
+      const responseLoss = new Error('response lost after passport COMMIT')
+      const persistPassport = vi.fn(async (...args: Parameters<typeof persist>) => {
+        await persist(...args)
+        throw responseLoss
+      })
+      test.client.persistPassport = persistPassport
+      const reasonCode = 'COMMIT_NO_RESPONSE_REV2'
+
+      const mutation = await test.service.resolveItem({
+        stintId: before.identity.stintId,
+        itemId: 'fuel-load',
+        status: 'manual-confirmed',
+        owner: { memberId: 'engineer-1', role: 'engineer' },
+        reasonCode
+      }).then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason: unknown) => ({ status: 'rejected' as const, reason })
+      )
+      const rollback = (test.service as unknown as {
+        current: typeof before | null
+      }).current
+      const durable = test.store.getPassport(before.identity.stintId)
+      const durableItem = durable?.items.find((item) => item.id === 'fuel-load')
+
+      const exported = await test.service.exportPackage('full-local')
+      const exportedPassport = exported.passports.find((passport) =>
+        passport.identity.stintId === before.identity.stintId
+      )
+      const exportedItem = exportedPassport?.items.find((item) => item.id === 'fuel-load')
+      const live = await test.service.snapshot()
+      const liveItem = live.current?.items.find((item) => item.id === 'fuel-load')
+      const headersAfter = test.store.eventHeaders(before.identity.stintId)
+      const addedHeaders = headersAfter.slice(headersBefore.length)
+      const attemptedEvent = persistPassport.mock.calls[0]?.[1]
+      const sha256Hex = /^[a-f0-9]{64}$/
+      const staleContentHash = staleItem?.evidence?.contentHash
+      const durableContentHash = durableItem?.evidence?.contentHash
+      const exportedContentHash = exportedItem?.evidence?.contentHash
+      const liveContentHash = liveItem?.evidence?.contentHash
+
+      expect.soft(staleContentHash).toMatch(sha256Hex)
+      expect.soft(durableContentHash).toMatch(sha256Hex)
+      expect.soft(exportedContentHash).toMatch(sha256Hex)
+      expect.soft(liveContentHash).toMatch(sha256Hex)
+      expect.soft(durableContentHash).not.toBe(staleContentHash)
+      expect.soft(exportedContentHash).toBe(durableContentHash)
+      expect.soft(liveContentHash).toBe(durableContentHash)
+
+      expect.soft({
+        mutationStatus: mutation.status,
+        mutationCauseIsResponseLoss:
+          mutation.status === 'rejected' && mutation.reason === responseLoss,
+        staleContentHash,
+        rollback: {
+          revision: rollback?.revision,
+          durability: rollback?.durability,
+          reasonCode: rollback?.items.find((item) => item.id === 'fuel-load')?.reasonCode
+        },
+        durable: {
+          stintId: durable?.identity.stintId,
+          revision: durable?.revision,
+          persisted: durable?.persisted,
+          durability: durable?.durability,
+          itemStatus: durableItem?.status,
+          reasonCode: durableItem?.reasonCode,
+          contentHash: durableContentHash
+        },
+        exported: {
+          passportCount: exported.passports.length,
+          revision: exportedPassport?.revision,
+          persisted: exportedPassport?.persisted,
+          durability: exportedPassport?.durability,
+          itemStatus: exportedItem?.status,
+          reasonCode: exportedItem?.reasonCode,
+          contentHash: exportedContentHash,
+          staleRev1Overlay: exportedPassport?.revision === before.revision
+        },
+        live: {
+          stintId: live.current?.identity.stintId,
+          revision: live.current?.revision,
+          persisted: live.current?.persisted,
+          durability: live.current?.durability,
+          itemStatus: liveItem?.status,
+          reasonCode: liveItem?.reasonCode,
+          contentHash: liveContentHash,
+          staleRev1Overlay: live.current?.revision === before.revision
+        },
+        persistCalls: persistPassport.mock.calls.length,
+        eventDelta: headersAfter.length - headersBefore.length,
+        addedEventCount: addedHeaders.length,
+        dedupeMatchesCommittedEvent:
+          addedHeaders[0]?.dedupeKey === attemptedEvent?.canonicalEvent.dedupeKey
+      }).toEqual({
+        mutationStatus: 'rejected',
+        mutationCauseIsResponseLoss: true,
+        staleContentHash: expect.stringMatching(sha256Hex),
+        rollback: {
+          revision: before.revision,
+          durability: 'failed',
+          reasonCode: staleItem?.reasonCode
+        },
+        durable: {
+          stintId: before.identity.stintId,
+          revision: before.revision + 1,
+          persisted: true,
+          durability: 'durable',
+          itemStatus: 'manual-confirmed',
+          reasonCode,
+          contentHash: expect.stringMatching(sha256Hex)
+        },
+        exported: {
+          passportCount: 1,
+          revision: before.revision + 1,
+          persisted: true,
+          durability: 'durable',
+          itemStatus: 'manual-confirmed',
+          reasonCode,
+          contentHash: expect.stringMatching(sha256Hex),
+          staleRev1Overlay: false
+        },
+        live: {
+          stintId: before.identity.stintId,
+          revision: before.revision + 1,
+          persisted: true,
+          durability: 'durable',
+          itemStatus: 'manual-confirmed',
+          reasonCode,
+          contentHash: expect.stringMatching(sha256Hex),
+          staleRev1Overlay: false
+        },
+        persistCalls: 1,
+        eventDelta: 1,
+        addedEventCount: 1,
+        dedupeMatchesCommittedEvent: true
+      })
+    }, 15_000)
+
+    it.each([
+      { startupRead: 'getConfig' as const },
+      { startupRead: 'getAuthoritativeState' as const },
+      { startupRead: 'getKillSwitch' as const }
+    ])(
+      '[spec-gap] contains constructor ready rejection from $startupRead and disposes bounded',
+      async ({ startupRead }) => {
+        const dir = scratch(`constructor-ready-${startupRead}`)
+        seedReadinessFiles(dir)
+        const tap = new FakeTap()
+        const subscriptionDispose = vi.fn()
+        const subscribe = tap.subscribe.bind(tap)
+        tap.subscribe = vi.fn((...args: Parameters<typeof subscribe>) => {
+          const subscription = subscribe(...args)
+          return {
+            ...subscription,
+            dispose: () => {
+              subscriptionDispose()
+              subscription.dispose()
+            }
+          }
+        })
+        const store = new PassportPersistenceEngine({
+          path: join(dir, 'passport.db'),
+          now: () => 10_000
+        })
+        stores.push(store)
+        const client = clientFor(store)
+        const closeStore = client.close.bind(client)
+        const close = vi.fn(async () => closeStore())
+        client.close = close
+        const startupCause = new Error(`${startupRead} constructor readiness failed`)
+        const startupFailure = vi.fn(async () => {
+          throw startupCause
+        })
+        const startupMethods = client as unknown as Record<
+          'getConfig' | 'getAuthoritativeState' | 'getKillSwitch',
+          (...args: unknown[]) => Promise<unknown>
+        >
+        startupMethods[startupRead] = startupFailure
+        const ctx = {
+          app: { getPath: () => dir },
+          phase02Tap: tap,
+          broadcast: vi.fn(),
+          registerGracefulTeardown: vi.fn(() => () => undefined)
+        } as unknown as ModuleContext
+        const unhandledRejections: unknown[] = []
+        const onUnhandledRejection = (reason: unknown): void => {
+          unhandledRejections.push(reason)
+        }
+        const listenerCountBefore = process.listenerCount('unhandledRejection')
+        let observation: Record<string, unknown> = { setup: 'incomplete' }
+
+        process.on('unhandledRejection', onUnhandledRejection)
+        try {
+          const service = new StintPassportService(ctx, client, () => 10_000)
+          services.push(service)
+
+          await new Promise<void>((resolve) => setImmediate(resolve))
+
+          const snapshotResultPromise = service.snapshot().then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason })
+          )
+          const disposalResultsPromise = Promise.allSettled([
+            service.dispose(),
+            service.dispose()
+          ])
+          let disposalDeadline: ReturnType<typeof setTimeout> | undefined
+          const disposalResult = await Promise.race([
+            disposalResultsPromise.then((results) => ({
+              status: 'settled' as const,
+              results
+            })),
+            new Promise<{ status: 'timed-out' }>((resolve) => {
+              disposalDeadline = setTimeout(() => resolve({ status: 'timed-out' }), 250)
+            })
+          ])
+          if (disposalDeadline) clearTimeout(disposalDeadline)
+          const snapshotResult = await snapshotResultPromise
+
+          await new Promise<void>((resolve) => setImmediate(resolve))
+
+          const internals = service as unknown as {
+            retentionTimer: ReturnType<typeof setInterval> | null
+            broadcastTimer: ReturnType<typeof setTimeout> | null
+            broadcastScheduled: boolean
+          }
+          observation = {
+            unhandledRejectionCount: unhandledRejections.length,
+            unhandledMessages: unhandledRejections.map((reason) =>
+              reason instanceof Error ? reason.message : String(reason)
+            ),
+            snapshotStatus: snapshotResult.status,
+            snapshotCauseIsOriginal:
+              snapshotResult.status === 'rejected' && snapshotResult.reason === startupCause,
+            disposalStatus: disposalResult.status,
+            disposalSettlements: disposalResult.status === 'settled'
+              ? disposalResult.results.map((result) => result.status)
+              : [],
+            startupReadCalls: startupFailure.mock.calls.length,
+            closeCalls: close.mock.calls.length,
+            subscriptionDisposeCalls: subscriptionDispose.mock.calls.length,
+            subscriptionEnabled: tap.status().enabled,
+            retentionTimer: internals.retentionTimer,
+            broadcastTimer: internals.broadcastTimer,
+            broadcastScheduled: internals.broadcastScheduled
+          }
+        } finally {
+          process.off('unhandledRejection', onUnhandledRejection)
+        }
+
+        expect({
+          ...observation,
+          listenerCountRestored:
+            process.listenerCount('unhandledRejection') === listenerCountBefore
+        }).toEqual({
+          unhandledRejectionCount: 0,
+          unhandledMessages: [],
+          snapshotStatus: 'rejected',
+          snapshotCauseIsOriginal: true,
+          disposalStatus: 'settled',
+          disposalSettlements: ['fulfilled', 'fulfilled'],
+          startupReadCalls: 1,
+          closeCalls: 1,
+          subscriptionDisposeCalls: 1,
+          subscriptionEnabled: false,
+          retentionTimer: null,
+          broadcastTimer: null,
+          broadcastScheduled: false,
+          listenerCountRestored: true
+        })
+      }
+    )
+  })
+
 })

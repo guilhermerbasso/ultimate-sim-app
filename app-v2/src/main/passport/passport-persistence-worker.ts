@@ -177,6 +177,7 @@ let chain: Promise<void> = Promise.resolve()
 let crashBoundary: CrashBoundary | null = null
 let repairAuthority: RepairAuthority | null = null
 let repairAuthorityKey: Buffer | null = null
+let directoryDurabilityAuthorityPath: string | null = null
 
 const CRASH_CHECKPOINTS: readonly CrashBoundary['checkpoint'][] = [
   'before-dispatch',
@@ -279,13 +280,47 @@ function repairHighWaterDirectory(databasePath: string, copy: 'a' | 'b'): string
   return `${databasePath}.repair-high-water-${copy}`
 }
 
+function windowsDirectoryDurabilityBarrier(): void {
+  if (!directoryDurabilityAuthorityPath) {
+    throw new Error('Passport directory durability authority is unavailable.')
+  }
+  const authority = new DatabaseSync(directoryDurabilityAuthorityPath)
+  try {
+    authority.exec(`
+      PRAGMA journal_mode = DELETE;
+      PRAGMA synchronous = FULL;
+      CREATE TABLE IF NOT EXISTS directory_publication_authority (
+        singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+        revision INTEGER NOT NULL
+      );
+      INSERT OR IGNORE INTO directory_publication_authority(singleton, revision)
+      VALUES (1, 0);
+      BEGIN IMMEDIATE;
+      UPDATE directory_publication_authority
+      SET revision = revision + 1
+      WHERE singleton = 1;
+      COMMIT;
+    `)
+  } finally {
+    authority.close()
+  }
+}
+
 function fsyncParent(path: string): void {
   let descriptor: number | undefined
   try {
     descriptor = openSync(dirname(path), 'r')
     fsyncSync(descriptor)
-  } catch {
-    // Directory fsync is unavailable on some supported Windows filesystems.
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException
+    const unsupportedWindowsDirectoryFsync =
+      process.platform === 'win32' &&
+      failure.code === 'EPERM' &&
+      failure.syscall === 'fsync' &&
+      failure.path === undefined &&
+      failure.message === 'EPERM: operation not permitted, fsync'
+    if (!unsupportedWindowsDirectoryFsync) throw error
+    windowsDirectoryDurabilityBarrier()
   } finally {
     if (descriptor !== undefined) closeSync(descriptor)
   }
@@ -312,13 +347,14 @@ function promoteDurable(source: string, destination: string): void {
     if (delay > 0) waitSynchronously(delay)
     try {
       renameSync(source, destination)
-      fsyncParent(destination)
-      return
     } catch (error) {
       lastError = error
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') throw error
+      continue
     }
+    fsyncParent(destination)
+    return
   }
   throw lastError
 }
@@ -2480,6 +2516,7 @@ async function execute(request: Request): Promise<unknown> {
     repairAuthority = null
     repairAuthorityKey = null
     const path = String(request.args[0])
+    directoryDurabilityAuthorityPath = `${resolve(path)}.directory-authority.sqlite`
     try {
       const hasJournal =
         existsSync(repairJournalPath(path)) ||
