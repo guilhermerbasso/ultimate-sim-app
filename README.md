@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Release line: **Ultimate Sim App 2.54.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Release line: **Ultimate Sim App 2.55.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -27,14 +27,17 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.55.0 — durable stint history and evidence-grounded setup guidance
 
-- **Read Accessibility Cues selectors in every supported contrast mode** ([#109](https://github.com/guilhermerbasso/ultimate-sim-app/pull/109)): native selects now retain readable text, options, borders, and arrows in dark, high-contrast, and Windows forced-colors modes without losing keyboard or screen-reader semantics.
-- **Keep a durable, private Stint Passport V2** ([#110](https://github.com/guilhermerbasso/ultimate-sim-app/pull/110)): local-first records survive crashes, restarts, offline use, export/import, and replay transitions, with D1-D3 privacy classes, destructive deletion, corruption quarantine, bounded persistence, and authenticated replay-resistant repair.
-- **Review the completed stint or session you choose** ([#113](https://github.com/guilhermerbasso/ultimate-sim-app/pull/113)): a newest-first local archive keeps up to 50 immutable records within an 8 MiB total and 512 KiB per-record bound, and historical generation uses only the selected snapshot.
-- **Use measured setup guidance without automatic actuation** ([#113](https://github.com/guilhermerbasso/ultimate-sim-app/pull/113)): deterministic suggestions show confidence, rationale, evidence, and alternatives or abstain when evidence is insufficient. **No setup is applied automatically—change one variable at a time, then validate it in Setup Experiment Twin.**
-- **Trust the delivery evidence again** ([#111](https://github.com/guilhermerbasso/ultimate-sim-app/pull/111)): CI binds Passport evidence to the GitHub SHA/tree, installs the pinned Electron runtime explicitly, preserves browser assertions and timeouts, and completed post-main GitHub OIDC provenance successfully.
-- **Keep history local, multilingual, and fenced from live racing:** seven-language presentation, exact session/replay/provider-epoch isolation, stale UI and speech rejection, deterministic-only LLM phrasing, and default-denied unsafe tactical advice prevent cross-session or model-created recommendations.
+### 2.55.0 — Durable Stint History & Evidence-Grounded Setup Guidance
+
+- ♿ **Accessibility Cues selectors are readable again** in the dark view, the app's high-contrast
+- ⌨️ The fix keeps native `<select>` controls, labels, focus behavior, keyboard operation, and
+- 🪪 **Each stint has a truthful local-first player record** designed to survive shutdowns, crashes,
+- 🔐 D1-D3 privacy classes bind retention to the record's class. Destructive deletion removes
+- 🧰 Process-isolated persistence uses bounded parsing, canonical integrity/authenticity checks,
+- 🔑 The repair journal and authority state are crash-safe, authenticated, replay-resistant, and
+
+See the [v2.55.0 release notes](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.55.0) for the full list.
 
 ### 2.54.0 — managed streaming, local integrations, and offline race preparation
 
