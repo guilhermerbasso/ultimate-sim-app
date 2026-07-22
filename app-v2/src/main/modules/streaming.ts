@@ -1770,6 +1770,21 @@ function serveReceiverPublic(
   createReadStream(target).pipe(response)
 }
 
+function streamHtmlForRequest(html: string, requestUrl: string | undefined): string {
+  let profileId: string | null = null
+  try {
+    profileId = new URL(requestUrl ?? '/', 'http://stream.local').searchParams.get('profile')
+  } catch {
+    // A malformed or missing URL gets the conservative legacy viewport.
+  }
+  if (profileId?.trim()) return html
+
+  // Legacy dashboard/touch renderers already size against the browser viewport.
+  // Let the browser constrain that viewport to display cutouts; profile routes
+  // retain cover and map physical safe areas inside the responsive frame.
+  return html.replace(/,\s*viewport-fit=cover/gi, '')
+}
+
 function serveHtml(request: IncomingMessage, response: ServerResponse, sessionCookie?: string): void {
   // In dev (electron-vite sets ELECTRON_RENDERER_URL), serve a shim that loads the
   // transpiled stream entry from the vite origin; the raw source stream.html would
@@ -1779,7 +1794,11 @@ function serveHtml(request: IncomingMessage, response: ServerResponse, sessionCo
   applyCors(response)
   if (sessionCookie) response.setHeader('Set-Cookie', sessionCookie)
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-  response.end(request.method === 'HEAD' ? undefined : ensureStreamBaseHref(html))
+  response.end(
+    request.method === 'HEAD'
+      ? undefined
+      : ensureStreamBaseHref(streamHtmlForRequest(html, request.url))
+  )
 }
 
 function serveStatic(pathname: string, request: IncomingMessage, response: ServerResponse): void {
