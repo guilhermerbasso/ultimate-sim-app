@@ -723,6 +723,14 @@ export const RACECON_MOCK_SCENARIOS: Record<RaceConMockDashboardId, RaceConMockS
     setSample(channels, 'stint.time', snapshot.sessionTimeSec, 's')
     if (t < 0.2) {
       snapshot.speedKmh = lerp(170, 75, t / 0.2)
+      snapshot.gear = snapshot.speedKmh < 110 ? 2 : 3
+      snapshot.rpm = lerp(5400, 3900, t / 0.2)
+      snapshot.throttle = 0
+      snapshot.brake = lerp(0.2, 0.72, t / 0.2)
+      snapshot.longAccelG = -1.8 * snapshot.brake
+      snapshot.absActive = false
+      snapshot.absCutPct = 0
+      snapshot.tcActive = false
       setSample(channels, 'pit.phase', 'APPROACH')
       return 'pit-approach'
     }
@@ -731,6 +739,13 @@ export const RACECON_MOCK_SCENARIOS: Record<RaceConMockDashboardId, RaceConMockS
       snapshot.pitLimiter = true
       snapshot.speedKmh = 59
       snapshot.gear = 2
+      snapshot.rpm = 4200
+      snapshot.throttle = 0.32
+      snapshot.brake = 0
+      snapshot.longAccelG = 0.15
+      snapshot.absActive = false
+      snapshot.absCutPct = 0
+      snapshot.tcActive = false
       snapshot.engineWarnings = { ...snapshot.engineWarnings!, pitLimiter: true }
       setSample(channels, 'pit.limiter', true, 'bool')
       setSample(channels, 'pit.onRoad', true, 'bool')
@@ -745,6 +760,7 @@ export const RACECON_MOCK_SCENARIOS: Record<RaceConMockDashboardId, RaceConMockS
       snapshot.pitFuelToAddL = 32
       snapshot.speedKmh = 0
       snapshot.gear = 0
+      snapshot.rpm = 950
       snapshot.throttle = 0
       snapshot.brake = 1
       snapshot.engineWarnings = { ...snapshot.engineWarnings!, pitLimiter: true }
@@ -762,6 +778,15 @@ export const RACECON_MOCK_SCENARIOS: Record<RaceConMockDashboardId, RaceConMockS
       ? lerp(35, 59, releaseT / limiterReleasePoint)
       : lerp(61, 115, (releaseT - limiterReleasePoint) / (1 - limiterReleasePoint))
     snapshot.gear = snapshot.speedKmh < 70 ? 2 : 3
+    snapshot.rpm = snapshot.pitLimiter
+      ? lerp(3000, 4200, releaseT / limiterReleasePoint)
+      : lerp(4300, 6200, (releaseT - limiterReleasePoint) / (1 - limiterReleasePoint))
+    snapshot.throttle = snapshot.pitLimiter ? 0.28 : 0.62
+    snapshot.brake = 0
+    snapshot.longAccelG = snapshot.pitLimiter ? 0.12 : 0.45
+    snapshot.absActive = false
+    snapshot.absCutPct = 0
+    snapshot.tcActive = false
     setSample(channels, 'pit.phase', 'RELEASE')
     setSample(channels, 'pit.releaseHazard', t > 0.82 && t < 0.88, 'bool')
     return 'pit-release'
