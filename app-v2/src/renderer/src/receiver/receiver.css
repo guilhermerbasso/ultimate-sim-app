@@ -13,6 +13,7 @@ body {
   margin: 0;
   min-width: 280px;
   min-height: 100vh;
+  min-height: 100dvh;
   background:
     radial-gradient(circle at 100% 0%, rgba(118, 247, 189, 0.12), transparent 32rem),
     linear-gradient(160deg, #07111d, #091827 55%, #06101a);
@@ -26,7 +27,11 @@ input {
 .receiver-shell {
   width: min(920px, 100%);
   margin: 0 auto;
-  padding: clamp(18px, 4vw, 40px);
+  padding:
+    max(clamp(18px, 4vw, 40px), env(safe-area-inset-top, 0px))
+    max(clamp(18px, 4vw, 40px), env(safe-area-inset-right, 0px))
+    max(clamp(18px, 4vw, 40px), env(safe-area-inset-bottom, 0px))
+    max(clamp(18px, 4vw, 40px), env(safe-area-inset-left, 0px));
 }
 
 .receiver-header {

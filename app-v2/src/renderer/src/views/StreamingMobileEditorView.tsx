@@ -27,7 +27,7 @@ import { STREAMING_CHANNELS, type StreamingStartResult } from '../../../shared/s
 import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
-import { StreamPresentationRenderer } from '../stream-presentation/StreamPresentationRenderer'
+import { ResponsiveStreamPresentationFrame } from '../stream-presentation/ResponsiveStreamPresentationFrame'
 import './streaming-mobile-editor.css'
 
 type VisibilityScope = 'base' | string
@@ -426,23 +426,6 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
       }
     }))
   }
-
-  const previewScale = resolved
-    ? Math.max(0.16, Math.min(0.78, 680 / resolved.viewport.width, 620 / resolved.viewport.height))
-    : 1
-  const previewOuterStyle = resolved
-    ? {
-        width: Math.round(resolved.viewport.width * previewScale),
-        height: Math.round(resolved.viewport.height * previewScale)
-      }
-    : undefined
-  const previewInnerStyle = resolved
-    ? {
-        width: resolved.viewport.width,
-        height: resolved.viewport.height,
-        transform: `scale(${previewScale})`
-      }
-    : undefined
 
   return (
     <div className="stream-mobile-editor">
@@ -860,22 +843,20 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
                   </div>
                   <div className="stream-mobile-preview-deck">
                     {draft && resolved ? (
-                      <div className="stream-mobile-preview-outer" style={previewOuterStyle}>
-                        <div className="stream-mobile-preview-inner" style={previewInnerStyle}>
-                          <StreamPresentationRenderer
-                            profile={draft}
-                            dashboard={dashboard}
-                            touchPanel={touchPanel}
-                            mode="preview"
-                            interactiveTouch={draft.target.kind === 'touch'}
-                            ariaLabel={tt(language, 'streamMobile.previewAria', {
-                              width: resolved.viewport.width,
-                              height: resolved.viewport.height
-                            })}
-                            unavailableLabel={tt(language, 'streamMobile.previewUnavailable')}
-                          />
-                        </div>
-                      </div>
+                      <ResponsiveStreamPresentationFrame
+                        className="stream-mobile-preview-frame"
+                        profile={draft}
+                        dashboard={dashboard}
+                        touchPanel={touchPanel}
+                        mode="preview"
+                        interactiveTouch={draft.target.kind === 'touch'}
+                        viewportAware={false}
+                        ariaLabel={tt(language, 'streamMobile.previewAria', {
+                          width: resolved.viewport.width,
+                          height: resolved.viewport.height
+                        })}
+                        unavailableLabel={tt(language, 'streamMobile.previewUnavailable')}
+                      />
                     ) : null}
                   </div>
                   <p className="stream-mobile-preview-note">

@@ -4,12 +4,14 @@ import {
   dashboardForStreamPresentation,
   resolveStreamPresentation,
   resolveTouchPresentationLayout,
-  type StreamPresentationProfile
+  type StreamPresentationProfile,
+  type StreamSafeAreaInsets
 } from '../../../shared/stream-presentation'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import type { ButtonBoxPanel } from '../../../shared/touch-panel'
 import { DashboardCanvas } from '../dashboard/DashboardRoot'
 import { ButtonBoxRenderer, type ButtonBoxRendererProps } from '../touchpanel/ButtonBoxRenderer'
+import { withStreamPresentationSafeArea } from './responsive-frame'
 import './stream-presentation.css'
 
 export type StreamPresentationRendererMode = 'preview' | 'runtime'
@@ -23,6 +25,7 @@ export interface StreamPresentationRendererProps {
   interactiveTouch?: boolean
   onTouchAction?: ButtonBoxRendererProps['onAction']
   reportTouchLifecycle?: boolean
+  safeAreaOverride?: StreamSafeAreaInsets
   ariaLabel?: string
   unavailableLabel?: string
 }
@@ -36,10 +39,15 @@ export function StreamPresentationRenderer({
   interactiveTouch = false,
   onTouchAction,
   reportTouchLifecycle = false,
+  safeAreaOverride,
   ariaLabel = 'Mobile stream presentation preview',
   unavailableLabel = 'Target preview unavailable.'
 }: StreamPresentationRendererProps): ReactElement {
-  const resolved = useMemo(() => resolveStreamPresentation(profile), [profile])
+  const canonicalResolved = useMemo(() => resolveStreamPresentation(profile), [profile])
+  const resolved = useMemo(
+    () => withStreamPresentationSafeArea(profile, canonicalResolved, safeAreaOverride),
+    [profile, canonicalResolved, safeAreaOverride]
+  )
   const presentedDashboard = useMemo(
     () => dashboard ? dashboardForStreamPresentation(dashboard, resolved) : null,
     [dashboard, resolved]
