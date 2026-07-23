@@ -1,10 +1,23 @@
 # Ultimate Sim App — Release Notes
 
-## v2.56.0 — Responsive mobile presentations & deterministic dashboard QA
+## v2.56.0 — Managed streaming sources, responsive mobile presentations & deterministic dashboard QA
 
-Version 2.56.0 makes saved dashboard and Touch Controls presentations adapt reliably to real phone
-and tablet viewports, and adds deterministic RaceCon mock telemetry as a development and visual-QA
-foundation without presenting those mock scenarios as shipped end-user dashboards.
+Version 2.56.0 gives players one authoritative allowlist for the dashboards and Touch Controls
+panels that may stream, makes saved presentations adapt reliably to real phone and tablet
+viewports, and adds deterministic RaceCon mock telemetry as a development and visual-QA foundation
+without presenting those mock scenarios as shipped end-user dashboards.
+
+### Authoritative streaming sources you control
+- 🔐 **One Manage streaming sources flow now governs Streaming, the Mobile Stream Editor, and the
+  OBS-local dashboard selector.** It catalogs visible user dashboards and saved Touch Controls
+  panels with clear added, active, missing, hidden, and ineligible states.
+- ✅ `settings.streamTargets` is the authoritative allowlist for dashboard, Touch Controls,
+  presentation-profile, and OBS-local starts. Hidden, ineligible, missing, or tampered sources fail
+  closed instead of being started through another route.
+- 🧹 **Removing an active source stops its sessions and revokes browser access before the allowlist
+  is persisted**, without deleting the underlying dashboard or Touch Controls panel.
+- 🛠️ Stale references remain visible for explicit repair or removal, while Receiver v2 and
+  restricted viewer preloads remain read-only with no browser settings-management endpoint.
 
 ### Mobile presentations that fit the actual device
 - 📱 **Saved dashboard and Touch Controls profiles now fit the viewport that is displaying them**
@@ -19,8 +32,8 @@ foundation without presenting those mock scenarios as shipped end-user dashboard
   on narrow portrait devices and short landscape screens.
 - 🛡️ Profile-less legacy receivers remain outside `viewport-fit=cover`, so notches, rounded corners,
   and home indicators cannot unexpectedly cover controls.
-- 🎛️ These changes preserve the existing Streaming allowlist, backend, authentication, and source
-  dashboard behavior; the release changes presentation geometry rather than access policy.
+- 🎛️ The responsive-presentation changes themselves preserve authentication and source behavior;
+  source membership is governed separately by the authoritative allowlist described above.
 
 ### Deterministic RaceCon mock telemetry foundation
 - 🧪 **Development tooling now includes one deterministic synthetic telemetry scenario for every
@@ -33,6 +46,10 @@ foundation without presenting those mock scenarios as shipped end-user dashboard
   authoring tools.
 
 ### Validation
+- PR #118 validation passed **165 targeted tests** across shared, main, IPC/preload, security,
+  Streaming, Mobile Editor, OBS Local, and Receiver v2 surfaces. Renderer and changed-main
+  TypeScript checks, the Electron production bundle, stream resource graph, and Receiver v2
+  PWA/offline/security verification passed.
 - PR #116 validation passed both TypeScript configurations and **91 targeted Vitest tests** across
   RaceCon scenarios, MockProvider, telemetry scenarios, and track-map learning.
 - PR #117 validation passed renderer TypeScript, **52 main streaming tests**, **49 focused responsive
@@ -43,14 +60,19 @@ foundation without presenting those mock scenarios as shipped end-user dashboard
 - The Phase-02 contract verifier passed with cached, SHA-256-pinned Buf 1.71.0 and reproduced the
   committed contract descriptors; targeted documentation/version assertions and `git diff --check`
   also passed. No `npm ci`, `npx`, or package installation was run.
-- Final `npm run dist:win` and `npm run verify:win-package` are intentionally deferred until this
-  release metadata commit lands on merged `main`; no tag, GitHub Release, or release assets are
-  created from the unmerged preparation commit.
+- The focused #118 notes follow-up passed both TypeScript configurations, exact three-file content
+  and scope assertions, and `git diff --check` using existing cached dependencies only.
+- Final `npm run dist:win` and `npm run verify:win-package` remain intentionally deferred until the
+  #118 notes follow-up lands on merged `main`; no tag, GitHub Release, or release assets are created
+  from incomplete notes.
 
 _Expected release artifacts: `latest.yml`, `Ultimate-Sim-App-2.56.0-x64.exe` (NSIS, x64),
 `Ultimate-Sim-App-2.56.0-x64.exe.blockmap`, and `Ultimate-Sim-App-2.56.0-x64.zip`._
 
 ### What's Changed
+- [#118](https://github.com/guilhermerbasso/ultimate-sim-app/pull/118) — add one authoritative,
+  fail-closed source allowlist and shared management flow for Streaming, Mobile Editor, and OBS
+  Local without deleting underlying dashboards or Touch Controls panels.
 - [#116](https://github.com/guilhermerbasso/ultimate-sim-app/pull/116) — add deterministic RaceCon
   mock scenarios for dashboard implementation and visual QA without claiming shipped dashboards or
   Bosch hardware emulation.
