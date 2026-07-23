@@ -6,9 +6,12 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
-## 2.56.0 — responsive mobile presentations and deterministic RaceCon dashboard QA
+## 2.56.0 — managed streaming sources, responsive mobile presentations, and deterministic RaceCon dashboard QA
 
 ### Added
+- **Authoritative streaming source management** shared by Streaming, the Mobile Stream Editor, and
+  the OBS-local dashboard selector. It catalogs visible user dashboards and saved Touch Controls
+  panels with explicit added, active, missing, hidden, and ineligible states.
 - **Deterministic RaceCon mock telemetry scenarios** for every RC-01 through RC-20 dashboard packet,
   with explicit synthetic provenance and selectable replay through the development MockProvider.
 - Internally consistent synthetic standings, radar, fuel, rev-light, pit-state, stationary-motion,
@@ -20,8 +23,13 @@
   remounting the renderer.
 - The Mobile Stream Editor preview now measures its own container and remains usable on narrow
   portrait devices and short landscape screens.
+- `settings.streamTargets` is now the authoritative allowlist for dashboard, Touch Controls,
+  presentation-profile, and OBS-local starts. Hidden, ineligible, missing, or tampered sources fail
+  closed while stale references remain visible for explicit repair or removal.
 
 ### Fixed
+- Removing an active streaming source stops its sessions and revokes browser access before
+  persistence without deleting the underlying dashboard or Touch Controls panel.
 - Presentation scaling preserves the configured orientation, safe-area mapping, and minimum touch
   behavior while profile-less legacy streams stay protected from display cutouts.
 - The RaceCon scenarios are development-only mock and QA infrastructure. They do not emulate Bosch

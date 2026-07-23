@@ -27,8 +27,10 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.56.0 — responsive mobile presentations and deterministic dashboard QA
+### 2.56.0 — managed streaming sources, responsive mobile presentations, and deterministic dashboard QA
 
+- **Control the authoritative list of dashboards and Touch Controls panels that may stream** ([#118](https://github.com/guilhermerbasso/ultimate-sim-app/pull/118)): one Manage streaming sources flow is shared by Streaming, the Mobile Stream Editor, and OBS-local, with clear added, active, missing, hidden, and ineligible states.
+- **Remove streaming access without deleting the source** ([#118](https://github.com/guilhermerbasso/ultimate-sim-app/pull/118)): removing an active source stops its sessions and revokes browser access first, while stale references remain available for explicit repair or removal and the underlying dashboard or panel stays intact.
 - **Fit saved presentations to the phone or tablet actually viewing them** ([#117](https://github.com/guilhermerbasso/ultimate-sim-app/pull/117)): dashboard and Touch Controls profiles now respond to container, visual-viewport, window, and orientation changes without remounting, while preserving configured orientation, safe areas, and fail-closed touch usability.
 - **Preview mobile layouts on narrow and short screens** ([#117](https://github.com/guilhermerbasso/ultimate-sim-app/pull/117)): the Mobile Stream Editor preview measures its own container, and profile-less legacy receivers remain protected from notches and home-indicator cutouts.
 - **Build and visually verify RaceCon-style dashboards with deterministic mock data** ([#116](https://github.com/guilhermerbasso/ultimate-sim-app/pull/116)): development tooling now provides one explicit synthetic scenario for each RC-01 through RC-20 packet, with consistent standings, radar, fuel, rev-light, pit, motion, and lap states.
