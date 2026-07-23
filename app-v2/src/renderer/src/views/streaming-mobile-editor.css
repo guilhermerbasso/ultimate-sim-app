@@ -98,6 +98,11 @@
   line-height: 1.35;
 }
 
+.stream-mobile-hero-note .stream-mobile-link {
+  justify-self: start;
+  margin-top: 8px;
+}
+
 .stream-mobile-workbench {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);

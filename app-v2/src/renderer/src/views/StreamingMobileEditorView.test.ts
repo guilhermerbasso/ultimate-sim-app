@@ -9,8 +9,13 @@ import {
   type StreamPresentationSaveRequest,
   type StreamPresentationTargetDescriptor
 } from '../../../shared/stream-presentation'
+import {
+  STREAM_SOURCE_CHANNELS,
+  type StreamSourceDescriptor
+} from '../../../shared/stream-sources'
 import { STREAMING_CHANNELS } from '../../../shared/streaming'
 import type { AppViewProps } from '../App'
+import { APP_NAVIGATE_EVENT, type AppNavigateDetail } from '../lib/app-navigation'
 import StreamingMobileEditorView from './StreamingMobileEditorView'
 
 vi.mock('../stream-presentation/StreamPresentationRenderer', () => ({
@@ -50,13 +55,42 @@ describe('StreamingMobileEditorView integration', () => {
   let invoke: ReturnType<typeof vi.fn>
   let showToast: ReturnType<typeof vi.fn>
   let saveRequests: StreamPresentationSaveRequest[]
+  let sources: StreamSourceDescriptor[]
 
   beforeEach(() => {
     currentProfiles = [profileItem(7)]
     listeners = new Map()
     showToast = vi.fn()
     saveRequests = []
+    sources = [{
+      kind: 'dashboard',
+      id: target.id,
+      label: target.name,
+      eligible: true,
+      reason: null,
+      added: true,
+      active: false
+    }]
     invoke = vi.fn(async (channel: string, ...args: unknown[]) => {
+      if (channel === STREAM_SOURCE_CHANNELS.list) return structuredClone(sources)
+      if (channel === STREAM_SOURCE_CHANNELS.add) {
+        const request = args[0] as { kind: string; id: string }
+        sources = sources.map((source) =>
+          source.kind === request.kind && source.id === request.id
+            ? { ...source, added: true }
+            : source
+        )
+        return structuredClone(sources)
+      }
+      if (channel === STREAM_SOURCE_CHANNELS.remove) {
+        const request = args[0] as { kind: string; id: string }
+        sources = sources.map((source) =>
+          source.kind === request.kind && source.id === request.id
+            ? { ...source, added: false, active: false }
+            : source
+        )
+        return structuredClone(sources)
+      }
       if (channel === STREAM_PRESENTATION_CHANNELS.targets) return [target]
       if (channel === STREAM_PRESENTATION_CHANNELS.list) return structuredClone(currentProfiles)
       if (channel === 'app:dash:get') return null
@@ -126,6 +160,40 @@ describe('StreamingMobileEditorView integration', () => {
       'Streaming started with this presentation profile.',
       'success'
     )
+  })
+
+  it('uses the shared source manager and links directly back to Streaming', async () => {
+    sources = [{
+      kind: 'touch',
+      id: 'touch-pit',
+      label: 'Pit controls',
+      eligible: true,
+      reason: null,
+      added: false,
+      active: false
+    }]
+    const navigation: AppNavigateDetail[] = []
+    const onNavigate = (event: Event): void => {
+      navigation.push((event as CustomEvent<AppNavigateDetail>).detail)
+    }
+    window.addEventListener(APP_NAVIGATE_EVENT, onNavigate)
+    try {
+      renderEditor()
+
+      expect(await screen.findByText('Manage streaming sources')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Add to Streaming' }))
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(STREAM_SOURCE_CHANNELS.add, {
+          kind: 'touch',
+          id: 'touch-pit'
+        })
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open Streaming' }))
+      expect(navigation).toEqual([{ viewId: 'streaming' }])
+    } finally {
+      window.removeEventListener(APP_NAVIGATE_EVENT, onNavigate)
+    }
   })
 
   it('keeps the dirty draft base revision so a concurrent broadcast is rejected', async () => {

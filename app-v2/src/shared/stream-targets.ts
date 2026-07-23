@@ -38,6 +38,7 @@ export type StreamTargetProfileIdFactory = () => string
 const MAX_PROFILE_ID_LENGTH = 128
 const MAX_SOURCE_ID_LENGTH = 256
 const MAX_LABEL_LENGTH = 96
+const STREAM_TARGET_SOURCE_ID = /^[A-Za-z0-9._:-]{1,128}$/
 
 function recordOf(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -112,6 +113,10 @@ export function streamTargetSourceKey(source: Pick<StreamTargetSource, 'kind' | 
   return `${source.kind}:${source.id}`
 }
 
+export function isStreamTargetSourceId(value: unknown): boolean {
+  return typeof value === 'string' && STREAM_TARGET_SOURCE_ID.test(value)
+}
+
 export function listUserAddedStreamTargetSources(
   dashboards: readonly DashboardSummary[],
   touchPanels: readonly ButtonBoxSummary[]
@@ -127,12 +132,12 @@ export function listUserAddedStreamTargetSources(
 
   for (const dashboard of dashboards) {
     const id = cleanText(dashboard.id, MAX_SOURCE_ID_LENGTH)
-    if (dashboard.hidden || dashboard.builtIn || !id) continue
+    if (dashboard.hidden || dashboard.builtIn || !id || !isStreamTargetSourceId(id)) continue
     add({ kind: 'dashboard', id, label: cleanText(dashboard.name, MAX_LABEL_LENGTH) ?? id })
   }
   for (const panel of touchPanels) {
     const id = cleanText(panel.id, MAX_SOURCE_ID_LENGTH)
-    if (panel.hidden || !id) continue
+    if (panel.hidden || !id || !isStreamTargetSourceId(id)) continue
     add({ kind: 'touch', id, label: cleanText(panel.name, MAX_LABEL_LENGTH) ?? id })
   }
   return sources
@@ -192,7 +197,7 @@ export function addStreamTargetProfile(
   const profileId = cleanText(createId(), MAX_PROFILE_ID_LENGTH)
   const sourceId = cleanText(source.id, MAX_SOURCE_ID_LENGTH)
   const profileLabel = cleanText(label, MAX_LABEL_LENGTH)
-  if (!profileId || !sourceId || !profileLabel || !normalizeKind(source.kind)) {
+  if (!profileId || !sourceId || !isStreamTargetSourceId(sourceId) || !profileLabel || !normalizeKind(source.kind)) {
     throw new Error('Invalid stream target profile.')
   }
   if (settings.profiles.some((profile) => profile.id === profileId)) {

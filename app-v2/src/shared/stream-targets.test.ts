@@ -11,6 +11,7 @@ import {
   moveStreamTargetProfile,
   renameStreamTargetProfile,
   resolveStreamTargetProfiles,
+  streamTargetSourceKey,
   selectStreamTargetProfile
 } from './stream-targets'
 
@@ -42,6 +43,7 @@ describe('stream target source filtering', () => {
   it('offers only visible dashboards and touch panels saved in the user registries', () => {
     const dashboards = Object.freeze([
       Object.freeze(dashboard('dash-user', 'Race dash')),
+      Object.freeze(dashboard('dash-hidden-user', 'Hidden user dash', true)),
       Object.freeze(dashboard('dash-hidden-builtin', 'Bundled hidden dash', true, true)),
       Object.freeze(dashboard('dash-builtin', 'Bundled dash', false, true))
     ])
@@ -150,5 +152,46 @@ describe('stream target profile editing', () => {
     )
 
     expect(deleteStreamTargetProfile(settings, 'profile-two').selectedProfileId).toBe('profile-one')
+  })
+})
+
+describe('stream target source identity', () => {
+  it('keeps dashboard and touch sources distinct when their textual IDs collide', () => {
+    expect(listUserAddedStreamTargetSources(
+      [dashboard('shared-source', 'Race dash')],
+      [touchPanel('shared-source', 'Pit controls')]
+    )).toEqual([
+      { kind: 'dashboard', id: 'shared-source', label: 'Race dash' },
+      { kind: 'touch', id: 'shared-source', label: 'Pit controls' }
+    ])
+  })
+
+  it.each([
+    [
+      'blank dashboard ID',
+      [dashboard('   ', 'Invalid dashboard'), dashboard('dash-valid', 'Valid dashboard')],
+      [],
+      [{ kind: 'dashboard', id: 'dash-valid', label: 'Valid dashboard' }]
+    ],
+    [
+      'control-character touch ID',
+      [],
+      [touchPanel('touch-\u0000invalid', 'Invalid panel'), touchPanel('touch-valid', 'Valid panel')],
+      [{ kind: 'touch', id: 'touch-valid', label: 'Valid panel' }]
+    ]
+  ] as const)(
+    'omits an entry with a %s while keeping its valid sibling',
+    (_case, dashboards, touchPanels, expected) => {
+      expect(listUserAddedStreamTargetSources(dashboards, touchPanels)).toEqual(expected)
+    }
+  )
+
+  it('includes the source kind in keys for same-ID dashboard and touch sources', () => {
+    const dashboardKey = streamTargetSourceKey({ kind: 'dashboard', id: 'shared-source' })
+    const touchKey = streamTargetSourceKey({ kind: 'touch', id: 'shared-source' })
+
+    expect(dashboardKey).toBe('dashboard:shared-source')
+    expect(touchKey).toBe('touch:shared-source')
+    expect(dashboardKey).not.toBe(touchKey)
   })
 })

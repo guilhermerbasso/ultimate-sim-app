@@ -147,6 +147,11 @@ const managerState = vi.hoisted(() => ({
 const presentationState = vi.hoisted(() => ({
   item: null as unknown
 }))
+const streamSourceGuard = vi.hoisted(() => ({
+  deniedKey: null as string | null,
+  calls: [] as string[],
+  runtimeBroadcasts: 0
+}))
 
 vi.mock('./dashboards', () => ({
   getDashboardManager: () => ({
@@ -182,6 +187,42 @@ vi.mock('../touchpanel/manager', () => ({
 
 vi.mock('./stream-presentation', () => ({
   getStreamPresentationProfileForRuntime: async () => presentationState.item
+}))
+
+vi.mock('./stream-sources', () => ({
+  runWithStreamSourceLock: async <T>(operation: () => Promise<T>) => operation(),
+  assertStreamSourceAllowedCurrent: async (ref: { kind: string; id: string }) => {
+    const key = `${ref.kind}:${ref.id}`
+    streamSourceGuard.calls.push(key)
+    if (streamSourceGuard.deniedKey === key) {
+      throw new Error(`Add ${key} in Manage streaming sources before starting it.`)
+    }
+    return {
+      ...ref,
+      label: ref.id,
+      eligible: true,
+      reason: null,
+      added: true,
+      active: false
+    }
+  },
+  assertStreamSourceAllowed: async (ref: { kind: string; id: string }) => {
+    const key = `${ref.kind}:${ref.id}`
+    if (streamSourceGuard.deniedKey === key) {
+      throw new Error(`Add ${key} in Manage streaming sources before starting it.`)
+    }
+    return {
+      ...ref,
+      label: ref.id,
+      eligible: true,
+      reason: null,
+      added: true,
+      active: true
+    }
+  },
+  broadcastStreamSourceRuntimeChangedCurrent: async () => {
+    streamSourceGuard.runtimeBroadcasts += 1
+  }
 }))
 
 import {
@@ -562,6 +603,9 @@ describe('streaming authenticated server', () => {
     managerState.requestedDashboards.length = 0
     managerState.requestedPanels.length = 0
     presentationState.item = null
+    streamSourceGuard.deniedKey = null
+    streamSourceGuard.calls.length = 0
+    streamSourceGuard.runtimeBroadcasts = 0
     managerState.semanticCalls.length = 0
     managerState.releasedOwners.length = 0
     managerState.panelAvailable = true
@@ -607,6 +651,63 @@ describe('streaming authenticated server', () => {
 
     const getControl = await httpRequest(started.url.replace('/obs/default', '/api/touch/action'))
     expect(getControl.statusCode).toBe(404)
+
+    const postSourceManagement = await httpRequest(
+      started.url.replace('/obs/default', '/api/streaming/sources'),
+      { method: 'POST' }
+    )
+    const getSourceManagement = await httpRequest(
+      started.url.replace('/obs/default', '/api/streaming/sources')
+    )
+    expect(postSourceManagement.statusCode).toBe(405)
+    expect(getSourceManagement.statusCode).toBe(404)
+  })
+
+  it('fails closed when a valid registry target is not in the persisted source allowlist', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    streamSourceGuard.deniedKey = 'dashboard:race'
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'dashboard',
+      layoutId: 'race'
+    })).rejects.toThrow(/Manage streaming sources/)
+    expect(streamSourceGuard.calls).toEqual(['dashboard:race'])
+    expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).running).toBe(false)
+  })
+
+  it('re-checks the persisted allowlist at the selected target HTTP boundary', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'dashboard',
+      layoutId: 'race'
+    })
+    const documentUrl = localDocumentUrl(started)
+    const document = await httpRequest(documentUrl)
+    const cookie = sessionCookie(document)
+    streamSourceGuard.deniedKey = 'dashboard:race'
+
+    const dashboard = await httpRequest(
+      new URL('api/dashboard/race', new URL('../', documentUrl)).toString(),
+      { headers: { Cookie: cookie } }
+    )
+
+    expect(dashboard.statusCode).toBe(404)
+  })
+
+  it('broadcasts source active-state changes after normal start and stop lifecycles', async () => {
+    ctx = fakeContext()
+    register(ctx)
+
+    await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'dashboard',
+      layoutId: 'race'
+    })
+    expect(streamSourceGuard.runtimeBroadcasts).toBe(1)
+
+    await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.stop)
+    expect(streamSourceGuard.runtimeBroadcasts).toBe(2)
   })
 
   it('joins streaming cleanup to the bounded quiesce teardown barrier', async () => {
@@ -899,6 +1000,44 @@ describe('streaming authenticated server', () => {
     expect(presentation.statusCode).toBe(200)
     expect(JSON.parse(presentation.body)).toEqual(profile)
     expect(dashboard.statusCode).toBe(200)
+  })
+
+  it('applies the same source allowlist to presentation-profile starts', async () => {
+    const profile = createStreamPresentationProfile({
+      kind: 'dashboard',
+      id: 'race',
+      name: 'Race dashboard',
+      revision: 'dashboard:race:1',
+      width: 1024,
+      height: 600,
+      itemCount: 1,
+      hidden: false
+    }, {
+      id: 'stream-profile-denied',
+      now: 10
+    })
+    presentationState.item = {
+      profile,
+      target: {
+        kind: 'dashboard',
+        id: 'race',
+        name: 'Race dashboard',
+        revision: profile.target.revision,
+        width: 1024,
+        height: 600,
+        itemCount: 1,
+        hidden: false
+      },
+      targetState: 'current'
+    }
+    streamSourceGuard.deniedKey = 'dashboard:race'
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      presentationProfileId: profile.id
+    })).rejects.toThrow(/Manage streaming sources/)
+    expect(streamSourceGuard.calls).toEqual(['dashboard:race'])
   })
 
   it('blocks stale presentation profiles before opening a stream', async () => {

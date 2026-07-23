@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { EXPR_CHANNELS } from '../shared/expr'
+import { STREAM_PRESENTATION_CHANNELS } from '../shared/stream-presentation'
+import { STREAM_SOURCE_CHANNELS } from '../shared/stream-sources'
+import { STREAMING_CHANNELS } from '../shared/streaming'
 import { TOUCH_ACTION_IPC_CHANNEL } from '../shared/touch-panel'
 import { STINT_PASSPORT_CHANNELS } from '../shared/stint-passport'
 import {
@@ -127,6 +130,36 @@ describe('exact Passport channel rejection boundaries', () => {
     ]) {
       expect(isMainPassportInvokeAllowed(channel), channel).toBe(false)
       expect(isMainPassportSubscribeAllowed(channel), channel).toBe(false)
+      expect(isOverlayIpcAllowed(channel), channel).toBe(false)
+      expect(isTouchpanelIpcAllowed(channel), channel).toBe(false)
+    }
+  })
+})
+
+describe('restricted renderer streaming mutation boundaries', () => {
+  it('denies existing streaming mutations to overlay and touch-panel windows', () => {
+    const mutationChannels = [
+      STREAMING_CHANNELS.start,
+      STREAMING_CHANNELS.stop,
+      STREAMING_CHANNELS.startTunnel,
+      STREAMING_CHANNELS.stopTunnel,
+      STREAMING_CHANNELS.rotateReceiverPairing,
+      STREAM_PRESENTATION_CHANNELS.save,
+      STREAM_PRESENTATION_CHANNELS.delete,
+      STREAM_PRESENTATION_CHANNELS.refreshTarget,
+      STREAM_SOURCE_CHANNELS.add,
+      STREAM_SOURCE_CHANNELS.remove,
+      'app:setSettings'
+    ]
+
+    for (const channel of mutationChannels) {
+      expect(isOverlayIpcAllowed(channel), channel).toBe(false)
+      expect(isTouchpanelIpcAllowed(channel), channel).toBe(false)
+    }
+  })
+
+  it('does not expose the source-management catalog or mutations to viewer windows', () => {
+    for (const channel of Object.values(STREAM_SOURCE_CHANNELS)) {
       expect(isOverlayIpcAllowed(channel), channel).toBe(false)
       expect(isTouchpanelIpcAllowed(channel), channel).toBe(false)
     }

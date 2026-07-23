@@ -59,6 +59,12 @@ import { ReceiverV2Gateway } from './receiver-v2'
 import { getTouchPanelManager } from '../touchpanel/manager'
 import { getStreamPresentationProfileForRuntime } from './stream-presentation'
 import {
+  assertStreamSourceAllowed,
+  assertStreamSourceAllowedCurrent,
+  broadcastStreamSourceRuntimeChangedCurrent,
+  runWithStreamSourceLock
+} from './stream-sources'
+import {
   CloudflaredTunnelSupervisor,
   inspectCloudflaredBinary,
   locateCloudflaredBinary,
@@ -2047,12 +2053,28 @@ async function activePresentationProfile(
   return item
 }
 
+async function allowActiveSourceRequest(response: ServerResponse): Promise<boolean> {
+  try {
+    await assertStreamSourceAllowed({ kind: state.layoutKind, id: state.layoutId })
+    return true
+  } catch (error) {
+    logger.warn('streaming', 'request rejected because active source is no longer allowlisted', {
+      layoutKind: state.layoutKind,
+      layoutId: state.layoutId,
+      message: error instanceof Error ? error.message : String(error)
+    })
+    send(response, 404, 'Not found')
+    return false
+  }
+}
+
 async function serveSelectedDashboard(id: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (state.layoutKind !== 'dashboard' || id !== state.layoutId) {
     logger.error('streaming', 'dashboard api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
     return
   }
+  if (!await allowActiveSourceRequest(response)) return
   if (await activePresentationProfile(response) === false) return
   const dashboard = getDashboardManager()?.getDashboard(id)
   if (!dashboard) {
@@ -2146,6 +2168,7 @@ async function serveSelectedTouchPanel(
     send(response, 403, 'Forbidden')
     return
   }
+  if (!await allowActiveSourceRequest(response)) return
   if (await activePresentationProfile(response) === false) return
   const panel = getTouchPanelManager()?.getPanel(id)
   if (!panel) {
@@ -2410,6 +2433,7 @@ async function executeTouchInteraction(
     send(response, 503, 'Streaming server is stopping')
     return
   }
+  if (!await allowActiveSourceRequest(response)) return
   const capability = state.touchCapabilities.get(body.capabilityId)
   if (!capability || !capability.phases.includes(body.phase)) {
     send(response, 403, 'Touch capability is not allowed')
@@ -4126,6 +4150,11 @@ async function stopStreaming(): Promise<StreamingStatus> {
   await serverClosed
   if (server) logger.info('streaming', 'server stopped', {})
   if (hadLanListener && firewallPort) await removeWindowsFirewallRule(firewallPort)
+  await broadcastStreamSourceRuntimeChangedCurrent().catch((error) => {
+    logger.warn('streaming', 'failed to broadcast inactive streaming source state', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  })
   if (tunnelCleanupError) {
     throw new Error(`Streaming stopped locally, but cloudflared cleanup could not be confirmed: ${tunnelCleanupError.message}`)
   }
@@ -4405,6 +4434,7 @@ async function startStreaming(
     }
   }
   const target = await resolveStreamTarget(args)
+  await assertStreamSourceAllowedCurrent({ kind: target.kind, id: target.id })
   throwIfStartCancelled(operation)
   if (state.server || autoTunnelSupervisor || state.sessions.size > 0) {
     await stopStreamingLifecycle()
@@ -4562,7 +4592,7 @@ async function startStreaming(
     }
     await refreshQrCodes()
     throwIfStartCancelled(operation)
-    return {
+    const result: StreamingStartResult = {
       profile: state.profile,
       url: dashboardUrl() ?? '',
       lanUrl: advertisedLanUrl(),
@@ -4590,6 +4620,12 @@ async function startStreaming(
       receiverV2: receiverStatus(),
       presentationProfileId: state.presentationProfileId
     }
+    await broadcastStreamSourceRuntimeChangedCurrent().catch((error) => {
+      logger.warn('streaming', 'failed to broadcast active streaming source state', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+    return result
   } catch (error) {
     let cleanupError: Error | null = null
     try {
@@ -4617,10 +4653,14 @@ export function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promis
   }
   startOperation = operation
   let tracked!: Promise<StreamingStartResult>
-  tracked = enqueueLifecycle(() => startStreaming(ctx, args, profile, operation)).finally(() => {
-    if (startOperation === operation) startOperation = null
-    if (startPromise === tracked) startPromise = null
-  })
+  tracked = Promise.resolve()
+    .then(() => runWithStreamSourceLock(
+      () => enqueueLifecycle(() => startStreaming(ctx, args, profile, operation))
+    ))
+    .finally(() => {
+      if (startOperation === operation) startOperation = null
+      if (startPromise === tracked) startPromise = null
+    })
   startPromise = tracked
   return tracked
 }

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
-import type { DashboardSummary } from '../../../shared/dashboards'
 import type { AppSettings } from '../../../shared/settings'
-import type { ButtonBoxSummary } from '../../../shared/touch-panel'
+import {
+  STREAM_SOURCE_CHANNELS,
+  type StreamSourceDescriptor
+} from '../../../shared/stream-sources'
 import { STREAMING_CHANNELS, type StreamingAccessMode, type StreamingLayoutKind, type StreamingSelfTestResult, type StreamingStartResult, type StreamingStatus } from '../../../shared/streaming'
 import {
   addStreamTargetProfile,
-  clearMissingStreamTargetProfiles,
   deleteStreamTargetProfile,
   emptyStreamTargetSettings,
-  listUserAddedStreamTargetSources,
   migrateStreamTargetSettings,
   moveStreamTargetProfile,
   renameStreamTargetProfile,
@@ -21,6 +21,7 @@ import {
 } from '../../../shared/stream-targets'
 import { tt, type ResolvedLanguage } from '../i18n'
 import { navigateToView } from '../lib/app-navigation'
+import StreamingSourceManager from './StreamingSourceManager'
 
 function statusAccessMode(status: StreamingStatus): StreamingAccessMode {
   return status.accessMode ?? (status.lanEnabled ? 'lan' : 'local')
@@ -69,11 +70,11 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   const [status, setStatus] = useState<StreamingStatus | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
-  const [dashboards, setDashboards] = useState<DashboardSummary[]>([])
-  const [touchPanels, setTouchPanels] = useState<ButtonBoxSummary[]>([])
+  const [sourceDescriptors, setSourceDescriptors] = useState<StreamSourceDescriptor[]>([])
   const [targetSettings, setTargetSettings] = useState<StreamTargetSettings>(() => emptyStreamTargetSettings())
   const [targetLoading, setTargetLoading] = useState(true)
   const [targetSaving, setTargetSaving] = useState(false)
+  const [sourceMutating, setSourceMutating] = useState(false)
   const [targetError, setTargetError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [newTargetKind, setNewTargetKind] = useState<StreamingLayoutKind>('dashboard')
@@ -88,8 +89,10 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     internet: tt(language, 'streaming.access.internet')
   }
   const targetSources = useMemo(
-    () => listUserAddedStreamTargetSources(dashboards, touchPanels),
-    [dashboards, touchPanels]
+    () => sourceDescriptors
+      .filter((source) => source.added && source.eligible)
+      .map(({ kind, id, label }) => ({ kind, id, label })),
+    [sourceDescriptors]
   )
   const resolvedProfiles = useMemo(
     () => resolveStreamTargetProfiles(targetSettings, targetSources),
@@ -119,20 +122,20 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     setTargetLoading(true)
     setTargetError(null)
     try {
-      const [dashList, touchList, appSettings, nextStatus] = await Promise.all([
-        window.ipc.invoke<DashboardSummary[]>('app:dash:list'),
-        window.ipc.invoke<ButtonBoxSummary[]>('app:touchpanel:list'),
+      const [sources, appSettings, nextStatus] = await Promise.all([
+        window.ipc.invoke<StreamSourceDescriptor[]>(STREAM_SOURCE_CHANNELS.list),
         window.ipc.invoke<AppSettings>('app:getSettings'),
         window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.status).catch(() => null)
       ])
-      setDashboards(dashList)
-      setTouchPanels(touchList)
+      setSourceDescriptors(Array.isArray(sources) ? sources : [])
       if (nextStatus) applyStatus(nextStatus)
-      const sources = listUserAddedStreamTargetSources(dashList, touchList)
+      const availableSources = (Array.isArray(sources) ? sources : [])
+        .filter((source) => source.added && source.eligible)
+        .map(({ kind, id, label }) => ({ kind, id, label }))
       const activeGeneralStatus = nextStatus?.profile === 'general' ? nextStatus : null
       const migrated = migrateStreamTargetSettings(
         appSettings.streamTargets,
-        sources,
+        availableSources,
         activeGeneralStatus?.layoutId
           ? { kind: activeGeneralStatus.layoutKind ?? 'dashboard', sourceId: activeGeneralStatus.layoutId }
           : null
@@ -150,7 +153,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }
 
   async function persistTargetSettings(next: StreamTargetSettings): Promise<boolean> {
-    if (targetSaving) return false
+    if (targetSaving || sourceMutating) return false
     const previous = targetSettings
     setTargetSaving(true)
     setTargetError(null)
@@ -160,7 +163,12 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       setTargetSettings(saved.streamTargets)
       return true
     } catch (err) {
-      setTargetSettings(previous)
+      try {
+        const current = await window.ipc.invoke<AppSettings>('app:getSettings')
+        setTargetSettings(current.streamTargets)
+      } catch {
+        setTargetSettings(previous)
+      }
       setTargetError(err instanceof Error ? err.message : tt(language, 'streaming.targets.errorSave'))
       return false
     } finally {
@@ -216,6 +224,18 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
 
   async function removeTargetProfile(profileId: string): Promise<void> {
     setEditingProfileId((current) => current === profileId ? null : current)
+    const profile = targetSettings.profiles.find((candidate) => candidate.id === profileId)
+    if (
+      profile &&
+      !targetSettings.profiles.some((candidate) =>
+        candidate.id !== profile.id &&
+        candidate.kind === profile.kind &&
+        candidate.sourceId === profile.sourceId
+      )
+    ) {
+      await removeTargetSources([{ kind: profile.kind, id: profile.sourceId }])
+      return
+    }
     await persistTargetSettings(deleteStreamTargetProfile(targetSettings, profileId))
   }
 
@@ -228,7 +248,43 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }
 
   async function clearMissingTargets(): Promise<void> {
-    await persistTargetSettings(clearMissingStreamTargetProfiles(targetSettings, targetSources))
+    const refs = new Map(
+      missingProfiles.map((profile) => [
+        `${profile.kind}:${profile.sourceId}`,
+        { kind: profile.kind, id: profile.sourceId }
+      ])
+    )
+    await removeTargetSources([...refs.values()])
+  }
+
+  async function removeTargetSources(
+    refs: Array<{ kind: StreamingLayoutKind; id: string }>
+  ): Promise<void> {
+    if (targetSaving || sourceMutating || refs.length === 0) return
+    setTargetSaving(true)
+    setTargetError(null)
+    try {
+      let descriptors = sourceDescriptors
+      for (const ref of refs) {
+        descriptors = await window.ipc.invoke<StreamSourceDescriptor[]>(
+          STREAM_SOURCE_CHANNELS.remove,
+          ref
+        )
+      }
+      setSourceDescriptors(descriptors)
+      const current = await window.ipc.invoke<AppSettings>('app:getSettings')
+      setTargetSettings(current.streamTargets)
+    } catch (err) {
+      try {
+        const current = await window.ipc.invoke<AppSettings>('app:getSettings')
+        setTargetSettings(current.streamTargets)
+      } catch {
+        // Keep the latest settings broadcast when a direct reload is unavailable.
+      }
+      setTargetError(err instanceof Error ? err.message : tt(language, 'streaming.targets.errorSave'))
+    } finally {
+      setTargetSaving(false)
+    }
   }
 
   async function startStreaming(): Promise<void> {
@@ -351,14 +407,10 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   }, [status?.running])
 
   useEffect(() => {
-    const unsubscribeDashboards = window.ipc.subscribe<DashboardSummary[]>('app:dash:list', setDashboards)
-    const unsubscribeTouchPanels = window.ipc.subscribe<ButtonBoxSummary[]>('app:touchpanel:list', setTouchPanels)
     const unsubscribeSettings = window.ipc.subscribe<AppSettings>('app:settingsChanged', (settings) => {
       setTargetSettings(settings.streamTargets)
     })
     return () => {
-      unsubscribeDashboards()
-      unsubscribeTouchPanels()
       unsubscribeSettings()
     }
   }, [])
@@ -382,6 +434,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   const missingInternetUrl = accessMode === 'internet' &&
     !publicBaseUrl.trim() &&
     (!autoTunnel || !autoTunnelAvailable)
+  const targetMutationBusy = targetSaving || sourceMutating
   const missingTarget = !selectedProfile || selectedProfile.missing
   const interactiveTarget = status?.running ? status.interactive : selectedProfile?.kind === 'touch'
 
@@ -389,13 +442,18 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     <section className="panel streaming-panel">
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>{tt(language, 'streaming.title')}</h4>
-        <span className={running ? 'status-pill on' : 'status-pill'}>
-          {running
-            ? tt(language, 'streaming.status.online', { count: status?.clients ?? 0 })
-            : foreignServerRunning
-              ? tt(language, 'streaming.status.obsLocalActive')
-              : tt(language, 'streaming.status.offline')}
-        </span>
+        <div className="overlay-actions" style={{ margin: 0 }}>
+          <button className="ghost-action" type="button" onClick={() => navigateToView('streaming-mobile-editor')}>
+            {tt(language, 'streaming.openMobileEditor')}
+          </button>
+          <span className={running ? 'status-pill on' : 'status-pill'}>
+            {running
+              ? tt(language, 'streaming.status.online', { count: status?.clients ?? 0 })
+              : foreignServerRunning
+                ? tt(language, 'streaming.status.obsLocalActive')
+                : tt(language, 'streaming.status.offline')}
+          </span>
+        </div>
       </div>
       <p className="overlay-help">{tt(language, 'streaming.summary')}</p>
       <p className="overlay-help" style={{ color: interactiveTarget ? '#fbbf24' : '#76f7bd', fontWeight: 800 }}>
@@ -408,7 +466,12 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       ) : null}
       {error ? <p className="overlay-help" style={{ color: 'var(--accent-danger, #fb7185)' }}>? {error}</p> : null}
       {status?.profile === 'general' && status.warning ? <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>? {status.warning}</p> : null}
-      <section aria-labelledby="stream-targets-heading" aria-busy={targetLoading || targetSaving} style={targetManagerStyle}>
+      <StreamingSourceManager
+        language={language}
+        onSourcesChanged={setSourceDescriptors}
+        onMutationStateChange={setSourceMutating}
+      />
+      <section aria-labelledby="stream-targets-heading" aria-busy={targetLoading || targetMutationBusy} style={targetManagerStyle}>
         <div style={targetManagerHeaderStyle}>
           <div>
             <h5 id="stream-targets-heading" style={{ margin: 0, color: 'var(--text-primary)' }}>
@@ -423,7 +486,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
               <button
                 className="ghost-action danger"
                 type="button"
-                disabled={running || targetSaving}
+                disabled={running || targetMutationBusy}
                 onClick={() => void clearMissingTargets()}
               >
                 {tt(language, 'streaming.targets.clearMissing', { count: missingProfiles.length })}
@@ -432,7 +495,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
             <button
               className="ghost-action"
               type="button"
-              disabled={running || targetLoading || targetSaving || targetSources.length === 0}
+              disabled={running || targetLoading || targetMutationBusy || targetSources.length === 0}
               onClick={beginCreateTarget}
             >
               {tt(language, 'streaming.targets.create')}
@@ -455,26 +518,16 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
           </p>
         ) : null}
 
-        {!targetLoading && targetSources.length === 0 ? (
-          <div role="status" style={targetEmptyStyle}>
-            <strong>{tt(language, 'streaming.targets.noSourcesTitle')}</strong>
-            <p className="overlay-help" style={{ margin: 0 }}>{tt(language, 'streaming.targets.noSourcesHelp')}</p>
-            <div className="overlay-actions" style={{ margin: 0 }}>
-              <button className="ghost-action" type="button" onClick={() => navigateToView('dashboards')}>
-                {tt(language, 'streaming.targets.openDashboards')}
-              </button>
-              <button className="ghost-action" type="button" onClick={() => navigateToView('touch-controls')}>
-                {tt(language, 'streaming.targets.openTouch')}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {!targetLoading && targetSources.length > 0 && resolvedProfiles.length === 0 ? (
+        {!targetLoading && resolvedProfiles.length === 0 ? (
           <div role="status" style={targetEmptyStyle}>
             <strong>{tt(language, 'streaming.targets.emptyTitle')}</strong>
             <p className="overlay-help" style={{ margin: 0 }}>{tt(language, 'streaming.targets.emptyHelp')}</p>
-            <button className="ghost-action" type="button" disabled={running || targetSaving} onClick={beginCreateTarget}>
+            <button
+              className="ghost-action"
+              type="button"
+              disabled={running || targetMutationBusy || targetSources.length === 0}
+              onClick={beginCreateTarget}
+            >
               {tt(language, 'streaming.targets.createFirst')}
             </button>
           </div>
@@ -509,17 +562,17 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
                             autoFocus
                             maxLength={96}
                             value={editingLabel}
-                            disabled={targetSaving}
+                            disabled={targetMutationBusy}
                             onChange={(event) => setEditingLabel(event.currentTarget.value)}
                             onKeyDown={(event) => {
                               if (event.key === 'Escape') setEditingProfileId(null)
                             }}
                           />
                         </label>
-                        <button className="ghost-action" type="submit" disabled={targetSaving || !editingLabel.trim()}>
+                        <button className="ghost-action" type="submit" disabled={targetMutationBusy || !editingLabel.trim()}>
                           {tt(language, 'streaming.targets.saveRename')}
                         </button>
-                        <button className="ghost-action" type="button" disabled={targetSaving} onClick={() => setEditingProfileId(null)}>
+                        <button className="ghost-action" type="button" disabled={targetMutationBusy} onClick={() => setEditingProfileId(null)}>
                           {tt(language, 'streaming.targets.cancel')}
                         </button>
                       </form>
@@ -529,7 +582,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
                           type="radio"
                           name="stream-target-profile"
                           checked={selected}
-                          disabled={running || targetSaving || profile.missing}
+                          disabled={running || targetMutationBusy || profile.missing}
                           aria-describedby={profileDescriptionId}
                           onChange={() => void chooseTargetProfile(profile.id)}
                         />
@@ -554,7 +607,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
                       type="button"
                       aria-label={tt(language, 'streaming.targets.moveUpAria', { label: profile.label })}
                       title={tt(language, 'streaming.targets.moveUp')}
-                      disabled={running || targetSaving || index === 0}
+                      disabled={running || targetMutationBusy || index === 0}
                       onClick={() => void moveTargetProfile(profile.id, -1)}
                     >
                       ↑
@@ -564,7 +617,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
                       type="button"
                       aria-label={tt(language, 'streaming.targets.moveDownAria', { label: profile.label })}
                       title={tt(language, 'streaming.targets.moveDown')}
-                      disabled={running || targetSaving || index === resolvedProfiles.length - 1}
+                      disabled={running || targetMutationBusy || index === resolvedProfiles.length - 1}
                       onClick={() => void moveTargetProfile(profile.id, 1)}
                     >
                       ↓
@@ -572,7 +625,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
                     <button
                       className="ghost-action"
                       type="button"
-                      disabled={running || targetSaving}
+                      disabled={running || targetMutationBusy}
                       onClick={() => beginRenameTarget(profile)}
                     >
                       {tt(language, 'streaming.targets.rename')}
@@ -580,7 +633,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
                     <button
                       className="ghost-action danger"
                       type="button"
-                      disabled={running || targetSaving}
+                      disabled={running || targetMutationBusy}
                       onClick={() => void removeTargetProfile(profile.id)}
                     >
                       {profile.missing
@@ -595,7 +648,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
         ) : null}
 
         {createOpen ? (
-          <fieldset disabled={running || targetSaving} style={targetCreateStyle}>
+          <fieldset disabled={running || targetMutationBusy} style={targetCreateStyle}>
             <legend>{tt(language, 'streaming.targets.createTitle')}</legend>
             <label className="designer-field">
               {tt(language, 'streaming.targets.kind')}
@@ -734,7 +787,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
         />
       </label>
       <div className="overlay-actions">
-        <button className="primary-action" disabled={busy || sharedServerRunning || targetLoading || targetSaving || missingPassword || missingInternetUrl || missingTarget} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
+        <button className="primary-action" disabled={busy || sharedServerRunning || targetLoading || targetMutationBusy || missingPassword || missingInternetUrl || missingTarget} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
         <button className="ghost-action danger" disabled={busy || !running} onClick={() => void stopStreaming()}>{tt(language, 'streaming.stop')}</button>
         <button className="ghost-action" disabled={busy} onClick={() => void refreshStatus()}>{tt(language, 'streaming.refresh')}</button>
       </div>

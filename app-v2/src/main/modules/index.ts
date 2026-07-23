@@ -70,7 +70,11 @@ import { register as hapticsZonal } from './haptics-zonal'
 import { register as spotter3d } from './spotter3d'
 import { register as stt } from './stt'
 import { register as iflagDynamic } from './iflag-dynamic'
-import { register as streaming } from './streaming'
+import {
+  register as streaming,
+  status as streamingStatus,
+  stop as stopStreaming
+} from './streaming'
 import { register as obsLocal } from './obs-local'
 import { register as rigPreflight } from './rig-preflight'
 import { register as stewardDesk } from './steward-desk'
@@ -85,6 +89,7 @@ import { register as localCollaboration } from './local-collaboration'
 import { register as pitPanel } from '../pitpanel/window'
 import { register as touchPanel } from '../touchpanel/manager'
 import { register as mqttTarget } from './mqtt-target'
+import { register as streamSources } from './stream-sources'
 
 // Registro central dos módulos. A telemetria vem primeiro (todos dependem dela).
 // expressionEngine e outputRouter ficam fora do loop porque o orquestrador
@@ -188,6 +193,10 @@ export function registerModules(ctx: ModuleContext): RegisteredModules {
   // wire the SIM-X auto-start coordinator, and let index.ts drive a clean quit teardown
   // (turn the iFlag OFF, then disconnect) and the close-to-tray behavior.
   const settingsStore = appShellUi(ctx)
+  streamSources(ctx, settingsStore, {
+    status: () => streamingStatus(false),
+    stop: () => stopStreaming()
+  })
   const revlightsEngine = revlights(ctx)
   const rgbMatrixModule = rgbMatrix(ctx)
   // F3: the iFlag dynamic-panel module is pulled out of the loop so its handle can

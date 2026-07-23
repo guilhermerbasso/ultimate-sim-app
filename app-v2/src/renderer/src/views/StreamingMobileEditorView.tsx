@@ -27,6 +27,8 @@ import { STREAMING_CHANNELS, type StreamingStartResult } from '../../../shared/s
 import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
+import { navigateToView } from '../lib/app-navigation'
+import StreamingSourceManager from '../components/StreamingSourceManager'
 import { ResponsiveStreamPresentationFrame } from '../stream-presentation/ResponsiveStreamPresentationFrame'
 import './streaming-mobile-editor.css'
 
@@ -114,6 +116,9 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
       return nextProfiles[0]?.profile.id ?? null
     })
   }, [])
+  const handleSourcesChanged = useCallback((): void => {
+    void refreshCatalog().catch(() => undefined)
+  }, [refreshCatalog])
 
   useEffect(() => {
     void refreshCatalog().catch((error) => {
@@ -123,15 +128,8 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
       STREAM_PRESENTATION_CHANNELS.list,
       (items) => setProfiles(Array.isArray(items) ? items : [])
     )
-    const refreshTargets = (): void => {
-      void refreshCatalog().catch(() => undefined)
-    }
-    const offDash = window.ipc.subscribe('app:dash:list', refreshTargets)
-    const offTouch = window.ipc.subscribe('app:touchpanel:list', refreshTargets)
     return () => {
       offProfiles()
-      offDash()
-      offTouch()
     }
   }, [language, refreshCatalog])
 
@@ -438,10 +436,18 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
         <div className="stream-mobile-hero-note" role="note">
           <strong>{tt(language, 'streamMobile.nonDestructive')}</strong>
           <span>{tt(language, 'streamMobile.nonDestructiveDetail')}</span>
+          <button type="button" className="stream-mobile-link" onClick={() => navigateToView('streaming')}>
+            {tt(language, 'streamMobile.openStreaming')}
+          </button>
         </div>
       </section>
 
       {loadError ? <div className="stream-mobile-alert is-error" role="alert">{loadError}</div> : null}
+
+      <StreamingSourceManager
+        language={language}
+        onSourcesChanged={handleSourcesChanged}
+      />
 
       <div className="stream-mobile-workbench">
         <aside className="stream-mobile-sidebar" aria-label={tt(language, 'streamMobile.profiles')}>
@@ -475,6 +481,9 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
             <label>
               <span>{tt(language, 'streamMobile.newTarget')}</span>
               <select value={newTargetKey} onChange={(event) => setNewTargetKey(event.target.value)}>
+                {targets.length === 0 ? (
+                  <option value="">{tt(language, 'streaming.sources.emptyTitle')}</option>
+                ) : null}
                 {targets.map((target) => (
                   <option key={targetKey(target)} value={targetKey(target)}>
                     {target.kind === 'dashboard' ? tt(language, 'streamMobile.dashboard') : tt(language, 'streamMobile.touchControls')} · {target.name}

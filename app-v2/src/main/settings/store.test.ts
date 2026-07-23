@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { APP_LANGUAGES, APP_TELEMETRY_SOURCES, DEFAULT_APP_SETTINGS, TC_SENSITIVITIES } from '../../shared/settings'
@@ -118,6 +118,84 @@ describe('SettingsStore.language', () => {
       const saved = new SettingsStore(dir).setSettings({ streamTargets: input })
       expect(saved.streamTargets.selectedProfileId).toBe('profile-dash')
       expect(input).toEqual(original)
+    })
+
+    it('atomically replaces settings without leaving temporary files or dropping stale references', () => {
+      const dir = tempDir()
+      const store = new SettingsStore(dir)
+      store.setSettings({
+        streamTargets: {
+          schemaVersion: 1,
+          profiles: [{
+            id: 'profile-missing',
+            kind: 'touch',
+            sourceId: 'touch-panel-that-no-longer-exists',
+            label: 'Repair later'
+          }],
+          selectedProfileId: 'profile-missing'
+        }
+      })
+      store.setSettings({ language: 'pt-BR' })
+
+      expect(new SettingsStore(dir).load().streamTargets.profiles).toEqual([{
+        id: 'profile-missing',
+        kind: 'touch',
+        sourceId: 'touch-panel-that-no-longer-exists',
+        label: 'Repair later'
+      }])
+      expect(readdirSync(dir).filter((file) => file.endsWith('.tmp'))).toEqual([])
+    })
+
+    it('keeps the persisted and in-memory allowlist unchanged when an atomic write fails', () => {
+      const dir = tempDir()
+      const initial = {
+        schemaVersion: 1 as const,
+        profiles: [{
+          id: 'profile-race',
+          kind: 'dashboard' as const,
+          sourceId: 'dash-race',
+          label: 'Race feed'
+        }],
+        selectedProfileId: 'profile-race'
+      }
+      new SettingsStore(dir).setSettings({ streamTargets: initial })
+      const store = new SettingsStore(dir, {
+        writeAtomic: () => {
+          throw new Error('disk full')
+        }
+      })
+      expect(store.load().streamTargets).toEqual(initial)
+
+      expect(() => store.setSettings({
+        streamTargets: {
+          schemaVersion: 1,
+          profiles: [],
+          selectedProfileId: null
+        }
+      })).toThrow('disk full')
+      expect(store.getSettings().streamTargets).toEqual(initial)
+      expect(new SettingsStore(dir).load().streamTargets).toEqual(initial)
+    })
+
+    it('does not erase source memberships when a partial patch explicitly passes undefined', () => {
+      const dir = tempDir()
+      const initial = {
+        schemaVersion: 1 as const,
+        profiles: [{
+          id: 'profile-race',
+          kind: 'dashboard' as const,
+          sourceId: 'dash-race',
+          label: 'Race feed'
+        }],
+        selectedProfileId: 'profile-race'
+      }
+      const store = new SettingsStore(dir)
+      store.setSettings({ streamTargets: initial })
+
+      store.setSettings({ streamTargets: undefined as never, language: 'pt-BR' })
+
+      expect(store.getSettings().streamTargets).toEqual(initial)
+      expect(new SettingsStore(dir).load().streamTargets).toEqual(initial)
     })
   })
 
