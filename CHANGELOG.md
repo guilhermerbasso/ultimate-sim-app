@@ -6,6 +6,27 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.56.0 — responsive mobile presentations and deterministic RaceCon dashboard QA
+
+### Added
+- **Deterministic RaceCon mock telemetry scenarios** for every RC-01 through RC-20 dashboard packet,
+  with explicit synthetic provenance and selectable replay through the development MockProvider.
+- Internally consistent synthetic standings, radar, fuel, rev-light, pit-state, stationary-motion,
+  and lap-rollover data for repeatable dashboard implementation and visual QA.
+
+### Changed
+- Saved dashboard and Touch Controls presentation profiles now fit the actual phone or tablet
+  viewport and respond to container, visual-viewport, window, and orientation changes without
+  remounting the renderer.
+- The Mobile Stream Editor preview now measures its own container and remains usable on narrow
+  portrait devices and short landscape screens.
+
+### Fixed
+- Presentation scaling preserves the configured orientation, safe-area mapping, and minimum touch
+  behavior while profile-less legacy streams stay protected from display cutouts.
+- The RaceCon scenarios are development-only mock and QA infrastructure. They do not emulate Bosch
+  hardware, inject data into RaceCon, or ship RC-01 through RC-20 as end-user dashboards.
+
 ## 2.55.0 — durable stint history, evidence-grounded setup guidance, and verified delivery
 
 ### Added

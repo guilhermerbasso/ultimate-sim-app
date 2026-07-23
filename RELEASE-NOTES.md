@@ -1,5 +1,64 @@
 # Ultimate Sim App — Release Notes
 
+## v2.56.0 — Responsive mobile presentations & deterministic dashboard QA
+
+Version 2.56.0 makes saved dashboard and Touch Controls presentations adapt reliably to real phone
+and tablet viewports, and adds deterministic RaceCon mock telemetry as a development and visual-QA
+foundation without presenting those mock scenarios as shipped end-user dashboards.
+
+### Mobile presentations that fit the actual device
+- 📱 **Saved dashboard and Touch Controls profiles now fit the viewport that is displaying them**
+  instead of assuming the configured canvas size is the physical screen size.
+- 🔄 Container, visual-viewport, window, and orientation changes recalculate deterministic contain
+  scaling without remounting the renderer or losing presentation state.
+- 🧭 The configured profile orientation remains authoritative while safe-area mapping and minimum
+  touch behavior stay fail-closed when the available viewport is too small.
+
+### Responsive editor previews and safer cutout handling
+- 🖼️ **The Mobile Stream Editor preview now measures its own container**, keeping the preview usable
+  on narrow portrait devices and short landscape screens.
+- 🛡️ Profile-less legacy receivers remain outside `viewport-fit=cover`, so notches, rounded corners,
+  and home indicators cannot unexpectedly cover controls.
+- 🎛️ These changes preserve the existing Streaming allowlist, backend, authentication, and source
+  dashboard behavior; the release changes presentation geometry rather than access policy.
+
+### Deterministic RaceCon mock telemetry foundation
+- 🧪 **Development tooling now includes one deterministic synthetic telemetry scenario for every
+  RC-01 through RC-20 dashboard packet**, with explicit synthetic provenance.
+- 📊 Selectable MockProvider replay keeps standings, radar, fuel derivations, rev lights, pit states,
+  stationary kinematics, and lap rollover internally consistent for repeatable dashboard
+  implementation and visual QA.
+- 🚧 **This is mock/development infrastructure, not a set of end-user RaceCon dashboards.** It does
+  not emulate Bosch hardware, inject data into RaceCon, or replace official offline RaceCon
+  authoring tools.
+
+### Validation
+- PR #116 validation passed both TypeScript configurations and **91 targeted Vitest tests** across
+  RaceCon scenarios, MockProvider, telemetry scenarios, and track-map learning.
+- PR #117 validation passed renderer TypeScript, **52 main streaming tests**, **49 focused responsive
+  presentation tests**, and **21 Chromium geometry/interaction checks** across phone, tablet, and
+  desktop viewports. Its production bundle, stream resource graph, and Receiver PWA checks passed.
+- Local release-preparation validation passed **198 focused Vitest tests across eight files**, both
+  TypeScript configurations, and the standalone **21-check** responsive Chromium verifier.
+- The Phase-02 contract verifier passed with cached, SHA-256-pinned Buf 1.71.0 and reproduced the
+  committed contract descriptors; targeted documentation/version assertions and `git diff --check`
+  also passed. No `npm ci`, `npx`, or package installation was run.
+- Final `npm run dist:win` and `npm run verify:win-package` are intentionally deferred until this
+  release metadata commit lands on merged `main`; no tag, GitHub Release, or release assets are
+  created from the unmerged preparation commit.
+
+_Expected release artifacts: `latest.yml`, `Ultimate-Sim-App-2.56.0-x64.exe` (NSIS, x64),
+`Ultimate-Sim-App-2.56.0-x64.exe.blockmap`, and `Ultimate-Sim-App-2.56.0-x64.zip`._
+
+### What's Changed
+- [#116](https://github.com/guilhermerbasso/ultimate-sim-app/pull/116) — add deterministic RaceCon
+  mock scenarios for dashboard implementation and visual QA without claiming shipped dashboards or
+  Bosch hardware emulation.
+- [#117](https://github.com/guilhermerbasso/ultimate-sim-app/pull/117) — make mobile dashboard and
+  Touch Controls presentations responsive while preserving safe-area and legacy-stream behavior.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.55.0...v2.56.0
+
 ## v2.55.0 — Durable stint history & evidence-grounded setup guidance
 
 Version 2.55.0 makes completed-session review selectable and durable, turns setup advice into
