@@ -33,7 +33,7 @@ import {
   StreamInteractionRequestError
 } from '../touchpanel/runtime'
 import { useStreamTouchHeartbeat } from '../touchpanel/useStreamTouchHeartbeat'
-import { StreamPresentationRenderer } from '../stream-presentation/StreamPresentationRenderer'
+import { ResponsiveStreamPresentationFrame } from '../stream-presentation/ResponsiveStreamPresentationFrame'
 import { streamEndpoint } from './urls'
 import '../dashboard/dashboard-runtime.css'
 import '../touchpanel/buttonbox.css'
@@ -614,7 +614,7 @@ export function StreamOverlayRoot() {
     if (!target.profileId) return <TouchPanelWindowRoot panelId={target.id} />
     if (presentationProfile && touchPanel) {
       return (
-        <StreamPresentationRenderer
+        <ResponsiveStreamPresentationFrame
           profile={presentationProfile}
           touchPanel={touchPanel}
           snapshot={snapshot}
@@ -638,7 +638,7 @@ export function StreamOverlayRoot() {
       return (
         <>
           {presentationProfile ? (
-            <StreamPresentationRenderer
+            <ResponsiveStreamPresentationFrame
               profile={presentationProfile}
               dashboard={dashboard}
               snapshot={snapshot}

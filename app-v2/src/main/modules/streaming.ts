@@ -1634,7 +1634,7 @@ function devFallbackHtml(): string {
     return '<!doctype html><html><body style="margin:0;background:#05070d;color:white;font-family:sans-serif">stream page not built yet</body></html>'
   }
   const origin = new URL(devUrl).origin
-  return `<!doctype html><html><head><base href="../"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>Ultimate Sim App Stream</title></head><body><div id="root"></div><script type="module" src="${origin}/src/stream/main.tsx"></script></body></html>`
+  return `<!doctype html><html><head><base href="../"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover"><title>Ultimate Sim App Stream</title></head><body><div id="root"></div><script type="module" src="${origin}/src/stream/main.tsx"></script></body></html>`
 }
 
 function replaceBaseHref(html: string, href: string): string {
@@ -1649,7 +1649,7 @@ function devReceiverFallbackHtml(): string {
   const moduleScript = devUrl
     ? `<script type="module" src="${new URL('/src/receiver/main.tsx', devUrl).toString()}"></script>`
     : ''
-  return `<!doctype html><html lang="en"><head><base href="../../"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta name="theme-color" content="#07111d"><link rel="manifest" href="receiver/v2/manifest.webmanifest"><title>Ultimate Sim Receiver</title></head><body><div id="root">Receiver shell is not built yet.</div>${moduleScript}</body></html>`
+  return `<!doctype html><html lang="en"><head><base href="../../"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"><meta name="theme-color" content="#07111d"><link rel="manifest" href="receiver/v2/manifest.webmanifest"><title>Ultimate Sim Receiver</title></head><body><div id="root">Receiver shell is not built yet.</div>${moduleScript}</body></html>`
 }
 
 function ensureReceiverBootstrap(html: string): string {
@@ -1770,6 +1770,21 @@ function serveReceiverPublic(
   createReadStream(target).pipe(response)
 }
 
+function streamHtmlForRequest(html: string, requestUrl: string | undefined): string {
+  let profileId: string | null = null
+  try {
+    profileId = new URL(requestUrl ?? '/', 'http://stream.local').searchParams.get('profile')
+  } catch {
+    // A malformed or missing URL gets the conservative legacy viewport.
+  }
+  if (profileId?.trim()) return html
+
+  // Legacy dashboard/touch renderers already size against the browser viewport.
+  // Let the browser constrain that viewport to display cutouts; profile routes
+  // retain cover and map physical safe areas inside the responsive frame.
+  return html.replace(/,\s*viewport-fit=cover/gi, '')
+}
+
 function serveHtml(request: IncomingMessage, response: ServerResponse, sessionCookie?: string): void {
   // In dev (electron-vite sets ELECTRON_RENDERER_URL), serve a shim that loads the
   // transpiled stream entry from the vite origin; the raw source stream.html would
@@ -1779,7 +1794,11 @@ function serveHtml(request: IncomingMessage, response: ServerResponse, sessionCo
   applyCors(response)
   if (sessionCookie) response.setHeader('Set-Cookie', sessionCookie)
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-  response.end(request.method === 'HEAD' ? undefined : ensureStreamBaseHref(html))
+  response.end(
+    request.method === 'HEAD'
+      ? undefined
+      : ensureStreamBaseHref(streamHtmlForRequest(html, request.url))
+  )
 }
 
 function serveStatic(pathname: string, request: IncomingMessage, response: ServerResponse): void {

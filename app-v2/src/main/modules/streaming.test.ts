@@ -771,6 +771,39 @@ describe('streaming authenticated server', () => {
     await expect(invoke(ctx, STREAMING_CHANNELS.start, { accessMode: 'internet', password: 'phone-pass', publicBaseUrl: 'http://example.com' })).rejects.toThrow(/public HTTPS/i)
   })
 
+  it('keeps a legacy dashboard document inside the browser safe viewport', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'dashboard',
+      layoutId: 'race'
+    })
+
+    const document = await httpRequest(localDocumentUrl(started))
+
+    expect(document.statusCode).toBe(200)
+    expect(document.body).toContain('name="viewport"')
+    expect(document.body).toContain('content="width=device-width, initial-scale=1.0"')
+    expect(document.body).not.toContain('viewport-fit=cover')
+  })
+
+  it('keeps a legacy touch document inside the browser safe viewport', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      layoutId: 'pit',
+      touchPanelId: 'pit'
+    })
+
+    const document = await httpRequest(localDocumentUrl(started))
+
+    expect(document.statusCode).toBe(200)
+    expect(document.body).toContain('name="viewport"')
+    expect(document.body).toContain('content="width=device-width, initial-scale=1.0"')
+    expect(document.body).not.toContain('viewport-fit=cover')
+  })
+
   it('serves packaged document, CSS, assets, and nested module imports through a scoped cookie', async () => {
     ctx = fakeContext()
     register(ctx)
@@ -860,6 +893,7 @@ describe('streaming authenticated server', () => {
 
     expect(parsedUrl.searchParams.get('profile')).toBe(profile.id)
     expect(parsedUrl.searchParams.get('dash')).toBe('race')
+    expect(document.body).toContain('viewport-fit=cover')
     expect(started.presentationProfileId).toBe(profile.id)
     expect(status.presentationProfileId).toBe(profile.id)
     expect(presentation.statusCode).toBe(200)

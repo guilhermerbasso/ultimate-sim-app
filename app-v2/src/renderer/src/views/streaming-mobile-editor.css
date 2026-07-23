@@ -574,25 +574,22 @@
 }
 
 .stream-mobile-preview-deck {
-  display: grid;
-  min-height: 650px;
-  place-items: center;
-  overflow: auto;
-  padding: 24px;
+  position: relative;
+  display: block;
+  width: 100%;
+  height: min(62vh, 720px);
+  height: min(62dvh, 720px);
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid rgba(126, 171, 188, 0.22);
   border-radius: 12px;
   background: radial-gradient(circle at 50% 48%, rgba(54, 214, 197, 0.08), transparent 58%), #02090e;
 }
 
-.stream-mobile-preview-outer {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.stream-mobile-preview-inner {
-  position: absolute;
-  inset: 0 auto auto 0;
-  transform-origin: top left;
+.stream-mobile-preview-frame {
+  width: 100%;
+  height: 100%;
+  background: transparent;
 }
 
 .stream-mobile-preview-note {
@@ -685,6 +682,97 @@
   .stream-mobile-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 560px) {
+  .stream-mobile-hero,
+  .stream-mobile-main,
+  .stream-mobile-preview-panel {
+    padding: 11px;
+  }
+
+  .stream-mobile-workbench,
+  .stream-mobile-zero {
+    min-height: 0;
+  }
+
+  .stream-mobile-profile-list {
+    max-height: 220px;
+  }
+
+  .stream-mobile-inline-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .stream-mobile-safe-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stream-mobile-preview-deck {
+    height: min(66vh, 600px);
+    height: min(66dvh, 600px);
+  }
+
+  .stream-mobile-preview-header h3 {
+    font-size: 25px;
+  }
+}
+
+@media (max-width: 420px) {
+  .stream-mobile-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .stream-mobile-actions > span {
+    margin: 0 0 3px;
+  }
+
+  .stream-mobile-actions button,
+  .stream-mobile-alert button {
+    width: 100%;
+  }
+
+  .stream-mobile-alert {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stream-mobile-preview-deck {
+    height: min(66vh, 540px);
+    height: min(66dvh, 540px);
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .stream-mobile-hero {
+    min-height: 0;
+    padding-block: 12px;
+  }
+
+  .stream-mobile-workbench {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .stream-mobile-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--sme-line);
+  }
+
+  .stream-mobile-profile-list {
+    max-height: 160px;
+  }
+
+  .stream-mobile-preview-panel {
+    position: static;
+  }
+
+  .stream-mobile-preview-deck {
+    height: min(68vh, 360px);
+    height: min(68dvh, 360px);
   }
 }
 
