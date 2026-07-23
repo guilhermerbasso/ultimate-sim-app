@@ -24,6 +24,7 @@ import {
 import { getTouchPanelManager } from '../touchpanel/manager'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
+import { listStreamSourceDescriptorsCurrent } from './stream-sources'
 
 const STORE_FILE = 'stream-presentation-profiles.json'
 
@@ -40,28 +41,36 @@ export class StreamPresentationTargetError extends Error {
   }
 }
 
-export function listStreamPresentationTargets(): StreamPresentationTargetDescriptor[] {
-  const dashboards = getDashboardManager()?.list().map(streamDashboardTargetDescriptor) ?? []
-  const touchPanels = getTouchPanelManager()?.list().map(streamTouchTargetDescriptor) ?? []
+export async function listStreamPresentationTargets(): Promise<StreamPresentationTargetDescriptor[]> {
+  const allowed = new Set(
+    (await listStreamSourceDescriptorsCurrent())
+      .filter((source) => source.added && source.eligible)
+      .map((source) => `${source.kind}:${source.id}`)
+  )
+  const dashboards = getDashboardManager()?.list()
+    .filter((dashboard) => allowed.has(`dashboard:${dashboard.id}`))
+    .map(streamDashboardTargetDescriptor) ?? []
+  const touchPanels = getTouchPanelManager()?.list()
+    .filter((panel) => allowed.has(`touch:${panel.id}`))
+    .map(streamTouchTargetDescriptor) ?? []
   return [...dashboards, ...touchPanels].sort((a, b) =>
-    Number(a.hidden) - Number(b.hidden) ||
     a.kind.localeCompare(b.kind) ||
     a.name.localeCompare(b.name)
   )
 }
 
-export function findStreamPresentationTarget(
+export async function findStreamPresentationTarget(
   target: Pick<StreamPresentationTargetRef, 'kind' | 'id'>
-): StreamPresentationTargetDescriptor | null {
-  return listStreamPresentationTargets().find((candidate) =>
+): Promise<StreamPresentationTargetDescriptor | null> {
+  return (await listStreamPresentationTargets()).find((candidate) =>
     candidate.kind === target.kind && candidate.id === target.id
   ) ?? null
 }
 
-export function resolveStreamPresentationProfileItem(
+export async function resolveStreamPresentationProfileItem(
   profile: StreamPresentationProfile
-): StreamPresentationProfileListItem {
-  const target = findStreamPresentationTarget(profile.target)
+): Promise<StreamPresentationProfileListItem> {
+  const target = await findStreamPresentationTarget(profile.target)
   return {
     profile: cloneStreamPresentationProfile(profile),
     target,
@@ -75,15 +84,15 @@ export async function getStreamPresentationProfileForRuntime(
   if (!liveStore) return null
   await liveStore.load()
   const profile = liveStore.get(id)
-  return profile ? resolveStreamPresentationProfileItem(profile) : null
+  return profile ? await resolveStreamPresentationProfileItem(profile) : null
 }
 
 export function getStreamPresentationProfileStore(): StreamPresentationProfileStore | null {
   return liveStore
 }
 
-function assertCurrentTarget(profile: StreamPresentationProfile): StreamPresentationTargetDescriptor {
-  const target = findStreamPresentationTarget(profile.target)
+async function assertCurrentTarget(profile: StreamPresentationProfile): Promise<StreamPresentationTargetDescriptor> {
+  const target = await findStreamPresentationTarget(profile.target)
   if (!target) {
     throw new StreamPresentationTargetError(
       STREAM_PRESENTATION_TARGET_MISSING,
@@ -103,7 +112,7 @@ function assertCurrentTarget(profile: StreamPresentationProfile): StreamPresenta
 
 async function listItems(store: StreamPresentationProfileStore): Promise<StreamPresentationProfileListItem[]> {
   const profiles = await store.load()
-  return profiles.map(resolveStreamPresentationProfileItem)
+  return Promise.all(profiles.map(resolveStreamPresentationProfileItem))
 }
 
 async function broadcastItems(ctx: ModuleContext, store: StreamPresentationProfileStore): Promise<void> {
@@ -119,12 +128,12 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(STREAM_PRESENTATION_CHANNELS.get, async (_event, id: string) => {
     await store.load()
     const profile = store.get(id)
-    return profile ? resolveStreamPresentationProfileItem(profile) : null
+    return profile ? await resolveStreamPresentationProfileItem(profile) : null
   })
   ctx.ipcMain.handle(STREAM_PRESENTATION_CHANNELS.save, async (_event, request: StreamPresentationSaveRequest) => {
     const profile = normalizeStreamPresentationProfile(request?.profile)
     if (!profile) throw new Error('Invalid stream presentation profile.')
-    assertCurrentTarget(profile)
+    await assertCurrentTarget(profile)
     const saved = await store.save(profile, request.expectedRevision)
     await broadcastItems(ctx, store)
     return resolveStreamPresentationProfileItem(saved)
@@ -147,7 +156,7 @@ export function register(ctx: ModuleContext): void {
           `Profile ${request.id} no longer exists.`
         )
       }
-      const target = findStreamPresentationTarget(profile.target)
+      const target = await findStreamPresentationTarget(profile.target)
       if (!target) {
         throw new StreamPresentationTargetError(
           STREAM_PRESENTATION_TARGET_MISSING,

@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   APP_THEME_PRESETS,
@@ -16,6 +17,21 @@ import {
 } from '../../shared/stream-targets'
 
 const STORE_FILE = 'settings.json'
+
+export function writeSettingsAtomic(path: string, settings: AppSettings): void {
+  mkdirSync(dirname(path), { recursive: true })
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporary, `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
+    renameSync(temporary, path)
+  } finally {
+    rmSync(temporary, { force: true })
+  }
+}
+
+export interface SettingsStoreOptions {
+  writeAtomic?: (path: string, settings: AppSettings) => void
+}
 
 function normalizeAccentColor(value: unknown): string {
   if (typeof value !== 'string') return DEFAULT_APP_SETTINGS.accentColor
@@ -50,11 +66,13 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
 
 export class SettingsStore {
   private readonly filePath: string
+  private readonly writeAtomic: (path: string, settings: AppSettings) => void
   private settings: AppSettings = { ...DEFAULT_APP_SETTINGS }
   private loaded = false
 
-  constructor(userDataPath: string) {
+  constructor(userDataPath: string, options: SettingsStoreOptions = {}) {
     this.filePath = join(userDataPath, STORE_FILE)
+    this.writeAtomic = options.writeAtomic ?? writeSettingsAtomic
   }
 
   load(): AppSettings {
@@ -64,8 +82,9 @@ export class SettingsStore {
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'ENOENT') console.warn('[settings] Failed to load settings, using defaults.', error)
-      this.settings = { ...DEFAULT_APP_SETTINGS }
-      if (code === 'ENOENT') this.save()
+      const fallback = normalizeSettings(DEFAULT_APP_SETTINGS)
+      if (code === 'ENOENT') this.writeAtomic(this.filePath, fallback)
+      this.settings = fallback
     }
 
     this.loaded = true
@@ -79,8 +98,13 @@ export class SettingsStore {
 
   setSettings(nextSettings: Partial<AppSettings>): AppSettings {
     if (!this.loaded) this.load()
-    this.settings = normalizeSettings({ ...this.settings, ...nextSettings })
-    this.save()
+    const candidate = normalizeSettings({
+      ...this.settings,
+      ...nextSettings,
+      streamTargets: nextSettings.streamTargets ?? this.settings.streamTargets
+    })
+    this.writeAtomic(this.filePath, candidate)
+    this.settings = candidate
     return this.getSnapshot()
   }
 
@@ -89,10 +113,5 @@ export class SettingsStore {
       ...this.settings,
       streamTargets: cloneStreamTargetSettings(this.settings.streamTargets)
     }
-  }
-
-  private save(): void {
-    mkdirSync(dirname(this.filePath), { recursive: true })
-    writeFileSync(this.filePath, `${JSON.stringify(this.settings, null, 2)}\n`, 'utf8')
   }
 }

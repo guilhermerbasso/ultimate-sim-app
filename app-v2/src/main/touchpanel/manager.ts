@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import type { ModuleContext } from '../module-context'
 import { releaseTouchActionsForWebContents } from '../actions/touch-owner'
+import { streamSourceRegistryEvents } from '../streaming/source-events'
 import {
   buttonControlActions,
   parseButtonBoxPanelDetailed,
@@ -207,6 +208,7 @@ export class TouchPanelManager {
     this.panels.set(panel.id, panel)
     await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')
     this.ctx.broadcast('app:touchpanel:list', this.list())
+    streamSourceRegistryEvents.emitChanged()
     // If the open window shows this panel, push the update live.
     if (this.window && !this.window.isDestroyed() && this.currentPanelId === panel.id) {
       try {
@@ -236,6 +238,7 @@ export class TouchPanelManager {
       // already gone
     }
     this.ctx.broadcast('app:touchpanel:list', this.list())
+    streamSourceRegistryEvents.emitChanged()
     return { deleted: true }
   }
 
@@ -248,6 +251,7 @@ export class TouchPanelManager {
     await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')
     const list = this.list()
     this.ctx.broadcast('app:touchpanel:list', list)
+    streamSourceRegistryEvents.emitChanged()
     return list
   }
 

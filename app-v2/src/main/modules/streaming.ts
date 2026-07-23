@@ -45,6 +45,7 @@ import {
   type ReceiverV2Status
 } from '../../shared/receiver-v2'
 import type { StreamPresentationProfileListItem } from '../../shared/stream-presentation'
+import { isStreamTargetSourceId } from '../../shared/stream-targets'
 import {
   normalizeTouchSemanticActionRequest,
   type ButtonAction,
@@ -58,6 +59,12 @@ import { logger } from './logger'
 import { ReceiverV2Gateway } from './receiver-v2'
 import { getTouchPanelManager } from '../touchpanel/manager'
 import { getStreamPresentationProfileForRuntime } from './stream-presentation'
+import {
+  assertStreamSourceAllowed,
+  assertStreamSourceAllowedCurrent,
+  broadcastStreamSourceRuntimeChangedCurrent,
+  runWithStreamSourceLock
+} from './stream-sources'
 import {
   CloudflaredTunnelSupervisor,
   inspectCloudflaredBinary,
@@ -296,11 +303,11 @@ function throwIfStartCancelled(operation: StreamingStartOperation): void {
 }
 
 function isValidLayoutId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
+  return typeof value === 'string' && isStreamTargetSourceId(value)
 }
 
 function isValidPresentationProfileId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
+  return typeof value === 'string' && isStreamTargetSourceId(value)
 }
 
 function normalizeLayoutKind(value: unknown): StreamingLayoutKind {
@@ -317,7 +324,10 @@ function firstDashboardId(): string | null {
 async function resolveStreamTarget(
   args: StreamingStartArgs
 ): Promise<{ kind: StreamingLayoutKind; id: string; touchPanelId: string | null; presentationProfileId: string | null }> {
-  if (isValidPresentationProfileId(args.presentationProfileId)) {
+  if (args.presentationProfileId !== undefined) {
+    if (!isValidPresentationProfileId(args.presentationProfileId)) {
+      throw new Error('Select a valid stream presentation profile.')
+    }
     const item = await getStreamPresentationProfileForRuntime(args.presentationProfileId)
     if (!item) throw new Error(`Stream presentation profile not found: ${args.presentationProfileId}`)
     if (item.targetState === 'missing') {
@@ -325,6 +335,9 @@ async function resolveStreamTarget(
     }
     if (item.targetState === 'stale') {
       throw new Error(`Stream presentation target changed: refresh profile ${item.profile.id} before streaming.`)
+    }
+    if (!isValidLayoutId(item.profile.target.id)) {
+      throw new Error(`Stream presentation target has an invalid source ID: ${item.profile.target.id}`)
     }
     return {
       kind: item.profile.target.kind,
@@ -335,13 +348,22 @@ async function resolveStreamTarget(
   }
   const kind = normalizeLayoutKind(args.layoutKind)
   if (kind === 'touch') {
-    const requested = isValidLayoutId(args.layoutId) ? args.layoutId : isValidLayoutId(args.touchPanelId) ? args.touchPanelId : null
+    if (args.layoutId !== undefined && !isValidLayoutId(args.layoutId)) {
+      throw new Error('Select a valid touch controls panel to stream.')
+    }
+    if (args.touchPanelId !== undefined && !isValidLayoutId(args.touchPanelId)) {
+      throw new Error('Select a valid touch controls panel to stream.')
+    }
+    const requested = args.layoutId ?? args.touchPanelId ?? null
     if (!requested) throw new Error('Select a valid touch controls panel to stream.')
     const manager = getTouchPanelManager()
     if (!manager?.has(requested)) throw new Error(`Touch controls panel not found: ${requested}`)
     return { kind, id: requested, touchPanelId: requested, presentationProfileId: null }
   }
-  const requested = isValidLayoutId(args.layoutId) ? args.layoutId : firstDashboardId()
+  if (args.layoutId !== undefined && !isValidLayoutId(args.layoutId)) {
+    throw new Error('Select a valid dashboard to stream.')
+  }
+  const requested = args.layoutId ?? firstDashboardId()
   if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null, presentationProfileId: null }
   if (!requested) throw new Error('Select a valid dashboard to stream.')
   const manager = getDashboardManager()
@@ -2047,12 +2069,28 @@ async function activePresentationProfile(
   return item
 }
 
+async function allowActiveSourceRequest(response: ServerResponse): Promise<boolean> {
+  try {
+    await assertStreamSourceAllowed({ kind: state.layoutKind, id: state.layoutId })
+    return true
+  } catch (error) {
+    logger.warn('streaming', 'request rejected because active source is no longer allowlisted', {
+      layoutKind: state.layoutKind,
+      layoutId: state.layoutId,
+      message: error instanceof Error ? error.message : String(error)
+    })
+    send(response, 404, 'Not found')
+    return false
+  }
+}
+
 async function serveSelectedDashboard(id: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (state.layoutKind !== 'dashboard' || id !== state.layoutId) {
     logger.error('streaming', 'dashboard api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
     return
   }
+  if (!await allowActiveSourceRequest(response)) return
   if (await activePresentationProfile(response) === false) return
   const dashboard = getDashboardManager()?.getDashboard(id)
   if (!dashboard) {
@@ -2146,6 +2184,7 @@ async function serveSelectedTouchPanel(
     send(response, 403, 'Forbidden')
     return
   }
+  if (!await allowActiveSourceRequest(response)) return
   if (await activePresentationProfile(response) === false) return
   const panel = getTouchPanelManager()?.getPanel(id)
   if (!panel) {
@@ -2410,6 +2449,7 @@ async function executeTouchInteraction(
     send(response, 503, 'Streaming server is stopping')
     return
   }
+  if (!await allowActiveSourceRequest(response)) return
   const capability = state.touchCapabilities.get(body.capabilityId)
   if (!capability || !capability.phases.includes(body.phase)) {
     send(response, 403, 'Touch capability is not allowed')
@@ -4126,6 +4166,11 @@ async function stopStreaming(): Promise<StreamingStatus> {
   await serverClosed
   if (server) logger.info('streaming', 'server stopped', {})
   if (hadLanListener && firewallPort) await removeWindowsFirewallRule(firewallPort)
+  await broadcastStreamSourceRuntimeChangedCurrent().catch((error) => {
+    logger.warn('streaming', 'failed to broadcast inactive streaming source state', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  })
   if (tunnelCleanupError) {
     throw new Error(`Streaming stopped locally, but cloudflared cleanup could not be confirmed: ${tunnelCleanupError.message}`)
   }
@@ -4405,6 +4450,7 @@ async function startStreaming(
     }
   }
   const target = await resolveStreamTarget(args)
+  await assertStreamSourceAllowedCurrent({ kind: target.kind, id: target.id })
   throwIfStartCancelled(operation)
   if (state.server || autoTunnelSupervisor || state.sessions.size > 0) {
     await stopStreamingLifecycle()
@@ -4562,7 +4608,7 @@ async function startStreaming(
     }
     await refreshQrCodes()
     throwIfStartCancelled(operation)
-    return {
+    const result: StreamingStartResult = {
       profile: state.profile,
       url: dashboardUrl() ?? '',
       lanUrl: advertisedLanUrl(),
@@ -4590,6 +4636,12 @@ async function startStreaming(
       receiverV2: receiverStatus(),
       presentationProfileId: state.presentationProfileId
     }
+    await broadcastStreamSourceRuntimeChangedCurrent().catch((error) => {
+      logger.warn('streaming', 'failed to broadcast active streaming source state', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+    })
+    return result
   } catch (error) {
     let cleanupError: Error | null = null
     try {
@@ -4617,10 +4669,14 @@ export function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promis
   }
   startOperation = operation
   let tracked!: Promise<StreamingStartResult>
-  tracked = enqueueLifecycle(() => startStreaming(ctx, args, profile, operation)).finally(() => {
-    if (startOperation === operation) startOperation = null
-    if (startPromise === tracked) startPromise = null
-  })
+  tracked = Promise.resolve()
+    .then(() => runWithStreamSourceLock(
+      () => enqueueLifecycle(() => startStreaming(ctx, args, profile, operation))
+    ))
+    .finally(() => {
+      if (startOperation === operation) startOperation = null
+      if (startPromise === tracked) startPromise = null
+    })
   startPromise = tracked
   return tracked
 }

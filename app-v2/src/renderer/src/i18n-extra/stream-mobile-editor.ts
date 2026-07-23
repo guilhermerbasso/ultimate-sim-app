@@ -88,7 +88,8 @@ const en: Record<string, string> = {
   'streamMobile.previewAria': 'Stream presentation preview at {width} by {height} CSS pixels',
   'streamMobile.previewUnavailable': 'Target preview unavailable.',
   'streamMobile.touchPreviewLocal': 'Touch interactions are simulated locally in this editor only. No browser or network command is sent.',
-  'streamMobile.dashboardPreviewDetail': 'The preview and browser stream use the same presentation renderer, fit mode, safe area and visibility rules.'
+  'streamMobile.dashboardPreviewDetail': 'The preview and browser stream use the same presentation renderer, fit mode, safe area and visibility rules.',
+  'streamMobile.openStreaming': 'Open Streaming'
 }
 
 const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
@@ -112,7 +113,8 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'streamMobile.landscape': 'Paisagem',
     'streamMobile.fit': 'Ajustar',
     'streamMobile.fill': 'Preencher',
-    'streamMobile.touchPreviewLocal': 'As interações touch são simuladas somente neste editor. Nenhum comando é enviado pelo navegador ou pela rede.'
+    'streamMobile.touchPreviewLocal': 'As interações touch são simuladas somente neste editor. Nenhum comando é enviado pelo navegador ou pela rede.',
+    'streamMobile.openStreaming': 'Abrir Streaming'
   },
   es: {
     ...en,
