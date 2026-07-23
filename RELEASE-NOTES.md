@@ -47,7 +47,7 @@ without presenting those mock scenarios as shipped end-user dashboards.
 
 ### Validation
 - PR #118 validation passed **165 targeted tests** across shared, main, IPC/preload, security,
-  Streaming, Mobile Editor, OBS Local, and Receiver v2 surfaces. Renderer and changed-main
+  Streaming, Mobile Stream Editor, OBS-local, and Receiver v2 surfaces. Renderer and changed-main
   TypeScript checks, the Electron production bundle, stream resource graph, and Receiver v2
   PWA/offline/security verification passed.
 - PR #116 validation passed both TypeScript configurations and **91 targeted Vitest tests** across
@@ -71,8 +71,8 @@ _Expected release artifacts: `latest.yml`, `Ultimate-Sim-App-2.56.0-x64.exe` (NS
 
 ### What's Changed
 - [#118](https://github.com/guilhermerbasso/ultimate-sim-app/pull/118) — add one authoritative,
-  fail-closed source allowlist and shared management flow for Streaming, Mobile Editor, and OBS
-  Local without deleting underlying dashboards or Touch Controls panels.
+  fail-closed source allowlist and shared management flow for Streaming, Mobile Stream Editor, and
+  OBS-local without deleting underlying dashboards or Touch Controls panels.
 - [#116](https://github.com/guilhermerbasso/ultimate-sim-app/pull/116) — add deterministic RaceCon
   mock scenarios for dashboard implementation and visual QA without claiming shipped dashboards or
   Bosch hardware emulation.
