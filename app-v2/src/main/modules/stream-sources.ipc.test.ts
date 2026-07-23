@@ -146,4 +146,15 @@ describe('stream source IPC contract', () => {
     expect(settings.streamTargets.profiles).toEqual([])
     beforeQuit?.()
   })
+
+  it.each(['.', '..'])('rejects the URL dot-segment add mutation ID %s', async (id) => {
+    setup()
+
+    await expect(invoke(STREAM_SOURCE_CHANNELS.add, {
+      kind: 'dashboard',
+      id
+    })).rejects.toThrow('Invalid streaming source add request')
+    expect(settings.streamTargets.profiles).toEqual([])
+    beforeQuit?.()
+  })
 })

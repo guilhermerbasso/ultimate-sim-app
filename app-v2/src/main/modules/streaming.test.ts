@@ -158,11 +158,12 @@ vi.mock('./dashboards', () => ({
     listOpen: () => [{ id: 'default' }],
     list: () => [
       { id: 'default', name: 'Default dashboard', hidden: false },
-      { id: 'race', name: 'Race dashboard', hidden: false }
+      { id: 'race', name: 'Race dashboard', hidden: false },
+      { id: 'race.v2', name: 'Dotted race dashboard', hidden: false }
     ],
     getDashboard: (id: string) => {
       managerState.requestedDashboards.push(id)
-      return id === 'default' || id === 'race'
+      return id === 'default' || id === 'race' || id === 'race.v2'
         ? {
             id,
             name: `${id} dashboard`,
@@ -674,6 +675,83 @@ describe('streaming authenticated server', () => {
     })).rejects.toThrow(/Manage streaming sources/)
     expect(streamSourceGuard.calls).toEqual(['dashboard:race'])
     expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).running).toBe(false)
+  })
+
+  it.each(['.', '..'])('rejects the dashboard URL dot-segment ID %s without falling back to another dashboard', async (id) => {
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'dashboard',
+      layoutId: id
+    })).rejects.toThrow('Select a valid dashboard')
+    expect(managerState.requestedDashboards).toEqual([])
+    expect(streamSourceGuard.calls).toEqual([])
+    expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).url).toBeNull()
+  })
+
+  it.each(['.', '..'])('rejects the touch URL dot-segment ID %s before registry or allowlist lookup', async (id) => {
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'touch',
+      touchPanelId: id
+    })).rejects.toThrow('Select a valid touch controls panel')
+    expect(managerState.requestedPanels).toEqual([])
+    expect(streamSourceGuard.calls).toEqual([])
+    expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).url).toBeNull()
+  })
+
+  it.each(['.', '..'])('rejects a current presentation whose source target is the URL dot segment %s', async (id) => {
+    const profile = createStreamPresentationProfile({
+      kind: 'dashboard',
+      id,
+      name: 'Invalid presentation target',
+      revision: `dashboard:${id}:1`,
+      width: 1024,
+      height: 600,
+      itemCount: 1,
+      hidden: false
+    }, {
+      id: id === '.' ? 'stream-profile-dot' : 'stream-profile-dot-dot',
+      now: 10
+    })
+    presentationState.item = {
+      profile,
+      target: {
+        kind: 'dashboard',
+        id,
+        name: 'Invalid presentation target',
+        revision: profile.target.revision,
+        width: 1024,
+        height: 600,
+        itemCount: 1,
+        hidden: false
+      },
+      targetState: 'current'
+    }
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      presentationProfileId: profile.id
+    })).rejects.toThrow('invalid source ID')
+    expect(streamSourceGuard.calls).toEqual([])
+    expect((await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)).url).toBeNull()
+  })
+
+  it('preserves legitimate dotted dashboard IDs in the constructed stream URL', async () => {
+    ctx = fakeContext()
+    register(ctx)
+
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      layoutKind: 'dashboard',
+      layoutId: 'race.v2'
+    })
+
+    expect(new URL(started.url).pathname).toBe('/obs/race.v2')
+    expect(streamSourceGuard.calls).toEqual(['dashboard:race.v2'])
   })
 
   it('re-checks the persisted allowlist at the selected target HTTP boundary', async () => {

@@ -113,8 +113,21 @@ export function streamTargetSourceKey(source: Pick<StreamTargetSource, 'kind' | 
   return `${source.kind}:${source.id}`
 }
 
+export function normalizeStreamTargetSourceId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(trimmed).trim()
+  } catch {
+    return null
+  }
+  if (decoded === '.' || decoded === '..' || !STREAM_TARGET_SOURCE_ID.test(trimmed)) return null
+  return trimmed
+}
+
 export function isStreamTargetSourceId(value: unknown): boolean {
-  return typeof value === 'string' && STREAM_TARGET_SOURCE_ID.test(value)
+  return typeof value === 'string' && normalizeStreamTargetSourceId(value) === value
 }
 
 export function listUserAddedStreamTargetSources(

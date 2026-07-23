@@ -209,6 +209,12 @@ describe('stream source mutation contract', () => {
     expect(parseStreamSourceMutationRequest('dashboard:dash-race')).toBeNull()
   })
 
+  it.each(['.', '..'])('rejects the URL dot-segment ID %s for add mutations while preserving explicit removal', (id) => {
+    const request = { kind: 'dashboard', id }
+    expect(parseStreamSourceMutationRequest(request)).toBeNull()
+    expect(parseStreamSourceRemovalRequest(request)).toEqual(request)
+  })
+
   it('allows exact removal of a legacy invalid ID without making it addable', () => {
     const request = { kind: 'dashboard', id: 'legacy dashboard id' }
     expect(parseStreamSourceMutationRequest(request)).toBeNull()

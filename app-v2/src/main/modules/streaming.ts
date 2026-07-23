@@ -45,6 +45,7 @@ import {
   type ReceiverV2Status
 } from '../../shared/receiver-v2'
 import type { StreamPresentationProfileListItem } from '../../shared/stream-presentation'
+import { isStreamTargetSourceId } from '../../shared/stream-targets'
 import {
   normalizeTouchSemanticActionRequest,
   type ButtonAction,
@@ -302,11 +303,11 @@ function throwIfStartCancelled(operation: StreamingStartOperation): void {
 }
 
 function isValidLayoutId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
+  return typeof value === 'string' && isStreamTargetSourceId(value)
 }
 
 function isValidPresentationProfileId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
+  return typeof value === 'string' && isStreamTargetSourceId(value)
 }
 
 function normalizeLayoutKind(value: unknown): StreamingLayoutKind {
@@ -323,7 +324,10 @@ function firstDashboardId(): string | null {
 async function resolveStreamTarget(
   args: StreamingStartArgs
 ): Promise<{ kind: StreamingLayoutKind; id: string; touchPanelId: string | null; presentationProfileId: string | null }> {
-  if (isValidPresentationProfileId(args.presentationProfileId)) {
+  if (args.presentationProfileId !== undefined) {
+    if (!isValidPresentationProfileId(args.presentationProfileId)) {
+      throw new Error('Select a valid stream presentation profile.')
+    }
     const item = await getStreamPresentationProfileForRuntime(args.presentationProfileId)
     if (!item) throw new Error(`Stream presentation profile not found: ${args.presentationProfileId}`)
     if (item.targetState === 'missing') {
@@ -331,6 +335,9 @@ async function resolveStreamTarget(
     }
     if (item.targetState === 'stale') {
       throw new Error(`Stream presentation target changed: refresh profile ${item.profile.id} before streaming.`)
+    }
+    if (!isValidLayoutId(item.profile.target.id)) {
+      throw new Error(`Stream presentation target has an invalid source ID: ${item.profile.target.id}`)
     }
     return {
       kind: item.profile.target.kind,
@@ -341,13 +348,22 @@ async function resolveStreamTarget(
   }
   const kind = normalizeLayoutKind(args.layoutKind)
   if (kind === 'touch') {
-    const requested = isValidLayoutId(args.layoutId) ? args.layoutId : isValidLayoutId(args.touchPanelId) ? args.touchPanelId : null
+    if (args.layoutId !== undefined && !isValidLayoutId(args.layoutId)) {
+      throw new Error('Select a valid touch controls panel to stream.')
+    }
+    if (args.touchPanelId !== undefined && !isValidLayoutId(args.touchPanelId)) {
+      throw new Error('Select a valid touch controls panel to stream.')
+    }
+    const requested = args.layoutId ?? args.touchPanelId ?? null
     if (!requested) throw new Error('Select a valid touch controls panel to stream.')
     const manager = getTouchPanelManager()
     if (!manager?.has(requested)) throw new Error(`Touch controls panel not found: ${requested}`)
     return { kind, id: requested, touchPanelId: requested, presentationProfileId: null }
   }
-  const requested = isValidLayoutId(args.layoutId) ? args.layoutId : firstDashboardId()
+  if (args.layoutId !== undefined && !isValidLayoutId(args.layoutId)) {
+    throw new Error('Select a valid dashboard to stream.')
+  }
+  const requested = args.layoutId ?? firstDashboardId()
   if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null, presentationProfileId: null }
   if (!requested) throw new Error('Select a valid dashboard to stream.')
   const manager = getDashboardManager()

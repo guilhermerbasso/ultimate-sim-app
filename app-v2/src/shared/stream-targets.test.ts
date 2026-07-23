@@ -6,9 +6,11 @@ import {
   clearMissingStreamTargetProfiles,
   deleteStreamTargetProfile,
   emptyStreamTargetSettings,
+  isStreamTargetSourceId,
   listUserAddedStreamTargetSources,
   migrateStreamTargetSettings,
   moveStreamTargetProfile,
+  normalizeStreamTargetSourceId,
   renameStreamTargetProfile,
   resolveStreamTargetProfiles,
   streamTargetSourceKey,
@@ -185,6 +187,33 @@ describe('stream target source identity', () => {
       expect(listUserAddedStreamTargetSources(dashboards, touchPanels)).toEqual(expected)
     }
   )
+
+  it.each(['.', '..'])('rejects the URL dot-segment source ID %s across dashboard and touch eligibility', (id) => {
+    expect(listUserAddedStreamTargetSources(
+      [dashboard(id, 'Invalid dashboard'), dashboard('dash.v2', 'Valid dotted dashboard')],
+      [touchPanel(id, 'Invalid panel'), touchPanel('touch..v2', 'Valid dotted panel')]
+    )).toEqual([
+      { kind: 'dashboard', id: 'dash.v2', label: 'Valid dotted dashboard' },
+      { kind: 'touch', id: 'touch..v2', label: 'Valid dotted panel' }
+    ])
+    expect(() => addStreamTargetProfile(
+      emptyStreamTargetSettings(),
+      { kind: 'dashboard', id, label: 'Invalid source' },
+      'Invalid source',
+      () => 'profile-invalid'
+    )).toThrow('Invalid stream target profile')
+  })
+
+  it('canonicalizes before rejecting equivalent dot segments without rejecting dotted IDs', () => {
+    for (const value of ['.', '..', ' . ', ' .. ', '%2e', '%2E%2e']) {
+      expect(normalizeStreamTargetSourceId(value), value).toBeNull()
+      expect(isStreamTargetSourceId(value), value).toBe(false)
+    }
+    for (const value of ['dash.v2', '.dashboard', 'dashboard.', 'dash..v2']) {
+      expect(normalizeStreamTargetSourceId(value), value).toBe(value)
+      expect(isStreamTargetSourceId(value), value).toBe(true)
+    }
+  })
 
   it('includes the source kind in keys for same-ID dashboard and touch sources', () => {
     const dashboardKey = streamTargetSourceKey({ kind: 'dashboard', id: 'shared-source' })
