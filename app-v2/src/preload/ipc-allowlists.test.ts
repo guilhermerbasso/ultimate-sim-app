@@ -158,7 +158,7 @@ describe('restricted renderer streaming mutation boundaries', () => {
     }
   })
 
-  it('does not expose the source-management catalog or mutations to viewer windows', () => {
+  it('does not expose source management to overlay or touch-panel windows', () => {
     for (const channel of Object.values(STREAM_SOURCE_CHANNELS)) {
       expect(isOverlayIpcAllowed(channel), channel).toBe(false)
       expect(isTouchpanelIpcAllowed(channel), channel).toBe(false)
