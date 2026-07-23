@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Release line: **Ultimate Sim App 2.54.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Release line: **Ultimate Sim App 2.55.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -27,6 +27,13 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
+### 2.56.0 — responsive mobile presentations and deterministic dashboard QA
+
+- **Fit saved presentations to the phone or tablet actually viewing them** ([#117](https://github.com/guilhermerbasso/ultimate-sim-app/pull/117)): dashboard and Touch Controls profiles now respond to container, visual-viewport, window, and orientation changes without remounting, while preserving configured orientation, safe areas, and fail-closed touch usability.
+- **Preview mobile layouts on narrow and short screens** ([#117](https://github.com/guilhermerbasso/ultimate-sim-app/pull/117)): the Mobile Stream Editor preview measures its own container, and profile-less legacy receivers remain protected from notches and home-indicator cutouts.
+- **Build and visually verify RaceCon-style dashboards with deterministic mock data** ([#116](https://github.com/guilhermerbasso/ultimate-sim-app/pull/116)): development tooling now provides one explicit synthetic scenario for each RC-01 through RC-20 packet, with consistent standings, radar, fuel, rev-light, pit, motion, and lap states.
+- **Development foundation, not shipped dashboards:** the RaceCon scenarios do not emulate Bosch hardware, inject data into RaceCon, or deliver RC-01 through RC-20 as end-user dashboards.
+
 ### 2.55.0 — durable stint history and evidence-grounded setup guidance
 
 - **Read Accessibility Cues selectors in every supported contrast mode** ([#109](https://github.com/guilhermerbasso/ultimate-sim-app/pull/109)): native selects now retain readable text, options, borders, and arrows in dark, high-contrast, and Windows forced-colors modes without losing keyboard or screen-reader semantics.
