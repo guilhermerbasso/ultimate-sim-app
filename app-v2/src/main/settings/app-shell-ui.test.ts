@@ -1,9 +1,13 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AppSettings } from '../../shared/settings'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_APP_SETTINGS, type AppSettings } from '../../shared/settings'
 import type { ModuleContext } from '../module-context'
 import { register } from '../modules/app-shell-ui'
+
+const streamSourceSettings = vi.hoisted(() => ({
+  update: vi.fn()
+}))
 
 vi.mock('electron', () => ({
   shell: { openPath: vi.fn() }
@@ -11,6 +15,10 @@ vi.mock('electron', () => ({
 
 vi.mock('../modules/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn() }
+}))
+
+vi.mock('../modules/stream-sources', () => ({
+  updateAppSettingsWithStreamTargets: streamSourceSettings.update
 }))
 
 const dirs: string[] = []
@@ -23,6 +31,14 @@ function tempDir(): string {
 
 afterEach(() => {
   while (dirs.length) rmSync(dirs.pop() as string, { recursive: true, force: true })
+})
+
+beforeEach(() => {
+  streamSourceSettings.update.mockReset()
+  streamSourceSettings.update.mockImplementation(async (patch: Partial<AppSettings>) => ({
+    ...structuredClone(DEFAULT_APP_SETTINGS),
+    ...structuredClone(patch)
+  }))
 })
 
 function createContext(userData: string): {
@@ -88,6 +104,36 @@ describe('app settings IPC', () => {
       }
     })
 
+    expect(streamSourceSettings.update).toHaveBeenCalledWith({
+      streamTargets: {
+        schemaVersion: 1,
+        profiles: [{ id: 'profile-one', kind: 'dashboard', sourceId: 'dash-one', label: 'OBS' }],
+        selectedProfileId: 'profile-one'
+      }
+    })
     expect(setSource).not.toHaveBeenCalled()
+  })
+
+  it('rejects an explicit undefined streamTargets patch instead of erasing memberships', async () => {
+    const { ctx, handlers } = createContext(tempDir())
+    const store = register(ctx)
+    const initial = {
+      schemaVersion: 1 as const,
+      profiles: [{
+        id: 'profile-one',
+        kind: 'dashboard' as const,
+        sourceId: 'dash-one',
+        label: 'OBS'
+      }],
+      selectedProfileId: 'profile-one'
+    }
+    store.setSettings({ streamTargets: initial })
+
+    const handler = handlers.get('app:setSettings')
+    await expect(handler?.({}, { streamTargets: undefined as never })).rejects.toThrow(
+      'validated streaming source request'
+    )
+    expect(store.getSettings().streamTargets).toEqual(initial)
+    expect(streamSourceSettings.update).not.toHaveBeenCalled()
   })
 })

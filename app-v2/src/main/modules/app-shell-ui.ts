@@ -6,6 +6,7 @@ import { toTelemetrySource, type AppSettings } from '../../shared/settings'
 import { SettingsStore } from '../settings/store'
 import { settingsEvents } from '../settings/events'
 import { logger } from './logger'
+import { updateAppSettingsWithStreamTargets } from './stream-sources'
 
 function recordingsPath(ctx: ModuleContext): string {
   return join(ctx.app.getPath('userData'), 'recordings')
@@ -50,7 +51,15 @@ export function register(ctx: ModuleContext): SettingsStore {
   ctx.ipcMain.handle('app:getSettings', () => store.getSettings())
   ctx.ipcMain.handle('app:setSettings', async (_event, settings: Partial<AppSettings>) => {
     const previous = store.getSettings()
-    const saved = store.setSettings(settings)
+    const hasStreamTargets = settings !== null &&
+      typeof settings === 'object' &&
+      Object.prototype.hasOwnProperty.call(settings, 'streamTargets')
+    if (hasStreamTargets && settings.streamTargets === undefined) {
+      throw new Error('streamTargets must be updated through a validated streaming source request.')
+    }
+    const saved = hasStreamTargets
+      ? await updateAppSettingsWithStreamTargets(settings)
+      : store.setSettings(settings)
     applyLoginItemSettings(ctx, saved)
     if (saved.defaultTelemetrySource !== previous.defaultTelemetrySource) {
       await ctx.telemetryHub.setSource(toTelemetrySource(saved.defaultTelemetrySource))

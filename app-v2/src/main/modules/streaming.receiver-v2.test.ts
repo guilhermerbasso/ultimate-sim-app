@@ -26,6 +26,27 @@ vi.mock('../touchpanel/manager', () => ({
   getTouchPanelManager: () => ({ has: () => false, getPanel: () => null })
 }))
 
+vi.mock('./stream-sources', () => ({
+  runWithStreamSourceLock: async <T>(operation: () => Promise<T>) => operation(),
+  assertStreamSourceAllowedCurrent: async (ref: { kind: string; id: string }) => ({
+    ...ref,
+    label: ref.id,
+    eligible: true,
+    reason: null,
+    added: true,
+    active: false
+  }),
+  assertStreamSourceAllowed: async (ref: { kind: string; id: string }) => ({
+    ...ref,
+    label: ref.id,
+    eligible: true,
+    reason: null,
+    added: true,
+    active: true
+  }),
+  broadcastStreamSourceRuntimeChangedCurrent: async () => undefined
+}))
+
 import { register } from './streaming'
 
 const fixtureRoot = resolve(dirname(fileURLToPath(import.meta.url)), '__fixtures__', 'stream-renderer')

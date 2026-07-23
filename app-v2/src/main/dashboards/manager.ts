@@ -29,6 +29,7 @@ import { isTouchPanelPlaylistItem } from '../../shared/touch-panel'
 import { compareCreatedAtEntries } from '../../shared/catalog-order'
 import { getTouchPanelManager, type TouchPanelManager } from '../touchpanel/manager'
 import { logger } from '../modules/logger'
+import { streamSourceRegistryEvents } from '../streaming/source-events'
 import {
   THIRD_PARTY_CATALOG_OPEN_CHANNEL,
   normalizeThirdPartyImportMetadata,
@@ -1079,6 +1080,7 @@ export class DashboardManager {
     if (this.builtInDashboardIds.delete(canonical.id)) await this.persistBuiltInOrigins()
     this.ctx.broadcast('app:dash:list', this.list())
     this.ctx.broadcast('app:dash:updated', canonical)
+    streamSourceRegistryEvents.emitChanged()
     return summarizeDashboard(canonical)
   }
 
@@ -1096,6 +1098,7 @@ export class DashboardManager {
     if (this.builtInDashboardIds.delete(id)) await this.persistBuiltInOrigins()
     const list = this.list()
     this.ctx.broadcast('app:dash:list', list)
+    streamSourceRegistryEvents.emitChanged()
     return list
   }
 
@@ -1116,6 +1119,7 @@ export class DashboardManager {
     const list = this.list()
     this.ctx.broadcast('app:dash:list', list)
     this.ctx.broadcast('app:dash:updated', next)
+    streamSourceRegistryEvents.emitChanged()
     return list
   }
 
@@ -1154,6 +1158,7 @@ export class DashboardManager {
       this.builtInDashboardIds.add(id)
       await this.persistBuiltInOrigins()
       this.ctx.broadcast('app:dash:list', this.list())
+      streamSourceRegistryEvents.emitChanged()
       return dash
     })
   }

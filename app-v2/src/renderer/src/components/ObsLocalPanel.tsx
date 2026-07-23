@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { DashboardSummary } from '../../../shared/dashboards'
 import {
   OBS_LOCAL_CHANNELS,
   type ObsLocalCommand,
   type ObsLocalCommandResult,
   type ObsLocalStatus
 } from '../../../shared/obs-local'
+import {
+  STREAM_SOURCE_CHANNELS,
+  type StreamSourceDescriptor
+} from '../../../shared/stream-sources'
 import { tt, type ResolvedLanguage } from '../i18n'
 
 function requestId(): string {
@@ -36,7 +39,7 @@ function command(
 
 export default function ObsLocalPanel({ language }: { language?: ResolvedLanguage }): ReactElement {
   const [status, setStatus] = useState<ObsLocalStatus | null>(null)
-  const [dashboards, setDashboards] = useState<DashboardSummary[]>([])
+  const [dashboards, setDashboards] = useState<StreamSourceDescriptor[]>([])
   const [layoutId, setLayoutId] = useState('')
   const [feedPort, setFeedPort] = useState('')
   const [host, setHost] = useState('127.0.0.1')
@@ -127,15 +130,27 @@ export default function ObsLocalPanel({ language }: { language?: ResolvedLanguag
   }
 
   useEffect(() => {
+    const applySources = (value: unknown): void => {
+      const next = (Array.isArray(value) ? value as StreamSourceDescriptor[] : [])
+        .filter((source) => source.kind === 'dashboard' && source.added && source.eligible)
+      setDashboards(next)
+      setLayoutId((current) =>
+        next.some((source) => source.id === current) ? current : next[0]?.id ?? ''
+      )
+    }
     void Promise.all([
       refresh(),
-      window.ipc.invoke<DashboardSummary[]>('app:dash:list').then((items) => {
-        setDashboards(items)
-        setLayoutId((current) => current || items.find((item) => !item.hidden)?.id || items[0]?.id || '')
-      })
+      window.ipc.invoke<StreamSourceDescriptor[]>(STREAM_SOURCE_CHANNELS.list).then(applySources)
     ]).catch(() => undefined)
+    const unsubscribeSources = window.ipc.subscribe<StreamSourceDescriptor[]>(
+      STREAM_SOURCE_CHANNELS.updated,
+      applySources
+    )
     const timer = setInterval(() => void refresh().catch(() => undefined), 2_000)
-    return () => clearInterval(timer)
+    return () => {
+      unsubscribeSources()
+      clearInterval(timer)
+    }
   }, [])
 
   const feedRunning = status?.feed.running === true
@@ -168,8 +183,11 @@ export default function ObsLocalPanel({ language }: { language?: ResolvedLanguag
           <label className="designer-field">
             {tt(language, 'obsLocal.feed.dashboard')}
             <select value={layoutId} disabled={busy || feedRunning} onChange={(event) => setLayoutId(event.target.value)}>
+              {dashboards.length === 0 ? (
+                <option value="">{tt(language, 'streaming.sources.emptyTitle')}</option>
+              ) : null}
               {dashboards.map((dashboard) => (
-                <option key={dashboard.id} value={dashboard.id}>{dashboard.name}</option>
+                <option key={dashboard.id} value={dashboard.id}>{dashboard.label}</option>
               ))}
             </select>
           </label>
