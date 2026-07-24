@@ -96,6 +96,7 @@ import { Bosch296DashWidget } from './Bosch296DashWidget'
 import { RingDashWidget } from './RingDashWidget'
 import { LmuEnduranceDashWidget } from './LmuEnduranceDashWidget'
 import { LmuStintDashWidget } from './LmuStintDashWidget'
+import { RaceconRc01DashWidget } from './RaceconRc01DashWidget'
 import { HifiDduWidget, HifiEnduranceWidget, HifiEngineerWidget, HifiMinimalWidget, HifiBroadcastWidget } from './HifiDashWidgets'
 import { PerCornerTyrePressureWidget } from './PerCornerTyrePressureWidget'
 import { BrakeTempCornersWidget } from './BrakeTempCornersWidget'
@@ -153,6 +154,7 @@ export const WIDGET_COMPONENTS: Record<string, (props: WidgetProps) => ReactElem
   ringDash: RingDashWidget,
   lmuEnduranceDash: LmuEnduranceDashWidget,
   lmuStintDash: LmuStintDashWidget,
+  raceconRc01Dash: RaceconRc01DashWidget,
   hifiDdu: HifiDduWidget,
   hifiEndurance: HifiEnduranceWidget,
   hifiEngineer: HifiEngineerWidget,

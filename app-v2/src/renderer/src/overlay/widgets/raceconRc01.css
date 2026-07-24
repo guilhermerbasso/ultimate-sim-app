@@ -1,0 +1,349 @@
+.rc01-widget,
+.rc01-widget *,
+.rc01-widget *::before,
+.rc01-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc01-widget {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #0C0F13;
+  color: #FFFFFF;
+  font-family: "Bahnschrift", "Rajdhani", ui-monospace, monospace;
+  font-synthesis: none;
+  container-type: size;
+  text-rendering: geometricPrecision;
+}
+
+.rc01-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0C0F13;
+  isolation: isolate;
+}
+
+.rc01-led-arc,
+.rc01-hero,
+.rc01-delta,
+.rc01-status,
+.rc01-attack-rail {
+  position: absolute;
+}
+
+.rc01-led-arc {
+  left: 2%;
+  top: 2.083333%;
+  display: flex;
+  align-items: stretch;
+  gap: 1%;
+  width: 96%;
+  height: 7.083333%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc01-led {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  background: #12171C;
+}
+
+.rc01-led.is-active[data-tone="cyan"] { background: #00D9FF; }
+.rc01-led.is-active[data-tone="green"] { background: #00E676; }
+.rc01-led.is-active[data-tone="amber"] { background: #FFB300; }
+.rc01-led.is-active[data-tone="red"] { background: #FF3B30; }
+.rc01-led.is-active[data-tone="magenta"] { background: #FF2E63; }
+
+.rc01-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  max-inline-size: 100%;
+  overflow: clip;
+  contain: layout paint;
+  isolation: isolate;
+  align-items: center;
+}
+
+.rc01-hero > .rc01-value {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  overflow: clip;
+  text-align: center;
+}
+
+.rc01-rpm > .rc01-value {
+  overflow: visible;
+  line-height: 0.94;
+  padding-block: 0.06em;
+}
+
+.rc01-speed { left: 2%; top: 12.5%; width: 27.5%; height: 47.916667%; }
+.rc01-gear { left: 33.75%; top: 10%; width: 32.5%; height: 52.083333%; }
+.rc01-rpm { left: 70.5%; top: 12.5%; width: 27.5%; height: 47.916667%; padding-inline-end: 12px; }
+
+.rc01-hero-label,
+.rc01-delta-label,
+.rc01-metric dt,
+.rc01-tyre dt,
+.rc01-rail-label,
+.rc01-trace > span:first-child {
+  color: #9AA6B2;
+  font-family: "Rajdhani", ui-monospace, monospace;
+  font-size: clamp(12px, 2.25cqw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.rc01-hero-label { margin-bottom: 0.08em; }
+
+.rc01-value {
+  display: block;
+  color: #FFFFFF;
+  font-family: "Bahnschrift", "Rajdhani", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 700;
+  letter-spacing: -0.075em;
+  line-height: 0.82;
+  white-space: nowrap;
+}
+
+.rc01-speed .rc01-value { font-size: min(15cqw, 120px); }
+.rc01-gear .rc01-value { font-size: min(25cqw, 200px); line-height: 0.77; }
+.rc01-rpm .rc01-value { font-size: min(14.5cqw, 116px); }
+
+.rc01-unit {
+  margin-top: 0.18em;
+  color: #9AA6B2;
+  font-family: "Rajdhani", ui-monospace, monospace;
+  font-size: clamp(13px, 2.8cqw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.rc01-rpm-tick {
+  position: absolute;
+  right: 0;
+  top: 56%;
+  width: 3px;
+  height: 25%;
+  background: #FF2E63;
+}
+
+.rc01-over-rev .rc01-gear .rc01-value { color: #FF2E63; text-shadow: -1px 0 #FF2E63, 0 1px #FF2E63, 1px 0 #FF2E63, 0 -1px #FF2E63; }
+.rc01-over-rev .rc01-led.is-active,
+.rc01-over-rev .rc01-gear .rc01-value,
+.rc01-over-rev .rc01-rpm .rc01-value,
+.rc01-over-rev .rc01-rpm-tick { animation: rc01-over-rev-flash 420ms steps(2, end) infinite; }
+
+.rc01-tone-muted,
+.rc01-value.is-stale,
+.rc01-value.is-unavailable { color: #6B7580; }
+.rc01-tone-good { color: #35D07A; }
+.rc01-tone-bad { color: #FF4438; }
+
+.rc01-delta {
+  left: 2%;
+  top: 63.75%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
+  width: 65%;
+  height: 15.416667%;
+  border-top: 1px solid #3D4751;
+  border-bottom: 1px solid #3D4751;
+  padding: 11px 2% 8px;
+}
+.rc01-delta-label { grid-column: 1 / -1; grid-row: 1; }
+.rc01-delta .rc01-value { align-self: end; grid-column: 1; grid-row: 2; font-size: min(10.75cqw, 86px); }
+.rc01-delta-chevron { align-self: end; grid-column: 2; grid-row: 2; margin-bottom: 0.05em; color: #35D07A; font-family: Arial, sans-serif; font-size: min(5.5cqw, 44px); line-height: 0.9; }
+.rc01-delta.is-cliff .rc01-value,
+.rc01-delta.is-cliff .rc01-delta-chevron { color: #FF4438; animation: rc01-delta-cliff 460ms ease-out; }
+.rc01-delta.is-zero-cross .rc01-value,
+.rc01-delta.is-zero-cross .rc01-delta-chevron { color: #FFB300; animation: rc01-delta-zero-cross 700ms ease-in-out; }
+
+.rc01-status { left: 70%; top: 63.75%; width: 28%; height: 34.166667%; border-top: 1px solid #3D4751; border-bottom: 1px solid #3D4751; }
+.rc01-status-grid { display: grid; grid-template-columns: 0.85fr 0.95fr 1.2fr; height: 70%; margin: 0; }
+.rc01-metric { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 8px 7px; text-align: center; }
+.rc01-metric + .rc01-metric { border-left: 1px solid #53606B; }
+.rc01-metric dt,
+.rc01-tyre dt,
+.rc01-metric dd,
+.rc01-tyre dd { margin: 0; }
+.rc01-metric dt,
+.rc01-tyre dt { margin-bottom: 0.28em; font-size: clamp(11px, 2cqw, 16px); }
+.rc01-metric .rc01-value { font-size: clamp(25px, 5cqw, 40px); }
+.rc01-status-grid .rc01-metric:nth-child(2) .rc01-value { font-size: clamp(23px, 4.25cqw, 34px); }
+.rc01-status-grid .rc01-metric:last-child .rc01-value { font-size: clamp(24px, 3.6cqw, 29px); }
+.rc01-tyre-grid { display: none; margin: 0; }
+
+.rc01-status-toggle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-width: 46px;
+  height: 27%;
+  border: 1px solid #3D4751;
+  border-bottom: 0;
+  background: transparent;
+  color: #9AA6B2;
+  cursor: pointer;
+}
+.rc01-soft-key::before,
+.rc01-soft-key::after { position: absolute; content: ""; pointer-events: none; }
+.rc01-soft-key::before { inset: 6px 9px; border: 1px solid currentColor; border-radius: 2px; }
+.rc01-soft-key::after { left: 50%; top: 50%; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translate(-50%, -65%) rotate(45deg); }
+.rc01-status-toggle:hover { border-color: #2FB6E0; color: #FFFFFF; }
+.rc01-status-toggle:focus-visible { border-color: #2FB6E0; color: #FFFFFF; outline: 2px solid #2FB6E0; outline-offset: 2px; }
+
+.rc01-detail-tyres .rc01-status-grid { width: 42%; }
+.rc01-detail-tyres .rc01-status-grid .rc01-metric:last-child { display: none; }
+.rc01-detail-tyres .rc01-tyre-grid { position: absolute; right: 0; top: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 56%; height: 70%; }
+.rc01-tyre { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 4px; text-align: center; }
+.rc01-tyre:nth-child(even) { border-left: 1px solid #3D4751; }
+.rc01-tyre .rc01-value { font-size: clamp(15px, 2.9cqw, 23px); }
+
+.rc01-pit-alert { position: absolute; left: 0; top: 0; z-index: 2; width: 100%; min-height: 25px; padding: 4px 8px; background: #2FB6E0; color: #0C0F13; font-family: "Rajdhani", ui-monospace, monospace; font-size: clamp(12px, 1.9cqw, 16px); font-weight: 700; letter-spacing: 0.12em; text-align: center; }
+.rc01-attack-rail { display: none; }
+.rc01-sr-alert { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+
+@keyframes rc01-delta-cliff { 0% { transform: scale(1); } 35% { transform: scale(1.05); } 100% { transform: scale(1); } }
+@keyframes rc01-delta-zero-cross { 0%, 100% { opacity: 1; transform: translateX(0) scale(1); } 30% { opacity: 0.55; transform: translateX(-3px) scale(1.12); } 60% { opacity: 1; transform: translateX(3px) scale(1.08); } }
+@keyframes rc01-over-rev-flash { 0%, 49% { opacity: 1; filter: brightness(1); } 50%, 100% { opacity: 0.3; filter: brightness(1.8); } }
+
+/* App composition is selected by the widget's ResizeObserver content-box result. */
+.rc01-widget[data-rc01-layout="app"] .rc01-led-arc { left: 0; top: 0; gap: 0.9%; width: 100%; height: 10.666667%; padding: 14px 24px 18px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-speed { left: 2.34375%; top: 12%; width: 23.4375%; height: 33.333333%; }
+.rc01-widget[data-rc01-layout="app"] .rc01-gear { left: 28.7109375%; top: 8%; width: 34.1796875%; height: 41.333333%; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rpm { left: 65.625%; top: 12%; width: 19.53125%; height: 33.333333%; padding-inline-end: 20px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-hero-label { font-size: clamp(16px, 1.76cqw, 20px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-speed .rc01-value { font-size: 100px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rpm .rc01-value { font-size: 64px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-gear .rc01-value { font-size: 190px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rpm-tick { right: 0; width: 3px; height: 28%; }
+.rc01-widget[data-rc01-layout="app"] .rc01-delta { left: 2.34375%; top: 62%; z-index: 1; width: 45%; height: 35%; border: 0; padding: 28px 2.4% 22px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-delta .rc01-value { font-size: clamp(70px, 8.3cqw, 86px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-delta-chevron { font-size: clamp(38px, 4cqw, 46px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-status { left: 2.34375%; top: 62%; width: 82.8125%; height: 35%; }
+.rc01-widget[data-rc01-layout="app"] .rc01-status-grid { position: absolute; right: 0; top: 0; width: 49%; height: 47%; }
+.rc01-widget[data-rc01-layout="app"] .rc01-status-grid .rc01-metric { padding: 13px 10px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-status-grid .rc01-metric:last-child .rc01-value,
+.rc01-widget[data-rc01-layout="app"] .rc01-metric .rc01-value { font-size: clamp(29px, 4.3cqw, 47px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-tyre-grid { position: absolute; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 49%; height: 51%; margin: 0; border-top: 1px solid #3D4751; }
+.rc01-widget[data-rc01-layout="app"] .rc01-tyre { padding: 7px 5px; border-left: 1px solid #3D4751; }
+.rc01-widget[data-rc01-layout="app"] .rc01-tyre:first-child { border-left: 0; }
+.rc01-widget[data-rc01-layout="app"] .rc01-tyre .rc01-value { font-size: clamp(20px, 2.5cqw, 28px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-detail-tyres .rc01-status-grid { width: 49%; }
+.rc01-widget[data-rc01-layout="app"] .rc01-detail-tyres .rc01-status-grid .rc01-metric:last-child { display: flex; }
+.rc01-widget[data-rc01-layout="app"] .rc01-detail-tyres .rc01-tyre-grid { top: auto; right: 0; bottom: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 49%; height: 51%; }
+.rc01-widget[data-rc01-layout="app"] .rc01-status-toggle { display: none; }
+.rc01-widget[data-rc01-layout="app"] .rc01-attack-rail { left: 87.5%; top: 16%; display: flex; flex-direction: column; width: 10.9375%; height: 68.333333%; border-left: 1px solid #3D4751; padding-left: 11px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rail-label { color: #2FB6E0; font-size: clamp(11px, 1.28cqw, 14px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-trace { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-trace > span:first-child { font-size: clamp(9px, 1.1cqw, 12px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-trace svg { width: 100%; height: 120px; overflow: visible; }
+.rc01-widget[data-rc01-layout="app"] .rc01-trace polyline { fill: none; stroke: #35D07A; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.rc01-widget[data-rc01-layout="app"] .rc01-trace-unavailable { color: #6B7580; font-size: 24px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rail-metrics { display: grid; gap: 14px; margin: auto 0 0; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rail-metrics .rc01-metric { display: block; padding: 0; text-align: left; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rail-metrics .rc01-metric + .rc01-metric { border-left: 0; border-top: 1px solid #3D4751; padding-top: 12px; }
+.rc01-widget[data-rc01-layout="app"] .rc01-rail-metrics .rc01-metric dt { font-size: clamp(8px, 0.98cqw, 11px); }
+.rc01-widget[data-rc01-layout="app"] .rc01-rail-metrics .rc01-metric .rc01-value { font-size: clamp(16px, 1.8cqw, 21px); letter-spacing: -0.08em; }
+
+/* Native DDU mode is expressed in the root's authored content box. When a
+   1024x600 dashboard canvas is transformed to an 800x480 viewport, the following
+   percentages and container units land on the accepted 800x480 screen geometry. */
+.rc01-widget[data-rc01-layout="native"] .rc01-dashboard {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  contain: layout paint;
+}
+.rc01-widget[data-rc01-layout="native"] .rc01-led-arc { inset: 0; display: block; width: 100%; height: 100%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led { position: absolute; display: block; top: 3.333333%; width: 7%; height: 4.166667%; margin: 0; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(1) { left: 6.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(2) { left: 14.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(3) { left: 22.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(4) { left: 30.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(5) { left: 38.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(6) { left: 46.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(7) { left: 54.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(8) { left: 62.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(9) { left: 70.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(10) { left: 78.5%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-led:nth-child(11) { left: 86.5%; }
+
+.rc01-widget[data-rc01-layout="native"] .rc01-speed { left: 5%; top: 14.583333%; width: 23.5%; height: 42.083333%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-gear { left: 33.5%; top: 11.25%; width: 33%; height: 52.083333%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-rpm { left: 68.75%; top: 14.583333%; width: 26.25%; height: 42.083333%; padding-inline-end: 2.25cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-hero-label { font-size: 2cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-speed .rc01-value { font-size: 12.5cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-gear .rc01-value { font-size: 22.5cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-rpm .rc01-value { font-size: 8.5cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-unit { font-size: 2.25cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-rpm-tick { right: 2.25cqw; width: 0.375cqw; top: 56%; height: 25%; }
+
+.rc01-widget[data-rc01-layout="native"] .rc01-delta {
+  left: 5%;
+  top: 67.916667%;
+  width: 62.5%;
+  height: 20.833333%;
+  border-width: 0.125cqw;
+  padding: 1.375cqw 1.5cqw 1cqw;
+}
+.rc01-widget[data-rc01-layout="native"] .rc01-delta-label { font-size: 2cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-delta .rc01-value { font-size: 9.25cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-delta-chevron { font-size: 4.75cqw; }
+
+.rc01-widget[data-rc01-layout="native"] .rc01-status {
+  left: 71.25%;
+  top: 67.916667%;
+  width: 23.75%;
+  height: 27.5%;
+  border-width: 0.125cqw;
+}
+.rc01-widget[data-rc01-layout="native"] .rc01-status-grid { height: 70%; }
+.rc01-widget[data-rc01-layout="native"] .rc01-metric { padding: 1cqw 0.5cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-metric + .rc01-metric,
+.rc01-widget[data-rc01-layout="native"] .rc01-tyre:nth-child(even) { border-width: 0.125cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-metric dt,
+.rc01-widget[data-rc01-layout="native"] .rc01-tyre dt { font-size: 1.375cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-metric .rc01-value { font-size: 3.5cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-status-grid .rc01-metric:nth-child(2) .rc01-value { font-size: 3.125cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-status-grid .rc01-metric:last-child .rc01-value { font-size: 2.5cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-tyre { padding: 0.5cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-tyre .rc01-value { font-size: 2.875cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-status-toggle {
+  right: 0;
+  bottom: 0;
+  width: 5.75%;
+  min-width: 0;
+  height: 6.25%;
+  border-width: 0.125cqw;
+}
+.rc01-widget[data-rc01-layout="native"] .rc01-soft-key::before { inset: 0.75cqw 1.125cqw; border-width: 0.125cqw; border-radius: 0.25cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-soft-key::after { width: 0.875cqw; height: 0.875cqw; border-right-width: 0.25cqw; border-bottom-width: 0.25cqw; }
+.rc01-widget[data-rc01-layout="native"] .rc01-pit-alert { min-height: 3.125cqw; padding: 0.5cqw 1cqw; font-size: 2cqw; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rc01-over-rev .rc01-led.is-active,
+  .rc01-over-rev .rc01-gear .rc01-value,
+  .rc01-over-rev .rc01-rpm .rc01-value,
+  .rc01-over-rev .rc01-rpm-tick { animation: none; opacity: 1; }
+  .rc01-widget *,
+  .rc01-widget *::before,
+  .rc01-widget *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}

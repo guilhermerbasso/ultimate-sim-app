@@ -32,6 +32,14 @@ for deterministic frames, then screenshots full-page at a fixed 1600px width.
 > `npx playwright install chromium` (the script attempts this automatically on a
 > launch failure).
 
+## RaceCon RC-01 dev capture
+
+```bash
+node visual-audit/racecon-rc01-capture.mjs --mode validate --out C:/Temp/racecon-rc01-capture
+```
+
+The output target is an absolute **non-existing** directory outside every Git worktree. The harness writes private sibling staging files and atomically publishes them only after all checks succeed. Final mode additionally requires a clean, unchanged Git HEAD before and after publication.
+
 ## What gets rendered
 
 - **Overlays** — every id in `WIDGET_COMPONENTS`

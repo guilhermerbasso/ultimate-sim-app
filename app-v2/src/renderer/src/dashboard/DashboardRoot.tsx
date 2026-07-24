@@ -51,7 +51,7 @@ import { PREVIEW_SNAPSHOT } from './widgets/gt3-theme'
 import { AnalogDial, RevLedBar } from '../instruments'
 import { atShiftPoint } from '../lib/rev-lights'
 import { resolveElementSkin, FitText } from '../skins'
-// WS-DASH: the six full-frame dashboards (gridStackDash … lmuStintDash) are
+// WS-DASH: the full-frame dashboards (gridStackDash … lmuStintDash) are
 // embedded as `overlaywidget` dashboard elements. They are no longer floating
 // overlays, but their COMPONENTS stay registered here so the dashboard renderer
 // can mount them. The overlay widget module side-effects (overlayWidgetsR16.css)
@@ -1369,7 +1369,7 @@ function ElementTable({ element, snapshot }: ElementProps) {
 }
 
 // WS-DASH: render a full-frame overlay widget INSIDE a dashboard element box. The
-// six dashboards (gridStackDash … lmuStintDash) ship as overlay-widget components
+// full-frame dashboards (gridStackDash … lmuStintDash) ship as overlay-widget components
 // kept in WIDGET_COMPONENTS; we resolve the one named by `element.widgetId` and
 // mount it filling the element's box, fed by the live dashboard `snapshot`. The
 // widget's own root (.overlay-card.dr-root → width/height:100%) fills the box, so

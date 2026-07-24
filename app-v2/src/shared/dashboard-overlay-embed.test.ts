@@ -3,7 +3,7 @@ import { BUILTIN_PRESETS, OVERLAY_DASHBOARD_PRESETS } from './dashboards'
 import { OVERLAY_WIDGETS } from './overlays'
 import type { OverlayWidgetId } from './overlays'
 
-// The six full-frame dashboards that were moved OUT of the floating-overlay
+// The full-frame dashboards that were moved OUT of the floating-overlay
 // picker (OVERLAY_WIDGETS) and INTO the DASHBOARDS system (BUILTIN_PRESETS) as
 // single-`overlaywidget`-element presets. This table is the contract: preset id →
 // embedded widget id, the PT display name, the family/tag set.
@@ -11,7 +11,7 @@ const EMBEDDED: Array<{
   id: string
   widgetId: OverlayWidgetId
   name: string
-  family: 'gt3' | 'lmu' | 'endurance' | 'engineer' | 'broadcast' | 'minimal'
+  family: 'gt3' | 'lmu' | 'endurance' | 'engineer' | 'broadcast' | 'minimal' | 'racecon'
 }> = [
   { id: 'grid_stack_dash', widgetId: 'gridStackDash', name: 'GT3 — Grid (SimHub)', family: 'gt3' },
   { id: 'grid_pro_dash', widgetId: 'gridProDash', name: 'GT3 — Pro (neon)', family: 'gt3' },
@@ -19,6 +19,7 @@ const EMBEDDED: Array<{
   { id: 'ring_dash', widgetId: 'ringDash', name: 'GT3 — Anel circular', family: 'gt3' },
   { id: 'lmu_endurance_dash', widgetId: 'lmuEnduranceDash', name: 'LMU — Endurance', family: 'lmu' },
   { id: 'lmu_stint_dash', widgetId: 'lmuStintDash', name: 'LMU — Stint/Fuel', family: 'lmu' },
+  { id: 'racecon_rc01_dash', widgetId: 'raceconRc01Dash', name: 'RaceCon RC-01 Apex Strike', family: 'racecon' },
   { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
   { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
   { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' },
@@ -29,12 +30,12 @@ const EMBEDDED: Array<{
 const EMBEDDED_WIDGET_IDS: OverlayWidgetId[] = EMBEDDED.map((e) => e.widgetId)
 
 describe('full-frame dashboards embedded from the overlay-widget library', () => {
-  it('exposes exactly the six canonical embedded presets', () => {
+  it('exposes every canonical embedded preset', () => {
     expect(OVERLAY_DASHBOARD_PRESETS.map((p) => p.id)).toEqual(EMBEDDED.map((e) => e.id))
     expect(OVERLAY_DASHBOARD_PRESETS.map((p) => p.widgetId)).toEqual(EMBEDDED_WIDGET_IDS)
   })
 
-  it('registers all six in BUILTIN_PRESETS with no duplicate ids in the catalogue', () => {
+  it('registers every embedded preset in BUILTIN_PRESETS with no duplicate ids in the catalogue', () => {
     const ids = BUILTIN_PRESETS.map((p) => p.id)
     expect(new Set(ids).size, 'BUILTIN_PRESETS ids must be unique').toBe(ids.length)
     const idSet = new Set(ids)
@@ -85,7 +86,7 @@ describe('full-frame dashboards embedded from the overlay-widget library', () =>
 })
 
 describe('embedded dashboards are no longer floating overlays', () => {
-  it('removes all six from the OVERLAY_WIDGETS picker registry', () => {
+  it('removes all full-frame widgets from the OVERLAY_WIDGETS picker registry', () => {
     const overlayIds = new Set(OVERLAY_WIDGETS.map((w) => w.id))
     for (const widgetId of EMBEDDED_WIDGET_IDS) {
       expect(overlayIds.has(widgetId), `${widgetId} must NOT be a pickable overlay`).toBe(false)

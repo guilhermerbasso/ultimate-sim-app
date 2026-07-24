@@ -75,6 +75,20 @@ function dashboardAlertMarkup(
   )
 }
 
+describe('dashboard overlaywidget resolution', () => {
+  it('resolves and renders the live RaceCon RC-01 full-frame widget', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc01', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc01Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const snapshot = { ...PREVIEW_SNAPSHOT, timestamp: Date.now(), sessionUniqueId: 101 }
+    const output = renderToStaticMarkup(renderDashboardElement({ element, snapshot }))
+    expect(output).toContain('data-widget="raceconRc01Dash"')
+    expect(output).toContain('SPEED')
+    expect(output).not.toContain('Unknown widget')
+  })
+})
+
 describe('dashboard measurement units', () => {
   it('converts a unit-only label together with its speed value', () => {
     const out = markup('value', { label: 'KM/H', suffix: 'km/h' }, 'speedKmh', PREVIEW_SNAPSHOT, 'imperial')

@@ -268,7 +268,7 @@ const IRACING_FIELDS: readonly TelemetryRequirement[] = [
 // flags but no levels, and NO standings array / deltas / cold pressures.
 const ACC_FIELDS: readonly TelemetryRequirement[] = [
   'sim', 'connected', 'timestamp',
-  'speedKmh', 'rpm', 'gear', 'maxRpm',
+  'speedKmh', 'rpm', 'gear', 'maxRpm', 'replayContext',
   'throttle', 'brake', 'clutch', 'steerAngleDeg',
   'absActive', 'tcActive',
   'sessionType', 'carName', 'trackName', 'sessionTimeRemainingSec',
@@ -299,7 +299,7 @@ const AC_FIELDS: readonly TelemetryRequirement[] = [
 // them, but they are not surfaced in the snapshot today).
 const AMS2_FIELDS: readonly TelemetryRequirement[] = [
   'sim', 'connected', 'timestamp',
-  'speedKmh', 'rpm', 'gear', 'maxRpm',
+  'speedKmh', 'rpm', 'gear', 'maxRpm', 'replayContext',
   'throttle', 'brake', 'clutch', 'steerAngleDeg',
   'sessionType', 'carName', 'trackName', 'sessionTimeRemainingSec',
   'currentLap', 'lapDistPct', 'lastLapTimeSec', 'bestLapTimeSec', 'currentLapTimeSec',
