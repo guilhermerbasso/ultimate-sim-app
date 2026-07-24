@@ -310,6 +310,7 @@
 .rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-detail-tyres .rc01-status-grid {
   width: 44%;
   height: calc(100% - 52px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-detail-tyres .rc01-status-grid .rc01-metric:last-child { display: none; }
 .rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-detail-tyres .rc01-tyre-grid {
@@ -323,6 +324,49 @@
 }
 .rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-tyre .rc01-value { font-size: clamp(18px, 5.4cqw, 23px); }
 .rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-pit-alert { min-height: 32px; padding: 7px 8px; font-size: 14px; }
+
+/* Short, wide compact displays need their own composition rather than inheriting
+   portrait or unconstrained container typography. */
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-led-arc {
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  width: auto;
+  height: 16px;
+  gap: 4px;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-speed { left: 2%; top: 12%; width: 27%; height: 48%; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-gear { left: 31%; top: 9%; width: 36%; height: 54%; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-rpm { left: 69%; top: 12%; width: 29%; height: 48%; padding-inline-end: 8px; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-hero-label { font-size: clamp(12px, 1.8cqw, 15px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-speed .rc01-value { font-size: clamp(58px, 9cqw, 72px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-gear .rc01-value { font-size: clamp(108px, 17cqw, 145px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-rpm .rc01-value { font-size: clamp(42px, 6.2cqw, 54px); letter-spacing: -0.075em; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-unit { font-size: clamp(13px, 1.9cqw, 16px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-rpm-tick { right: 2px; width: 2px; }
+
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-delta {
+  left: 2%;
+  top: 64%;
+  width: 65%;
+  height: 32%;
+  padding: 10px 2% 8px;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-delta-label { font-size: 13px; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-delta .rc01-value { font-size: clamp(52px, 7.5cqw, 60px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-delta-chevron { font-size: clamp(26px, 3.8cqw, 32px); }
+
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-status { left: 70%; top: 64%; width: 28%; height: 32%; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-status-grid {
+  height: 64%;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.95fr) minmax(0, 1.4fr);
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-metric { padding: 4px 2px; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-metric dt { font-size: clamp(10px, 1.55cqw, 13px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-metric .rc01-value { font-size: clamp(20px, 3.2cqw, 25px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-status-grid .rc01-metric:nth-child(2) .rc01-value { font-size: clamp(18px, 2.8cqw, 23px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-status-grid .rc01-metric:last-child .rc01-value { font-size: clamp(15px, 2.25cqw, 19px); letter-spacing: -0.04em; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="landscape"] .rc01-detail-tyres .rc01-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* App composition is selected by the widget's ResizeObserver content-box result. */
 .rc01-widget[data-rc01-layout="app"] .rc01-led-arc { left: 0; top: 0; gap: 0.9%; width: 100%; height: 10.666667%; padding: 14px 24px 18px; }

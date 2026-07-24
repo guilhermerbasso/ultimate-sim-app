@@ -18,10 +18,12 @@ import { basename, dirname, isAbsolute, join, parse, relative, resolve } from "n
 import { PNG } from "pngjs"
 
 export const CAPTURE_SIZES = Object.freeze([
-  Object.freeze({ width: 800, height: 480 }),
-  Object.freeze({ width: 1024, height: 600 }),
-  Object.freeze({ width: 393, height: 759 }),
-  Object.freeze({ width: 412, height: 867 })
+  Object.freeze({ width: 800, height: 480, detail: "fuel" }),
+  Object.freeze({ width: 1024, height: 600, detail: "fuel" }),
+  Object.freeze({ width: 393, height: 759, detail: "tyres" }),
+  Object.freeze({ width: 412, height: 867, detail: "tyres" }),
+  Object.freeze({ width: 759, height: 393, detail: "fuel" }),
+  Object.freeze({ width: 867, height: 412, detail: "fuel" })
 ])
 
 export class CaptureSafetyError extends Error {
@@ -654,7 +656,9 @@ export function validateCapturePixels(buffer, size) {
     audit.appLedExactPixels = exactPixels
   } else if (
     (size.width === 393 && size.height === 759) ||
-    (size.width === 412 && size.height === 867)
+    (size.width === 412 && size.height === 867) ||
+    (size.width === 759 && size.height === 393) ||
+    (size.width === 867 && size.height === 412)
   ) {
     let nonCanvasPixels = 0
     const compactLedColorPixels = Object.fromEntries(
@@ -742,6 +746,35 @@ function containsRect(outer, inner, label) {
   }
 }
 
+function isPhoneCapture(size) {
+  return (size.width === 393 && size.height === 759) ||
+    (size.width === 412 && size.height === 867)
+}
+
+function isLandscapeCapture(size) {
+  return (size.width === 759 && size.height === 393) ||
+    (size.width === 867 && size.height === 412)
+}
+
+function expectedCaptureDetail(size) {
+  if (size.detail === "fuel" || size.detail === "tyres") return size.detail
+  return isPhoneCapture(size) ? "tyres" : "fuel"
+}
+
+function assertNoOverflow(box, label) {
+  if (!box ||
+    finite(box.scrollWidth, `${label} scroll width`) > finite(box.layoutWidth, `${label} client width`) ||
+    finite(box.scrollHeight, `${label} scroll height`) > finite(box.layoutHeight, `${label} client height`)) {
+    fail(`${label} overflows its layout box`)
+  }
+}
+
+function assertNoHorizontalOverflow(box, label) {
+  if (!box || finite(box.scrollWidth, `${label} scroll width`) > finite(box.layoutWidth, `${label} client width`)) {
+    fail(`${label} overflows its layout width`)
+  }
+}
+
 export function validateCaptureMetrics(metrics, size) {
   if (!metrics || typeof metrics !== "object") fail("missing capture metrics")
   exact(metrics.viewport.width, size.width, "viewport width")
@@ -772,6 +805,8 @@ export function validateCaptureMetrics(metrics, size) {
   if (metrics.sourceKind !== "live-telemetry" || metrics.sourceIdentity !== "acc:session:74001:connection:12" || metrics.bufferState !== "accepted") {
     fail("capture did not accept the deterministic connected live telemetry fixture")
   }
+  if (metrics.detail !== expectedCaptureDetail(size) || metrics.detailClass !== metrics.detail) fail("capture detail modifier does not match its descriptor and rendered class")
+  assertNoOverflow(metrics.dashboard, "RC-01 dashboard")
   if (metrics.errorBoundaryCount !== 0 || metrics.unknownWidgetCount !== 0 || (metrics.failures && metrics.failures.length) || (metrics.pageErrors && metrics.pageErrors.length) || (metrics.consoleErrors && metrics.consoleErrors.length)) {
     fail("capture reported a render error, error boundary, unknown widget, or console error")
   }
@@ -806,7 +841,7 @@ export function validateCaptureMetrics(metrics, size) {
     exact(metrics.appRail.top, 96, "app attack rail top")
     exact(metrics.appRail.width, 112, "app attack rail width")
     exact(metrics.appRail.height, 410, "app attack rail height")
-  } else {
+  } else if (isPhoneCapture(size)) {
     if (
       metrics.layout !== "compact" ||
       metrics.compactMode !== "phone" ||
@@ -835,24 +870,82 @@ export function validateCaptureMetrics(metrics, size) {
       "phone tyre-summary control top"
     )
     if (
-      metrics.statusToggle.ariaLabel !== "Show tyre summary" ||
+      metrics.statusToggle.ariaLabel !== "Show fuel status" ||
       metrics.statusToggle.beforeContent === "none" ||
       metrics.statusToggle.afterContent === "none"
     ) {
-      fail("phone tyre-summary control is missing its accessible non-text cue")
+      fail("phone tyre-summary state is missing its accessible non-text cue")
     }
     containsRect(metrics.status, metrics.statusToggle, "phone tyre-summary control")
-    const fuel = metrics.statusMetrics?.find((item) => item.label === "FUEL")
+    if (!metrics.statusGrid || metrics.statusGrid.columns?.length !== 2) fail("phone tyre status must use exactly two computed columns")
+    exact(metrics.statusGrid.width, expected.status.width * 0.44, "phone two-column status width")
+    assertNoOverflow(metrics.statusGrid, "phone two-column status grid")
+    containsRect(metrics.status, metrics.statusGrid, "phone two-column status grid")
+
+    const tc = metrics.statusMetrics?.find((item) => item.label === "TC")
     const position = metrics.statusMetrics?.find((item) => item.label === "POS")
-    if (!fuel || fuel.text !== "42.5 L" || !position) fail("phone status metrics are missing truthful fuel or position output")
-    containsRect(metrics.status, fuel.rect, "phone fuel metric")
-    containsRect(fuel.rect, fuel.valueRect, "phone fuel value")
-    if (position.rect.left + position.rect.width > fuel.rect.left + 0.02) {
-      fail("phone position and fuel status columns overlap")
+    const fuel = metrics.statusMetrics?.find((item) => item.label === "FUEL")
+    if (!tc || !position || position.text !== "P02" || !fuel || fuel.text !== "42.5 L") {
+      fail("phone status metrics are missing truthful TC, position, or fuel output")
     }
-    if (fuel.valueRect.left + fuel.valueRect.width > metrics.status.left + metrics.status.width + 0.02) {
-      fail("phone fuel value clips outside the status container")
+    if (tc.display === "none" || position.display === "none" || fuel.display !== "none") {
+      fail("phone tyre state did not hide only the fuel status metric")
     }
+    containsRect(metrics.statusGrid, tc.rect, "phone TC metric")
+    containsRect(metrics.statusGrid, position.rect, "phone position metric")
+    containsRect(position.rect, position.valueRect, "phone position value")
+    containsRect(position.rect, position.valueTextRect, "phone P02 text")
+    assertNoOverflow(position.rect, "phone position metric")
+    assertNoHorizontalOverflow(position.valueRect, "phone P02 value")
+
+    if (!metrics.tyreGrid || metrics.tyreGrid.display !== "grid") fail("phone tyre grid is not visible")
+    containsRect(metrics.status, metrics.tyreGrid, "phone tyre grid")
+    assertNoOverflow(metrics.tyreGrid, "phone tyre grid")
+    if (!Array.isArray(metrics.tyreMetrics) || metrics.tyreMetrics.length !== 4) fail("phone tyre grid must expose four tyres")
+    for (const tyre of metrics.tyreMetrics) {
+      containsRect(metrics.tyreGrid, tyre.rect, `phone ${tyre.label} tyre metric`)
+      containsRect(tyre.rect, tyre.valueRect, `phone ${tyre.label} tyre value`)
+      assertNoHorizontalOverflow(tyre.valueRect, `phone ${tyre.label} tyre value`)
+    }
+  } else if (isLandscapeCapture(size)) {
+    if (
+      metrics.layout !== "compact" ||
+      metrics.compactMode !== "landscape" ||
+      metrics.nativeSize !== null ||
+      metrics.contentWidth !== String(size.width) ||
+      metrics.contentHeight !== String(size.height)
+    ) {
+      fail(`${size.width}x${size.height} capture did not select the compact landscape modifier`)
+    }
+    if (!metrics.appRail || metrics.appRail.display !== "none") fail("landscape RC-01 capture must not show the app attack rail")
+    containsRect(metrics.root, metrics.ledArc, "landscape LED arc")
+    containsRect(metrics.root, metrics.delta, "landscape delta zone")
+    containsRect(metrics.root, metrics.status, "landscape status zone")
+    if (!metrics.statusToggle || metrics.statusToggle.display === "none" || metrics.statusToggle.ariaLabel !== "Show tyre summary") {
+      fail("landscape tyre-summary control is not visible or accessible")
+    }
+    exact(metrics.statusToggle.width, 44, "landscape tyre-summary control width")
+    exact(metrics.statusToggle.height, 44, "landscape tyre-summary control height")
+    containsRect(metrics.status, metrics.statusToggle, "landscape tyre-summary control")
+
+    const { speed, gear, rpm } = metrics.heroes ?? {}
+    if (!speed || !gear || !rpm || rpm.text !== "9,600") fail("landscape hero outputs are incomplete")
+    for (const [name, hero] of Object.entries({ speed, gear, rpm })) {
+      containsRect(metrics.root, hero.zone, `landscape ${name} zone`)
+      containsRect(hero.zone, hero.value, `landscape ${name} value`)
+      containsRect(hero.zone, hero.textRect, `landscape ${name} text`)
+      assertNoHorizontalOverflow(hero.value, `landscape ${name} value`)
+    }
+    if (gear.fontSize < speed.fontSize * 1.5 || gear.fontSize < rpm.fontSize * 1.5) {
+      fail("landscape gear hierarchy is below 1.5x an adjacent hero")
+    }
+    for (const metric of metrics.statusMetrics ?? []) {
+      if (metric.display === "none") continue
+      containsRect(metrics.status, metric.valueRect, `landscape ${metric.label} value`)
+      assertNoHorizontalOverflow(metric.valueRect, `landscape ${metric.label} value`)
+    }
+  } else {
+    fail(`unsupported capture metric size ${size.width}x${size.height}`)
   }
   assertLeds(metrics, size)
   return true

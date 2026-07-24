@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 import test from "node:test"
 import { PNG } from "pngjs"
 import {
+  CAPTURE_SIZES,
   CaptureSafetyError,
   assertCleanGitState,
   createPrivateStaging,
@@ -50,44 +51,159 @@ function ledMetrics(size) {
   })
 }
 
-function validMetrics(size) {
+function measuredRect(rect) {
+  return {
+    ...rect,
+    layoutWidth: rect.width,
+    layoutHeight: rect.height,
+    scrollWidth: rect.width,
+    scrollHeight: rect.height
+  }
+}
+
+function validMetrics(input) {
+  const size = { ...input }
   const native = size.width === 800 && size.height === 480
   const app = size.width === 1024 && size.height === 600
-  const statusTop = Math.floor(size.height * 0.53)
+  const phone = (size.width === 393 && size.height === 759) || (size.width === 412 && size.height === 867)
+  const landscape = (size.width === 759 && size.height === 393) || (size.width === 867 && size.height === 412)
+  const detail = size.detail ?? (phone ? "tyres" : "fuel")
+  const statusTop = phone ? Math.floor(size.height * 0.53) : 0
   const phoneStatus = {
     left: 12,
     top: statusTop,
     width: size.width - 24,
     height: size.height - statusTop - 18
   }
+  const landscapeStatus = {
+    left: size.width * 0.7,
+    top: size.height * 0.64,
+    width: size.width * 0.28,
+    height: size.height * 0.32
+  }
   const status = native
     ? { left: 570, top: 326, width: 190, height: 132 }
     : app
       ? { left: 24, top: 372, width: 848, height: 210 }
-      : phoneStatus
+      : phone
+        ? phoneStatus
+        : landscapeStatus
   const toggle = native
     ? { left: 716, top: 414, width: 44, height: 44 }
     : app
       ? { left: 0, top: 0, width: 0, height: 0 }
-      : {
-          left: phoneStatus.left + phoneStatus.width - 44,
-          top: phoneStatus.top + phoneStatus.height - 45,
-          width: 44,
-          height: 44
-        }
-  const phoneFirstWidth = Math.floor(phoneStatus.width * 0.25)
-  const phoneSecondWidth = Math.floor(phoneStatus.width * 0.28)
-  const phoneFuelLeft = phoneStatus.left + phoneFirstWidth + phoneSecondWidth
+      : phone
+        ? {
+            left: phoneStatus.left + phoneStatus.width - 44,
+            top: phoneStatus.top + phoneStatus.height - 45,
+            width: 44,
+            height: 44
+          }
+        : {
+            left: landscapeStatus.left + landscapeStatus.width - 44,
+            top: landscapeStatus.top + landscapeStatus.height - 44,
+            width: 44,
+            height: 44
+          }
+
+  let statusGrid = measuredRect({ left: status.left, top: status.top, width: status.width, height: status.height * 0.7 })
+  let statusMetrics = []
+  let tyreGrid = { ...measuredRect({ left: 0, top: 0, width: 0, height: 0 }), display: "none" }
+  let tyreMetrics = []
+  if (phone) {
+    const gridRect = {
+      left: phoneStatus.left,
+      top: phoneStatus.top + 1,
+      width: phoneStatus.width * 0.44,
+      height: phoneStatus.height - 52
+    }
+    statusGrid = { ...measuredRect(gridRect), columns: [`${gridRect.width / 2}px`, `${gridRect.width / 2}px`] }
+    const columnWidth = gridRect.width / 2
+    const makeMetric = (label, text, index) => {
+      const rect = measuredRect({ left: gridRect.left + columnWidth * index, top: gridRect.top, width: columnWidth, height: gridRect.height })
+      const valueRect = measuredRect({ left: rect.left + 4, top: rect.top + 40, width: rect.width - 8, height: 34 })
+      return { label, text, display: "flex", rect, valueRect, valueTextRect: { left: valueRect.left + 4, top: valueRect.top + 3, width: Math.min(48, valueRect.width - 8), height: 28 } }
+    }
+    statusMetrics = [
+      makeMetric("TC", "4", 0),
+      makeMetric("POS", "P02", 1),
+      {
+        label: "FUEL", text: "42.5 L", display: "none",
+        rect: measuredRect({ left: 0, top: 0, width: 0, height: 0 }),
+        valueRect: measuredRect({ left: 0, top: 0, width: 0, height: 0 }),
+        valueTextRect: { left: 0, top: 0, width: 0, height: 0 }
+      }
+    ]
+    const tyreRect = {
+      left: phoneStatus.left + phoneStatus.width * 0.44,
+      top: phoneStatus.top + 1,
+      width: phoneStatus.width * 0.56,
+      height: phoneStatus.height - 52
+    }
+    tyreGrid = { ...measuredRect(tyreRect), display: "grid" }
+    const tyreLabels = [["LF", "85\u00B0"], ["RF", "87\u00B0"], ["LR", "89\u00B0"], ["RR", "91\u00B0"]]
+    tyreMetrics = tyreLabels.map(([label, text], index) => {
+      const width = tyreRect.width / 2
+      const height = tyreRect.height / 2
+      const rect = measuredRect({ left: tyreRect.left + (index % 2) * width, top: tyreRect.top + Math.floor(index / 2) * height, width, height })
+      return {
+        label, text, rect,
+        valueRect: measuredRect({ left: rect.left + 4, top: rect.top + 20, width: rect.width - 8, height: 24 })
+      }
+    })
+  } else if (landscape) {
+    const gridRect = { left: status.left, top: status.top + 1, width: status.width, height: status.height * 0.64 }
+    statusGrid = { ...measuredRect(gridRect), columns: ["1fr", "1fr", "1fr"] }
+    const labels = [["TC", "4"], ["POS", "P02"], ["FUEL", "42.5 L"]]
+    statusMetrics = labels.map(([label, text], index) => {
+      const width = gridRect.width / 3
+      const rect = measuredRect({ left: gridRect.left + width * index, top: gridRect.top, width, height: gridRect.height })
+      return {
+        label, text, display: "flex", rect,
+        valueRect: measuredRect({ left: rect.left + 2, top: rect.top + 28, width: rect.width - 4, height: 28 }),
+        valueTextRect: { left: rect.left + 4, top: rect.top + 30, width: rect.width - 8, height: 24 }
+      }
+    })
+  }
+
+  const hero = (zone, value, text, fontSize) => ({
+    zone,
+    value: measuredRect(value),
+    textRect: { left: value.left + 6, top: value.top + 4, width: value.width - 12, height: value.height - 8 },
+    text,
+    fontSize
+  })
+  const heroes = landscape
+    ? {
+        speed: hero(
+          { left: size.width * 0.02, top: size.height * 0.12, width: size.width * 0.27, height: size.height * 0.48 },
+          { left: size.width * 0.02, top: size.height * 0.22, width: size.width * 0.27, height: 72 },
+          "278", 68
+        ),
+        gear: hero(
+          { left: size.width * 0.31, top: size.height * 0.09, width: size.width * 0.36, height: size.height * 0.54 },
+          { left: size.width * 0.31, top: size.height * 0.17, width: size.width * 0.36, height: 120 },
+          "6", 120
+        ),
+        rpm: hero(
+          { left: size.width * 0.69, top: size.height * 0.12, width: size.width * 0.29, height: size.height * 0.48 },
+          { left: size.width * 0.69, top: size.height * 0.25, width: size.width * 0.29 - 8, height: 56 },
+          "9,600", 48
+        )
+      }
+    : { speed: null, gear: null, rpm: null }
+
   const base = {
     viewport: { width: size.width, height: size.height, dpr: 1 },
     root: { left: 0, top: 0, width: size.width, height: size.height },
-    shell: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height },
+    shell: measuredRect({ left: 0, top: 0, width: size.width, height: size.height }),
     canvas: {
-      left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height,
+      ...measuredRect({ left: 0, top: 0, width: size.width, height: size.height }),
       transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
     },
-    dashboardElement: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height },
-    widget: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height },
+    dashboardElement: measuredRect({ left: 0, top: 0, width: size.width, height: size.height }),
+    widget: measuredRect({ left: 0, top: 0, width: size.width, height: size.height }),
+    dashboard: measuredRect({ left: 0, top: 0, width: size.width, height: size.height }),
     presetId: "racecon_rc01_dash",
     expectedWidgetId: "raceconRc01Dash",
     renderedWidgetId: "raceconRc01Dash",
@@ -96,44 +212,31 @@ function validMetrics(size) {
     sourceKind: "live-telemetry",
     sourceIdentity: "acc:session:74001:connection:12",
     bufferState: "accepted",
-    compactMode: native || app ? null : "phone",
+    detail,
+    detailClass: detail,
+    compactMode: phone ? "phone" : landscape ? "landscape" : null,
     errorBoundaryCount: 0,
     unknownWidgetCount: 0,
     failures: [],
     pageErrors: [],
     consoleErrors: [],
-    rootText: "SPEED 278 6 9,600 -0.216 S TC 4 P02 42.5 L 85° 87° 89° 91°",
+    rootText: "SPEED 278 6 9,600 -0.216 S TC 4 P02 42.5 L 85\u00B0 87\u00B0 89\u00B0 91\u00B0",
     textOutputs: ["278", "6", "9,600", "-0.216 S"],
+    ledArc: landscape ? { left: 12, top: 12, width: size.width - 24, height: 16 } : null,
+    delta: landscape ? { left: size.width * 0.02, top: size.height * 0.64, width: size.width * 0.65, height: size.height * 0.32 } : null,
     status,
+    statusGrid,
+    tyreGrid,
     statusToggle: {
       ...toggle,
       display: app ? "none" : "block",
-      ariaLabel: "Show tyre summary",
+      ariaLabel: detail === "tyres" ? "Show fuel status" : "Show tyre summary",
       beforeContent: "\"\"",
       afterContent: "\"\""
     },
-    statusMetrics: native || app ? [] : [
-      {
-        label: "TC", text: "4",
-        rect: { left: phoneStatus.left, top: phoneStatus.top, width: phoneFirstWidth, height: phoneStatus.height * 0.48 },
-        valueRect: { left: phoneStatus.left + 8, top: phoneStatus.top + 40, width: 30, height: 34 }
-      },
-      {
-        label: "POS", text: "P02",
-        rect: { left: phoneStatus.left + phoneFirstWidth, top: phoneStatus.top, width: phoneSecondWidth, height: phoneStatus.height * 0.48 },
-        valueRect: { left: phoneStatus.left + phoneFirstWidth + 8, top: phoneStatus.top + 40, width: 48, height: 34 }
-      },
-      {
-        label: "FUEL", text: "42.5 L",
-        rect: {
-          left: phoneFuelLeft,
-          top: phoneStatus.top,
-          width: phoneStatus.left + phoneStatus.width - phoneFuelLeft,
-          height: phoneStatus.height * 0.48
-        },
-        valueRect: { left: phoneFuelLeft + 8, top: phoneStatus.top + 40, width: 82, height: 34 }
-      }
-    ],
+    statusMetrics,
+    tyreMetrics,
+    heroes,
     leds: ledMetrics(size)
   }
   if (native) {
@@ -168,8 +271,13 @@ test("capture CLI accepts only explicit mode and a non-existing absolute target"
 
 test("capture exercises the default production DashboardCanvas viewport path", () => {
   const source = readFileSync(new URL("./racecon-rc01-capture.tsx", import.meta.url), "utf8")
+  const driver = readFileSync(new URL("./racecon-rc01-capture.mjs", import.meta.url), "utf8")
   assert.match(source, /<DashboardCanvas[\s\S]*?dashboard=\{dashboard\}/u)
   assert.doesNotMatch(source, /<DashboardCanvas[\s\S]*?\bviewport=/u)
+  assert.match(driver, /size\.detail === "tyres"[\s\S]*?toggle\.click\(\)/u)
+  assert.match(driver, /size\.width\}x\$\{size\.height\}-\$\{size\.detail\}\.png/u)
+  assert.match(driver, /sha256: sha256\(png\)/u)
+  assert.match(driver, /exclusiveWriteFile\(staging/u)
 })
 
 test("private staging publishes only to a non-existing target outside worktrees", () => {
@@ -361,13 +469,15 @@ test("final Git state rejects dirty work and HEAD movement after artifact creati
 })
 
 test("metric validation proves the responsive DashboardCanvas model, content modifiers, LEDs, and text", () => {
-  assert.equal(validateCaptureMetrics(validMetrics({ width: 800, height: 480 }), { width: 800, height: 480 }), true)
-  assert.equal(validateCaptureMetrics(validMetrics({ width: 1024, height: 600 }), { width: 1024, height: 600 }), true)
-  assert.equal(validateCaptureMetrics(validMetrics({ width: 393, height: 759 }), { width: 393, height: 759 }), true)
-  assert.equal(validateCaptureMetrics(validMetrics({ width: 412, height: 867 }), { width: 412, height: 867 }), true)
-  const invalid = validMetrics({ width: 800, height: 480 })
+  assert.equal(CAPTURE_SIZES.length, 6)
+  assert.equal(Object.isFrozen(CAPTURE_SIZES), true)
+  for (const capture of CAPTURE_SIZES) {
+    assert.equal(Object.isFrozen(capture), true)
+    assert.equal(validateCaptureMetrics(validMetrics(capture), capture), true)
+  }
+  const invalid = validMetrics({ width: 800, height: 480, detail: "fuel" })
   invalid.canvas.transform.a = 0.78125
-  assert.throws(() => validateCaptureMetrics(invalid, { width: 800, height: 480 }), CaptureSafetyError)
+  assert.throws(() => validateCaptureMetrics(invalid, { width: 800, height: 480, detail: "fuel" }), CaptureSafetyError)
 })
 
 function exactNativePng() {
@@ -500,8 +610,11 @@ function compactPng(size) {
   return image
 }
 
-test("pixel validation accepts nonblank opaque phone captures with all LED color groups", () => {
-  for (const size of [{ width: 393, height: 759 }, { width: 412, height: 867 }]) {
+test("pixel validation accepts nonblank opaque compact captures with all LED color groups", () => {
+  for (const size of [
+    { width: 393, height: 759 }, { width: 412, height: 867 },
+    { width: 759, height: 393 }, { width: 867, height: 412 }
+  ]) {
     const result = validateCapturePixels(PNG.sync.write(compactPng(size)), size)
     assert.ok(result.compactNonCanvasPixels >= 5_000)
     assert.deepEqual(Object.keys(result.compactLedColorPixels).sort(), ["amber", "cyan", "green", "red"])

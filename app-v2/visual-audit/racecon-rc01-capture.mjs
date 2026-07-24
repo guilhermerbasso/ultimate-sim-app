@@ -39,64 +39,119 @@ async function collectMetrics(page, pageErrors, consoleErrors) {
     }
     const measuredRect = (node) => {
       const rect = relativeRect(node)
-      return node && rect ? { ...rect, layoutWidth: node.clientWidth, layoutHeight: node.clientHeight } : null
+      return node && rect
+        ? {
+            ...rect,
+            layoutWidth: node.clientWidth,
+            layoutHeight: node.clientHeight,
+            scrollWidth: node.scrollWidth,
+            scrollHeight: node.scrollHeight
+          }
+        : null
+    }
+    const textRect = (node) => {
+      if (!node) return null
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rect = range.getBoundingClientRect()
+      return { left: rect.left - rootRect.left, top: rect.top - rootRect.top, width: rect.width, height: rect.height }
     }
     const transform = (node) => {
       const matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform)
       return { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d, e: matrix.e, f: matrix.f }
     }
-    const shell = root.querySelector(".dashboard-shell")
-    const canvas = root.querySelector(".dashboard-canvas")
-    const dashboardElement = root.querySelector(".dash-element.dash-overlaywidget")
-    const widget = root.querySelector("[data-widget=\"raceconRc01Dash\"]")
-    const dashboard = root.querySelector(".rc01-dashboard")
-    const rail = root.querySelector(".rc01-attack-rail")
-    const status = root.querySelector(".rc01-status")
-    const statusToggle = root.querySelector(".rc01-status-toggle")
+    const heroMetric = (selector) => {
+      const zone = root.querySelector(selector)
+      const value = zone?.querySelector('.rc01-value') ?? null
+      return zone && value
+        ? {
+            zone: relativeRect(zone),
+            value: measuredRect(value),
+            textRect: textRect(value),
+            text: value.textContent?.trim() ?? '',
+            fontSize: Number.parseFloat(getComputedStyle(value).fontSize)
+          }
+        : null
+    }
+    const shell = root.querySelector('.dashboard-shell')
+    const canvas = root.querySelector('.dashboard-canvas')
+    const dashboardElement = root.querySelector('.dash-element.dash-overlaywidget')
+    const widget = root.querySelector('[data-widget="raceconRc01Dash"]')
+    const dashboard = root.querySelector('.rc01-dashboard')
+    const rail = root.querySelector('.rc01-attack-rail')
+    const status = root.querySelector('.rc01-status')
+    const statusGrid = root.querySelector('.rc01-status-grid')
+    const tyreGrid = root.querySelector('.rc01-tyre-grid')
+    const statusToggle = root.querySelector('.rc01-status-toggle')
     const appRail = rail ? { ...relativeRect(rail), display: getComputedStyle(rail).display } : null
-    const leds = Array.from(root.querySelectorAll("[data-testid=\"rc01-led\"]")).map((led) => {
+    const leds = Array.from(root.querySelectorAll('[data-testid="rc01-led"]')).map((led) => {
       const rect = relativeRect(led)
-      return { ...rect, tone: led.getAttribute("data-tone"), active: led.classList.contains("is-active"), color: getComputedStyle(led).backgroundColor }
+      return { ...rect, tone: led.getAttribute('data-tone'), active: led.classList.contains('is-active'), color: getComputedStyle(led).backgroundColor }
     })
     const dataset = root.dataset
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
       root: relativeRect(root), shell: measuredRect(shell),
       canvas: { ...measuredRect(canvas), transform: transform(canvas) },
-      dashboardElement: measuredRect(dashboardElement), widget: measuredRect(widget),
+      dashboardElement: measuredRect(dashboardElement), widget: measuredRect(widget), dashboard: measuredRect(dashboard),
       presetId: dataset.capturePresetId, expectedWidgetId: dataset.captureWidgetId,
-      renderedWidgetId: widget?.getAttribute("data-widget") ?? null,
+      renderedWidgetId: widget?.getAttribute('data-widget') ?? null,
       dashboardWidth: dataset.captureDashboardWidth, dashboardHeight: dataset.captureDashboardHeight,
       sourceKind: dataset.captureSourceKind, sourceIdentity: dataset.captureSourceIdentity,
-      bufferState: widget?.getAttribute("data-rc01-buffer-state") ?? null,
-      layout: widget?.getAttribute("data-rc01-layout") ?? null,
-      compactMode: widget?.getAttribute("data-rc01-compact-mode") ?? null,
-      contentWidth: widget?.getAttribute("data-rc01-content-width") ?? null,
-      contentHeight: widget?.getAttribute("data-rc01-content-height") ?? null,
-      nativeSize: dashboard?.getAttribute("data-rc01-native-size") ?? null,
+      bufferState: widget?.getAttribute('data-rc01-buffer-state') ?? null,
+      layout: widget?.getAttribute('data-rc01-layout') ?? null,
+      compactMode: widget?.getAttribute('data-rc01-compact-mode') ?? null,
+      contentWidth: widget?.getAttribute('data-rc01-content-width') ?? null,
+      contentHeight: widget?.getAttribute('data-rc01-content-height') ?? null,
+      nativeSize: dashboard?.getAttribute('data-rc01-native-size') ?? null,
+      detail: dashboard?.getAttribute('data-rc01-detail') ?? null,
+      detailClass: dashboard?.classList.contains('rc01-detail-tyres') ? 'tyres' : 'fuel',
       appRail,
+      ledArc: relativeRect(root.querySelector('.rc01-led-arc')),
+      delta: relativeRect(root.querySelector('.rc01-delta')),
       status: relativeRect(status),
+      statusGrid: statusGrid ? {
+        ...measuredRect(statusGrid),
+        columns: getComputedStyle(statusGrid).gridTemplateColumns.trim().split(/\s+/u).filter(Boolean)
+      } : null,
+      tyreGrid: tyreGrid ? { ...measuredRect(tyreGrid), display: getComputedStyle(tyreGrid).display } : null,
       statusToggle: statusToggle ? {
         ...relativeRect(statusToggle),
         display: getComputedStyle(statusToggle).display,
-        ariaLabel: statusToggle.getAttribute("aria-label"),
-        beforeContent: getComputedStyle(statusToggle, "::before").content,
-        afterContent: getComputedStyle(statusToggle, "::after").content
+        ariaLabel: statusToggle.getAttribute('aria-label'),
+        beforeContent: getComputedStyle(statusToggle, '::before').content,
+        afterContent: getComputedStyle(statusToggle, '::after').content
       } : null,
-      statusMetrics: Array.from(root.querySelectorAll(".rc01-status-grid .rc01-metric")).map((metric) => {
-        const value = metric.querySelector(".rc01-value")
+      statusMetrics: Array.from(root.querySelectorAll('.rc01-status-grid .rc01-metric')).map((metric) => {
+        const value = metric.querySelector('.rc01-value')
         return {
-          label: metric.querySelector("dt")?.textContent?.trim() ?? "",
-          text: value?.textContent?.trim() ?? "",
-          rect: relativeRect(metric),
-          valueRect: relativeRect(value)
+          label: metric.querySelector('dt')?.textContent?.trim() ?? '',
+          text: value?.textContent?.trim() ?? '',
+          display: getComputedStyle(metric).display,
+          rect: measuredRect(metric),
+          valueRect: measuredRect(value),
+          valueTextRect: textRect(value)
         }
       }),
+      tyreMetrics: Array.from(root.querySelectorAll('.rc01-tyre-grid .rc01-tyre')).map((metric) => {
+        const value = metric.querySelector('.rc01-value')
+        return {
+          label: metric.querySelector('dt')?.textContent?.trim() ?? '',
+          text: value?.textContent?.trim() ?? '',
+          rect: measuredRect(metric),
+          valueRect: measuredRect(value)
+        }
+      }),
+      heroes: {
+        speed: heroMetric('.rc01-speed'),
+        gear: heroMetric('.rc01-gear'),
+        rpm: heroMetric('.rc01-rpm')
+      },
       leds,
-      textOutputs: Array.from(root.querySelectorAll("output")).map((output) => output.textContent?.trim() ?? ""),
-      rootText: root.textContent ?? "",
-      errorBoundaryCount: root.querySelectorAll("[data-va-failed]").length,
-      unknownWidgetCount: root.querySelectorAll("[data-dashboard-unknown-widget]").length,
+      textOutputs: Array.from(root.querySelectorAll('output')).map((output) => output.textContent?.trim() ?? ''),
+      rootText: root.textContent ?? '',
+      errorBoundaryCount: root.querySelectorAll('[data-va-failed]').length,
+      unknownWidgetCount: root.querySelectorAll('[data-dashboard-unknown-widget]').length,
       failures: window.__vaFailures ?? []
     }
   })
@@ -105,7 +160,12 @@ async function collectMetrics(page, pageErrors, consoleErrors) {
 
 async function captureSize(browser, baseUrl, size, mode, finalHead) {
   if (mode === "final") assertCleanGitState(readGitState(appRoot), finalHead)
-  const context = await browser.newContext({ viewport: size, deviceScaleFactor: 1, reducedMotion: "reduce", colorScheme: "dark" })
+  const context = await browser.newContext({
+    viewport: { width: size.width, height: size.height },
+    deviceScaleFactor: 1,
+    reducedMotion: "reduce",
+    colorScheme: "dark"
+  })
   const page = await context.newPage()
   const pageErrors = []
   const consoleErrors = []
@@ -127,17 +187,42 @@ async function captureSize(browser, baseUrl, size, mode, finalHead) {
     target.searchParams.set("height", String(size.height))
     await page.goto(target.href, { waitUntil: "networkidle", timeout: 90_000 })
     await page.locator(ROOT_SELECTOR).waitFor({ state: "visible", timeout: 45_000 })
-    await page.waitForFunction(({ selector, expectedLayout }) => {
+    const expectedLayout = size.width === 800 && size.height === 480
+      ? "native"
+      : size.width === 1024 && size.height === 600
+        ? "app"
+        : "compact"
+    const expectedCompactMode = expectedLayout === "compact" ? size.width < size.height ? "phone" : "landscape" : null
+    await page.waitForFunction(({ selector, expectedLayout, expectedCompactMode }) => {
       const root = document.querySelector(selector)
       const widget = root?.querySelector("[data-widget=\"raceconRc01Dash\"]")
       return root?.getAttribute("data-capture-ready") === "true" &&
         widget?.getAttribute("data-rc01-buffer-state") === "accepted" &&
-        widget?.getAttribute("data-rc01-layout") === expectedLayout
-    }, {
-      selector: ROOT_SELECTOR,
-      expectedLayout: size.width === 800 ? "native" : size.width === 1024 ? "app" : "compact"
-    }, { timeout: 45_000 })
+        widget?.getAttribute("data-rc01-layout") === expectedLayout &&
+        (expectedCompactMode === null || widget?.getAttribute("data-rc01-compact-mode") === expectedCompactMode)
+    }, { selector: ROOT_SELECTOR, expectedLayout, expectedCompactMode }, { timeout: 45_000 })
     await installCaptureStyle(page)
+    if (size.detail === "tyres") {
+      const toggle = page.locator(`${ROOT_SELECTOR} .rc01-status-toggle`)
+      await toggle.click()
+      await page.waitForFunction((selector) => {
+        const root = document.querySelector(selector)
+        const dashboard = root?.querySelector(".rc01-dashboard")
+        const widget = root?.querySelector("[data-widget=\"raceconRc01Dash\"]")
+        const toggle = root?.querySelector(".rc01-status-toggle")
+        const grid = root?.querySelector(".rc01-status-grid")
+        return dashboard?.classList.contains("rc01-detail-tyres") &&
+          dashboard?.getAttribute("data-rc01-detail") === "tyres" &&
+          widget?.getAttribute("data-rc01-buffer-state") === "accepted" &&
+          toggle?.getAttribute("aria-label") === "Show fuel status" &&
+          grid !== null && getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/u).length === 2
+      }, ROOT_SELECTOR, { timeout: 45_000 })
+    }
+    // Bind metric collection to a newly accepted live frame even when an internal
+    // freshness tick or the tyre interaction caused a duplicate-only render.
+    await page.waitForFunction((selector) => document.querySelector(selector)
+      ?.querySelector("[data-widget=\"raceconRc01Dash\"]")
+      ?.getAttribute("data-rc01-buffer-state") === "accepted", ROOT_SELECTOR, { timeout: 45_000 })
     const metrics = await collectMetrics(page, pageErrors, consoleErrors)
     validateCaptureMetrics(metrics, size)
     const png = await page.locator(ROOT_SELECTOR).screenshot({ type: "png", animations: "disabled", caret: "hide" })
@@ -169,7 +254,7 @@ async function main() {
     }
     for (const size of CAPTURE_SIZES) {
       const { metrics, pixelAudit, png } = await captureSize(browser, baseUrl, size, options.mode, finalHead)
-      const filePath = exclusiveWriteFile(staging, `racecon_rc01_dash-${size.width}x${size.height}.png`, png)
+      const filePath = exclusiveWriteFile(staging, `racecon_rc01_dash-${size.width}x${size.height}-${size.detail}.png`, png)
       report.captures.push({ size, file: basename(filePath), sha256: sha256(png), bytes: png.length, pixelAudit, metrics })
       if (options.mode === "final") assertCleanGitState(readGitState(appRoot), finalHead)
     }

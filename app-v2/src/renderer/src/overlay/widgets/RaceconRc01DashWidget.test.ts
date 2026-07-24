@@ -9,6 +9,7 @@ import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import { RaceconRc01DashWidget } from './RaceconRc01DashWidget'
 import {
   RC01_CHANNEL_STALE_MS,
+  RC01_DELTA_CONTIGUOUS_HISTORY_MS,
   RC01_HISTORY_LIMIT,
   RC01_LED_COUNT,
   RC01_MIN_STREAM_FRESH_MS,
@@ -238,6 +239,9 @@ describe('RaceconRc01DashWidget', () => {
 
     let cliff = new Rc01LiveTelemetryBuffer()
     expect(cliff.ingest({ ...snapshot(1_000), deltaToBestSec: -0.1 }, 0)).toMatchObject({ accepted: true })
+    for (let time = 100; time < 2_000; time += 100) {
+      expect(cliff.ingest({ ...snapshot(1_000 + time), deltaToBestSec: -0.1 }, time)).toMatchObject({ accepted: true })
+    }
     expect(cliff.ingest({ ...snapshot(3_000), deltaToBestSec: 0.4 }, 2_000)).toMatchObject({ accepted: true })
     expect(cliff.ingest({ ...snapshot(3_250), deltaToBestSec: 0.5 }, 2_250)).toMatchObject({ accepted: true })
     expect(cliff.ingest({ ...snapshot(3_500), deltaToBestSec: 0.5 }, 2_500)).toMatchObject({ accepted: true })
@@ -287,6 +291,84 @@ describe('RaceconRc01DashWidget', () => {
       lastNonZeroSign: 1,
       minimumVisibleUntilMs: 0
     })
+  })
+
+  it('segments stale delta history before rebuilding a same-source contiguous baseline', () => {
+    expect(RC01_DELTA_CONTIGUOUS_HISTORY_MS).toBe(2_000)
+    const buffer = new Rc01LiveTelemetryBuffer()
+    expect(buffer.ingest({ ...snapshot(1_000), deltaToBestSec: -0.2 }, 0)).toMatchObject({ accepted: true })
+
+    // The provider remains monotonic and source-identical, but the local receipt gap
+    // invalidates the old -0.2 baseline before the first fresh +0.2 frame is reduced.
+    expect(buffer.ingest({ ...snapshot(4_000), deltaToBestSec: 0.2 }, 3_000)).toMatchObject({ accepted: true })
+    expect(buffer.history()).toHaveLength(2)
+    expect(buffer.sourceIdentity()).toBe('iracing:session:33:connection:none')
+    expect(buffer.alertState().deltaCliff.active).toBe(false)
+    expect(buffer.alertState().deltaZeroCross.active).toBe(false)
+
+    for (let receivedAt = 3_100; receivedAt < 5_000; receivedAt += 100) {
+      expect(buffer.ingest({ ...snapshot(1_000 + receivedAt), deltaToBestSec: 0.2 }, receivedAt)).toMatchObject({ accepted: true })
+      expect(buffer.alertState().deltaCliff.active).toBe(false)
+      expect(buffer.alertState().deltaZeroCross.active).toBe(false)
+    }
+    expect(replayRc01Alerts(buffer.history())).toEqual(buffer.alertState())
+
+    // Once two seconds of post-gap history exists, a genuine sustained cliff can arm.
+    for (let receivedAt = 5_000; receivedAt <= 5_500; receivedAt += 100) {
+      expect(buffer.ingest({ ...snapshot(1_000 + receivedAt), deltaToBestSec: 0.6 }, receivedAt)).toMatchObject({ accepted: true })
+    }
+    expect(buffer.alertState().deltaCliff.active).toBe(true)
+
+    // A stale best-lap receipt also starts a new segment even when accepted frames
+    // and delta receipts continue at a contiguous cadence.
+    const staleBest = new Rc01LiveTelemetryBuffer()
+    expect(staleBest.ingest({ ...snapshot(10_000), deltaToBestSec: -0.2 }, 0)).toMatchObject({ accepted: true })
+    for (let receivedAt = 100; receivedAt <= 2_000; receivedAt += 100) {
+      expect(staleBest.ingest({
+        ...snapshot(10_000 + receivedAt),
+        bestLapTimeSec: undefined,
+        deltaToBestSec: -0.2
+      }, receivedAt)).toMatchObject({ accepted: true })
+    }
+    expect(staleBest.ingest({ ...snapshot(12_100), deltaToBestSec: 0.2 }, 2_100)).toMatchObject({ accepted: true })
+    expect(staleBest.alertState().deltaCliff.active).toBe(false)
+    expect(staleBest.alertState().deltaZeroCross.active).toBe(false)
+  })
+
+  it('keeps post-gap widget delta alerts inactive until fresh history is rebuilt', () => {
+    vi.useFakeTimers()
+    let monotonicMs = 0
+    const monotonicClock = (): number => monotonicMs
+    const view = render(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_000), deltaToBestSec: -0.2 },
+      config,
+      monotonicClock
+    }))
+    const push = (receivedAt: number, deltaToBestSec: number): void => {
+      const elapsed = receivedAt - monotonicMs
+      monotonicMs = receivedAt
+      act(() => { vi.advanceTimersByTime(elapsed) })
+      view.rerender(createElement(RaceconRc01DashWidget, {
+        snapshot: { ...snapshot(1_000 + receivedAt), deltaToBestSec },
+        config,
+        monotonicClock
+      }))
+    }
+    const expectNoDeltaAlert = (): void => {
+      expect(view.container.querySelector('.rc01-delta.is-cliff')).toBeNull()
+      expect(view.container.querySelector('.rc01-dashboard.rc01-delta-zero-cross')).toBeNull()
+      expect(view.queryByLabelText('Delta cliff active')).toBeNull()
+      expect(view.queryByLabelText('Delta zero-cross alert active')).toBeNull()
+    }
+
+    push(3_000, 0.2)
+    expectNoDeltaAlert()
+    for (let receivedAt = 3_100; receivedAt < 5_000; receivedAt += 100) {
+      push(receivedAt, 0.2)
+      expectNoDeltaAlert()
+    }
+    for (let receivedAt = 5_000; receivedAt <= 5_500; receivedAt += 100) push(receivedAt, 0.6)
+    expect(view.container.querySelector('.rc01-delta.is-cliff')).toBeTruthy()
   })
 
   it('requires an explicit live identity and rejects replay/mock telemetry', () => {
@@ -722,6 +804,9 @@ describe('RaceconRc01DashWidget', () => {
     expect(rc01LayoutForContentBox(412, 867)).toBe('compact')
     expect(rc01CompactModeForContentBox(393, 759)).toBe('phone')
     expect(rc01CompactModeForContentBox(412, 867)).toBe('phone')
+    expect(rc01CompactModeForContentBox(759, 393)).toBe('landscape')
+    expect(rc01CompactModeForContentBox(867, 412)).toBe('landscape')
+    expect(rc01CompactModeForContentBox(800, 480)).toBe('standard')
     expect(rc01CompactModeForContentBox(480, 650)).toBe('standard')
     expect(rc01PhoneGeometryForContentBox(393, 759)).toEqual({
       inset: 12,
@@ -754,7 +839,9 @@ describe('RaceconRc01DashWidget', () => {
     expect(css).toMatch(/\.rc01-status-toggle\s*\{[\s\S]*?width: 44px;[\s\S]*?height: 44px;/u)
     expect(css).toMatch(/\[data-rc01-layout="native"\] \.rc01-status-toggle\s*\{[\s\S]*?width: 44px;[\s\S]*?height: 44px;/u)
     expect(css).toContain('data-rc01-compact-mode="phone"')
+    expect(css).toContain('data-rc01-compact-mode="landscape"')
     expect(css).toContain('grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(112px, 1.45fr);')
+    expect(css).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
   })
 
 })

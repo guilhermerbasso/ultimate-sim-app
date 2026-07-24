@@ -164,6 +164,7 @@ export function RaceconRc01DashWidget({
       <main
         className={`rc01-dashboard rc01-detail-${detail}${alerts.overRev.active ? ' rc01-over-rev' : ''}${alerts.deltaZeroCross.active ? ' rc01-delta-zero-cross' : ''}`}
         aria-label="RaceCon RC-01 live race dashboard"
+        data-rc01-detail={detail}
         data-rc01-native-size={layout === 'native' ? '800x480' : undefined}
       >
         <section className="rc01-led-arc" data-testid="rc01-led-arc" role="img" aria-label={`Engine shift lights, ${leds.filter((led) => led.active).length} of ${leds.length} active`}>

@@ -4,6 +4,7 @@ import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 /** RC-01 owns its own live-only model. It intentionally has no scenario/mock dependency. */
 export const RC01_LED_COUNT = 11
 export const RC01_HISTORY_LIMIT = 240
+export const RC01_DELTA_CONTIGUOUS_HISTORY_MS = 2_000
 export const RC01_NATIVE_WIDTH_PX = 800
 export const RC01_NATIVE_HEIGHT_PX = 480
 export const RC01_NATIVE_TOLERANCE_PX = 1
@@ -12,6 +13,9 @@ export const RC01_APP_HEIGHT_PX = 600
 export const RC01_PHONE_MIN_WIDTH_PX = 360
 export const RC01_PHONE_MAX_WIDTH_PX = 480
 export const RC01_PHONE_MIN_HEIGHT_PX = 650
+export const RC01_LANDSCAPE_MIN_WIDTH_PX = 650
+export const RC01_LANDSCAPE_MIN_HEIGHT_PX = 360
+export const RC01_LANDSCAPE_MAX_HEIGHT_PX = 480
 export const RC01_SLOWEST_STREAM_CADENCE_MS = 67
 export const RC01_STREAM_JITTER_BUDGET_MS = 33
 export const RC01_MIN_STREAM_FRESH_MS =
@@ -38,7 +42,7 @@ export type Rc01ChannelName = keyof typeof RC01_CHANNEL_STALE_MS
 export type Rc01FieldTone = 'primary' | 'muted' | 'good' | 'bad'
 export type Rc01LedTone = 'dark' | 'cyan' | 'green' | 'amber' | 'red' | 'magenta'
 export type Rc01MonotonicClock = () => number
-export type Rc01CompactMode = 'phone' | 'standard'
+export type Rc01CompactMode = 'phone' | 'landscape' | 'standard'
 
 export const RC01_SHIFT_THRESHOLD_BY_GEAR = {
   1: 0.86,
@@ -217,6 +221,32 @@ function createRc01AcceptedSample(
   })
 }
 
+function rc01DeltaHistoryDiscontinuous(
+  receipts: ReadonlyMap<Rc01ChannelName, Rc01ChannelReceipt>,
+  receivedAt: number,
+  previousReceivedAt: number | null
+): boolean {
+  const staleReceipt =
+    rc01ReceiptAgeMs(receipts.get('delta'), receivedAt) > RC01_CHANNEL_STALE_MS.delta ||
+    rc01ReceiptAgeMs(receipts.get('bestLap'), receivedAt) > RC01_CHANNEL_STALE_MS.bestLap
+  const receiptGap = previousReceivedAt !== null &&
+    receivedAt - previousReceivedAt > RC01_DELTA_CONTIGUOUS_HISTORY_MS
+  return staleReceipt || receiptGap
+}
+
+function clearRc01DeltaAlertContinuity(alerts: Rc01AlertState): Rc01AlertState {
+  const next = cloneRc01AlertState(alerts)
+  next.deltaCliff = { active: false, pendingSinceMs: null, baselineDelta: null }
+  next.deltaZeroCross = {
+    active: false,
+    pendingSinceMs: null,
+    pendingSign: null,
+    lastNonZeroSign: null,
+    minimumVisibleUntilMs: 0
+  }
+  return next
+}
+
 function clearExpiredReceiptAlertContinuity(
   alerts: Rc01AlertState,
   receipts: ReadonlyMap<Rc01ChannelName, Rc01ChannelReceipt>,
@@ -256,6 +286,7 @@ export class Rc01LiveTelemetryBuffer {
   private latest: TelemetrySnapshot | null = null
   private channelReceipts = new Map<Rc01ChannelName, Rc01ChannelReceipt>()
   private alerts = createRc01AlertState()
+  private deltaHistoryStartIndex = 0
   private trace: readonly number[] = []
 
   /** A render may mutate this candidate, never the committed buffer it was cloned from. */
@@ -267,6 +298,7 @@ export class Rc01LiveTelemetryBuffer {
     next.latest = this.latest
     next.channelReceipts = new Map(this.channelReceipts)
     next.alerts = cloneRc01AlertState(this.alerts)
+    next.deltaHistoryStartIndex = this.deltaHistoryStartIndex
     next.trace = this.trace.slice()
     return next
   }
@@ -278,6 +310,7 @@ export class Rc01LiveTelemetryBuffer {
     this.latest = null
     this.channelReceipts.clear()
     this.alerts = createRc01AlertState()
+    this.deltaHistoryStartIndex = 0
     this.trace = []
   }
 
@@ -337,17 +370,32 @@ export class Rc01LiveTelemetryBuffer {
     }
 
     const safeReceiptAt = finiteNumber(receivedAt, 0) ? receivedAt : rc01MonotonicNow()
+    if (rc01DeltaHistoryDiscontinuous(this.channelReceipts, safeReceiptAt, last?.receivedAt ?? null)) {
+      // Keep source/timestamp ordering state, but never compare a fresh frame with
+      // delta history from before a stale receipt or local receipt gap.
+      this.deltaHistoryStartIndex = this.samples.length
+      this.alerts = clearRc01DeltaAlertContinuity(this.alerts)
+    }
     this.alerts = clearExpiredReceiptAlertContinuity(
       this.alerts,
       this.channelReceipts,
       safeReceiptAt
     )
     const sample = createRc01AcceptedSample(snapshot, sourceIdentity, safeReceiptAt, nextFingerprint)
-    const deltaTwoSecondsAgo = rc01DeltaTwoSecondsAgo(this.samples, sample.receivedAt)
+    const deltaTwoSecondsAgo = rc01DeltaTwoSecondsAgo(
+      this.samples,
+      sample.receivedAt,
+      this.samples.length,
+      this.deltaHistoryStartIndex
+    )
     this.alerts = advanceRc01Alerts(this.alerts, rc01AlertInputForSample(sample, deltaTwoSecondsAgo))
     this.samples.push(sample)
     this.minimumTimestampExclusive = null
-    if (this.samples.length > RC01_HISTORY_LIMIT) this.samples.splice(0, this.samples.length - RC01_HISTORY_LIMIT)
+    if (this.samples.length > RC01_HISTORY_LIMIT) {
+      const removed = this.samples.length - RC01_HISTORY_LIMIT
+      this.samples.splice(0, removed)
+      this.deltaHistoryStartIndex = Math.max(0, this.deltaHistoryStartIndex - removed)
+    }
     this.latest = snapshot
     for (const channel of Object.keys(RC01_CHANNEL_STALE_MS) as Rc01ChannelName[]) {
       const value = channelValue(snapshot, channel)
@@ -718,11 +766,12 @@ function rc01AlertInputForSample(sample: Rc01AcceptedSample, deltaTwoSecondsAgo:
 function rc01DeltaTwoSecondsAgo(
   history: readonly Rc01AcceptedSample[],
   receivedAt: number,
-  endExclusive = history.length
+  endExclusive = history.length,
+  historyStartIndex = 0
 ): number | null {
-  for (let previous = endExclusive - 1; previous >= 0; previous -= 1) {
+  for (let previous = endExclusive - 1; previous >= Math.max(0, historyStartIndex); previous -= 1) {
     const sample = history[previous]
-    if (sample.receivedAt <= receivedAt - 2_000) return rc01SampleDeltaForAlert(sample)
+    if (sample.receivedAt <= receivedAt - RC01_DELTA_CONTIGUOUS_HISTORY_MS) return rc01SampleDeltaForAlert(sample)
   }
   return null
 }
@@ -731,10 +780,19 @@ function rc01DeltaTwoSecondsAgo(
 export function replayRc01Alerts(history: readonly Rc01AcceptedSample[]): Rc01AlertState {
   let state = createRc01AlertState()
   const receipts = new Map<Rc01ChannelName, Rc01ChannelReceipt>()
+  let deltaHistoryStartIndex = 0
+  let previousReceivedAt: number | null = null
   for (let index = 0; index < history.length; index += 1) {
     const sample = history[index]
+    if (rc01DeltaHistoryDiscontinuous(receipts, sample.receivedAt, previousReceivedAt)) {
+      deltaHistoryStartIndex = index
+      state = clearRc01DeltaAlertContinuity(state)
+    }
     state = clearExpiredReceiptAlertContinuity(state, receipts, sample.receivedAt)
-    state = advanceRc01Alerts(state, rc01AlertInputForSample(sample, rc01DeltaTwoSecondsAgo(history, sample.receivedAt, index)))
+    state = advanceRc01Alerts(state, rc01AlertInputForSample(
+      sample,
+      rc01DeltaTwoSecondsAgo(history, sample.receivedAt, index, deltaHistoryStartIndex)
+    ))
     if (sample.rpmRatio !== null && sample.rpmFresh) {
       receipts.set('rpm', { snapshotTimestamp: sample.timestamp, receivedAt: sample.receivedAt, value: sample.rpmRatio })
     }
@@ -747,6 +805,7 @@ export function replayRc01Alerts(history: readonly Rc01AcceptedSample[]): Rc01Al
     if (sample.pitLimiter !== null && sample.pitLimiterFresh) {
       receipts.set('pitLimiter', { snapshotTimestamp: sample.timestamp, receivedAt: sample.receivedAt, value: sample.pitLimiter })
     }
+    previousReceivedAt = sample.receivedAt
   }
   return state
 }
@@ -781,7 +840,14 @@ export function rc01CompactModeForContentBox(width: number, height: number): Rc0
     width <= RC01_PHONE_MAX_WIDTH_PX &&
     finiteNumber(height, RC01_PHONE_MIN_HEIGHT_PX) &&
     height / width >= 1.5
-  return phone ? 'phone' : 'standard'
+  if (phone) return 'phone'
+
+  const landscape = rc01LayoutForContentBox(width, height) === 'compact' &&
+    finiteNumber(width, RC01_LANDSCAPE_MIN_WIDTH_PX) &&
+    finiteNumber(height, RC01_LANDSCAPE_MIN_HEIGHT_PX) &&
+    height <= RC01_LANDSCAPE_MAX_HEIGHT_PX &&
+    width / height >= 1.5
+  return landscape ? 'landscape' : 'standard'
 }
 
 export interface Rc01PhoneGeometry {

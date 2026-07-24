@@ -18,6 +18,8 @@ type CaptureSize =
   | { width: 1024; height: 600 }
   | { width: 393; height: 759 }
   | { width: 412; height: 867 }
+  | { width: 759; height: 393 }
+  | { width: 867; height: 412 }
 
 function readCaptureSize(): CaptureSize {
   const params = new URLSearchParams(window.location.search)
@@ -27,7 +29,9 @@ function readCaptureSize(): CaptureSize {
   if (width === 1024 && height === 600) return { width, height }
   if (width === 393 && height === 759) return { width, height }
   if (width === 412 && height === 867) return { width, height }
-  throw new Error("racecon RC-01 capture requires 800x480, 1024x600, 393x759, or 412x867")
+  if (width === 759 && height === 393) return { width, height }
+  if (width === 867 && height === 412) return { width, height }
+  throw new Error("racecon RC-01 capture requires 800x480, 1024x600, 393x759, 412x867, 759x393, or 867x412")
 }
 
 /** A connected, provider-neutral live frame. It deliberately has no mock scenario import. */
