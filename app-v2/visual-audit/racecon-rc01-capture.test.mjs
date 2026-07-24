@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import test from "node:test"
@@ -233,6 +233,34 @@ test("descriptor-close overwrite cannot become the trusted staged hash", () => {
     ), CaptureSafetyError)
     assert.equal(existsSync(join(staging.canonical, "capture.png")), false)
     assert.equal(staging.expectedFiles.has("capture.png"), false)
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
+})
+
+test("exclusive-open race never deletes an unowned staged-path file", () => {
+  const parent = temporaryDirectory()
+  const target = join(parent, "published-capture")
+  try {
+    const staging = createPrivateStaging(prepareCaptureOutput(target, []))
+    assert.throws(() => exclusiveWriteFile(
+      staging,
+      "capture.png",
+      Buffer.from("trusted"),
+      {
+        beforeExclusiveOpen: (path) => {
+          writeFileSync(path, Buffer.from("attacker-owned"))
+        }
+      }
+    ), CaptureSafetyError)
+    assert.equal(existsSync(staging.canonical), false)
+    const quarantines = readdirSync(parent)
+      .filter((name) => name.startsWith(".racecon-rc01-quarantine-"))
+    assert.equal(quarantines.length, 1)
+    assert.equal(
+      readFileSync(join(parent, quarantines[0], "capture.png"), "utf8"),
+      "attacker-owned"
+    )
   } finally {
     rmSync(parent, { recursive: true, force: true })
   }

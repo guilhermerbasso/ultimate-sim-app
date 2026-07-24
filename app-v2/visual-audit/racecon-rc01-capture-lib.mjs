@@ -12,7 +12,6 @@ import {
   readdirSync,
   realpathSync,
   statSync,
-  unlinkSync,
   writeFileSync
 } from "node:fs"
 import { basename, dirname, isAbsolute, join, parse, relative, resolve } from "node:path"
@@ -336,68 +335,69 @@ function quarantineOwnedDirectory(guard, label) {
 
 export function exclusiveWriteFile(staging, fileName, content, hooks = {}) {
   safeOutputName(fileName)
-  revalidatePrivateStaging(staging)
   const target = resolve(staging.canonical, fileName)
   if (!samePath(dirname(target), staging.canonical)) fail(`output escapes private staging: ${fileName}`)
   try {
-    lstatSync(target)
-    fail(`refusing to overwrite existing staged output: ${target}`)
-  } catch (error) {
-    if (!(error && error.code === "ENOENT")) throw error
-  }
-
-  const expectedContent = typeof content === "string"
-    ? Buffer.from(content, "utf8")
-    : Buffer.from(content)
-  const expectedRecord = Object.freeze({
-    bytes: expectedContent.length,
-    sha256: createHash("sha256").update(expectedContent).digest("hex")
-  })
-  try {
-    let descriptor
     try {
-      descriptor = openSync(target, "wx+", 0o600)
-      writeFileSync(descriptor, expectedContent)
-      fsyncSync(descriptor)
-      const opened = fstatSync(descriptor)
-      if (!opened.isFile() || opened.nlink !== 1 || opened.size !== expectedRecord.bytes) {
-        fail(`unsafe staged output file: ${target}`)
+      revalidatePrivateStaging(staging)
+      try {
+        lstatSync(target)
+        fail(`refusing to overwrite existing staged output: ${target}`)
+      } catch (error) {
+        if (!(error && error.code === "ENOENT")) throw error
       }
-      const observed = Buffer.alloc(expectedRecord.bytes)
-      let offset = 0
-      while (offset < observed.length) {
-        const read = readSync(descriptor, observed, offset, observed.length - offset, offset)
-        if (read <= 0) fail(`staged output could not be read back through its trusted descriptor: ${target}`)
-        offset += read
+
+      const expectedContent = typeof content === "string"
+        ? Buffer.from(content, "utf8")
+        : Buffer.from(content)
+      const expectedRecord = Object.freeze({
+        bytes: expectedContent.length,
+        sha256: createHash("sha256").update(expectedContent).digest("hex")
+      })
+      if (typeof hooks.beforeExclusiveOpen === "function") hooks.beforeExclusiveOpen(target)
+
+      let descriptor
+      try {
+        descriptor = openSync(target, "wx+", 0o600)
+        writeFileSync(descriptor, expectedContent)
+        fsyncSync(descriptor)
+        const opened = fstatSync(descriptor)
+        if (!opened.isFile() || opened.nlink !== 1 || opened.size !== expectedRecord.bytes) {
+          fail(`unsafe staged output file: ${target}`)
+        }
+        const observed = Buffer.alloc(expectedRecord.bytes)
+        let offset = 0
+        while (offset < observed.length) {
+          const read = readSync(descriptor, observed, offset, observed.length - offset, offset)
+          if (read <= 0) fail(`staged output could not be read back through its trusted descriptor: ${target}`)
+          offset += read
+        }
+        if (createHash("sha256").update(observed).digest("hex") !== expectedRecord.sha256) {
+          fail(`staged output differs from the supplied content: ${target}`)
+        }
+      } finally {
+        if (descriptor !== undefined) closeSync(descriptor)
       }
-      if (createHash("sha256").update(observed).digest("hex") !== expectedRecord.sha256) {
-        fail(`staged output differs from the supplied content: ${target}`)
+      if (typeof hooks.afterDescriptorClose === "function") hooks.afterDescriptorClose(target)
+
+      const listed = lstatSync(target)
+      const followed = statSync(target)
+      if (listed.isSymbolicLink() || !followed.isFile() || followed.nlink !== 1 || directoryIdentity(listed) !== directoryIdentity(followed)) {
+        fail(`staged output became a link or changed during capture: ${target}`)
       }
-    } finally {
-      if (descriptor !== undefined) closeSync(descriptor)
+      staging.expectedFiles.set(fileName, expectedRecord)
+      assertPrivateFiles(staging.canonical, staging.expectedFiles, "private staging directory")
+      revalidatePrivateStaging(staging)
+      return target
+    } catch (error) {
+      staging.expectedFiles.delete(fileName)
+      throw error
     }
   } catch (error) {
-    try { unlinkSync(target) } catch {}
-    throw error
+    try { quarantineOwnedDirectory(staging, "private staging directory") } catch {}
+    if (error instanceof CaptureSafetyError) throw error
+    fail("exclusive staged output creation failed")
   }
-  if (typeof hooks.afterDescriptorClose === "function") hooks.afterDescriptorClose(target)
-
-  const listed = lstatSync(target)
-  const followed = statSync(target)
-  if (listed.isSymbolicLink() || !followed.isFile() || followed.nlink !== 1 || directoryIdentity(listed) !== directoryIdentity(followed)) {
-    try { unlinkSync(target) } catch {}
-    fail(`staged output became a link or changed during capture: ${target}`)
-  }
-  staging.expectedFiles.set(fileName, expectedRecord)
-  try {
-    assertPrivateFiles(staging.canonical, staging.expectedFiles, "private staging directory")
-    revalidatePrivateStaging(staging)
-  } catch (error) {
-    staging.expectedFiles.delete(fileName)
-    try { unlinkSync(target) } catch {}
-    throw error
-  }
-  return target
 }
 
 /** Publishes the identified staging directory through an OS atomic no-replace move. */
