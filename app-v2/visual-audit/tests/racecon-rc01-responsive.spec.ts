@@ -134,4 +134,3 @@ for (const size of sizes) {
     }
   })
 }
-
