@@ -15,6 +15,7 @@ import {
   writeFileSync
 } from "node:fs"
 import { basename, dirname, isAbsolute, join, parse, relative, resolve } from "node:path"
+import { PNG } from "pngjs"
 
 export const CAPTURE_SIZES = Object.freeze([
   Object.freeze({ width: 800, height: 480 }),
@@ -350,6 +351,14 @@ const RC01_LED_COLORS = [
   "rgb(255, 59, 48)", "rgb(255, 59, 48)"
 ]
 
+const RC01_CANVAS_RGBA = Object.freeze([12, 15, 19, 255])
+const RC01_LED_RGBA = Object.freeze([
+  Object.freeze([0, 217, 255, 255]), Object.freeze([0, 217, 255, 255]), Object.freeze([0, 217, 255, 255]),
+  Object.freeze([0, 230, 118, 255]), Object.freeze([0, 230, 118, 255]), Object.freeze([0, 230, 118, 255]),
+  Object.freeze([255, 179, 0, 255]), Object.freeze([255, 179, 0, 255]), Object.freeze([255, 179, 0, 255]),
+  Object.freeze([255, 59, 48, 255]), Object.freeze([255, 59, 48, 255])
+])
+
 const APP_LED_RECTS = [
   { left: 24, width: 80.734375 }, { left: 113.515625, width: 80.75 },
   { left: 203.046875, width: 80.734375 }, { left: 292.5625, width: 80.75 },
@@ -358,6 +367,126 @@ const APP_LED_RECTS = [
   { left: 740.1875, width: 80.75 }, { left: 829.71875, width: 80.75 },
   { left: 919.25, width: 80.75 }
 ]
+
+const APP_LED_PIXEL_RECTS = Object.freeze([
+  Object.freeze({ left: 24, width: 81 }), Object.freeze({ left: 114, width: 80 }),
+  Object.freeze({ left: 203, width: 81 }), Object.freeze({ left: 293, width: 80 }),
+  Object.freeze({ left: 382, width: 81 }), Object.freeze({ left: 472, width: 80 }),
+  Object.freeze({ left: 561, width: 81 }), Object.freeze({ left: 651, width: 80 }),
+  Object.freeze({ left: 740, width: 81 }), Object.freeze({ left: 830, width: 80 }),
+  Object.freeze({ left: 919, width: 81 })
+])
+
+function rgbaAt(image, x, y) {
+  const offset = (y * image.width + x) * 4
+  return [image.data[offset], image.data[offset + 1], image.data[offset + 2], image.data[offset + 3]]
+}
+
+function sameRgba(actual, expected) {
+  return actual[0] === expected[0] &&
+    actual[1] === expected[1] &&
+    actual[2] === expected[2] &&
+    actual[3] === expected[3]
+}
+
+function assertRgba(image, x, y, expected, label) {
+  const actual = rgbaAt(image, x, y)
+  if (!sameRgba(actual, expected)) {
+    fail(`${label} pixel ${x},${y} must be rgba(${expected.join(",")}), received rgba(${actual.join(",")})`)
+  }
+}
+
+function assertCanvasBorder(image) {
+  for (let x = 0; x < image.width; x += 1) {
+    assertRgba(image, x, 0, RC01_CANVAS_RGBA, "top border")
+    assertRgba(image, x, image.height - 1, RC01_CANVAS_RGBA, "bottom border")
+  }
+  for (let y = 0; y < image.height; y += 1) {
+    assertRgba(image, 0, y, RC01_CANVAS_RGBA, "left border")
+    assertRgba(image, image.width - 1, y, RC01_CANVAS_RGBA, "right border")
+  }
+}
+
+function nativeExpectedPixel(x, y) {
+  if (y < 16 || y > 35) return RC01_CANVAS_RGBA
+  for (let index = 0; index < 11; index += 1) {
+    const left = 52 + index * 64
+    if (x >= left && x < left + 56) return RC01_LED_RGBA[index]
+  }
+  return RC01_CANVAS_RGBA
+}
+
+function appExpectedPixel(x, y) {
+  if (y < 14 || y > 45) return RC01_CANVAS_RGBA
+  for (let index = 0; index < APP_LED_PIXEL_RECTS.length; index += 1) {
+    const rect = APP_LED_PIXEL_RECTS[index]
+    if (x >= rect.left && x < rect.left + rect.width) return RC01_LED_RGBA[index]
+  }
+  return RC01_CANVAS_RGBA
+}
+
+export function validateCapturePixels(buffer, size) {
+  let image
+  try {
+    image = PNG.sync.read(buffer)
+  } catch (error) {
+    fail(`capture PNG could not be decoded: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (image.width !== size.width || image.height !== size.height) {
+    fail(`capture PNG must be ${size.width}x${size.height}, received ${image.width}x${image.height}`)
+  }
+  assertCanvasBorder(image)
+
+  const audit = {
+    width: image.width,
+    height: image.height,
+    opaque: true,
+    canvasBorder: "#0C0F13",
+    nativeTopBandExact: null,
+    nativeLedExactPixels: null,
+    appTopBandExact: null,
+    appLedExactPixels: null
+  }
+  for (let offset = 3; offset < image.data.length; offset += 4) {
+    if (image.data[offset] !== 255) fail(`capture PNG must be fully opaque; alpha ${image.data[offset]} found`)
+  }
+
+  if (size.width === 800 && size.height === 480) {
+    const exactPixels = Array(11).fill(0)
+    for (let y = 0; y < 80; y += 1) {
+      for (let x = 0; x < 800; x += 1) {
+        const expected = nativeExpectedPixel(x, y)
+        assertRgba(image, x, y, expected, "native top band")
+        if (y >= 16 && y <= 35) {
+          const index = Math.floor((x - 52) / 64)
+          if (index >= 0 && index < 11 && x >= 52 + index * 64 && x < 108 + index * 64) exactPixels[index] += 1
+        }
+      }
+    }
+    if (exactPixels.some((count) => count !== 1120)) fail("each native LED must contain exactly 1120 solid pixels")
+    audit.nativeTopBandExact = true
+    audit.nativeLedExactPixels = exactPixels
+  } else if (size.width === 1024 && size.height === 600) {
+    const exactPixels = Array(11).fill(0)
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 1024; x += 1) {
+        const expected = appExpectedPixel(x, y)
+        assertRgba(image, x, y, expected, "app top band")
+        if (y >= 14 && y <= 45) {
+          const index = APP_LED_PIXEL_RECTS.findIndex((rect) => x >= rect.left && x < rect.left + rect.width)
+          if (index >= 0) exactPixels[index] += 1
+        }
+      }
+    }
+    const expectedCounts = APP_LED_PIXEL_RECTS.map((rect) => rect.width * 32)
+    if (exactPixels.some((count, index) => count !== expectedCounts[index])) fail("each app LED must match its exact solid pixel rectangle")
+    audit.appTopBandExact = true
+    audit.appLedExactPixels = exactPixels
+  } else {
+    fail(`unsupported capture pixel-audit size ${size.width}x${size.height}`)
+  }
+  return audit
+}
 
 function assertLeds(metrics, size) {
   if (!Array.isArray(metrics.leds) || metrics.leds.length !== 11) fail("RC-01 capture requires exactly 11 LEDs")
@@ -386,18 +515,18 @@ export function validateCaptureMetrics(metrics, size) {
   exact(metrics.root.height, size.height, "capture root height")
   exact(metrics.shell.width, size.width, "dashboard shell width")
   exact(metrics.shell.height, size.height, "dashboard shell height")
-  exact(metrics.canvas.layoutWidth, 1024, "dashboard canvas authored width")
-  exact(metrics.canvas.layoutHeight, 600, "dashboard canvas authored height")
+  exact(metrics.canvas.layoutWidth, size.width, "dashboard canvas responsive width")
+  exact(metrics.canvas.layoutHeight, size.height, "dashboard canvas responsive height")
   exact(metrics.canvas.width, size.width, "dashboard canvas physical width")
   exact(metrics.canvas.height, size.height, "dashboard canvas physical height")
   exact(metrics.canvas.left, 0, "dashboard canvas left")
   exact(metrics.canvas.top, 0, "dashboard canvas top")
-  exact(metrics.dashboardElement.layoutWidth, 1024, "dashboard element authored width")
-  exact(metrics.dashboardElement.layoutHeight, 600, "dashboard element authored height")
+  exact(metrics.dashboardElement.layoutWidth, size.width, "dashboard element responsive width")
+  exact(metrics.dashboardElement.layoutHeight, size.height, "dashboard element responsive height")
   exact(metrics.dashboardElement.width, size.width, "dashboard element physical width")
   exact(metrics.dashboardElement.height, size.height, "dashboard element physical height")
-  exact(metrics.widget.layoutWidth, 1024, "widget authored width")
-  exact(metrics.widget.layoutHeight, 600, "widget authored height")
+  exact(metrics.widget.layoutWidth, size.width, "widget responsive width")
+  exact(metrics.widget.layoutHeight, size.height, "widget responsive height")
   exact(metrics.widget.width, size.width, "widget physical width")
   exact(metrics.widget.height, size.height, "widget physical height")
   if (metrics.presetId !== "racecon_rc01_dash" || metrics.expectedWidgetId !== "raceconRc01Dash" || metrics.renderedWidgetId !== "raceconRc01Dash") {
@@ -416,10 +545,8 @@ export function validateCaptureMetrics(metrics, size) {
   if (/\b(?:NaN|undefined|Infinity)\b/u.test(String(metrics.rootText))) fail("capture text contains an invalid numeric token")
   for (const expected of ["SPEED", "278", "9,600", "TC", "P02", "42.5 L", "85°", "87°", "89°", "91°", "-0.216 S"]) hasText(metrics, expected)
 
-  const expectedScaleX = size.width / 1024
-  const expectedScaleY = size.height / 600
-  exact(metrics.canvas.transform.a, expectedScaleX, "dashboard canvas scale X")
-  exact(metrics.canvas.transform.d, expectedScaleY, "dashboard canvas scale Y")
+  exact(metrics.canvas.transform.a, 1, "dashboard canvas scale X")
+  exact(metrics.canvas.transform.d, 1, "dashboard canvas scale Y")
   exact(metrics.canvas.transform.b, 0, "dashboard canvas skew Y")
   exact(metrics.canvas.transform.c, 0, "dashboard canvas skew X")
   exact(metrics.canvas.transform.e, 0, "dashboard canvas translation X")

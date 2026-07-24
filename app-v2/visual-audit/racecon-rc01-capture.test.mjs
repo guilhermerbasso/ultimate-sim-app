@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import test from "node:test"
+import { PNG } from "pngjs"
 import {
   CaptureSafetyError,
   assertCleanGitState,
@@ -15,7 +16,8 @@ import {
   publishPrivateStaging,
   removePublishedOutput,
   revalidatePrivateStaging,
-  validateCaptureMetrics
+  validateCaptureMetrics,
+  validateCapturePixels
 } from "./racecon-rc01-capture-lib.mjs"
 
 function temporaryDirectory() {
@@ -46,18 +48,16 @@ function ledMetrics(size) {
 }
 
 function validMetrics(size) {
-  const scaleX = size.width / 1024
-  const scaleY = size.height / 600
   const base = {
     viewport: { width: size.width, height: size.height, dpr: 1 },
     root: { left: 0, top: 0, width: size.width, height: size.height },
     shell: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height },
     canvas: {
-      left: 0, top: 0, width: size.width, height: size.height, layoutWidth: 1024, layoutHeight: 600,
-      transform: { a: scaleX, b: 0, c: 0, d: scaleY, e: 0, f: 0 }
+      left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height,
+      transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
     },
-    dashboardElement: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: 1024, layoutHeight: 600 },
-    widget: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: 1024, layoutHeight: 600 },
+    dashboardElement: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height },
+    widget: { left: 0, top: 0, width: size.width, height: size.height, layoutWidth: size.width, layoutHeight: size.height },
     presetId: "racecon_rc01_dash",
     expectedWidgetId: "raceconRc01Dash",
     renderedWidgetId: "raceconRc01Dash",
@@ -95,6 +95,12 @@ test("capture CLI accepts only explicit mode and a non-existing absolute target"
   assert.deepEqual(parseCaptureArgs(["--help"]), { help: true })
   assert.throws(() => parseCaptureArgs(["--mode", "final", "--out", "relative"]), CaptureSafetyError)
   assert.throws(() => parseCaptureArgs(["--mode", "preview", "--out", absolute]), CaptureSafetyError)
+})
+
+test("capture exercises the default production DashboardCanvas viewport path", () => {
+  const source = readFileSync(new URL("./racecon-rc01-capture.tsx", import.meta.url), "utf8")
+  assert.match(source, /<DashboardCanvas[\s\S]*?dashboard=\{dashboard\}/u)
+  assert.doesNotMatch(source, /<DashboardCanvas[\s\S]*?\bviewport=/u)
 })
 
 test("private staging publishes only to a non-existing target outside worktrees", () => {
@@ -157,10 +163,110 @@ test("final Git state rejects dirty work and HEAD movement after artifact creati
   assert.throws(() => assertCleanGitState({ head: "def", dirty: false }, "abc"), CaptureSafetyError)
 })
 
-test("metric validation proves DashboardCanvas transform, content modifiers, LEDs, and text", () => {
+test("metric validation proves the responsive DashboardCanvas model, content modifiers, LEDs, and text", () => {
   assert.equal(validateCaptureMetrics(validMetrics({ width: 800, height: 480 }), { width: 800, height: 480 }), true)
   assert.equal(validateCaptureMetrics(validMetrics({ width: 1024, height: 600 }), { width: 1024, height: 600 }), true)
   const invalid = validMetrics({ width: 800, height: 480 })
-  invalid.canvas.transform.a = 1
+  invalid.canvas.transform.a = 0.78125
   assert.throws(() => validateCaptureMetrics(invalid, { width: 800, height: 480 }), CaptureSafetyError)
+})
+
+function exactNativePng() {
+  const image = new PNG({ width: 800, height: 480 })
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    image.data[offset] = 12
+    image.data[offset + 1] = 15
+    image.data[offset + 2] = 19
+    image.data[offset + 3] = 255
+  }
+  const colors = [
+    [0, 217, 255], [0, 217, 255], [0, 217, 255],
+    [0, 230, 118], [0, 230, 118], [0, 230, 118],
+    [255, 179, 0], [255, 179, 0], [255, 179, 0],
+    [255, 59, 48], [255, 59, 48]
+  ]
+  for (let index = 0; index < 11; index += 1) {
+    for (let y = 16; y <= 35; y += 1) {
+      for (let x = 52 + index * 64; x <= 107 + index * 64; x += 1) {
+        const offset = (y * image.width + x) * 4
+        image.data[offset] = colors[index][0]
+        image.data[offset + 1] = colors[index][1]
+        image.data[offset + 2] = colors[index][2]
+      }
+    }
+  }
+  return image
+}
+
+function exactAppPng() {
+  const image = new PNG({ width: 1024, height: 600 })
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    image.data[offset] = 12
+    image.data[offset + 1] = 15
+    image.data[offset + 2] = 19
+    image.data[offset + 3] = 255
+  }
+  const rects = [
+    { left: 24, width: 81 }, { left: 114, width: 80 }, { left: 203, width: 81 },
+    { left: 293, width: 80 }, { left: 382, width: 81 }, { left: 472, width: 80 },
+    { left: 561, width: 81 }, { left: 651, width: 80 }, { left: 740, width: 81 },
+    { left: 830, width: 80 }, { left: 919, width: 81 }
+  ]
+  const colors = [
+    [0, 217, 255], [0, 217, 255], [0, 217, 255],
+    [0, 230, 118], [0, 230, 118], [0, 230, 118],
+    [255, 179, 0], [255, 179, 0], [255, 179, 0],
+    [255, 59, 48], [255, 59, 48]
+  ]
+  for (let index = 0; index < rects.length; index += 1) {
+    const rect = rects[index]
+    for (let y = 14; y <= 45; y += 1) {
+      for (let x = rect.left; x < rect.left + rect.width; x += 1) {
+        const offset = (y * image.width + x) * 4
+        image.data[offset] = colors[index][0]
+        image.data[offset + 1] = colors[index][1]
+        image.data[offset + 2] = colors[index][2]
+      }
+    }
+  }
+  return image
+}
+
+test("pixel validation proves the exact opaque native top-band contract", () => {
+  const image = exactNativePng()
+  const result = validateCapturePixels(PNG.sync.write(image), { width: 800, height: 480 })
+  assert.equal(result.nativeTopBandExact, true)
+  assert.deepEqual(result.nativeLedExactPixels, Array(11).fill(1120))
+})
+
+test("pixel validation rejects a single anti-aliased native LED edge pixel", () => {
+  const image = exactNativePng()
+  const offset = (16 * image.width + 52) * 4
+  image.data[offset] = 8
+  image.data[offset + 1] = 84
+  image.data[offset + 2] = 99
+  assert.throws(
+    () => validateCapturePixels(PNG.sync.write(image), { width: 800, height: 480 }),
+    CaptureSafetyError
+  )
+})
+
+test("pixel validation proves the exact opaque app top-band contract", () => {
+  const result = validateCapturePixels(PNG.sync.write(exactAppPng()), { width: 1024, height: 600 })
+  assert.equal(result.appTopBandExact, true)
+  assert.deepEqual(result.appLedExactPixels, [2592, 2560, 2592, 2560, 2592, 2560, 2592, 2560, 2592, 2560, 2592])
+})
+
+test("pixel validation rejects a blank app capture", () => {
+  const blank = new PNG({ width: 1024, height: 600 })
+  for (let offset = 0; offset < blank.data.length; offset += 4) {
+    blank.data[offset] = 12
+    blank.data[offset + 1] = 15
+    blank.data[offset + 2] = 19
+    blank.data[offset + 3] = 255
+  }
+  assert.throws(
+    () => validateCapturePixels(PNG.sync.write(blank), { width: 1024, height: 600 }),
+    CaptureSafetyError
+  )
 })

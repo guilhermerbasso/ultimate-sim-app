@@ -59,8 +59,9 @@ function builtRaceconDashboard(): Dashboard {
   const presets = BUILTIN_PRESETS.filter((candidate) => candidate.id === PRESET_ID)
   if (presets.length !== 1) throw new Error("racecon RC-01 preset must resolve exactly once")
 
-  // The capture must exercise the production dashboard object unchanged. In
-  // particular, 800x480 is the DashboardCanvas transform of this 1024x600 board.
+  // The capture must exercise the production dashboard object unchanged.
+  // DashboardCanvas derives its responsive render model without mutating this
+  // stored 1024x600 preset.
   const dashboard = presets[0].build()
   const fullFrame = dashboard.elements.filter((element) => element.type === "overlaywidget" && element.widgetId === WIDGET_ID)
   if (dashboard.width !== 1024 || dashboard.height !== 600 || fullFrame.length !== 1) {
@@ -102,7 +103,6 @@ function RaceconCapture({ size }: { size: CaptureSize }): ReactElement {
       <DashboardCanvas
         dashboard={dashboard}
         snapshot={snapshot}
-        viewport={size}
         showConnectionStatus={false}
       />
     </div>

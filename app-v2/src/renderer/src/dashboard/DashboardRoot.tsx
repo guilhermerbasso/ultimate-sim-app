@@ -168,38 +168,33 @@ export function dashboardScaleForViewport(
   }
 }
 
-function useScale(
-  baseW: number,
-  baseH: number,
-  mode: DashboardScaleMode,
-  viewport?: { width: number; height: number }
-): ScaleInfo {
-  const [size, setSize] = useState<ScaleInfo>(() =>
-    dashboardScaleForViewport(
-      baseW,
-      baseH,
-      mode,
-      viewport ?? {
-        width: typeof window === 'undefined' ? baseW : window.innerWidth,
-        height: typeof window === 'undefined' ? baseH : window.innerHeight
-      }
-    )
+function useDashboardViewport(
+  viewport: { width: number; height: number } | undefined,
+  fallbackWidth: number,
+  fallbackHeight: number
+): { width: number; height: number } {
+  const explicitWidth = viewport?.width
+  const explicitHeight = viewport?.height
+  const hasExplicitViewport = explicitWidth !== undefined && explicitHeight !== undefined
+  const read = useCallback(
+    () => hasExplicitViewport ? { width: explicitWidth, height: explicitHeight } : {
+      width: typeof window === 'undefined' ? fallbackWidth : window.innerWidth,
+      height: typeof window === 'undefined' ? fallbackHeight : window.innerHeight
+    },
+    [explicitHeight, explicitWidth, fallbackHeight, fallbackWidth, hasExplicitViewport]
   )
+  const [size, setSize] = useState(read)
 
   useEffect(() => {
-    function update(): void {
-      setSize(dashboardScaleForViewport(
-        baseW,
-        baseH,
-        mode,
-        viewport ?? { width: window.innerWidth, height: window.innerHeight }
-      ))
+    const update = (): void => {
+      const next = read()
+      setSize((current) => current.width === next.width && current.height === next.height ? current : next)
     }
     update()
-    if (viewport) return
+    if (hasExplicitViewport) return
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
-  }, [baseW, baseH, mode, viewport?.height, viewport?.width])
+  }, [hasExplicitViewport, read])
 
   return size
 }
@@ -1752,6 +1747,57 @@ function AdaptiveElement({
   )
 }
 
+export interface DashboardCanvasRenderModel {
+  dashboard: Dashboard
+  baseWidth: number
+  baseHeight: number
+  scaleMode: DashboardScaleMode
+}
+
+function isResponsiveRc01FullFrame(dashboard: Dashboard): boolean {
+  if (dashboard.elements.length !== 1) return false
+  const element = dashboard.elements[0]
+  return element.type === 'overlaywidget' &&
+    element.widgetId === 'raceconRc01Dash' &&
+    element.x === 0 &&
+    element.y === 0 &&
+    element.w === dashboard.width &&
+    element.h === dashboard.height
+}
+
+/**
+ * RC-01 is a responsive full-frame instrument, not a fixed raster-like canvas.
+ * Render its sole element directly in the target CSS-pixel box so the native
+ * 800x480 contract is not resampled by DashboardCanvas's authored-size transform.
+ * The stored dashboard/preset remains unchanged.
+ */
+export function resolveDashboardCanvasRenderModel(
+  dashboard: Dashboard,
+  viewport?: { width: number; height: number }
+): DashboardCanvasRenderModel {
+  const baseWidth = dashboard.width ?? 1920
+  const baseHeight = dashboard.height ?? 1080
+  const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'stretch'
+  if (!viewport || !isResponsiveRc01FullFrame(dashboard)) {
+    return { dashboard, baseWidth, baseHeight, scaleMode }
+  }
+
+  const width = viewport.width
+  const height = viewport.height
+  const element = dashboard.elements[0]
+  return {
+    dashboard: {
+      ...dashboard,
+      width,
+      height,
+      elements: [{ ...element, w: width, h: height }]
+    },
+    baseWidth: width,
+    baseHeight: height,
+    scaleMode: 'stretch'
+  }
+}
+
 export function DashboardCanvas({
  dashboard,
  snapshot,
@@ -1769,14 +1815,27 @@ export function DashboardCanvas({
  preview?: DashboardPreviewMode
  showConnectionStatus?: boolean
 }) {
- const baseW = dashboard.width ?? 1920
- const baseH = dashboard.height ?? 1080
- const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'stretch'
- const scale = useScale(baseW, baseH, scaleMode, viewport)
- const adaptive = useMemo(
-   () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,
-   [dashboard]
- )
+const targetViewport = useDashboardViewport(
+  viewport,
+  dashboard.width ?? 1920,
+  dashboard.height ?? 1080
+)
+const renderModel = useMemo(
+  () => resolveDashboardCanvasRenderModel(dashboard, targetViewport),
+  [dashboard, targetViewport.height, targetViewport.width]
+)
+const renderDashboard = renderModel.dashboard
+const baseW = renderModel.baseWidth
+const baseH = renderModel.baseHeight
+const scaleMode = renderModel.scaleMode
+const scale = useMemo(
+  () => dashboardScaleForViewport(baseW, baseH, scaleMode, targetViewport),
+  [baseH, baseW, scaleMode, targetViewport.height, targetViewport.width]
+)
+const adaptive = useMemo(
+  () => isAdaptiveDashboard(renderDashboard) || renderDashboard.adaptive?.enabled === true,
+  [renderDashboard]
+)
  const alertsConfig = useAlertsConfig()
  useEffect(() => preview ? undefined : retainBindingIpc(), [preview])
  const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive, snapshot)
@@ -1784,7 +1843,7 @@ export function DashboardCanvas({
  const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])
  const [frameBg, setFrameBg] = useState<string | undefined>(undefined)
  const onFrameBg = useCallback((bg: string | undefined) => setFrameBg(bg), [])
- const activeBg = (adaptive && frameBg) || dashboard.bg
+ const activeBg = (adaptive && frameBg) || renderDashboard.bg
 
  const shellStyle: CSSProperties = {
    background: activeBg,
@@ -1808,7 +1867,7 @@ export function DashboardCanvas({
      <div className="dashboard-canvas" style={canvasStyle}>
        {adaptive ? (
          <AdaptiveCanvas
-           dashboard={dashboard}
+           dashboard={renderDashboard}
            snapshot={snapshot}
            alertsConfig={alertsConfig}
            momentState={momentState}
@@ -1817,7 +1876,7 @@ export function DashboardCanvas({
            onFrameBg={onFrameBg}
          />
        ) : (
-         sortElementsByZ(dashboard.elements).map((el) => (
+         sortElementsByZ(renderDashboard.elements).map((el) => (
            <ElementSwitcher
              key={el.id}
              element={el}

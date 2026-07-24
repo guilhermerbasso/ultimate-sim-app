@@ -535,7 +535,7 @@ describe('RaceconRc01DashWidget', () => {
     }
   })
 
-  it('uses scaled native percentage contracts without a fixed 800px child canvas', () => {
+  it('uses exact native LED pixels inside the responsive full-frame content box', () => {
     expect(rc01LayoutForContentBox(800, 480)).toBe('native')
     expect(rc01LayoutForContentBox(1024, 600)).toBe('app')
 
@@ -556,9 +556,9 @@ describe('RaceconRc01DashWidget', () => {
     expect(css).toMatch(/\.rc01-widget\s*\{[\s\S]*?width: 100%;[\s\S]*?height: 100%;/u)
     expect(css).toMatch(/\[data-rc01-layout="native"\] \.rc01-dashboard\s*\{[\s\S]*?width: 100%;[\s\S]*?height: 100%;/u)
     expect(css).not.toMatch(/\[data-rc01-layout="native"\][^{]*\{[^}]*?(?:min-|max-)?width: 800px/iu)
-    expect(css).toContain('top: 3.333333%; width: 7%; height: 4.166667%;')
-    expect(css).toContain('nth-child(1) { left: 6.5%; }')
-    expect(css).toContain('nth-child(11) { left: 86.5%; }')
+    expect(css).toContain('top: 16px; width: 56px; height: 20px;')
+    expect(css).toContain('nth-child(1) { left: 52px; }')
+    expect(css).toContain('nth-child(11) { left: 692px; }')
     expect(css).toContain('.rc01-widget[data-rc01-layout="native"] .rc01-speed { left: 5%; top: 14.583333%; width: 23.5%; height: 42.083333%; }')
     expect(css).toContain('top: 67.916667%;')
     expect(css).toContain('font-size: 12.5cqw;')

@@ -6,7 +6,7 @@ import {
   CAPTURE_SIZES, CaptureSafetyError, assertCleanGitState, createPrivateStaging,
   discardPrivateStaging, exclusiveWriteFile, listGitWorktrees, parseCaptureArgs,
   prepareCaptureOutput, publishPrivateStaging, readGitState, removePublishedOutput,
-  revalidatePublishedOutput, validateCaptureMetrics
+  revalidatePublishedOutput, validateCaptureMetrics, validateCapturePixels
 } from "./racecon-rc01-capture-lib.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -117,8 +117,9 @@ async function captureSize(browser, baseUrl, size, mode, finalHead) {
     const metrics = await collectMetrics(page, pageErrors, consoleErrors)
     validateCaptureMetrics(metrics, size)
     const png = await page.locator(ROOT_SELECTOR).screenshot({ type: "png", animations: "disabled", caret: "hide" })
+    const pixelAudit = validateCapturePixels(png, size)
     if (mode === "final") assertCleanGitState(readGitState(appRoot), finalHead)
-    return { metrics, png }
+    return { metrics, pixelAudit, png }
   } finally { await context.close() }
 }
 
@@ -143,9 +144,9 @@ async function main() {
       throw new Error(`Chromium launch failed without installing a browser: ${error instanceof Error ? error.message : String(error)}`)
     }
     for (const size of CAPTURE_SIZES) {
-      const { metrics, png } = await captureSize(browser, baseUrl, size, options.mode, finalHead)
+      const { metrics, pixelAudit, png } = await captureSize(browser, baseUrl, size, options.mode, finalHead)
       const filePath = exclusiveWriteFile(staging, `racecon_rc01_dash-${size.width}x${size.height}.png`, png)
-      report.captures.push({ size, file: basename(filePath), sha256: sha256(png), bytes: png.length, metrics })
+      report.captures.push({ size, file: basename(filePath), sha256: sha256(png), bytes: png.length, pixelAudit, metrics })
       if (options.mode === "final") assertCleanGitState(readGitState(appRoot), finalHead)
     }
     report.git.beforePublication = readGitState(appRoot)
