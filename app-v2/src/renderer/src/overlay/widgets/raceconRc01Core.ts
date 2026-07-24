@@ -9,11 +9,18 @@ export const RC01_NATIVE_HEIGHT_PX = 480
 export const RC01_NATIVE_TOLERANCE_PX = 1
 export const RC01_APP_WIDTH_PX = 1024
 export const RC01_APP_HEIGHT_PX = 600
+export const RC01_PHONE_MIN_WIDTH_PX = 360
+export const RC01_PHONE_MAX_WIDTH_PX = 480
+export const RC01_PHONE_MIN_HEIGHT_PX = 650
+export const RC01_SLOWEST_STREAM_CADENCE_MS = 67
+export const RC01_STREAM_JITTER_BUDGET_MS = 33
+export const RC01_MIN_STREAM_FRESH_MS =
+  RC01_SLOWEST_STREAM_CADENCE_MS + RC01_STREAM_JITTER_BUDGET_MS
 
 export const RC01_CHANNEL_STALE_MS = {
   rpm: 200,
   speed: 500,
-  gear: 50,
+  gear: RC01_MIN_STREAM_FRESH_MS,
   tc: 1_000,
   position: 1_000,
   fuel: 500,
@@ -30,6 +37,8 @@ export const RC01_CHANNEL_STALE_MS = {
 export type Rc01ChannelName = keyof typeof RC01_CHANNEL_STALE_MS
 export type Rc01FieldTone = 'primary' | 'muted' | 'good' | 'bad'
 export type Rc01LedTone = 'dark' | 'cyan' | 'green' | 'amber' | 'red' | 'magenta'
+export type Rc01MonotonicClock = () => number
+export type Rc01CompactMode = 'phone' | 'standard'
 
 export const RC01_SHIFT_THRESHOLD_BY_GEAR = {
   1: 0.86,
@@ -135,6 +144,12 @@ function finiteNumber(value: unknown, min = Number.NEGATIVE_INFINITY): value is 
   return typeof value === 'number' && Number.isFinite(value) && value >= min
 }
 
+/** Local receipt/freshness clock. Provider timestamps are never compared to it. */
+export function rc01MonotonicNow(): number {
+  const value = globalThis.performance?.now()
+  return finiteNumber(value, 0) ? value : 0
+}
+
 function validAidLevel(value: unknown): value is number | string {
   return (typeof value === 'number' && Number.isFinite(value)) ||
     (typeof value === 'string' && value.trim().length > 0)
@@ -170,10 +185,6 @@ function fingerprint(snapshot: TelemetrySnapshot, sourceIdentity: string): strin
   })
 }
 
-function sampleChannelFresh(channel: Rc01ChannelName, timestamp: number, receivedAt: number): boolean {
-  return rc01ReceiptAgeMs({ snapshotTimestamp: timestamp, receivedAt, value: true }, receivedAt) <= RC01_CHANNEL_STALE_MS[channel]
-}
-
 function createRc01AcceptedSample(
   snapshot: TelemetrySnapshot,
   sourceIdentity: string,
@@ -195,15 +206,43 @@ function createRc01AcceptedSample(
     receivedAt,
     fingerprint: sampleFingerprint,
     rpmRatio,
-    rpmFresh: rpmRatio !== null && sampleChannelFresh('rpm', snapshot.timestamp, receivedAt),
+    rpmFresh: rpmRatio !== null,
     gear: typeof gearValue === 'number' ? gearValue : null,
     delta: typeof deltaValue === 'number' ? deltaValue : null,
-    deltaFresh: typeof deltaValue === 'number' && sampleChannelFresh('delta', snapshot.timestamp, receivedAt),
+    deltaFresh: typeof deltaValue === 'number',
     bestLap: typeof bestLapValue === 'number' ? bestLapValue : null,
-    bestLapFresh: typeof bestLapValue === 'number' && sampleChannelFresh('bestLap', snapshot.timestamp, receivedAt),
+    bestLapFresh: typeof bestLapValue === 'number',
     pitLimiter: typeof pitLimiterValue === 'boolean' ? pitLimiterValue : null,
-    pitLimiterFresh: typeof pitLimiterValue === 'boolean' && sampleChannelFresh('pitLimiter', snapshot.timestamp, receivedAt)
+    pitLimiterFresh: typeof pitLimiterValue === 'boolean'
   })
+}
+
+function clearExpiredReceiptAlertContinuity(
+  alerts: Rc01AlertState,
+  receipts: ReadonlyMap<Rc01ChannelName, Rc01ChannelReceipt>,
+  receivedAt: number
+): Rc01AlertState {
+  const next = cloneRc01AlertState(alerts)
+  if (rc01ReceiptAgeMs(receipts.get('rpm'), receivedAt) > RC01_CHANNEL_STALE_MS.rpm) {
+    next.overRev = { active: false, pendingSinceMs: null, recoverySinceMs: null }
+  }
+  if (
+    rc01ReceiptAgeMs(receipts.get('delta'), receivedAt) > RC01_CHANNEL_STALE_MS.delta ||
+    rc01ReceiptAgeMs(receipts.get('bestLap'), receivedAt) > RC01_CHANNEL_STALE_MS.bestLap
+  ) {
+    next.deltaCliff = { active: false, pendingSinceMs: null, baselineDelta: null }
+    next.deltaZeroCross = {
+      active: false,
+      pendingSinceMs: null,
+      pendingSign: null,
+      lastNonZeroSign: null,
+      minimumVisibleUntilMs: 0
+    }
+  }
+  if (rc01ReceiptAgeMs(receipts.get('pitLimiter'), receivedAt) > RC01_CHANNEL_STALE_MS.pitLimiter) {
+    next.pitLimiter = { active: false, minimumVisibleUntilMs: 0 }
+  }
+  return next
 }
 
 /**
@@ -252,7 +291,7 @@ export class Rc01LiveTelemetryBuffer {
     this.minimumTimestampExclusive = timestamp
   }
 
-  ingest(snapshot: TelemetrySnapshot | null | undefined, receivedAt = Date.now()): Rc01IngestResult {
+  ingest(snapshot: TelemetrySnapshot | null | undefined, receivedAt = rc01MonotonicNow()): Rc01IngestResult {
     const connected = Boolean(snapshot?.connected)
     if (snapshot?.sim === 'mock') {
       this.reset()
@@ -297,9 +336,14 @@ export class Rc01LiveTelemetryBuffer {
       return { accepted: false, renderable: true, reason: 'duplicate' }
     }
 
-    const safeReceiptAt = finiteNumber(receivedAt) ? receivedAt : Date.now()
+    const safeReceiptAt = finiteNumber(receivedAt, 0) ? receivedAt : rc01MonotonicNow()
+    this.alerts = clearExpiredReceiptAlertContinuity(
+      this.alerts,
+      this.channelReceipts,
+      safeReceiptAt
+    )
     const sample = createRc01AcceptedSample(snapshot, sourceIdentity, safeReceiptAt, nextFingerprint)
-    const deltaTwoSecondsAgo = rc01DeltaTwoSecondsAgo(this.samples, sample.timestamp)
+    const deltaTwoSecondsAgo = rc01DeltaTwoSecondsAgo(this.samples, sample.receivedAt)
     this.alerts = advanceRc01Alerts(this.alerts, rc01AlertInputForSample(sample, deltaTwoSecondsAgo))
     this.samples.push(sample)
     this.minimumTimestampExclusive = null
@@ -363,26 +407,16 @@ export class Rc01LiveTelemetryBuffer {
 
 export function createRc01ChannelReceipts(
   snapshot: TelemetrySnapshot,
-  receivedAt = Date.now()
+  receivedAt = rc01MonotonicNow()
 ): ReadonlyMap<Rc01ChannelName, Rc01ChannelReceipt> {
   const buffer = new Rc01LiveTelemetryBuffer()
   buffer.ingest(snapshot, receivedAt)
   return buffer.receipts()
 }
 
-function isEpochMilliseconds(timestamp: number): boolean {
-  // Provider timestamps are normally Date.now() milliseconds. Small monotonic test/
-  // simulator clocks remain valid ordering clocks, but must not be compared to wall time.
-  return timestamp >= 1_000_000_000_000
-}
-
 export function rc01ReceiptAgeMs(receipt: Rc01ChannelReceipt | undefined, nowMs: number): number {
-  if (!receipt || !finiteNumber(nowMs)) return Number.POSITIVE_INFINITY
-  const receiptAge = Math.max(0, nowMs - receipt.receivedAt)
-  const sourceAge = isEpochMilliseconds(receipt.snapshotTimestamp)
-    ? Math.max(0, nowMs - receipt.snapshotTimestamp)
-    : 0
-  return Math.max(receiptAge, sourceAge)
+  if (!receipt || !finiteNumber(nowMs, 0) || !finiteNumber(receipt.receivedAt, 0)) return Number.POSITIVE_INFINITY
+  return Math.max(0, nowMs - receipt.receivedAt)
 }
 
 function field(value: string, raw: number | string | null, stale = false, unavailable = false, tone: Rc01FieldTone = 'primary'): Rc01Field {
@@ -495,7 +529,7 @@ export function buildRc01LedStates(
 export function createRc01DashboardModel(
   snapshot: TelemetrySnapshot | null,
   receipts: ReadonlyMap<Rc01ChannelName, Rc01ChannelReceipt> = new Map(),
-  nowMs = Date.now()
+  nowMs = rc01MonotonicNow()
 ): Rc01DashboardModel {
   const offline = !snapshot?.connected
   const safeSnapshot = snapshot && snapshot.connected ? snapshot : null
@@ -671,7 +705,7 @@ function rc01SampleDeltaForAlert(sample: Rc01AcceptedSample): number | null {
 
 function rc01AlertInputForSample(sample: Rc01AcceptedSample, deltaTwoSecondsAgo: number | null): Rc01AlertInput {
   return {
-    nowMs: sample.timestamp,
+    nowMs: sample.receivedAt,
     rpmRatio: sample.rpmRatio,
     rpmFresh: sample.rpmFresh,
     delta: rc01SampleDeltaForAlert(sample),
@@ -683,12 +717,12 @@ function rc01AlertInputForSample(sample: Rc01AcceptedSample, deltaTwoSecondsAgo:
 /** Finds the same baseline the old replay used, but only while accepting a new compact sample. */
 function rc01DeltaTwoSecondsAgo(
   history: readonly Rc01AcceptedSample[],
-  timestamp: number,
+  receivedAt: number,
   endExclusive = history.length
 ): number | null {
   for (let previous = endExclusive - 1; previous >= 0; previous -= 1) {
     const sample = history[previous]
-    if (sample.timestamp <= timestamp - 2_000) return rc01SampleDeltaForAlert(sample)
+    if (sample.receivedAt <= receivedAt - 2_000) return rc01SampleDeltaForAlert(sample)
   }
   return null
 }
@@ -696,9 +730,23 @@ function rc01DeltaTwoSecondsAgo(
 /** Verification helper for the compact ring. Rendering always reads incremental buffer state. */
 export function replayRc01Alerts(history: readonly Rc01AcceptedSample[]): Rc01AlertState {
   let state = createRc01AlertState()
+  const receipts = new Map<Rc01ChannelName, Rc01ChannelReceipt>()
   for (let index = 0; index < history.length; index += 1) {
     const sample = history[index]
-    state = advanceRc01Alerts(state, rc01AlertInputForSample(sample, rc01DeltaTwoSecondsAgo(history, sample.timestamp, index)))
+    state = clearExpiredReceiptAlertContinuity(state, receipts, sample.receivedAt)
+    state = advanceRc01Alerts(state, rc01AlertInputForSample(sample, rc01DeltaTwoSecondsAgo(history, sample.receivedAt, index)))
+    if (sample.rpmRatio !== null && sample.rpmFresh) {
+      receipts.set('rpm', { snapshotTimestamp: sample.timestamp, receivedAt: sample.receivedAt, value: sample.rpmRatio })
+    }
+    if (sample.delta !== null && sample.deltaFresh) {
+      receipts.set('delta', { snapshotTimestamp: sample.timestamp, receivedAt: sample.receivedAt, value: sample.delta })
+    }
+    if (sample.bestLap !== null && sample.bestLapFresh) {
+      receipts.set('bestLap', { snapshotTimestamp: sample.timestamp, receivedAt: sample.receivedAt, value: sample.bestLap })
+    }
+    if (sample.pitLimiter !== null && sample.pitLimiterFresh) {
+      receipts.set('pitLimiter', { snapshotTimestamp: sample.timestamp, receivedAt: sample.receivedAt, value: sample.pitLimiter })
+    }
   }
   return state
 }
@@ -726,6 +774,49 @@ export function rc01LayoutForContentBox(width: number, height: number): 'native'
   if (native) return 'native'
   if (width >= RC01_APP_WIDTH_PX - RC01_NATIVE_TOLERANCE_PX && height >= RC01_APP_HEIGHT_PX - RC01_NATIVE_TOLERANCE_PX) return 'app'
   return 'compact'
+}
+
+export function rc01CompactModeForContentBox(width: number, height: number): Rc01CompactMode {
+  const phone = finiteNumber(width, RC01_PHONE_MIN_WIDTH_PX) &&
+    width <= RC01_PHONE_MAX_WIDTH_PX &&
+    finiteNumber(height, RC01_PHONE_MIN_HEIGHT_PX) &&
+    height / width >= 1.5
+  return phone ? 'phone' : 'standard'
+}
+
+export interface Rc01PhoneGeometry {
+  inset: number
+  ledTop: number
+  ledHeight: number
+  heroTop: number
+  heroHeight: number
+  deltaTop: number
+  deltaHeight: number
+  statusTop: number
+  statusHeight: number
+  bottomInset: number
+  toggleSize: number
+}
+
+/** Deterministic portrait layout shared by canonical phone captures and CSS variables. */
+export function rc01PhoneGeometryForContentBox(width: number, height: number): Rc01PhoneGeometry | null {
+  if (rc01CompactModeForContentBox(width, height) !== 'phone') return null
+  const safeHeight = Math.round(height)
+  const statusTop = Math.floor(safeHeight * 0.53)
+  const bottomInset = 18
+  return {
+    inset: 12,
+    ledTop: 12,
+    ledHeight: 16,
+    heroTop: 48,
+    heroHeight: Math.floor(safeHeight * 0.25),
+    deltaTop: Math.floor(safeHeight * 0.33),
+    deltaHeight: Math.floor(safeHeight * 0.18),
+    statusTop,
+    statusHeight: safeHeight - statusTop - bottomInset,
+    bottomInset,
+    toggleSize: 44
+  }
 }
 
 /** The trace is derived solely from the primitive compact history ring. */

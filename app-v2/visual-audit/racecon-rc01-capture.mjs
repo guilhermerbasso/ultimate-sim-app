@@ -51,6 +51,8 @@ async function collectMetrics(page, pageErrors, consoleErrors) {
     const widget = root.querySelector("[data-widget=\"raceconRc01Dash\"]")
     const dashboard = root.querySelector(".rc01-dashboard")
     const rail = root.querySelector(".rc01-attack-rail")
+    const status = root.querySelector(".rc01-status")
+    const statusToggle = root.querySelector(".rc01-status-toggle")
     const appRail = rail ? { ...relativeRect(rail), display: getComputedStyle(rail).display } : null
     const leds = Array.from(root.querySelectorAll("[data-testid=\"rc01-led\"]")).map((led) => {
       const rect = relativeRect(led)
@@ -68,10 +70,29 @@ async function collectMetrics(page, pageErrors, consoleErrors) {
       sourceKind: dataset.captureSourceKind, sourceIdentity: dataset.captureSourceIdentity,
       bufferState: widget?.getAttribute("data-rc01-buffer-state") ?? null,
       layout: widget?.getAttribute("data-rc01-layout") ?? null,
+      compactMode: widget?.getAttribute("data-rc01-compact-mode") ?? null,
       contentWidth: widget?.getAttribute("data-rc01-content-width") ?? null,
       contentHeight: widget?.getAttribute("data-rc01-content-height") ?? null,
       nativeSize: dashboard?.getAttribute("data-rc01-native-size") ?? null,
-      appRail, leds,
+      appRail,
+      status: relativeRect(status),
+      statusToggle: statusToggle ? {
+        ...relativeRect(statusToggle),
+        display: getComputedStyle(statusToggle).display,
+        ariaLabel: statusToggle.getAttribute("aria-label"),
+        beforeContent: getComputedStyle(statusToggle, "::before").content,
+        afterContent: getComputedStyle(statusToggle, "::after").content
+      } : null,
+      statusMetrics: Array.from(root.querySelectorAll(".rc01-status-grid .rc01-metric")).map((metric) => {
+        const value = metric.querySelector(".rc01-value")
+        return {
+          label: metric.querySelector("dt")?.textContent?.trim() ?? "",
+          text: value?.textContent?.trim() ?? "",
+          rect: relativeRect(metric),
+          valueRect: relativeRect(value)
+        }
+      }),
+      leds,
       textOutputs: Array.from(root.querySelectorAll("output")).map((output) => output.textContent?.trim() ?? ""),
       rootText: root.textContent ?? "",
       errorBoundaryCount: root.querySelectorAll("[data-va-failed]").length,
@@ -112,7 +133,10 @@ async function captureSize(browser, baseUrl, size, mode, finalHead) {
       return root?.getAttribute("data-capture-ready") === "true" &&
         widget?.getAttribute("data-rc01-buffer-state") === "accepted" &&
         widget?.getAttribute("data-rc01-layout") === expectedLayout
-    }, { selector: ROOT_SELECTOR, expectedLayout: size.width === 800 ? "native" : "app" }, { timeout: 45_000 })
+    }, {
+      selector: ROOT_SELECTOR,
+      expectedLayout: size.width === 800 ? "native" : size.width === 1024 ? "app" : "compact"
+    }, { timeout: 45_000 })
     await installCaptureStyle(page)
     const metrics = await collectMetrics(page, pageErrors, consoleErrors)
     validateCaptureMetrics(metrics, size)

@@ -11,8 +11,11 @@ import {
   RC01_CHANNEL_STALE_MS,
   RC01_HISTORY_LIMIT,
   RC01_LED_COUNT,
+  RC01_MIN_STREAM_FRESH_MS,
   RC01_SHIFT_THRESHOLD_BY_GEAR,
   RC01_SHIFT_THRESHOLD_FALLBACK,
+  RC01_SLOWEST_STREAM_CADENCE_MS,
+  RC01_STREAM_JITTER_BUDGET_MS,
   Rc01LiveTelemetryBuffer,
   advanceRc01Alerts,
   buildRc01LedStates,
@@ -20,8 +23,11 @@ import {
   createRc01AlertState,
   createRc01ChannelReceipts,
   createRc01DashboardModel,
+  rc01CompactModeForContentBox,
   rc01FieldDescription,
   rc01LayoutForContentBox,
+  rc01PhoneGeometryForContentBox,
+  rc01ReceiptAgeMs,
   rc01ShiftThresholdForGear,
   replayRc01Alerts,
   rc01SourceIdentity
@@ -153,6 +159,66 @@ describe('RaceconRc01DashWidget', () => {
     ])
   })
 
+  it('uses only local monotonic receipt age across aligned and skewed provider clocks', () => {
+    expect(RC01_MIN_STREAM_FRESH_MS).toBe(
+      RC01_SLOWEST_STREAM_CADENCE_MS + RC01_STREAM_JITTER_BUDGET_MS
+    )
+    expect(RC01_CHANNEL_STALE_MS.gear).toBe(RC01_MIN_STREAM_FRESH_MS)
+    expect(RC01_CHANNEL_STALE_MS.rpm).toBe(200)
+    expect(RC01_CHANNEL_STALE_MS.speed).toBe(500)
+
+    const localReceipt = {
+      snapshotTimestamp: 1_700_000_000_000,
+      receivedAt: 1_000,
+      value: 6
+    }
+    expect(rc01ReceiptAgeMs(localReceipt, 1_067)).toBe(67)
+    expect(rc01ReceiptAgeMs({ ...localReceipt, snapshotTimestamp: 1 }, 1_067)).toBe(67)
+    expect(rc01ReceiptAgeMs({ ...localReceipt, snapshotTimestamp: 9_000_000_000_000 }, 1_067)).toBe(67)
+
+    const buffer = new Rc01LiveTelemetryBuffer()
+    let providerTimestamp = 1_700_000_000_000
+    let receiptTime = 0
+    expect(buffer.ingest(snapshot(providerTimestamp), receiptTime)).toMatchObject({ accepted: true })
+
+    const cadence = [
+      RC01_SLOWEST_STREAM_CADENCE_MS,
+      RC01_MIN_STREAM_FRESH_MS,
+      RC01_SLOWEST_STREAM_CADENCE_MS,
+      RC01_MIN_STREAM_FRESH_MS
+    ]
+    for (const gap of cadence) {
+      receiptTime += gap
+      providerTimestamp += RC01_SLOWEST_STREAM_CADENCE_MS
+      const frame = snapshot(providerTimestamp)
+      expect(buffer.ingest(frame, receiptTime)).toMatchObject({ accepted: true })
+      const atJitterBudget = createRc01DashboardModel(
+        frame,
+        buffer.receipts(),
+        receiptTime + RC01_MIN_STREAM_FRESH_MS
+      )
+      expect(atJitterBudget.gear.stale).toBe(false)
+      expect(atJitterBudget.rpm.stale).toBe(false)
+    }
+
+    const latest = buffer.latestSnapshot()!
+    const noNewReceipt = createRc01DashboardModel(
+      latest,
+      buffer.receipts(),
+      receiptTime + RC01_MIN_STREAM_FRESH_MS + 1
+    )
+    expect(noNewReceipt.gear.stale).toBe(true)
+    expect(noNewReceipt.rpm.stale).toBe(false)
+
+    const pastClock = new Rc01LiveTelemetryBuffer()
+    expect(pastClock.ingest(snapshot(10), 50_000)).toMatchObject({ accepted: true })
+    expect(createRc01DashboardModel(
+      pastClock.latestSnapshot(),
+      pastClock.receipts(),
+      50_000 + RC01_MIN_STREAM_FRESH_MS
+    ).gear.stale).toBe(false)
+  })
+
   it('commits stale freshness clearing in the candidate before a fresh frame can reuse alert continuity', () => {
     const commitFreshnessClear = (buffer: Rc01LiveTelemetryBuffer, nowMs: number): Rc01LiveTelemetryBuffer => {
       const candidate = buffer.clone()
@@ -172,22 +238,23 @@ describe('RaceconRc01DashWidget', () => {
 
     let cliff = new Rc01LiveTelemetryBuffer()
     expect(cliff.ingest({ ...snapshot(1_000), deltaToBestSec: -0.1 }, 0)).toMatchObject({ accepted: true })
-    expect(cliff.ingest({ ...snapshot(3_000), deltaToBestSec: 0.4 }, 1)).toMatchObject({ accepted: true })
-    expect(cliff.ingest({ ...snapshot(3_500), deltaToBestSec: 0.5 }, 2)).toMatchObject({ accepted: true })
+    expect(cliff.ingest({ ...snapshot(3_000), deltaToBestSec: 0.4 }, 2_000)).toMatchObject({ accepted: true })
+    expect(cliff.ingest({ ...snapshot(3_250), deltaToBestSec: 0.5 }, 2_250)).toMatchObject({ accepted: true })
+    expect(cliff.ingest({ ...snapshot(3_500), deltaToBestSec: 0.5 }, 2_500)).toMatchObject({ accepted: true })
     expect(cliff.alertState().deltaCliff.active).toBe(true)
-    cliff = commitFreshnessClear(cliff, 253)
+    cliff = commitFreshnessClear(cliff, 2_751)
     expect(cliff.alertState().deltaCliff).toEqual({ active: false, pendingSinceMs: null, baselineDelta: null })
-    expect(cliff.ingest({ ...snapshot(3_501), deltaToBestSec: 0.1 }, 254)).toMatchObject({ accepted: true })
+    expect(cliff.ingest({ ...snapshot(3_501), deltaToBestSec: 0.1 }, 2_752)).toMatchObject({ accepted: true })
     expect(cliff.alertState().deltaCliff.active).toBe(false)
 
     let zeroCross = new Rc01LiveTelemetryBuffer()
     expect(zeroCross.ingest({ ...snapshot(1_000), deltaToBestSec: -0.1 }, 0)).toMatchObject({ accepted: true })
-    expect(zeroCross.ingest({ ...snapshot(1_060), deltaToBestSec: 0.1 }, 1)).toMatchObject({ accepted: true })
-    expect(zeroCross.ingest({ ...snapshot(1_210), deltaToBestSec: 0.1 }, 2)).toMatchObject({ accepted: true })
+    expect(zeroCross.ingest({ ...snapshot(1_060), deltaToBestSec: 0.1 }, 60)).toMatchObject({ accepted: true })
+    expect(zeroCross.ingest({ ...snapshot(1_210), deltaToBestSec: 0.1 }, 210)).toMatchObject({ accepted: true })
     expect(zeroCross.alertState().deltaZeroCross.active).toBe(true)
-    zeroCross = commitFreshnessClear(zeroCross, 253)
+    zeroCross = commitFreshnessClear(zeroCross, 461)
     expect(zeroCross.alertState().deltaZeroCross).toEqual({ active: false, pendingSinceMs: null, pendingSign: null, lastNonZeroSign: null, minimumVisibleUntilMs: 0 })
-    expect(zeroCross.ingest({ ...snapshot(1_211), deltaToBestSec: 0.1 }, 254)).toMatchObject({ accepted: true })
+    expect(zeroCross.ingest({ ...snapshot(1_211), deltaToBestSec: 0.1 }, 462)).toMatchObject({ accepted: true })
     expect(zeroCross.alertState().deltaZeroCross.active).toBe(false)
 
     let pitLimiter = new Rc01LiveTelemetryBuffer()
@@ -197,6 +264,29 @@ describe('RaceconRc01DashWidget', () => {
     expect(pitLimiter.alertState().pitLimiter).toEqual({ active: false, minimumVisibleUntilMs: 0 })
     expect(pitLimiter.ingest({ ...snapshot(1_001), pitLimiter: false }, 302)).toMatchObject({ accepted: true })
     expect(pitLimiter.alertState().pitLimiter.active).toBe(false)
+
+    const receiptGap = new Rc01LiveTelemetryBuffer()
+    expect(receiptGap.ingest({ ...snapshot(10_000), rpm: 8_200 }, 0)).toMatchObject({ accepted: true })
+    expect(receiptGap.ingest({ ...snapshot(10_067), rpm: 8_200 }, 67)).toMatchObject({ accepted: true })
+    expect(receiptGap.alertState().overRev.active).toBe(true)
+    expect(receiptGap.ingest({ ...snapshot(10_268), rpm: 8_200 }, 268)).toMatchObject({ accepted: true })
+    expect(receiptGap.alertState().overRev).toEqual({
+      active: false,
+      pendingSinceMs: 268,
+      recoverySinceMs: null
+    })
+
+    const deltaGap = new Rc01LiveTelemetryBuffer()
+    expect(deltaGap.ingest({ ...snapshot(20_000), deltaToBestSec: -0.1 }, 0)).toMatchObject({ accepted: true })
+    expect(deltaGap.ingest({ ...snapshot(20_067), deltaToBestSec: 0.1 }, 67)).toMatchObject({ accepted: true })
+    expect(deltaGap.ingest({ ...snapshot(20_318), deltaToBestSec: 0.1 }, 318)).toMatchObject({ accepted: true })
+    expect(deltaGap.alertState().deltaZeroCross).toEqual({
+      active: false,
+      pendingSinceMs: null,
+      pendingSign: null,
+      lastNonZeroSign: 1,
+      minimumVisibleUntilMs: 0
+    })
   })
 
   it('requires an explicit live identity and rejects replay/mock telemetry', () => {
@@ -299,76 +389,124 @@ describe('RaceconRc01DashWidget', () => {
 
   it('does not resurrect stale widget alerts when fresh RPM, delta, or pit frames arrive', () => {
     vi.useFakeTimers()
-    vi.setSystemTime(0)
-
-    const advancePastStaleness = (ms: number): void => {
-      act(() => { vi.advanceTimersByTime(ms) })
+    let monotonicMs = 0
+    const monotonicClock = (): number => monotonicMs
+    const advanceTo = (targetMs: number): void => {
+      const delta = targetMs - monotonicMs
+      monotonicMs = targetMs
+      act(() => { vi.advanceTimersByTime(delta) })
     }
 
-    let view = render(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_000), rpm: 8_200 }, config }))
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_060), rpm: 8_200 }, config }))
+    const advancePastStaleness = (ms: number): void => {
+      advanceTo(monotonicMs + ms)
+    }
+
+    let view = render(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_000), rpm: 8_200 }, config, monotonicClock
+    }))
+    advanceTo(60)
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_060), rpm: 8_200 }, config, monotonicClock
+    }))
     expect(view.container.querySelector('.rc01-over-rev')).toBeTruthy()
     advancePastStaleness(300)
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_061), rpm: 7_000 }, config }))
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_061), rpm: 7_000 }, config, monotonicClock
+    }))
     expect(view.container.querySelector('.rc01-over-rev')).toBeNull()
     view.unmount()
 
-    vi.setSystemTime(0)
-    view = render(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_000), deltaToBestSec: -0.1 }, config }))
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(3_000), deltaToBestSec: 0.4 }, config }))
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(3_500), deltaToBestSec: 0.5 }, config }))
+    monotonicMs = 0
+    view = render(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_000), deltaToBestSec: -0.1 }, config, monotonicClock
+    }))
+    for (let time = 100; time < 2_000; time += 100) {
+      advanceTo(time)
+      view.rerender(createElement(RaceconRc01DashWidget, {
+        snapshot: { ...snapshot(1_000 + time), deltaToBestSec: -0.1 }, config, monotonicClock
+      }))
+    }
+    advanceTo(2_000)
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(3_000), deltaToBestSec: 0.4 }, config, monotonicClock
+    }))
+    for (let time = 2_100; time <= 2_500; time += 100) {
+      advanceTo(time)
+      view.rerender(createElement(RaceconRc01DashWidget, {
+        snapshot: { ...snapshot(3_000 + time - 2_000), deltaToBestSec: 0.5 }, config, monotonicClock
+      }))
+    }
     expect(view.container.querySelector('.rc01-delta.is-cliff')).toBeTruthy()
     advancePastStaleness(300)
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(3_501), deltaToBestSec: 0.1 }, config }))
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(3_501), deltaToBestSec: 0.1 }, config, monotonicClock
+    }))
     expect(view.container.querySelector('.rc01-delta.is-cliff')).toBeNull()
     view.unmount()
 
-    vi.setSystemTime(0)
-    view = render(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_000), deltaToBestSec: -0.1 }, config }))
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_060), deltaToBestSec: 0.1 }, config }))
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_210), deltaToBestSec: 0.1 }, config }))
+    monotonicMs = 0
+    view = render(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_000), deltaToBestSec: -0.1 }, config, monotonicClock
+    }))
+    advanceTo(67)
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_060), deltaToBestSec: 0.1 }, config, monotonicClock
+    }))
+    advanceTo(217)
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_210), deltaToBestSec: 0.1 }, config, monotonicClock
+    }))
     expect(view.container.querySelector('.rc01-delta-zero-cross')).toBeTruthy()
     advancePastStaleness(300)
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_211), deltaToBestSec: 0.1 }, config }))
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_211), deltaToBestSec: 0.1 }, config, monotonicClock
+    }))
     expect(view.container.querySelector('.rc01-delta-zero-cross')).toBeNull()
     view.unmount()
 
-    vi.setSystemTime(0)
-    view = render(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_000), pitLimiter: true }, config }))
+    monotonicMs = 0
+    view = render(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_000), pitLimiter: true }, config, monotonicClock
+    }))
     expect(view.getByText('PIT LIMITER')).toBeTruthy()
     advancePastStaleness(400)
-    view.rerender(createElement(RaceconRc01DashWidget, { snapshot: { ...snapshot(1_001), pitLimiter: false }, config }))
+    view.rerender(createElement(RaceconRc01DashWidget, {
+      snapshot: { ...snapshot(1_001), pitLimiter: false }, config, monotonicClock
+    }))
     expect(view.queryByText('PIT LIMITER')).toBeNull()
   })
 
-  it('keeps 30Hz gear receipts fresh across interleaved 100ms freshness ticks', () => {
+  it('keeps 67ms cadence plus jitter gear receipts fresh and stales only without a new receipt', () => {
     vi.useFakeTimers()
-    vi.setSystemTime(0)
+    let monotonicMs = 0
+    let providerTimestamp = 1_900_000_000_000
+    const monotonicClock = (): number => monotonicMs
 
-    const view = render(createElement(RaceconRc01DashWidget, { snapshot: snapshot(0), config }))
+    const view = render(createElement(RaceconRc01DashWidget, {
+      snapshot: snapshot(providerTimestamp), config, monotonicClock
+    }))
     const expectFreshGear = (): void => {
       expect(view.getByLabelText('Gear 6')).toBeTruthy()
       expect(rc01ShiftThresholdForGear(6)).toBe(RC01_SHIFT_THRESHOLD_BY_GEAR[6])
       expect(rc01ShiftThresholdForGear(1)).toBe(RC01_SHIFT_THRESHOLD_BY_GEAR[1])
     }
 
-    let elapsedMs = 0
-    let nextArrivalMs = 33
-    let nextFreshnessTickMs = 100
-    while (nextFreshnessTickMs <= 1_000) {
-      if (nextArrivalMs < nextFreshnessTickMs) {
-        act(() => { vi.advanceTimersByTime(nextArrivalMs - elapsedMs) })
-        elapsedMs = nextArrivalMs
-        view.rerender(createElement(RaceconRc01DashWidget, { snapshot: snapshot(elapsedMs), config }))
-        nextArrivalMs += 33
-      } else {
-        act(() => { vi.advanceTimersByTime(nextFreshnessTickMs - elapsedMs) })
-        elapsedMs = nextFreshnessTickMs
-        nextFreshnessTickMs += 100
-      }
-      // A tick can only evaluate age. It must not backdate a 30Hz receipt past 50ms.
+    for (let index = 0; index < 12; index += 1) {
+      const gap = index % 2 === 0
+        ? RC01_SLOWEST_STREAM_CADENCE_MS
+        : RC01_MIN_STREAM_FRESH_MS
+      monotonicMs += gap
+      providerTimestamp += RC01_SLOWEST_STREAM_CADENCE_MS
+      act(() => { vi.advanceTimersByTime(gap) })
+      view.rerender(createElement(RaceconRc01DashWidget, {
+        snapshot: snapshot(providerTimestamp), config, monotonicClock
+      }))
       expectFreshGear()
     }
+
+    monotonicMs += RC01_MIN_STREAM_FRESH_MS + 1
+    act(() => { vi.advanceTimersByTime(RC01_MIN_STREAM_FRESH_MS + 1) })
+    expect(view.getByLabelText('Gear stale; last known value 6')).toBeTruthy()
   })
 
   it('uses the documented gear table, debounce/hysteresis, zero-cross, and real over-rev state', () => {
@@ -422,9 +560,16 @@ describe('RaceconRc01DashWidget', () => {
       { timestamp: 0, deltaToBestSec: -0.2, pitLimiter: false },
       { timestamp: 60, deltaToBestSec: 0.1, pitLimiter: false },
       { timestamp: 210, deltaToBestSec: 0.1, pitLimiter: false },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        timestamp: 410 + index * 200,
+        deltaToBestSec: 0.1,
+        pitLimiter: false
+      })),
       { timestamp: 2_010, deltaToBestSec: 0.4, pitLimiter: false },
+      { timestamp: 2_210, deltaToBestSec: 0.5, pitLimiter: false },
+      { timestamp: 2_410, deltaToBestSec: 0.5, pitLimiter: false },
       { timestamp: 2_520, deltaToBestSec: 0.5, pitLimiter: true }
-    ] as const
+    ]
     let latest: TelemetrySnapshot | null = null
     const accepted: TelemetrySnapshot[] = []
     for (const frame of frames) {
@@ -455,6 +600,8 @@ describe('RaceconRc01DashWidget', () => {
     const core = readFileSync('src/renderer/src/overlay/widgets/raceconRc01Core.ts', 'utf8')
     const widget = readFileSync('src/renderer/src/overlay/widgets/RaceconRc01DashWidget.tsx', 'utf8')
     expect(core).not.toContain('structuredClone')
+    expect(core).not.toContain('Date.now')
+    expect(widget).not.toContain('Date.now')
     expect(widget).not.toContain('replayRc01Alerts')
   })
 
@@ -568,6 +715,46 @@ describe('RaceconRc01DashWidget', () => {
     expect(css).toContain('.rc01-widget[data-rc01-layout="app"] .rc01-speed .rc01-value { font-size: 100px; }')
     expect(css).toContain('@media (prefers-reduced-motion: reduce)')
     expect(css).toContain('.rc01-soft-key::before')
+  })
+
+  it('defines deterministic phone geometry with a fixed 44px interaction target', () => {
+    expect(rc01LayoutForContentBox(393, 759)).toBe('compact')
+    expect(rc01LayoutForContentBox(412, 867)).toBe('compact')
+    expect(rc01CompactModeForContentBox(393, 759)).toBe('phone')
+    expect(rc01CompactModeForContentBox(412, 867)).toBe('phone')
+    expect(rc01CompactModeForContentBox(480, 650)).toBe('standard')
+    expect(rc01PhoneGeometryForContentBox(393, 759)).toEqual({
+      inset: 12,
+      ledTop: 12,
+      ledHeight: 16,
+      heroTop: 48,
+      heroHeight: 189,
+      deltaTop: 250,
+      deltaHeight: 136,
+      statusTop: 402,
+      statusHeight: 339,
+      bottomInset: 18,
+      toggleSize: 44
+    })
+    expect(rc01PhoneGeometryForContentBox(412, 867)).toEqual({
+      inset: 12,
+      ledTop: 12,
+      ledHeight: 16,
+      heroTop: 48,
+      heroHeight: 216,
+      deltaTop: 286,
+      deltaHeight: 156,
+      statusTop: 459,
+      statusHeight: 390,
+      bottomInset: 18,
+      toggleSize: 44
+    })
+
+    const css = readFileSync('src/renderer/src/overlay/widgets/raceconRc01.css', 'utf8')
+    expect(css).toMatch(/\.rc01-status-toggle\s*\{[\s\S]*?width: 44px;[\s\S]*?height: 44px;/u)
+    expect(css).toMatch(/\[data-rc01-layout="native"\] \.rc01-status-toggle\s*\{[\s\S]*?width: 44px;[\s\S]*?height: 44px;/u)
+    expect(css).toContain('data-rc01-compact-mode="phone"')
+    expect(css).toContain('grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(112px, 1.45fr);')
   })
 
 })

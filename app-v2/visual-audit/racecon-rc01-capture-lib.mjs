@@ -1,15 +1,16 @@
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import {
   closeSync,
   fstatSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
+  readSync,
   readdirSync,
   realpathSync,
-  renameSync,
-  rmSync,
   statSync,
   unlinkSync,
   writeFileSync
@@ -19,7 +20,9 @@ import { PNG } from "pngjs"
 
 export const CAPTURE_SIZES = Object.freeze([
   Object.freeze({ width: 800, height: 480 }),
-  Object.freeze({ width: 1024, height: 600 })
+  Object.freeze({ width: 1024, height: 600 }),
+  Object.freeze({ width: 393, height: 759 }),
+  Object.freeze({ width: 412, height: 867 })
 ])
 
 export class CaptureSafetyError extends Error {
@@ -196,9 +199,8 @@ export function createPrivateStaging(output) {
       if (readdirSync(staging.canonical).length !== 0) fail("private staging directory is not empty")
       revalidateDirectory(output.parent, "output parent")
       assertTargetAbsent(output.parent, output.target)
-      return { ...staging, parent: output.parent, target: output.target, expectedFiles: new Set() }
+      return { ...staging, parent: output.parent, target: output.target, expectedFiles: new Map() }
     } catch (error) {
-      try { rmSync(candidate, { recursive: true, force: true }) } catch {}
       throw error
     }
   }
@@ -215,21 +217,124 @@ export function revalidatePrivateStaging(staging) {
 
 function assertPrivateFiles(directory, expectedFiles, label) {
   const actual = readdirSync(directory).sort()
-  const expected = [...expectedFiles].sort()
+  const expected = [...expectedFiles.keys()].sort()
   if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index])) {
     fail(`${label} contains unexpected files`)
   }
   for (const name of actual) {
     const file = join(directory, name)
+    const record = expectedFiles.get(name)
+    assertPrivateFile(file, record, label)
+  }
+}
+
+function assertPrivateFile(file, record, label) {
     const listed = lstatSync(file)
     const followed = statSync(file)
     if (listed.isSymbolicLink() || !followed.isFile() || followed.nlink !== 1 || directoryIdentity(listed) !== directoryIdentity(followed)) {
       fail(`${label} contains a symlink, junction, or hard-linked file: ${file}`)
     }
+    const content = readFileSync(file)
+    const observed = {
+      bytes: content.length,
+      sha256: createHash("sha256").update(content).digest("hex")
+    }
+    if (!record || record.bytes !== observed.bytes || record.sha256 !== observed.sha256) {
+      fail(`${label} file integrity mismatch: ${file}`)
+    }
+}
+
+function moveDirectoryNoReplace(source, destination, label) {
+  if (process.platform !== "win32") {
+    fail(`${label} requires Windows atomic no-replace directory move support`)
+  }
+  try {
+    execFileSync(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        '$ErrorActionPreference="Stop"; [System.IO.Directory]::Move($env:RC01_MOVE_SOURCE, $env:RC01_MOVE_DESTINATION)'
+      ],
+      {
+        windowsHide: true,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          RC01_MOVE_SOURCE: source,
+          RC01_MOVE_DESTINATION: destination
+        }
+      }
+    )
+  } catch {
+    fail(`${label} failed without replacing the destination`)
   }
 }
 
-export function exclusiveWriteFile(staging, fileName, content) {
+function tryMoveDirectoryNoReplace(source, destination, label) {
+  try {
+    moveDirectoryNoReplace(source, destination, label)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function restoreQuarantinedDirectory(quarantine, original) {
+  try {
+    lstatSync(original)
+    return false
+  } catch (error) {
+    if (!(error && error.code === "ENOENT")) return false
+  }
+  return tryMoveDirectoryNoReplace(quarantine, original, "quarantine restoration")
+}
+
+/**
+ * Moves the verified identity to an unpredictable sibling and rechecks it there.
+ * Recursive deletion is deliberately deferred because Node has no handle-bound
+ * directory-tree removal primitive; a path replacement is therefore never deleted.
+ */
+function quarantineOwnedDirectory(guard, label) {
+  revalidateDirectory(guard.parent, "output parent")
+  const current = canonicalDirectory(guard.canonical, label)
+  if (
+    current.identity !== guard.identity ||
+    !samePath(dirname(current.canonical), guard.parent.canonical)
+  ) {
+    fail(`${label} identity changed before cleanup`)
+  }
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const quarantine = join(
+      guard.parent.canonical,
+      `.racecon-rc01-quarantine-${process.pid}-${randomBytes(12).toString("hex")}`
+    )
+    try {
+      lstatSync(quarantine)
+      continue
+    } catch (error) {
+      if (!(error && error.code === "ENOENT")) throw error
+    }
+    if (!tryMoveDirectoryNoReplace(current.canonical, quarantine, `${label} quarantine move`)) continue
+    let moved
+    try {
+      moved = canonicalDirectory(quarantine, `${label} quarantine`)
+    } catch (error) {
+      restoreQuarantinedDirectory(quarantine, current.canonical)
+      throw error
+    }
+    if (moved.identity !== guard.identity) {
+      restoreQuarantinedDirectory(quarantine, current.canonical)
+      fail(`${label} was replaced during quarantine cleanup`)
+    }
+    return moved
+  }
+  fail(`${label} could not be quarantined for safe cleanup`)
+}
+
+export function exclusiveWriteFile(staging, fileName, content, hooks = {}) {
   safeOutputName(fileName)
   revalidatePrivateStaging(staging)
   const target = resolve(staging.canonical, fileName)
@@ -241,15 +346,41 @@ export function exclusiveWriteFile(staging, fileName, content) {
     if (!(error && error.code === "ENOENT")) throw error
   }
 
-  let descriptor
+  const expectedContent = typeof content === "string"
+    ? Buffer.from(content, "utf8")
+    : Buffer.from(content)
+  const expectedRecord = Object.freeze({
+    bytes: expectedContent.length,
+    sha256: createHash("sha256").update(expectedContent).digest("hex")
+  })
   try {
-    descriptor = openSync(target, "wx", 0o600)
-    writeFileSync(descriptor, content)
-    const opened = fstatSync(descriptor)
-    if (!opened.isFile() || opened.nlink !== 1) fail(`unsafe staged output file: ${target}`)
-  } finally {
-    if (descriptor !== undefined) closeSync(descriptor)
+    let descriptor
+    try {
+      descriptor = openSync(target, "wx+", 0o600)
+      writeFileSync(descriptor, expectedContent)
+      fsyncSync(descriptor)
+      const opened = fstatSync(descriptor)
+      if (!opened.isFile() || opened.nlink !== 1 || opened.size !== expectedRecord.bytes) {
+        fail(`unsafe staged output file: ${target}`)
+      }
+      const observed = Buffer.alloc(expectedRecord.bytes)
+      let offset = 0
+      while (offset < observed.length) {
+        const read = readSync(descriptor, observed, offset, observed.length - offset, offset)
+        if (read <= 0) fail(`staged output could not be read back through its trusted descriptor: ${target}`)
+        offset += read
+      }
+      if (createHash("sha256").update(observed).digest("hex") !== expectedRecord.sha256) {
+        fail(`staged output differs from the supplied content: ${target}`)
+      }
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor)
+    }
+  } catch (error) {
+    try { unlinkSync(target) } catch {}
+    throw error
   }
+  if (typeof hooks.afterDescriptorClose === "function") hooks.afterDescriptorClose(target)
 
   const listed = lstatSync(target)
   const followed = statSync(target)
@@ -257,44 +388,81 @@ export function exclusiveWriteFile(staging, fileName, content) {
     try { unlinkSync(target) } catch {}
     fail(`staged output became a link or changed during capture: ${target}`)
   }
-  staging.expectedFiles.add(fileName)
-  revalidatePrivateStaging(staging)
+  staging.expectedFiles.set(fileName, expectedRecord)
+  try {
+    assertPrivateFiles(staging.canonical, staging.expectedFiles, "private staging directory")
+    revalidatePrivateStaging(staging)
+  } catch (error) {
+    staging.expectedFiles.delete(fileName)
+    try { unlinkSync(target) } catch {}
+    throw error
+  }
   return target
 }
 
-/** Publishes only a fully validated staging directory, with no overwrite path. */
-export function publishPrivateStaging(staging) {
-  revalidatePrivateStaging(staging)
-  assertPrivateFiles(staging.canonical, staging.expectedFiles, "private staging directory")
-  assertTargetAbsent(staging.parent, staging.target)
-  const expectedIdentity = staging.identity
-  renameSync(staging.canonical, staging.target)
-  const target = canonicalDirectory(staging.target, "published output directory")
-  if (target.identity !== expectedIdentity || !samePath(dirname(target.canonical), staging.parent.canonical)) {
-    fail("published output directory changed during atomic rename")
+/** Publishes the identified staging directory through an OS atomic no-replace move. */
+export function publishPrivateStaging(staging, hooks = {}) {
+  try {
+    revalidatePrivateStaging(staging)
+    assertPrivateFiles(staging.canonical, staging.expectedFiles, "private staging directory")
+    assertTargetAbsent(staging.parent, staging.target)
+  } catch (error) {
+    try { quarantineOwnedDirectory(staging, "private staging directory") } catch {}
+    throw error
   }
-  revalidateDirectory(staging.parent, "output parent")
-  assertPrivateFiles(target.canonical, staging.expectedFiles, "published output directory")
-  return { ...target, parent: staging.parent, expectedFiles: staging.expectedFiles }
+  let target
+  const movedGuard = {
+    canonical: staging.target,
+    identity: staging.identity,
+    parent: staging.parent
+  }
+  try {
+    if (typeof hooks.beforeExclusiveTargetCreate === "function") hooks.beforeExclusiveTargetCreate(staging.target)
+    moveDirectoryNoReplace(
+      staging.canonical,
+      staging.target,
+      "capture publication"
+    )
+    target = canonicalDirectory(staging.target, "published output directory")
+    target = { ...target, parent: staging.parent }
+    if (
+      target.identity !== staging.identity ||
+      !samePath(dirname(target.canonical), staging.parent.canonical)
+    ) {
+      fail("published output directory does not retain the identified staging directory")
+    }
+    if (typeof hooks.afterExclusivePublication === "function") hooks.afterExclusivePublication(target.canonical)
+    revalidateDirectory(staging.parent, "output parent")
+    assertPrivateFiles(target.canonical, staging.expectedFiles, "published output directory")
+  } catch (error) {
+    try { quarantineOwnedDirectory(target ?? movedGuard, "published output directory") } catch {}
+    try { quarantineOwnedDirectory(staging, "private staging directory") } catch {}
+    throw error
+  }
+  return { ...target, expectedFiles: new Map(staging.expectedFiles) }
 }
 
 export function revalidatePublishedOutput(publication) {
-  revalidateDirectory(publication.parent, "output parent")
-  const current = revalidateDirectory(publication, "published output directory")
-  if (!samePath(dirname(current.canonical), publication.parent.canonical)) fail("published output directory escaped its parent")
-  assertPrivateFiles(current.canonical, publication.expectedFiles, "published output directory")
-  return publication
+  try {
+    revalidateDirectory(publication.parent, "output parent")
+    const current = revalidateDirectory(publication, "published output directory")
+    if (!samePath(dirname(current.canonical), publication.parent.canonical)) fail("published output directory escaped its parent")
+    assertPrivateFiles(current.canonical, publication.expectedFiles, "published output directory")
+    return publication
+  } catch (error) {
+    try { quarantineOwnedDirectory(publication, "published output directory") } catch {}
+    throw error
+  }
 }
 
 export function discardPrivateStaging(staging) {
-  revalidatePrivateStaging(staging)
-  rmSync(staging.canonical, { recursive: true, force: false })
+  quarantineOwnedDirectory(staging, "private staging directory")
 }
 
 /** Removes only the publication whose identity and contents still match ours. */
 export function removePublishedOutput(publication) {
   revalidatePublishedOutput(publication)
-  rmSync(publication.canonical, { recursive: true, force: false })
+  quarantineOwnedDirectory(publication, "published output directory")
   try {
     lstatSync(publication.canonical)
   } catch (error) {
@@ -445,7 +613,9 @@ export function validateCapturePixels(buffer, size) {
     nativeTopBandExact: null,
     nativeLedExactPixels: null,
     appTopBandExact: null,
-    appLedExactPixels: null
+    appLedExactPixels: null,
+    compactNonCanvasPixels: null,
+    compactLedColorPixels: null
   }
   for (let offset = 3; offset < image.data.length; offset += 4) {
     if (image.data[offset] !== 255) fail(`capture PNG must be fully opaque; alpha ${image.data[offset]} found`)
@@ -482,6 +652,32 @@ export function validateCapturePixels(buffer, size) {
     if (exactPixels.some((count, index) => count !== expectedCounts[index])) fail("each app LED must match its exact solid pixel rectangle")
     audit.appTopBandExact = true
     audit.appLedExactPixels = exactPixels
+  } else if (
+    (size.width === 393 && size.height === 759) ||
+    (size.width === 412 && size.height === 867)
+  ) {
+    let nonCanvasPixels = 0
+    const compactLedColorPixels = Object.fromEntries(
+      ["cyan", "green", "amber", "red"].map((tone) => [tone, 0])
+    )
+    for (let y = 0; y < image.height; y += 1) {
+      for (let x = 0; x < image.width; x += 1) {
+        const pixel = rgbaAt(image, x, y)
+        if (!sameRgba(pixel, RC01_CANVAS_RGBA)) nonCanvasPixels += 1
+        if (sameRgba(pixel, RC01_LED_RGBA[0])) compactLedColorPixels.cyan += 1
+        else if (sameRgba(pixel, RC01_LED_RGBA[3])) compactLedColorPixels.green += 1
+        else if (sameRgba(pixel, RC01_LED_RGBA[6])) compactLedColorPixels.amber += 1
+        else if (sameRgba(pixel, RC01_LED_RGBA[9])) compactLedColorPixels.red += 1
+      }
+    }
+    if (
+      nonCanvasPixels < 5_000 ||
+      Object.values(compactLedColorPixels).some((count) => count < 500)
+    ) {
+      fail("compact capture is blank or missing a governed LED color group")
+    }
+    audit.compactNonCanvasPixels = nonCanvasPixels
+    audit.compactLedColorPixels = compactLedColorPixels
   } else {
     fail(`unsupported capture pixel-audit size ${size.width}x${size.height}`)
   }
@@ -490,19 +686,59 @@ export function validateCapturePixels(buffer, size) {
 
 function assertLeds(metrics, size) {
   if (!Array.isArray(metrics.leds) || metrics.leds.length !== 11) fail("RC-01 capture requires exactly 11 LEDs")
+  const native = size.width === 800 && size.height === 480
+  const app = size.width === 1024 && size.height === 600
   for (let index = 0; index < metrics.leds.length; index += 1) {
     const led = metrics.leds[index]
-    const native = size.width === 800
-    const appRect = APP_LED_RECTS[index]
-    const expectedLeft = native ? 52 + index * 64 : appRect.left
-    const expectedTop = native ? 16 : 14
-    const expectedWidth = native ? 56 : appRect.width
-    const expectedHeight = native ? 20 : 32
-    exact(led.left, expectedLeft, `LED ${index + 1} left`)
-    exact(led.top, expectedTop, `LED ${index + 1} top`)
-    exact(led.width, expectedWidth, `LED ${index + 1} width`)
-    exact(led.height, expectedHeight, `LED ${index + 1} height`)
+    if (native || app) {
+      const appRect = APP_LED_RECTS[index]
+      const expectedLeft = native ? 52 + index * 64 : appRect.left
+      const expectedTop = native ? 16 : 14
+      const expectedWidth = native ? 56 : appRect.width
+      const expectedHeight = native ? 20 : 32
+      exact(led.left, expectedLeft, `LED ${index + 1} left`)
+      exact(led.top, expectedTop, `LED ${index + 1} top`)
+      exact(led.width, expectedWidth, `LED ${index + 1} width`)
+      exact(led.height, expectedHeight, `LED ${index + 1} height`)
+    } else {
+      exact(led.top, 12, `compact LED ${index + 1} top`)
+      exact(led.height, 16, `compact LED ${index + 1} height`)
+      if (led.left < 12 - 0.02 || led.left + led.width > size.width - 12 + 0.02) {
+        fail(`compact LED ${index + 1} escapes the 12px horizontal inset`)
+      }
+      if (index > 0) {
+        const previous = metrics.leds[index - 1]
+        exact(led.left - previous.left - previous.width, 4, `compact LED ${index + 1} gap`)
+      }
+    }
     if (!led.active || led.color !== RC01_LED_COLORS[index]) fail(`LED ${index + 1} color or active state is wrong`)
+  }
+  if (!native && !app) {
+    exact(metrics.leds[0].left, 12, "first compact LED left")
+    exact(metrics.leds.at(-1).left + metrics.leds.at(-1).width, size.width - 12, "last compact LED right")
+  }
+}
+
+function phoneGeometry(size) {
+  const statusTop = Math.floor(size.height * 0.53)
+  return {
+    status: {
+      left: 12,
+      top: statusTop,
+      width: size.width - 24,
+      height: size.height - statusTop - 18
+    },
+    toggleSize: 44
+  }
+}
+
+function containsRect(outer, inner, label) {
+  if (!outer || !inner ||
+    inner.left < outer.left - 0.02 ||
+    inner.top < outer.top - 0.02 ||
+    inner.left + inner.width > outer.left + outer.width + 0.02 ||
+    inner.top + inner.height > outer.top + outer.height + 0.02) {
+    fail(`${label} is not contained by its required bounds`)
   }
 }
 
@@ -552,12 +788,16 @@ export function validateCaptureMetrics(metrics, size) {
   exact(metrics.canvas.transform.e, 0, "dashboard canvas translation X")
   exact(metrics.canvas.transform.f, 0, "dashboard canvas translation Y")
 
-  if (size.width === 800) {
+  if (size.width === 800 && size.height === 480) {
     if (metrics.layout !== "native" || metrics.nativeSize !== "800x480" || metrics.contentWidth !== "800" || metrics.contentHeight !== "480") {
       fail("800x480 capture did not select the native content-box modifier")
     }
     if (!metrics.appRail || metrics.appRail.display !== "none") fail("native RC-01 capture must not show the app attack rail")
-  } else {
+    if (!metrics.statusToggle || metrics.statusToggle.width < 44 || metrics.statusToggle.height < 44) {
+      fail("native RC-01 tyre-summary control must be at least 44x44 CSS pixels")
+    }
+    containsRect(metrics.status, metrics.statusToggle, "native tyre-summary control")
+  } else if (size.width === 1024 && size.height === 600) {
     if (metrics.layout !== "app" || metrics.nativeSize !== null || metrics.contentWidth !== "1024" || metrics.contentHeight !== "600") {
       fail("1024x600 capture did not select the app content-box modifier")
     }
@@ -566,6 +806,53 @@ export function validateCaptureMetrics(metrics, size) {
     exact(metrics.appRail.top, 96, "app attack rail top")
     exact(metrics.appRail.width, 112, "app attack rail width")
     exact(metrics.appRail.height, 410, "app attack rail height")
+  } else {
+    if (
+      metrics.layout !== "compact" ||
+      metrics.compactMode !== "phone" ||
+      metrics.nativeSize !== null ||
+      metrics.contentWidth !== String(size.width) ||
+      metrics.contentHeight !== String(size.height)
+    ) {
+      fail(`${size.width}x${size.height} capture did not select the phone compact modifier`)
+    }
+    if (!metrics.appRail || metrics.appRail.display !== "none") fail("phone RC-01 capture must not show the app attack rail")
+    const expected = phoneGeometry(size)
+    exact(metrics.status.left, expected.status.left, "phone status left")
+    exact(metrics.status.top, expected.status.top, "phone status top")
+    exact(metrics.status.width, expected.status.width, "phone status width")
+    exact(metrics.status.height, expected.status.height, "phone status height")
+    exact(metrics.statusToggle.width, expected.toggleSize, "phone tyre-summary control width")
+    exact(metrics.statusToggle.height, expected.toggleSize, "phone tyre-summary control height")
+    exact(
+      metrics.statusToggle.left,
+      expected.status.left + expected.status.width - expected.toggleSize,
+      "phone tyre-summary control left"
+    )
+    exact(
+      metrics.statusToggle.top,
+      expected.status.top + expected.status.height - expected.toggleSize - 1,
+      "phone tyre-summary control top"
+    )
+    if (
+      metrics.statusToggle.ariaLabel !== "Show tyre summary" ||
+      metrics.statusToggle.beforeContent === "none" ||
+      metrics.statusToggle.afterContent === "none"
+    ) {
+      fail("phone tyre-summary control is missing its accessible non-text cue")
+    }
+    containsRect(metrics.status, metrics.statusToggle, "phone tyre-summary control")
+    const fuel = metrics.statusMetrics?.find((item) => item.label === "FUEL")
+    const position = metrics.statusMetrics?.find((item) => item.label === "POS")
+    if (!fuel || fuel.text !== "42.5 L" || !position) fail("phone status metrics are missing truthful fuel or position output")
+    containsRect(metrics.status, fuel.rect, "phone fuel metric")
+    containsRect(fuel.rect, fuel.valueRect, "phone fuel value")
+    if (position.rect.left + position.rect.width > fuel.rect.left + 0.02) {
+      fail("phone position and fuel status columns overlap")
+    }
+    if (fuel.valueRect.left + fuel.valueRect.width > metrics.status.left + metrics.status.width + 0.02) {
+      fail("phone fuel value clips outside the status container")
+    }
   }
   assertLeds(metrics, size)
   return true

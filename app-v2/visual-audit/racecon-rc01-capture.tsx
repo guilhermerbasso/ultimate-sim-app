@@ -13,7 +13,11 @@ const FIXTURE_SESSION_ID = 74_001
 const FIXTURE_CONNECTION_EPOCH = 12
 const FIXTURE_SOURCE_ID = "acc:session:74001:connection:12"
 
-type CaptureSize = { width: 800; height: 480 } | { width: 1024; height: 600 }
+type CaptureSize =
+  | { width: 800; height: 480 }
+  | { width: 1024; height: 600 }
+  | { width: 393; height: 759 }
+  | { width: 412; height: 867 }
 
 function readCaptureSize(): CaptureSize {
   const params = new URLSearchParams(window.location.search)
@@ -21,7 +25,9 @@ function readCaptureSize(): CaptureSize {
   const height = Number(params.get("height") ?? "600")
   if (width === 800 && height === 480) return { width, height }
   if (width === 1024 && height === 600) return { width, height }
-  throw new Error("racecon RC-01 capture requires exactly 800x480 or 1024x600")
+  if (width === 393 && height === 759) return { width, height }
+  if (width === 412 && height === 867) return { width, height }
+  throw new Error("racecon RC-01 capture requires 800x480, 1024x600, 393x759, or 412x867")
 }
 
 /** A connected, provider-neutral live frame. It deliberately has no mock scenario import. */

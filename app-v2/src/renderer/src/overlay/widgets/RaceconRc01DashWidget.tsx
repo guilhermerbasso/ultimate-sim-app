@@ -1,12 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
 import {
   Rc01LiveTelemetryBuffer,
+  type Rc01MonotonicClock,
   buildRc01LedStates,
   createRc01DashboardModel,
+  rc01CompactModeForContentBox,
   rc01FieldDescription,
-  rc01LayoutForContentBox
+  rc01LayoutForContentBox,
+  rc01MonotonicNow,
+  rc01PhoneGeometryForContentBox
 } from './raceconRc01Core'
 import './raceconRc01.css'
 
@@ -79,16 +83,27 @@ function Metric({ label, value }: { label: string; value: ReturnType<typeof crea
  * RC-01 is an overlay-widget-owned, live telemetry dashboard. Its bounded history
  * accepts only the supplied TelemetrySnapshot stream; it has no mock or scenario path.
  */
-export function RaceconRc01DashWidget({ snapshot, config }: WidgetProps): ReactElement {
+export interface RaceconRc01DashWidgetProps extends WidgetProps {
+  monotonicClock?: Rc01MonotonicClock
+}
+
+export function RaceconRc01DashWidget({
+  snapshot,
+  config,
+  monotonicClock = rc01MonotonicNow
+}: RaceconRc01DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
   const bufferRef = useRef(new Rc01LiveTelemetryBuffer())
-  const [nowMs, setNowMs] = useState(() => Date.now())
+  const [nowMs, setNowMs] = useState(() => monotonicClock())
   const [detail, setDetail] = useState<'fuel' | 'tyres'>('fuel')
   const box = useContentBox(rootRef, config)
   // This is a receipt timestamp, not a display-clock timestamp. It changes only
   // when a new snapshot object (or its provider timestamp) arrives; a freshness
   // tick therefore cannot make the current frame look newly received.
-  const arrivalMs = useMemo(() => Date.now(), [snapshot, snapshot?.timestamp])
+  const arrivalMs = useMemo(
+    () => monotonicClock(),
+    [monotonicClock, snapshot, snapshot?.timestamp]
+  )
 
   // Rendering only mutates an isolated candidate. It becomes the committed history
   // in the layout phase, so StrictMode and abandoned concurrent renders cannot advance it.
@@ -103,15 +118,31 @@ export function RaceconRc01DashWidget({ snapshot, config }: WidgetProps): ReactE
   const leds = buildRc01LedStates(model.rpmRatio, model.rpmFresh, alerts.overRev.active, model.shiftGear)
   const trace = sparklinePoints(candidate.traceValues())
   const layout = rc01LayoutForContentBox(box.width, box.height)
+  const compactMode = rc01CompactModeForContentBox(box.width, box.height)
+  const phoneGeometry = rc01PhoneGeometryForContentBox(box.width, box.height)
+  const responsiveStyle = phoneGeometry
+    ? {
+        '--rc01-phone-inset': `${phoneGeometry.inset}px`,
+        '--rc01-phone-led-top': `${phoneGeometry.ledTop}px`,
+        '--rc01-phone-led-height': `${phoneGeometry.ledHeight}px`,
+        '--rc01-phone-hero-top': `${phoneGeometry.heroTop}px`,
+        '--rc01-phone-hero-height': `${phoneGeometry.heroHeight}px`,
+        '--rc01-phone-delta-top': `${phoneGeometry.deltaTop}px`,
+        '--rc01-phone-delta-height': `${phoneGeometry.deltaHeight}px`,
+        '--rc01-phone-status-top': `${phoneGeometry.statusTop}px`,
+        '--rc01-phone-status-height': `${phoneGeometry.statusHeight}px`,
+        '--rc01-phone-toggle-size': `${phoneGeometry.toggleSize}px`
+      } as CSSProperties
+    : undefined
 
   useLayoutEffect(() => {
     bufferRef.current = candidate
   }, [candidate])
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 100)
+    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [monotonicClock])
 
   const deltaChevron = model.delta.direction === 'down' ? '\u25C0' : model.delta.direction === 'up' ? '\u25B6' : '\u2014'
   const deltaDescription = model.delta.unavailable
@@ -124,9 +155,11 @@ export function RaceconRc01DashWidget({ snapshot, config }: WidgetProps): ReactE
       className="rc01-widget"
       data-widget="raceconRc01Dash"
       data-rc01-layout={layout}
+      data-rc01-compact-mode={layout === 'compact' ? compactMode : undefined}
       data-rc01-buffer-state={outcome.reason}
       data-rc01-content-width={Math.round(box.width)}
       data-rc01-content-height={Math.round(box.height)}
+      style={responsiveStyle}
     >
       <main
         className={`rc01-dashboard rc01-detail-${detail}${alerts.overRev.active ? ' rc01-over-rev' : ''}${alerts.deltaZeroCross.active ? ' rc01-delta-zero-cross' : ''}`}

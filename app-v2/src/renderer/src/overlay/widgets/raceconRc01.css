@@ -191,8 +191,10 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  min-width: 46px;
-  height: 27%;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
   border: 1px solid #3D4751;
   border-bottom: 0;
   background: transparent;
@@ -204,7 +206,7 @@
 .rc01-soft-key::before { inset: 6px 9px; border: 1px solid currentColor; border-radius: 2px; }
 .rc01-soft-key::after { left: 50%; top: 50%; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translate(-50%, -65%) rotate(45deg); }
 .rc01-status-toggle:hover { border-color: #2FB6E0; color: #FFFFFF; }
-.rc01-status-toggle:focus-visible { border-color: #2FB6E0; color: #FFFFFF; outline: 2px solid #2FB6E0; outline-offset: 2px; }
+.rc01-status-toggle:focus-visible { border-color: #2FB6E0; color: #FFFFFF; outline: 2px solid #2FB6E0; outline-offset: -3px; }
 
 .rc01-detail-tyres .rc01-status-grid { width: 42%; }
 .rc01-detail-tyres .rc01-status-grid .rc01-metric:last-child { display: none; }
@@ -220,6 +222,107 @@
 @keyframes rc01-delta-cliff { 0% { transform: scale(1); } 35% { transform: scale(1.05); } 100% { transform: scale(1); } }
 @keyframes rc01-delta-zero-cross { 0%, 100% { opacity: 1; transform: translateX(0) scale(1); } 30% { opacity: 0.55; transform: translateX(-3px) scale(1.12); } 60% { opacity: 1; transform: translateX(3px) scale(1.08); } }
 @keyframes rc01-over-rev-flash { 0%, 49% { opacity: 1; filter: brightness(1); } 50%, 100% { opacity: 0.3; filter: brightness(1.8); } }
+
+/* Portrait compact mode is driven by the widget's measured content box. */
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-led-arc {
+  left: var(--rc01-phone-inset);
+  right: var(--rc01-phone-inset);
+  top: var(--rc01-phone-led-top);
+  width: auto;
+  height: var(--rc01-phone-led-height);
+  gap: 4px;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-speed,
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-gear,
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-rpm {
+  top: var(--rc01-phone-hero-top);
+  height: var(--rc01-phone-hero-height);
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-speed {
+  left: var(--rc01-phone-inset);
+  width: 27%;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-gear {
+  left: 31%;
+  width: 38%;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-rpm {
+  left: auto;
+  right: var(--rc01-phone-inset);
+  width: 27%;
+  padding-inline-end: 4px;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-hero-label { font-size: clamp(13px, 3.7cqw, 16px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-speed .rc01-value { font-size: min(15cqw, 62px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-gear .rc01-value { font-size: min(34cqw, 140px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-rpm .rc01-value { font-size: min(11cqw, 45px); letter-spacing: -0.09em; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-unit { font-size: clamp(12px, 3.5cqw, 15px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-rpm-tick { right: 2px; width: 2px; }
+
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-delta {
+  left: var(--rc01-phone-inset);
+  right: var(--rc01-phone-inset);
+  top: var(--rc01-phone-delta-top);
+  width: auto;
+  height: var(--rc01-phone-delta-height);
+  padding: 14px 12px 10px;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-delta-label { font-size: 14px; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-delta .rc01-value { font-size: min(22cqw, 90px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-delta-chevron { font-size: min(10cqw, 42px); }
+
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-status {
+  left: var(--rc01-phone-inset);
+  right: var(--rc01-phone-inset);
+  top: var(--rc01-phone-status-top);
+  width: auto;
+  height: var(--rc01-phone-status-height);
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-status-grid {
+  width: 100%;
+  height: 48%;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(112px, 1.45fr);
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-metric {
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 4px;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-metric dt { font-size: clamp(12px, 3.4cqw, 15px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-metric .rc01-value {
+  max-width: 100%;
+  font-size: clamp(28px, 8cqw, 34px);
+  letter-spacing: -0.06em;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-status-grid .rc01-metric:nth-child(2) .rc01-value { font-size: clamp(26px, 7.4cqw, 32px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-status-grid .rc01-metric:last-child .rc01-value {
+  font-size: clamp(24px, 7.2cqw, 30px);
+  letter-spacing: -0.04em;
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-status-toggle {
+  right: 0;
+  bottom: 0;
+  width: var(--rc01-phone-toggle-size);
+  min-width: var(--rc01-phone-toggle-size);
+  height: var(--rc01-phone-toggle-size);
+  min-height: var(--rc01-phone-toggle-size);
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-detail-tyres .rc01-status-grid {
+  width: 44%;
+  height: calc(100% - 52px);
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-detail-tyres .rc01-status-grid .rc01-metric:last-child { display: none; }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-detail-tyres .rc01-tyre-grid {
+  top: 0;
+  right: 0;
+  bottom: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 56%;
+  height: calc(100% - 52px);
+}
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-tyre .rc01-value { font-size: clamp(18px, 5.4cqw, 23px); }
+.rc01-widget[data-rc01-layout="compact"][data-rc01-compact-mode="phone"] .rc01-pit-alert { min-height: 32px; padding: 7px 8px; font-size: 14px; }
 
 /* App composition is selected by the widget's ResizeObserver content-box result. */
 .rc01-widget[data-rc01-layout="app"] .rc01-led-arc { left: 0; top: 0; gap: 0.9%; width: 100%; height: 10.666667%; padding: 14px 24px 18px; }
@@ -260,9 +363,7 @@
 .rc01-widget[data-rc01-layout="app"] .rc01-rail-metrics .rc01-metric dt { font-size: clamp(8px, 0.98cqw, 11px); }
 .rc01-widget[data-rc01-layout="app"] .rc01-rail-metrics .rc01-metric .rc01-value { font-size: clamp(16px, 1.8cqw, 21px); letter-spacing: -0.08em; }
 
-/* Native DDU mode is expressed in the root's authored content box. When a
-   1024x600 dashboard canvas is transformed to an 800x480 viewport, the following
-   percentages and container units land on the accepted 800x480 screen geometry. */
+/* Native DDU mode is rendered directly in the responsive 800x480 CSS-pixel box. */
 .rc01-widget[data-rc01-layout="native"] .rc01-dashboard {
   width: 100%;
   height: 100%;
@@ -329,9 +430,10 @@
 .rc01-widget[data-rc01-layout="native"] .rc01-status-toggle {
   right: 0;
   bottom: 0;
-  width: 5.75%;
-  min-width: 0;
-  height: 6.25%;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
   border-width: 0.125cqw;
 }
 .rc01-widget[data-rc01-layout="native"] .rc01-soft-key::before { inset: 0.75cqw 1.125cqw; border-width: 0.125cqw; border-radius: 0.25cqw; }
