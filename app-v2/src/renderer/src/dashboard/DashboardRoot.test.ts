@@ -170,6 +170,45 @@ describe('dashboard overlaywidget resolution', () => {
     expect(resolveDashboardCanvasRenderModel(dashboard).dashboard).toBe(dashboard)
   })
 
+  it('resolves and renders the live RaceCon RC-03 full-frame widget', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc03', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc03Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const snapshot = { ...PREVIEW_SNAPSHOT, timestamp: Date.now(), sessionUniqueId: 103 }
+    const output = renderToStaticMarkup(renderDashboardElement({ element, snapshot }))
+    expect(output).toContain('data-widget="raceconRc03Dash"')
+    expect(output).toContain('FUEL LAPS')
+    expect(output).not.toContain('Unknown widget')
+  })
+
+  it('treats RC-03 as a responsive full-frame instrument at the native and app sizes', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc03', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc03Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const dashboard: Dashboard = {
+      id: 'racecon_rc03_dash',
+      name: 'RaceCon RC-03 Long Night',
+      width: 1024,
+      height: 600,
+      bg: '#07090B',
+      scaleMode: 'stretch',
+      elements: [element]
+    }
+
+    const native = resolveDashboardCanvasRenderModel(dashboard, { width: 800, height: 480 })
+    expect(native.baseWidth).toBe(800)
+    expect(native.baseHeight).toBe(480)
+    expect(native.dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 800, h: 480 })
+    // The stored preset must never be mutated by the responsive render model.
+    expect(dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 1024, h: 600 })
+
+    const app = resolveDashboardCanvasRenderModel(dashboard, { width: 1024, height: 600 })
+    expect(app.baseWidth).toBe(1024)
+    expect(app.dashboard.elements[0]).toMatchObject({ w: 1024, h: 600 })
+  })
+
   it('renders an exact full-frame RC-01 model at the target CSS-pixel size without mutating the preset', () => {
     const element: DashboardElement = {
       id: 'racecon-rc01', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
