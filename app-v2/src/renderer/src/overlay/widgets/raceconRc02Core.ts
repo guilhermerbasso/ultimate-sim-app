@@ -166,9 +166,10 @@ export function rc02FormatSignedSeconds(seconds: number | null, digits = 3): str
 }
 
 /**
- * Nine discrete shift bars. Bands mirror the packet's blue -> green -> amber ramp; the ninth
- * bar is the cap. Over-rev turns the cap red, and personal-best pace tints it violet at the
- * shift point only. Both are trigger states, never decoration.
+ * Nine discrete shift bars ramping blue -> green -> amber. Red is reserved: the ninth bar is
+ * the cap and turns red only while over-rev is latched, and violet only when personal-best
+ * pace is engaged at the shift point. Both are trigger states, never decoration, so the
+ * routine ramp never shows an alert colour.
  */
 export function buildRc02LedStates(
   rpmRatio: number | null,
@@ -190,7 +191,7 @@ export function buildRc02LedStates(
     const isCap = index === RC02_LED_COUNT - 1
     if (isCap && overRevActive) return { index, active: true, tone: 'danger' as const }
     if (isCap && pbPaceActive && atShiftPoint) return { index, active: true, tone: 'signature' as const }
-    const tone: Rc02LedTone = index < 3 ? 'info' : index < 6 ? 'good' : index < 8 ? 'caution' : 'danger'
+    const tone: Rc02LedTone = index < 3 ? 'info' : index < 6 ? 'good' : 'caution'
     return { index, active: true, tone }
   })
 }
@@ -516,8 +517,10 @@ export function clearInvalidRc02PbPace(state: Rc02PbPaceState, model: Rc02Dashbo
 
 /**
  * Projects the shared RC-01 telemetry model into RC-02's presentation, adding the
- * source-bound predicted lap, the lap clocks and the measured sectors. No channel is
- * invented, estimated or mirrored: every unavailable value renders as its dash state.
+ * source-bound predicted lap and the measured sectors. Current and last lap time are
+ * deliberately absent: RC-02 does not surface them, so deriving them would mean inferring a
+ * channel's freshness from another. No channel is invented, estimated or mirrored, and every
+ * unavailable value renders as its dash state.
  */
 export function createRc02DashboardModel(
   snapshot: TelemetrySnapshot | null,
@@ -579,7 +582,14 @@ export function rc02SectorDescription(sector: Rc02Sector): string {
 }
 
 export function rc02SpineDescription(model: Rc02DashboardModel): string {
-  if (model.spine.unavailable) return 'Lap delta unavailable because no fresh valid best lap is available'
+  if (model.spine.unavailable) {
+    // The spine is unavailable when either the delta or the stored best is missing or stale.
+    // Naming the actual cause keeps the accessible description truthful.
+    if (model.best.unavailable) return 'Lap delta unavailable because no valid best lap has been recorded'
+    if (model.best.stale) return 'Lap delta unavailable because the best lap reference is stale'
+    if (model.delta.unavailable) return 'Lap delta unavailable because the delta channel is not reporting'
+    return 'Lap delta unavailable because the delta channel is stale'
+  }
   const magnitude = Math.abs(finite(model.delta.raw) ? model.delta.raw : 0).toFixed(3)
   if (model.spine.direction === 'up') return `Ahead of best lap by ${magnitude} seconds`
   if (model.spine.direction === 'down') return `Behind best lap by ${magnitude} seconds`

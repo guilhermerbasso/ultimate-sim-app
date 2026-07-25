@@ -28,7 +28,8 @@ import {
   rc02LayoutForContentBox,
   rc02PhoneGeometryForContentBox,
   rc02SectorDescription,
-  rc02SpineGeometry
+  rc02SpineGeometry,
+  rc02SpineDescription
 } from './raceconRc02Core'
 
 const config: OverlayWidgetConfig = {
@@ -113,15 +114,17 @@ describe('RC-02 shift row', () => {
     expect(buildRc02LedStates(null, true, false, 5).every((led) => !led.active && led.tone === 'dark')).toBe(true)
   })
 
-  it('ramps blue then green then amber as RPM builds', () => {
+  it('ramps blue then green then amber and never shows an alert colour in the routine band', () => {
     const leds = buildRc02LedStates(0.94, true, false, 5)
     expect(leds.slice(0, 3).map((led) => led.tone)).toEqual(['info', 'info', 'info'])
     expect(leds.slice(3, 6).map((led) => led.tone)).toEqual(['good', 'good', 'good'])
-    expect(leds.slice(6, 8).map((led) => led.tone)).toEqual(['caution', 'caution'])
+    expect(leds.slice(6, 9).map((led) => led.tone)).toEqual(['caution', 'caution', 'caution'])
+    // Red is reserved for over-rev, so the routine ramp must never contain it.
+    expect(leds.some((led) => led.tone === 'danger')).toBe(false)
   })
 
   it('turns the cap red only while over-rev is latched', () => {
-    expect(buildRc02LedStates(0.995, true, false, 5)[8].tone).toBe('danger')
+    expect(buildRc02LedStates(0.995, true, false, 5)[8].tone).toBe('caution')
     expect(buildRc02LedStates(0.995, true, true, 5)[8].tone).toBe('danger')
     expect(buildRc02LedStates(0.6, true, true, 5)[8].tone).toBe('dark')
   })
@@ -444,6 +447,14 @@ describe('RC-02 telemetry truth', () => {
     expect(stale.delta.stale || stale.delta.unavailable).toBe(true)
     expect(stale.delta.value).toBe('--')
     expect(stale.spine.unavailable).toBe(true)
+  })
+
+  it('names the actual cause when the spine is unavailable', () => {
+    const noBest = modelFor(snapshot({ bestLapTimeSec: undefined }))
+    expect(rc02SpineDescription(noBest)).toContain('no valid best lap has been recorded')
+    const noDelta = modelFor(snapshot({ deltaToBestSec: undefined }))
+    expect(rc02SpineDescription(noDelta)).toContain('delta channel is not reporting')
+    expect(rc02SpineDescription(modelFor(snapshot()))).toContain('Ahead of best lap by 0.284 seconds')
   })
 
   it('never mirrors one tyre corner onto another', () => {

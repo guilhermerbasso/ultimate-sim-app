@@ -66,7 +66,7 @@ function SectorChip({ sector }: { sector: Rc02Sector }): ReactElement {
     <div className="rc02-sector" data-testid="rc02-sector" data-sector={sector.label} data-loss={sector.lossActive ? 'true' : 'false'}>
       <span className="rc02-chip-label">{sector.label}</span>
       <output
-        className={`rc02-value${sector.unavailable ? ' is-unavailable' : ''}${sector.lossActive ? ' rc02-tone-caution' : ''}`}
+        className={`rc02-value${sector.unavailable ? ' is-unavailable' : ''}`}
         aria-label={rc02SectorDescription(sector)}
       >
         {sector.value}
