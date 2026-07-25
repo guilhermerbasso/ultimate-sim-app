@@ -1,0 +1,461 @@
+/*
+ * RaceCon RC-02 "Purple Lap" — one-lap qualifying focus.
+ *
+ * Zone geometry follows ARTIFACT-PACKET.md section 11.1 for the 800x480 native canvas and
+ * section 12.1 for the 1024x600 app reflow. The app view is not a uniform scale: the extra
+ * width unlocks a sector-history ladder that cannot fit on 800x480, and the spine grows
+ * taller rather than wider so the vertical thesis is preserved.
+ */
+
+.rc02-widget,
+.rc02-widget *,
+.rc02-widget *::before,
+.rc02-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc02-widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: #05070C;
+  color: #F4F8FF;
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc02-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc02-widget section,
+.rc02-widget aside {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rc02-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #F4F8FF;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.rc02-value.is-stale {
+  color: #8FA0B8;
+}
+
+.rc02-value.is-unavailable {
+  color: #55637A;
+}
+
+.rc02-tone-good { color: #46E0A0; }
+.rc02-tone-bad { color: #FF5A4D; }
+.rc02-tone-muted { color: #8FA0B8; }
+
+.rc02-chip-label,
+.rc02-unit {
+  display: block;
+  color: #8FA0B8;
+  font-size: clamp(9px, 1.5cqw, 14px);
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- head + LEDs */
+
+.rc02-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.rc02-led-row {
+  display: flex;
+  width: 100%;
+  height: clamp(10px, 3.2cqh, 22px);
+  gap: 2.4%;
+  align-items: stretch;
+}
+
+.rc02-led {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 1px;
+  background: #1B2230;
+}
+
+.rc02-led[data-tone='info'] { background: #4DA3FF; }
+.rc02-led[data-tone='good'] { background: #46E0A0; }
+.rc02-led[data-tone='caution'] { background: #FFD23F; }
+.rc02-led[data-tone='danger'] { background: #FF5A4D; }
+.rc02-led[data-tone='signature'] { background: #B388FF; }
+
+.rc02-gear {
+  font-size: clamp(48px, 14cqw, 118px);
+  line-height: 0.94;
+  text-align: center;
+}
+
+.rc02-head-rule {
+  width: 88%;
+  height: 1px;
+  background: #2A3446;
+}
+
+/* ---------------------------------------------------------------- spine */
+
+.rc02-spine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.rc02-spine-value {
+  max-width: 100%;
+  font-size: clamp(20px, 6cqw, 52px);
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.rc02-spine-chevron {
+  color: #F4F8FF;
+  font-size: clamp(12px, 2.4cqw, 22px);
+  line-height: 1;
+}
+
+.rc02-spine[data-direction='flat'] .rc02-spine-chevron,
+.rc02-spine[data-unavailable='true'] .rc02-spine-chevron {
+  color: #55637A;
+}
+
+.rc02-spine-track {
+  position: relative;
+  flex: 1 1 auto;
+  width: var(--rc02-track-width, 100%);
+  align-self: center;
+  min-height: 0;
+  border: 1px solid #2A3446;
+  border-radius: 2px;
+  background: #101826;
+}
+
+.rc02-spine-datum {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 2px;
+  margin-top: -1px;
+  background: #8FA0B8;
+}
+
+.rc02-spine-fill {
+  position: absolute;
+  right: 0;
+  left: 0;
+  background: #46E0A0;
+}
+
+.rc02-spine[data-direction='down'] .rc02-spine-fill {
+  background: #FF5A4D;
+}
+
+.rc02-spine-cap {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 4px;
+  background: #B388FF;
+}
+
+/*
+ * The star sits inside the track. An outside offset would overhang the neighbouring
+ * predicted/target column at the phone breakpoint.
+ */
+.rc02-spine-star {
+  position: absolute;
+  right: 2px;
+  color: #B388FF;
+  font-size: clamp(10px, 1.8cqw, 16px);
+  line-height: 1;
+  transform: translateY(-2px);
+}
+
+/* ---------------------------------------------------------------- chips */
+
+.rc02-sectors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rc02-sector,
+.rc02-chip {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border: 1px solid #1E2739;
+  border-radius: 4px;
+  background: #101826;
+}
+
+.rc02-sector .rc02-value,
+.rc02-chip .rc02-value {
+  font-size: clamp(16px, 4cqw, 40px);
+}
+
+.rc02-sector[data-loss='true'] {
+  border-color: #FFD23F;
+}
+
+.rc02-sector[data-loss='true'] .rc02-value {
+  color: #FFD23F;
+  font-weight: 800;
+}
+
+.rc02-speed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 1px solid #1E2739;
+  border-radius: 4px;
+  background: #101826;
+}
+
+.rc02-speed .rc02-value {
+  font-size: clamp(24px, 7cqw, 62px);
+}
+
+.rc02-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rc02-targets .rc02-value {
+  font-size: clamp(14px, 3.6cqw, 38px);
+}
+
+/* ---------------------------------------------------------------- tyres */
+
+.rc02-tyres {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rc02-tyre-grid {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  gap: 3px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.rc02-tyre {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #1E2739;
+  border-radius: 3px;
+  background: #101826;
+}
+
+.rc02-tyre dt {
+  color: #8FA0B8;
+  font-size: clamp(8px, 1.3cqw, 12px);
+  letter-spacing: 0.08em;
+}
+
+.rc02-tyre dd {
+  margin: 0;
+}
+
+.rc02-tyre .rc02-value {
+  font-size: clamp(12px, 2.6cqw, 26px);
+}
+
+/* ---------------------------------------------------------------- ladder (app only) */
+
+.rc02-ladder {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rc02-ladder-row {
+  display: grid;
+  flex: 1 1 0;
+  min-height: 0;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid #1E2739;
+  border-radius: 4px;
+  background: #101826;
+  gap: 4px;
+  grid-template-columns: minmax(0, 0.55fr) repeat(3, minmax(0, 0.85fr)) minmax(0, 1.15fr);
+  text-align: center;
+}
+
+.rc02-ladder-row .rc02-value {
+  font-size: clamp(11px, 1.55cqw, 18px);
+}
+
+.rc02-ladder-head {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* Packet section 15 keeps the sector-loss treatment visible where the chips are not shown. */
+.rc02-ladder-now .rc02-value[data-loss='true'] {
+  color: #FFD23F;
+  font-weight: 800;
+}
+
+.rc02-sr-alert {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- native 800x480 */
+
+/*
+ * The packet's 120 px delta-spine zone is the BAR. The delta value is specified as the hero
+ * numeral and cannot fit 120 px in a non-condensed fallback font, so the section is widened
+ * to host the numeral while `--rc02-track-width` keeps the bar itself on the packet geometry
+ * (800x480: 184 px section, 120 px bar centred at x=342..462 against the packet's 340..460).
+ */
+.rc02-widget[data-rc02-layout='native'] .rc02-head { left: 37.5%; top: 2.083%; width: 25%; height: 25%; }
+.rc02-widget[data-rc02-layout='native'] .rc02-spine { left: 38.5%; top: 29.167%; width: 23%; height: 62.5%; --rc02-track-width: 65%; }
+.rc02-widget[data-rc02-layout='native'] .rc02-sectors { left: 3%; top: 29.167%; width: 17.5%; height: 62.5%; }
+.rc02-widget[data-rc02-layout='native'] .rc02-targets { left: 78%; top: 29.167%; width: 18.75%; height: 62.5%; }
+.rc02-widget[data-rc02-layout='native'] .rc02-speed { left: 21%; top: 31.25%; width: 17%; height: 18.75%; }
+.rc02-widget[data-rc02-layout='native'] .rc02-tyres { left: 21%; top: 75%; width: 17%; height: 16.667%; }
+
+/* ---------------------------------------------------------------- app 1024x600 */
+
+.rc02-widget[data-rc02-layout='app'] .rc02-head { left: 40.234%; top: 3.333%; width: 19.531%; height: 20%; }
+/* 200 px section, 120 px bar centred at x=452..572 — exactly the packet's app spine zone. */
+.rc02-widget[data-rc02-layout='app'] .rc02-spine { left: 40.234%; top: 25%; width: 19.531%; height: 66.667%; --rc02-track-width: 60%; }
+.rc02-widget[data-rc02-layout='app'] .rc02-ladder { display: flex; left: 2.344%; top: 25%; width: 35.156%; height: 66.667%; }
+.rc02-widget[data-rc02-layout='app'] .rc02-targets { left: 62.5%; top: 25%; width: 35.156%; height: 40%; }
+.rc02-widget[data-rc02-layout='app'] .rc02-tyres { left: 62.5%; top: 68.333%; width: 35.156%; height: 23.333%; }
+.rc02-widget[data-rc02-layout='app'] .rc02-tyre-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr); }
+/* The five packet reflow zones are reserved, so speed takes the free band above the ladder. */
+.rc02-widget[data-rc02-layout='app'] .rc02-speed { left: 2.344%; top: 3.333%; width: 35.156%; height: 18.333%; }
+.rc02-widget[data-rc02-layout='app'] .rc02-sectors { display: none; }
+
+/* ---------------------------------------------------------------- compact base */
+
+.rc02-widget[data-rc02-layout='compact'] .rc02-head { left: 34%; top: 1.5%; width: 32%; height: 22%; }
+.rc02-widget[data-rc02-layout='compact'] .rc02-spine { left: 36%; top: 25%; width: 28%; height: 62%; --rc02-track-width: 55%; }
+.rc02-widget[data-rc02-layout='compact'] .rc02-sectors { left: 2%; top: 25%; width: 20%; height: 62%; }
+.rc02-widget[data-rc02-layout='compact'] .rc02-targets { left: 78%; top: 25%; width: 20%; height: 62%; }
+.rc02-widget[data-rc02-layout='compact'] .rc02-speed { left: 23%; top: 25%; width: 12%; height: 20%; }
+.rc02-widget[data-rc02-layout='compact'] .rc02-tyres { left: 23%; top: 62%; width: 12%; height: 25%; }
+
+/* ---------------------------------------------------------------- compact phone */
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-head {
+  left: var(--rc02-phone-inset, 12px);
+  top: var(--rc02-phone-head-top, 12px);
+  width: calc(100% - 2 * var(--rc02-phone-inset, 12px));
+  height: var(--rc02-phone-head-height, 132px);
+}
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-spine {
+  left: 30%;
+  top: var(--rc02-phone-spine-top, 168px);
+  width: 40%;
+  height: var(--rc02-phone-spine-height, 300px);
+  --rc02-track-width: 55%;
+}
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-sectors {
+  left: var(--rc02-phone-inset, 12px);
+  top: var(--rc02-phone-spine-top, 168px);
+  width: 26%;
+  height: var(--rc02-phone-spine-height, 300px);
+}
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-targets {
+  right: var(--rc02-phone-inset, 12px);
+  left: auto;
+  top: var(--rc02-phone-spine-top, 168px);
+  width: 26%;
+  height: var(--rc02-phone-spine-height, 300px);
+}
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-speed {
+  left: var(--rc02-phone-inset, 12px);
+  top: var(--rc02-phone-bottom-top, 490px);
+  width: calc(45% - var(--rc02-phone-inset, 12px));
+  height: var(--rc02-phone-bottom-height, 120px);
+}
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-tyres {
+  right: var(--rc02-phone-inset, 12px);
+  left: auto;
+  top: var(--rc02-phone-bottom-top, 490px);
+  width: calc(53% - var(--rc02-phone-inset, 12px));
+  height: var(--rc02-phone-bottom-height, 120px);
+}
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-gear { font-size: clamp(44px, 21cqw, 96px); }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-spine-value { font-size: clamp(18px, 7cqw, 34px); }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-sector .rc02-value { font-size: clamp(15px, 7cqw, 30px); }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-targets .rc02-value { font-size: clamp(14px, 6.4cqw, 28px); }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='phone'] .rc02-speed .rc02-value { font-size: clamp(30px, 13cqw, 60px); }
+
+/* ---------------------------------------------------------------- compact landscape */
+
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-head { left: 38%; top: 2%; width: 24%; height: 27%; }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-spine { left: 39%; top: 31%; width: 22%; height: 65%; --rc02-track-width: 55%; }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-sectors { left: 2%; top: 31%; width: 18%; height: 65%; }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-targets { left: 80%; top: 31%; width: 18%; height: 65%; }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-speed { left: 21%; top: 31%; width: 16%; height: 28%; }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-tyres { left: 21%; top: 62%; width: 16%; height: 34%; }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-gear { font-size: clamp(40px, 9cqw, 84px); }
+.rc02-widget[data-rc02-layout='compact'][data-rc02-compact-mode='landscape'] .rc02-spine-value { font-size: clamp(20px, 4.4cqw, 42px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rc02-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

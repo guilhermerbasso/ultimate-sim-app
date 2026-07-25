@@ -1754,11 +1754,14 @@ export interface DashboardCanvasRenderModel {
   scaleMode: DashboardScaleMode
 }
 
-function isResponsiveRc01FullFrame(dashboard: Dashboard): boolean {
+const RESPONSIVE_FULL_FRAME_WIDGET_IDS = new Set<string>(['raceconRc01Dash', 'raceconRc02Dash'])
+
+function isResponsiveFullFrame(dashboard: Dashboard): boolean {
   if (dashboard.elements.length !== 1) return false
   const element = dashboard.elements[0]
   return element.type === 'overlaywidget' &&
-    element.widgetId === 'raceconRc01Dash' &&
+    typeof element.widgetId === 'string' &&
+    RESPONSIVE_FULL_FRAME_WIDGET_IDS.has(element.widgetId) &&
     element.x === 0 &&
     element.y === 0 &&
     element.w === dashboard.width &&
@@ -1766,8 +1769,8 @@ function isResponsiveRc01FullFrame(dashboard: Dashboard): boolean {
 }
 
 /**
- * RC-01 is a responsive full-frame instrument, not a fixed raster-like canvas.
- * Render its sole element directly in the target CSS-pixel box so the native
+ * The RaceCon full-frame dashboards are responsive instruments, not fixed raster-like
+ * canvases. Render the sole element directly in the target CSS-pixel box so the native
  * 800x480 contract is not resampled by DashboardCanvas's authored-size transform.
  * The stored dashboard/preset remains unchanged.
  */
@@ -1778,7 +1781,7 @@ export function resolveDashboardCanvasRenderModel(
   const baseWidth = dashboard.width ?? 1920
   const baseHeight = dashboard.height ?? 1080
   const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'stretch'
-  if (!viewport || !isResponsiveRc01FullFrame(dashboard)) {
+  if (!viewport || !isResponsiveFullFrame(dashboard)) {
     return { dashboard, baseWidth, baseHeight, scaleMode }
   }
 

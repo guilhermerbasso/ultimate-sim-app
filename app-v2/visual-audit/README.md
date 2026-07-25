@@ -46,6 +46,28 @@ Responsive control/fuel geometry can be exercised independently with the existin
 npm exec playwright -- test visual-audit/tests/racecon-rc01-responsive.spec.ts --workers=1
 ```
 
+## RaceCon RC-02 dev capture
+
+```bash
+node visual-audit/racecon-rc02-capture.mjs --mode validate --out C:/Temp/racecon-rc02-capture
+```
+
+The output target is an absolute **non-existing** directory outside every Git worktree. The harness captures the RC-02 `racecon_rc02_dash` preset at 800x480 (native), 1024x600 (app), 393x759 and 412x867 (compact phone), and 759x393 and 867x412 (compact landscape); the layout and compact modifiers are bound into each manifest descriptor and re-derived from the measured content box, so a modifier that disagrees with the box the widget measured fails closed. It also fails closed on a LED count other than nine, a sector-chip count other than three, a missing spine track or datum, a datum that is not at the exact vertical centre of its track, a `data-widget` other than `raceconRc02Dash`, and any buffer state other than `accepted`. Every generic safety primitive — argument parsing, private staging, exclusive writes with byte-length and SHA-256 receipts, the Windows atomic no-replace publication, quarantine cleanup and the Git-state gate — is imported and re-exported from `racecon-rc01-capture-lib.mjs` rather than forked, so the two harnesses cannot drift apart on the properties that protect the reviewer's disk. Final mode additionally requires a clean, unchanged Git HEAD before and after publication.
+
+The capture entry drives a deterministic, connected, live-only telemetry fixture (no mock or replay marker) one scripted frame per committed render, so the widget-measured sector splits cannot change with React render coalescing.
+
+Responsive geometry can be exercised independently with the existing Playwright runner:
+
+```bash
+npm exec playwright -- test visual-audit/tests/racecon-rc02-responsive.spec.ts --workers=1
+```
+
+The metric fixture and the PNG pixel audit are covered by `node --test`:
+
+```bash
+node --test visual-audit/racecon-rc02-capture.test.mjs
+```
+
 ## What gets rendered
 
 - **Overlays** — every id in `WIDGET_COMPONENTS`
