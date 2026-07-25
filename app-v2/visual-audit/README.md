@@ -32,6 +32,20 @@ for deterministic frames, then screenshots full-page at a fixed 1600px width.
 > `npx playwright install chromium` (the script attempts this automatically on a
 > launch failure).
 
+## RaceCon RC-01 dev capture
+
+```bash
+node visual-audit/racecon-rc01-capture.mjs --mode validate --out C:/Temp/racecon-rc01-capture
+```
+
+The output target is an absolute **non-existing** directory outside every Git worktree. The harness captures fuel mode at 800x480 and 1024x600, tyre-summary mode at 393x759 and 412x867, and the explicit compact-landscape mode at 759x393 and 867x412. State is bound into each filename and manifest descriptor. It records each staged file's byte length and SHA-256, revalidates every staged file, publishes the already-identified staging directory with Windows' atomic no-replace `Directory.Move`, and immediately revalidates every published file. On mismatch it atomically removes the owned identity from the requested path into an unpredictable quarantine; recursive deletion is intentionally deferred because Node has no handle-bound directory-tree delete primitive. It fails closed on platforms without the no-replace publication primitive. Final mode additionally requires a clean, unchanged Git HEAD before and after publication.
+
+Responsive control/fuel geometry can be exercised independently with the existing Playwright runner:
+
+```bash
+npm exec playwright -- test visual-audit/tests/racecon-rc01-responsive.spec.ts --workers=1
+```
+
 ## What gets rendered
 
 - **Overlays** — every id in `WIDGET_COMPONENTS`

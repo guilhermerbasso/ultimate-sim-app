@@ -126,8 +126,8 @@ describe('rich-overlay catalog identity contract', () => {
   const withHifiModuleId = elements.filter((element) => typeof element.hifiModuleId === 'string')
 
   // N/N manifest gate: count changes require intentional manifest review.
-  it('contains exactly 861 widgetId and 838 hifiModuleId variants', () => {
-    expect(withWidgetId).toHaveLength(861)
+  it('contains exactly 862 widgetId and 838 hifiModuleId variants', () => {
+    expect(withWidgetId).toHaveLength(862)
     expect(withHifiModuleId).toHaveLength(838)
   })
 
@@ -407,17 +407,30 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     expect(html).toContain(WIDGET_CLUSTER_LABELS['DDU / Cluster'])
   })
 
-  it("the 'Full-Frame Dashboards' cluster is non-empty (the 6 overlay presets)", () => {
+  it("the 'Full-Frame Dashboards' cluster is non-empty (the overlay presets)", () => {
     const fullFrame = curated.filter((v) => v.cluster === 'Full-Frame Dashboards')
-    expect(fullFrame.length).toBe(11)
+    expect(fullFrame.length).toBe(12)
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
-      // Full-frame dashboards are telemetry-driven → reachable on every playable yes.
+      // Every full-frame dashboard must declare at least one supported live sim.
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')
-    expect(section?.variants.length).toBe(11)
+    expect(section?.variants.length).toBe(12)
+  })
+
+  it('surfaces RaceCon RC-01 in the full-frame gallery and search taxonomy', () => {
+    const rc01 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc01_dash')
+    expect(rc01).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc01Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc01!, { search: 'rc-01' })).toBe(true)
+    expect(matchesQuery(rc01!, { search: 'racecon' })).toBe(true)
+    expect(rc01!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc01!, 0, 0).widgetId).toBe('raceconRc01Dash')
   })
 
   it('full-frame variants carry their widgetId through variantToElement', () => {

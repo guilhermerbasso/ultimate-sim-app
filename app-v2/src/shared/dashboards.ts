@@ -52,7 +52,7 @@ import {
   ADAPTIVE_MARKER,
   createAdaptiveDashboardPreset
 } from './dashboard-adaptive-preset'
-// WS-DASH cross-module contract: the six full-frame dashboards (gridStackDash …
+// WS-DASH cross-module contract: the full-frame dashboards (gridStackDash …
 // lmuStintDash) live as overlay-widget COMPONENTS but are full-screen DASHBOARDS,
 // so they are embedded into BUILTIN_PRESETS below via a single `overlaywidget`
 // element that carries a `widgetId`. Only the TYPE is imported here, so this stays
@@ -3454,12 +3454,12 @@ function createClassicTachPreset(): Dashboard {
 // carries the widget id. DashboardRoot resolves WIDGET_COMPONENTS[widgetId] and
 // mounts it with the live snapshot. The native authoring canvas is the standard
 // 1024×600 surface, so the element is identity-mapped to fill it 1:1.
-function overlayWidgetDashboard(name: string, widgetId: OverlayWidgetId, description: string): Dashboard {
+function overlayWidgetDashboard(name: string, widgetId: OverlayWidgetId, description: string, scaleMode: DashboardScaleMode = 'fit'): Dashboard {
   const el: DashboardElement = {
     ...w('overlaywidget', 0, 0, TARGET_W, TARGET_H, style({ background: '#000000', borderWidth: 0, radius: 0 }), { name }),
     widgetId
   }
-  return dashboard(name, TARGET_W, TARGET_H, description, [el])
+  return { ...dashboard(name, TARGET_W, TARGET_H, description, [el]), scaleMode }
 }
 
 // Canonical preset-id ↔ widget-id ↔ metadata table for the six embedded
@@ -3471,6 +3471,7 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
   widgetId: OverlayWidgetId
   description: string
   tags: string[]
+  scaleMode?: DashboardScaleMode
 }> = [
   {
     id: 'grid_stack_dash',
@@ -3519,6 +3520,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     description:
       'Le Mans Ultimate-style strategy board: fuel remaining + laps to empty + fuel/lap, stint timer, tire wear, weather, and gaps. Works in any sim that provides the data.',
     tags: ['lmu', 'dashboard', 'fullscreen']
+  },
+  {
+    id: 'racecon_rc01_dash',
+    name: 'RaceCon RC-01 Apex Strike',
+    widgetId: 'raceconRc01Dash',
+    description:
+      'Full-screen RC-01 live telemetry dashboard: gear-aware shift bars, fresh channel status, timing trace, tyre temperatures, and fail-closed alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'telemetry'],
+    scaleMode: 'stretch'
   },
   {
     id: 'hifi_ddu_cockpit',
@@ -3600,7 +3610,7 @@ export const BUILTIN_PRESETS: DashboardPreset[] = withDefaultPresetPriority([
   ...OVERLAY_DASHBOARD_PRESETS.map((preset) => ({
     id: preset.id,
     name: `${preset.name} · ${TARGET_W}×${TARGET_H}`,
-    build: (): Dashboard => overlayWidgetDashboard(preset.name, preset.widgetId, preset.description),
+    build: (): Dashboard => overlayWidgetDashboard(preset.name, preset.widgetId, preset.description, preset.scaleMode),
     tags: preset.tags
   })),
   // ── Dense recreations (gold-standard correct info: tyres, incidents, relatives, delta, fuel) ──

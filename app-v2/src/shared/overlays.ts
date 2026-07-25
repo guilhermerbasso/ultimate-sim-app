@@ -74,6 +74,7 @@ export type OverlayWidgetId =
   | 'ringDash'
   | 'lmuEnduranceDash'
   | 'lmuStintDash'
+  | 'raceconRc01Dash'
   | 'hifiDdu'
   | 'hifiEndurance'
   | 'hifiEngineer'

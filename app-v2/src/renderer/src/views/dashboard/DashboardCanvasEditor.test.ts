@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { DashboardElement } from '../../../../shared/dashboards'
 import { CanvasElementVisual } from './DashboardCanvasEditor'
 
-// Regression for "dashboards sem nada dentro": the six full-frame GT3/LMU presets
+// Regression for "dashboards sem nada dentro": the full-frame dashboard presets
 // embed a single `overlaywidget` element carrying a `widgetId`. The editor / IA
 // preview canvas dispatches through `renderGt3Widget`, which only knows the
 // semantic GT3 element types — so 'overlaywidget' used to fall back to a gray
@@ -42,7 +42,7 @@ describe('CanvasElementVisual — overlaywidget embedding (Phase 0)', () => {
   })
 
   it('renders real content for every full-frame preset widgetId', () => {
-    const ids = ['gridStackDash', 'gridProDash', 'bosch296Dash', 'ringDash', 'lmuEnduranceDash', 'lmuStintDash']
+    const ids = ['gridStackDash', 'gridProDash', 'bosch296Dash', 'ringDash', 'lmuEnduranceDash', 'lmuStintDash', 'raceconRc01Dash']
     for (const id of ids) {
       const markup = render(overlayEl(id, id))
       expect(markup.length, `empty render for ${id}`).toBeGreaterThan(150)

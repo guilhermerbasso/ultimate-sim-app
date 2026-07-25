@@ -513,12 +513,16 @@ export const NEW_WIDGET_KINDS: DashboardElementType[] = [
 ]
 
 // ─── Full-frame dashboards (overlay-widget presets surfaced in the catalog) ───
-// The six full-screen GT3/LMU dashboards ship as BUILTIN_PRESETS (each an
+// The full-screen dashboard widgets ship as BUILTIN_PRESETS (each an
 // `overlaywidget` element mounting WIDGET_COMPONENTS[widgetId]). They were absent
 // from the gallery, leaving the 'Full-Frame Dashboards' cluster empty. We surface
 // them here as curated catalog variants tagged to that cluster: adding one drops a
-// single full-canvas `overlaywidget` element bound to the right widget id. They are
-// telemetry-driven (no single binding field) → available on every playable yes.
+// single full-canvas `overlaywidget` element bound to the right widget id. Most are
+// telemetry-driven with no identity requirement; RC-01 is explicitly limited to
+// providers that expose its live-session identity contract.
+const RC01_IDENTITY_REQUIRES: TelemetryRequirement[] = ['sessionUniqueId']
+const RC01_IDENTITY_ALTERNATIVES: TelemetryRequirement[][] = [['replayContext']]
+
 function fullFrameVariant(preset: (typeof OVERLAY_DASHBOARD_PRESETS)[number]): WidgetVariant {
   return {
     id: `dash-${preset.id}`,
@@ -526,6 +530,8 @@ function fullFrameVariant(preset: (typeof OVERLAY_DASHBOARD_PRESETS)[number]): W
     hint: preset.description,
     type: 'overlaywidget',
     widgetId: preset.widgetId,
+    telemetryRequires: preset.widgetId === 'raceconRc01Dash' ? RC01_IDENTITY_REQUIRES : undefined,
+    telemetryAlternativeRequires: preset.widgetId === 'raceconRc01Dash' ? RC01_IDENTITY_ALTERNATIVES : undefined,
     w: 1024,
     h: 600,
     category: 'Speed/Engine',

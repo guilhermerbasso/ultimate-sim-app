@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { renderDashboardElement } from './DashboardRoot'
+import { renderDashboardElement, resolveDashboardCanvasRenderModel } from './DashboardRoot'
 import { displayUnitLabel, resolveBinding } from './binding'
 import { PREVIEW_SNAPSHOT } from './widgets/gt3-theme'
 import { UnitSystemProvider } from '../lib/units'
@@ -74,6 +74,53 @@ function dashboardAlertMarkup(
     )
   )
 }
+
+describe('dashboard overlaywidget resolution', () => {
+  it('resolves and renders the live RaceCon RC-01 full-frame widget', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc01', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc01Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const snapshot = { ...PREVIEW_SNAPSHOT, timestamp: Date.now(), sessionUniqueId: 101 }
+    const output = renderToStaticMarkup(renderDashboardElement({ element, snapshot }))
+    expect(output).toContain('data-widget="raceconRc01Dash"')
+    expect(output).toContain('SPEED')
+    expect(output).not.toContain('Unknown widget')
+  })
+
+  it('renders an exact full-frame RC-01 model at the target CSS-pixel size without mutating the preset', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc01', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc01Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const dashboard: Dashboard = {
+      id: 'racecon_rc01_dash',
+      name: 'RaceCon RC-01 Apex Strike',
+      width: 1024,
+      height: 600,
+      bg: '#0C0F13',
+      scaleMode: 'stretch',
+      elements: [element]
+    }
+
+    const native = resolveDashboardCanvasRenderModel(dashboard, { width: 800, height: 480 })
+    expect(native.baseWidth).toBe(800)
+    expect(native.baseHeight).toBe(480)
+    expect(native.scaleMode).toBe('stretch')
+    expect(native.dashboard).not.toBe(dashboard)
+    expect(native.dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 800, h: 480 })
+    expect(dashboard).toMatchObject({ width: 1024, height: 600, elements: [{ w: 1024, h: 600 }] })
+
+    const ordinary: Dashboard = {
+      ...dashboard,
+      id: 'ordinary',
+      elements: [{ ...element, widgetId: 'gridStackDash' }]
+    }
+    const fixed = resolveDashboardCanvasRenderModel(ordinary, { width: 800, height: 480 })
+    expect(fixed.dashboard).toBe(ordinary)
+    expect(fixed).toMatchObject({ baseWidth: 1024, baseHeight: 600, scaleMode: 'stretch' })
+  })
+})
 
 describe('dashboard measurement units', () => {
   it('converts a unit-only label together with its speed value', () => {
