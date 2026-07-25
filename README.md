@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Release line: **Ultimate Sim App 2.55.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Release line: **Ultimate Sim App 2.56.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -27,14 +27,17 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.56.0 — managed streaming sources, responsive mobile presentations, and deterministic dashboard QA
 
-- **Control the authoritative list of dashboards and Touch Controls panels that may stream** ([#118](https://github.com/guilhermerbasso/ultimate-sim-app/pull/118)): one Manage streaming sources flow is shared by Streaming, the Mobile Stream Editor, and OBS-local, with clear added, active, missing, hidden, and ineligible states.
-- **Remove streaming access without deleting the source** ([#118](https://github.com/guilhermerbasso/ultimate-sim-app/pull/118)): removing an active source stops its sessions and revokes browser access first, while stale references remain available for explicit repair or removal and the underlying dashboard or panel stays intact.
-- **Fit saved presentations to the phone or tablet actually viewing them** ([#117](https://github.com/guilhermerbasso/ultimate-sim-app/pull/117)): dashboard and Touch Controls profiles now respond to container, visual-viewport, window, and orientation changes without remounting, while preserving configured orientation, safe areas, and fail-closed touch usability.
-- **Preview mobile layouts on narrow and short screens** ([#117](https://github.com/guilhermerbasso/ultimate-sim-app/pull/117)): the Mobile Stream Editor preview measures its own container, and profile-less legacy receivers remain protected from notches and home-indicator cutouts.
-- **Build and visually verify RaceCon-style dashboards with deterministic mock data** ([#116](https://github.com/guilhermerbasso/ultimate-sim-app/pull/116)): development tooling now provides one explicit synthetic scenario for each RC-01 through RC-20 packet, with consistent standings, radar, fuel, rev-light, pit, motion, and lap states.
-- **Development foundation, not shipped dashboards:** the RaceCon scenarios do not emulate Bosch hardware, inject data into RaceCon, or deliver RC-01 through RC-20 as end-user dashboards.
+### 2.56.0 — Managed Streaming Sources, Responsive Mobile Presentations & Deterministic Dashboard QA
+
+- 🔐 **One Manage streaming sources flow now governs Streaming, the Mobile Stream Editor, and the
+- ✅ `settings.streamTargets` is the authoritative allowlist for dashboard, Touch Controls,
+- 🧹 **Removing an active source stops its sessions and revokes browser access before the allowlist
+- 🛠️ Stale references remain visible for explicit repair or removal, while Receiver v2 and
+- 📱 **Saved dashboard and Touch Controls profiles now fit the viewport that is displaying them**
+- 🔄 Container, visual-viewport, window, and orientation changes recalculate deterministic contain
+
+See the [v2.56.0 release notes](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.56.0) for the full list.
 
 ### 2.55.0 — durable stint history and evidence-grounded setup guidance
 
