@@ -3549,6 +3549,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc05_dash',
+    name: 'RaceCon RC-05 Thermal Window',
+    widgetId: 'raceconRc05Dash',
+    description:
+      'Full-screen RC-05 tyre thermal dashboard: a four-corner radial temperature and pressure mandala with computed window bands, a centre delta linking pace to tyre care, TC and brake-temp minis, a measured per-lap trend column and per-corner window alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'tyres'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',

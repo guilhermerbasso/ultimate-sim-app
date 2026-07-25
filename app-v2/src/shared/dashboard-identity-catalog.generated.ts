@@ -79,6 +79,12 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "widgetId": "raceconRc04Dash"
   },
   {
+    "id": "dash-racecon_rc05_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-05 Thermal Window",
+    "widgetId": "raceconRc05Dash"
+  },
+  {
     "id": "dash-ring_dash",
     "type": "overlaywidget",
     "label": "GT3 — Anel circular",

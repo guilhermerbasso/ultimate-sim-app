@@ -1,0 +1,769 @@
+/*
+ * RaceCon RC-05 "Thermal Window" — tyre temperature & pressure.
+ *
+ * Zone geometry follows ARTIFACT-PACKET.md section 11.1 for the 800x480 native canvas and
+ * section 12.1 for the 1024x600 app reflow. Absolute type sizes come from section 11.2, not
+ * from the reference render.
+ *
+ * The app view is a genuine reflow, not a scale: the extra width reveals a per-corner
+ * temperature TREND column (packet 12.1 `trend-history-reveal`) that cannot fit 800x480,
+ * splits the pressures out of the gauges into their own column beside the window legend, and
+ * collects TC / brake temps / wear into a context strip. The mandala stays the centred hero
+ * at every breakpoint.
+ *
+ * Palette, packet 11.3: bg #0D0B0A, panel #1C1512, primary #FBEFE9, secondary #B39A8C,
+ * info #38B0D6 (the cold third of the ramp and the cold legend mark), normal #4CC98A (the
+ * target windows only), caution #F2A03D and danger #F04A32 strictly for latched alerts, and
+ * signature #FF6A3D for the hot third of the ramp.
+ *
+ * image-qa-v1 implementation note 3 is a normative override: the source render produced
+ * #14100D panels, but the packet token is #1C1512 and the packet wins.
+ *
+ * Packet section 16 declares no RPM channel, so the section 11.4 optional shift edge cue has
+ * no data source and no rev cue exists anywhere in this stylesheet.
+ */
+
+.rc05-widget,
+.rc05-widget *,
+.rc05-widget *::before,
+.rc05-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc05-widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: #0d0b0a;
+  color: #fbefe9;
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc05-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc05-widget section,
+.rc05-widget aside,
+.rc05-widget article {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rc05-widget .rc05-corner,
+.rc05-widget .rc05-legend-row,
+.rc05-widget .rc05-trend-row {
+  position: relative;
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc05-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #fbefe9;
+  font-size: clamp(13px, 2.6cqw, 24px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* A stale or absent channel degrades to the packet's grey dash; it never freezes on a value. */
+.rc05-value.is-stale,
+.rc05-value.is-unavailable {
+  color: #b39a8c;
+}
+
+.rc05-label,
+.rc05-unit {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #b39a8c;
+  font-size: clamp(9px, 1.7cqw, 15px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc05-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+  gap: 0.4em;
+}
+
+.rc05-row .rc05-label {
+  flex: 1 1 auto;
+}
+
+.rc05-row .rc05-value {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- corner gauges */
+
+.rc05-corner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  transition: transform 140ms ease-out;
+}
+
+/* Packet 11.5 zoom-on-change: only a corner that has LEFT its window is enlarged. */
+.rc05-corner[data-rc05-zoom='true'] {
+  transform: scale(1.06);
+}
+
+.rc05-corner-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  color: #b39a8c;
+  font-size: clamp(10px, 2cqw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  transform: translateX(-50%);
+}
+
+.rc05-corner[data-rc05-overheat='true'] .rc05-corner-label,
+.rc05-corner[data-rc05-cold='true'] .rc05-corner-label {
+  color: #fbefe9;
+  font-weight: 800;
+}
+
+.rc05-gauge {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.rc05-ramp,
+.rc05-window-band,
+.rc05-window-tick,
+.rc05-pressure-ring,
+.rc05-pressure-band,
+.rc05-pressure-mark {
+  stroke-linecap: butt;
+  vector-effect: non-scaling-stroke;
+}
+
+.rc05-ramp-cold {
+  stroke: #38b0d6;
+}
+
+.rc05-ramp-hot {
+  stroke: #ff6a3d;
+}
+
+/* The target window is a THICKER band, so "in window" is a shape and not a hue. */
+.rc05-window-band {
+  stroke: #4cc98a;
+}
+
+.rc05-window-tick {
+  stroke: #fbefe9;
+  stroke-width: 2.4;
+}
+
+/* Without TPMS the inner ring stays bare and grey; it is never derived from temperature. */
+.rc05-pressure-ring {
+  stroke: #3a2c25;
+}
+
+.rc05-pressure-band {
+  stroke: #4cc98a;
+}
+
+.rc05-pressure-mark {
+  stroke: #fbefe9;
+  stroke-width: 2.2;
+}
+
+.rc05-pointer {
+  fill: #fbefe9;
+}
+
+/* Trigger-only escalation: silent frames never reach any of these rules. */
+.rc05-corner[data-rc05-overheat='true'] .rc05-ramp-hot,
+.rc05-corner[data-rc05-overheat='true'] .rc05-window-band {
+  stroke: #f04a32;
+}
+
+.rc05-corner[data-rc05-overheat='true'] .rc05-pointer {
+  fill: #f04a32;
+}
+
+.rc05-corner[data-rc05-cold='true'] .rc05-ramp-cold {
+  stroke: #38b0d6;
+  stroke-width: 11;
+}
+
+.rc05-corner[data-rc05-cold='true'] .rc05-window-band {
+  stroke: #f2a03d;
+}
+
+.rc05-corner[data-rc05-pressure-alert='low'] .rc05-pressure-ring,
+.rc05-corner[data-rc05-pressure-alert='high'] .rc05-pressure-ring {
+  stroke: #f2a03d;
+}
+
+.rc05-corner[data-rc05-pressure-alert='low'] .rc05-pressure-mark,
+.rc05-corner[data-rc05-pressure-alert='high'] .rc05-pressure-mark {
+  stroke: #f04a32;
+}
+
+.rc05-gauge-readout {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 74%;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+}
+
+.rc05-temp-line,
+.rc05-pressure-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  margin: 0;
+  gap: 0.18em;
+}
+
+/*
+ * Packet 11.2 type scale. The hero numeral is sized in cqw with a conservative clamp max so
+ * its min-content width can never exceed the corner zone; the zone itself is measured with
+ * getBoundingClientRect in the harness, never with scrollWidth.
+ */
+.rc05-temp {
+  font-size: clamp(20px, 6.5cqw, 52px);
+  font-weight: 800;
+  line-height: 0.92;
+}
+
+.rc05-temp-unit {
+  font-size: clamp(9px, 2.2cqw, 20px);
+}
+
+.rc05-pressure {
+  font-size: clamp(11px, 3cqw, 24px);
+  font-weight: 600;
+}
+
+.rc05-pressure-unit {
+  font-size: clamp(8px, 1.6cqw, 14px);
+}
+
+/* Packet 11.5: the soft key re-ranks the two numerals; it never hides either channel. */
+.rc05-gauge-readout[data-rc05-emphasis='pressure'] .rc05-temp {
+  font-size: clamp(13px, 3cqw, 24px);
+}
+
+.rc05-gauge-readout[data-rc05-emphasis='pressure'] .rc05-pressure {
+  font-size: clamp(18px, 5.6cqw, 44px);
+  font-weight: 800;
+}
+
+/* ---------------------------------------------------------------- centre delta */
+
+.rc05-delta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4em;
+  border-radius: 4px;
+  background: #1c1512;
+  gap: 0.15em;
+}
+
+.rc05-delta-value {
+  font-size: clamp(16px, 5cqw, 40px);
+  font-weight: 800;
+}
+
+.rc05-delta-value[data-tone='good'] {
+  color: #4cc98a;
+}
+
+.rc05-delta-value[data-tone='bad'] {
+  color: #f2a03d;
+}
+
+/* ---------------------------------------------------------------- context margins */
+
+.rc05-aids,
+.rc05-wear,
+.rc05-legend,
+.rc05-pressures,
+.rc05-trend {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5em 0.55em;
+  border-radius: 4px;
+  background: #1c1512;
+  gap: 0.5em;
+}
+
+.rc05-aids {
+  justify-content: space-around;
+}
+
+.rc05-aids .rc05-row,
+.rc05-wear {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rc05-aids .rc05-row .rc05-value {
+  text-align: left;
+}
+
+.rc05-wear {
+  justify-content: center;
+}
+
+.rc05-wear-value {
+  font-size: clamp(16px, 3.4cqw, 30px);
+  font-weight: 800;
+}
+
+.rc05-legend {
+  justify-content: center;
+}
+
+.rc05-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.rc05-legend-mark {
+  width: clamp(12px, 2.4cqw, 22px);
+  height: clamp(12px, 2.4cqw, 22px);
+  flex: 0 0 auto;
+}
+
+.rc05-legend-cold {
+  stroke: #38b0d6;
+  stroke-width: 2;
+}
+
+.rc05-legend-window {
+  stroke: #4cc98a;
+  stroke-width: 2;
+}
+
+.rc05-legend-hot {
+  fill: #ff6a3d;
+}
+
+/* ---------------------------------------------------------------- app-only columns */
+
+/*
+ * Packet 12.1: the trend column and the split pressure column exist ONLY in the app reflow.
+ * They are display:none everywhere else, which is what makes the 1024x600 view a reflow and
+ * not a uniform scale of the native canvas.
+ */
+.rc05-trend,
+.rc05-pressures {
+  display: none;
+}
+
+.rc05-trend-title {
+  color: #b39a8c;
+}
+
+.rc05-trend-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+  gap: 0.5em;
+}
+
+.rc05-trend-points {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  overflow: hidden;
+  gap: 0.35em;
+}
+
+.rc05-trend-point {
+  color: #fbefe9;
+  font-size: clamp(9px, 1.5cqw, 15px);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc05-trend-point.is-unavailable {
+  color: #b39a8c;
+}
+
+/* ---------------------------------------------------------------- peripheral strip */
+
+.rc05-peripheral {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  gap: 1.2cqw;
+}
+
+.rc05-peripheral .rc05-row {
+  flex: 1 1 0;
+}
+
+.rc05-soft-key {
+  flex: 0 0 auto;
+  padding: 0.25em 0.7em;
+  border: 1px solid #b39a8c;
+  border-radius: 3px;
+  background: #1c1512;
+  color: #fbefe9;
+  cursor: pointer;
+  font: inherit;
+  font-size: clamp(9px, 1.7cqw, 15px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rc05-soft-key:focus-visible {
+  outline: 2px solid #ff6a3d;
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- alert banner */
+
+/*
+ * Trigger-only: this element does not exist in the DOM until an alert latches, so it can
+ * never act as an always-on decoration. It is positioned in every layout so no breakpoint
+ * can hide an escalation.
+ */
+.rc05-alert-line {
+  position: absolute;
+  z-index: 3;
+  left: 2%;
+  width: 96%;
+  margin: 0;
+  padding: 0.25em 0.6em;
+  border-radius: 3px;
+  background: #f04a32;
+  color: #0d0b0a;
+  font-size: clamp(11px, 2cqw, 18px);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- native 800x480 (packet 11.1) */
+
+/*
+ * Packet 11.1 zone origins and sizes, verbatim:
+ *   LF 18.8/12.5, RF 58.8/12.5, LR 18.8/56.2, RR 58.8/56.2, all 22.5 x 31.2
+ *   centre delta 42.5/41.7 15.0 x 16.7
+ *   left margin 2.0/12.5 15.0 x 75.0, right margin 83.0/12.5 15.0 x 75.0
+ * Each gauge zone is square-centred inside its box, so the gauge centres land on the packet's
+ * 30.0/28.1, 70.0/28.1, 30.0/71.9 and 70.0/71.9.
+ */
+.rc05-widget[data-rc05-layout='native'] .rc05-mandala {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.rc05-widget[data-rc05-layout='native'] .rc05-corner {
+  position: absolute;
+  width: 22.5%;
+  height: 31.2%;
+}
+
+.rc05-widget[data-rc05-layout='native'] .rc05-corner[data-rc05-corner='LF'] { left: 18.8%; top: 12.5%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-corner[data-rc05-corner='RF'] { left: 58.8%; top: 12.5%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-corner[data-rc05-corner='LR'] { left: 18.8%; top: 56.2%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-corner[data-rc05-corner='RR'] { left: 58.8%; top: 56.2%; }
+
+.rc05-widget[data-rc05-layout='native'] .rc05-delta { left: 42.5%; top: 41.7%; width: 15%; height: 16.7%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-aids { left: 2%; top: 12.5%; width: 15%; height: 75%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-wear { left: 83%; top: 12.5%; width: 15%; height: 26%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-legend { left: 83%; top: 41%; width: 15%; height: 46.5%; }
+
+/* The 11.1 grammar allocates 12.5%..87.5% vertically; the tertiary strip uses the rest. */
+.rc05-widget[data-rc05-layout='native'] .rc05-peripheral { left: 2%; top: 89%; width: 96%; height: 9%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-alert-line { top: 1%; }
+.rc05-widget[data-rc05-layout='native'] .rc05-temp { font-size: clamp(24px, 6.5cqw, 52px); }
+.rc05-widget[data-rc05-layout='native'] .rc05-delta-value { font-size: clamp(20px, 5cqw, 40px); }
+
+/* ---------------------------------------------------------------- app 1024x600 (packet 12.1) */
+
+/*
+ * Packet 12.1 reflow zones, verbatim:
+ *   corner mandala 31.2/10.0 37.5 x 70.0
+ *   NEW trend column 2.3/10.0 27.3 x 86.7 (app only)
+ *   pressure/legend column 70.3/10.0 27.3 x 53.3
+ *   context strip 70.3/65.3 27.3 x 31.3
+ */
+.rc05-widget[data-rc05-layout='app'] .rc05-mandala {
+  left: 31.2%;
+  top: 10%;
+  display: grid;
+  width: 37.5%;
+  height: 70%;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1%;
+}
+
+.rc05-widget[data-rc05-layout='app'] .rc05-corner {
+  position: relative;
+  width: auto;
+  height: auto;
+}
+
+/*
+ * The centre delta sits in the horizontal corridor the mandala leaves between the upper and
+ * lower gauge arcs. At 1024x600 the upper arcs bottom out at y≈208 px and the lower arcs top
+ * out at y≈289 px, so the panel is placed inside that 80 px band and laid out as a row: a
+ * stacked column at this width would either overflow the band or clip the numeral.
+ */
+.rc05-widget[data-rc05-layout='app'] .rc05-delta {
+  left: 38%;
+  top: 35.4%;
+  width: 24%;
+  height: 12%;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  padding: 0.2em 0.5em;
+  gap: 0.4em;
+}
+
+.rc05-widget[data-rc05-layout='app'] .rc05-trend {
+  left: 2.3%;
+  top: 10%;
+  display: flex;
+  width: 27.3%;
+  height: 86.7%;
+}
+
+.rc05-widget[data-rc05-layout='app'] .rc05-pressures {
+  left: 70.3%;
+  top: 10%;
+  display: flex;
+  width: 27.3%;
+  height: 33%;
+}
+
+.rc05-widget[data-rc05-layout='app'] .rc05-legend { left: 70.3%; top: 45%; width: 27.3%; height: 18.3%; }
+.rc05-widget[data-rc05-layout='app'] .rc05-aids { left: 70.3%; top: 65.3%; width: 27.3%; height: 17%; }
+.rc05-widget[data-rc05-layout='app'] .rc05-wear { left: 70.3%; top: 83.5%; width: 27.3%; height: 13.1%; }
+.rc05-widget[data-rc05-layout='app'] .rc05-peripheral { left: 31.2%; top: 82%; width: 37.5%; height: 12%; }
+.rc05-widget[data-rc05-layout='app'] .rc05-alert-line { top: 1.5%; }
+
+.rc05-widget[data-rc05-layout='app'] .rc05-temp { font-size: clamp(24px, 4.6cqw, 56px); }
+.rc05-widget[data-rc05-layout='app'] .rc05-pressure { font-size: clamp(11px, 2cqw, 22px); }
+.rc05-widget[data-rc05-layout='app'] .rc05-delta-value { font-size: clamp(18px, 3.6cqw, 40px); }
+.rc05-widget[data-rc05-layout='app'] .rc05-gauge-readout[data-rc05-emphasis='pressure'] .rc05-temp {
+  font-size: clamp(12px, 2cqw, 22px);
+}
+.rc05-widget[data-rc05-layout='app'] .rc05-gauge-readout[data-rc05-emphasis='pressure'] .rc05-pressure {
+  font-size: clamp(20px, 4cqw, 48px);
+}
+
+/* ---------------------------------------------------------------- compact base */
+
+/*
+ * The compact fallback keeps the mandala the hero but drops the centre delta out of the
+ * middle of the 2x2 grid: at these sizes the gauge arcs close in on the centre, so the delta
+ * becomes a wide bar directly under the mandala instead of colliding with the lower corners.
+ */
+.rc05-widget[data-rc05-layout='compact'] .rc05-mandala {
+  left: 18%;
+  top: 3%;
+  display: grid;
+  width: 64%;
+  height: 66%;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1%;
+}
+
+.rc05-widget[data-rc05-layout='compact'] .rc05-corner {
+  position: relative;
+  width: auto;
+  height: auto;
+}
+
+.rc05-widget[data-rc05-layout='compact'] .rc05-delta {
+  left: 18%;
+  top: 70.5%;
+  width: 64%;
+  height: 12%;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  padding: 0.15em 0.4em;
+  gap: 0.4em;
+}
+
+.rc05-widget[data-rc05-layout='compact'] .rc05-aids { left: 1.5%; top: 3%; width: 15%; height: 45%; }
+.rc05-widget[data-rc05-layout='compact'] .rc05-wear { left: 1.5%; top: 50%; width: 15%; height: 19%; }
+.rc05-widget[data-rc05-layout='compact'] .rc05-legend { left: 83.5%; top: 3%; width: 15%; height: 66%; }
+.rc05-widget[data-rc05-layout='compact'] .rc05-peripheral { left: 1.5%; top: 84%; width: 97%; height: 14%; }
+.rc05-widget[data-rc05-layout='compact'] .rc05-alert-line { top: 0.5%; }
+.rc05-widget[data-rc05-layout='compact'] .rc05-temp { font-size: clamp(16px, 6cqw, 40px); }
+.rc05-widget[data-rc05-layout='compact'] .rc05-delta-value { font-size: clamp(16px, 4cqw, 34px); }
+
+/* ---------------------------------------------------------------- compact phone */
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-mandala {
+  left: var(--rc05-phone-inset, 12px);
+  top: var(--rc05-phone-mandala-top, 14px);
+  width: calc(100% - (var(--rc05-phone-inset, 12px) * 2));
+  height: var(--rc05-phone-mandala-height, 200px);
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-delta {
+  left: var(--rc05-phone-inset, 12px);
+  top: var(--rc05-phone-delta-top, 240px);
+  width: calc(100% - (var(--rc05-phone-inset, 12px) * 2));
+  height: var(--rc05-phone-delta-height, 80px);
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.4em;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-aids {
+  left: var(--rc05-phone-inset, 12px);
+  top: var(--rc05-phone-context-top, 340px);
+  width: calc(50% - var(--rc05-phone-inset, 12px) - 4px);
+  height: var(--rc05-phone-context-height, 120px);
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-wear {
+  left: 50%;
+  top: var(--rc05-phone-context-top, 340px);
+  width: calc(50% - var(--rc05-phone-inset, 12px) + 4px);
+  height: var(--rc05-phone-context-height, 120px);
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-legend {
+  left: var(--rc05-phone-inset, 12px);
+  top: var(--rc05-phone-legend-top, 480px);
+  width: calc(100% - (var(--rc05-phone-inset, 12px) * 2));
+  height: calc(var(--rc05-phone-legend-height, 120px) * 0.5);
+  flex-direction: row;
+  justify-content: space-around;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-peripheral {
+  left: var(--rc05-phone-inset, 12px);
+  top: calc(var(--rc05-phone-legend-top, 480px) + (var(--rc05-phone-legend-height, 120px) * 0.55));
+  width: calc(100% - (var(--rc05-phone-inset, 12px) * 2));
+  height: calc(var(--rc05-phone-legend-height, 120px) * 0.45);
+  flex-wrap: wrap;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-soft-key {
+  min-width: var(--rc05-phone-toggle-size, 44px);
+  min-height: var(--rc05-phone-toggle-size, 44px);
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-temp {
+  font-size: clamp(16px, 11cqw, 46px);
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-pressure {
+  font-size: clamp(10px, 5cqw, 20px);
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='phone'] .rc05-delta-value {
+  font-size: clamp(18px, 9cqw, 40px);
+}
+
+/* ---------------------------------------------------------------- compact landscape */
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-mandala {
+  left: 17%;
+  top: 3%;
+  width: 60%;
+  height: 82%;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-delta {
+  left: 78.5%;
+  top: 3%;
+  width: 20%;
+  height: 26%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-delta-value {
+  font-size: clamp(16px, 3.4cqw, 34px);
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-aids {
+  left: 1.5%;
+  top: 3%;
+  width: 14.5%;
+  height: 82%;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-wear {
+  left: 78.5%;
+  top: 31%;
+  width: 20%;
+  height: 22%;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-legend {
+  left: 78.5%;
+  top: 55%;
+  width: 20%;
+  height: 30%;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-peripheral {
+  left: 1.5%;
+  top: 87%;
+  width: 97%;
+  height: 11%;
+}
+
+.rc05-widget[data-rc05-layout='compact'][data-rc05-compact-mode='landscape'] .rc05-temp {
+  font-size: clamp(16px, 5cqw, 40px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rc05-corner {
+    transition: none;
+  }
+}

@@ -1320,6 +1320,51 @@ describe('RC-04 full-frame preset lifecycle', () => {
   })
 })
 
+describe('RC-05 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc05-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-05 preset', async () => {
+    // Keep a non-empty store so lazy materialization is exercised rather than first-run seeding.
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc05_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-05 Thermal Window')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc05Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc05_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc05_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc05_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc05Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc05_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-05 Thermal Window')
+  })
+})
+
 describe('DashboardManager window replacement lifecycle', () => {
   let userData: string
   let manager: DashboardManager
