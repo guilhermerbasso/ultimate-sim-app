@@ -126,8 +126,9 @@ describe('rich-overlay catalog identity contract', () => {
   const withHifiModuleId = elements.filter((element) => typeof element.hifiModuleId === 'string')
 
   // N/N manifest gate: count changes require intentional manifest review.
-  it('contains exactly 862 widgetId and 838 hifiModuleId variants', () => {
-    expect(withWidgetId).toHaveLength(862)
+  // Revised from 862 to 863 by the RaceCon RC-02 full-frame preset.
+  it('contains exactly 863 widgetId and 838 hifiModuleId variants', () => {
+    expect(withWidgetId).toHaveLength(863)
     expect(withHifiModuleId).toHaveLength(838)
   })
 
@@ -409,7 +410,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
 
   it("the 'Full-Frame Dashboards' cluster is non-empty (the overlay presets)", () => {
     const fullFrame = curated.filter((v) => v.cluster === 'Full-Frame Dashboards')
-    expect(fullFrame.length).toBe(12)
+    expect(fullFrame.length).toBe(13)
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
@@ -417,7 +418,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')
-    expect(section?.variants.length).toBe(12)
+    expect(section?.variants.length).toBe(13)
   })
 
   it('surfaces RaceCon RC-01 in the full-frame gallery and search taxonomy', () => {
@@ -431,6 +432,21 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     expect(matchesQuery(rc01!, { search: 'racecon' })).toBe(true)
     expect(rc01!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
     expect(variantToElement(rc01!, 0, 0).widgetId).toBe('raceconRc01Dash')
+  })
+
+  it('surfaces RaceCon RC-02 in the full-frame gallery and search taxonomy', () => {
+    const rc02 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc02_dash')
+    expect(rc02).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc02Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc02!, { search: 'rc-02' })).toBe(true)
+    expect(matchesQuery(rc02!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc02!, { search: 'qualifying' })).toBe(true)
+    // RC-02 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc02!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc02!, 0, 0).widgetId).toBe('raceconRc02Dash')
   })
 
   it('full-frame variants carry their widgetId through variantToElement', () => {

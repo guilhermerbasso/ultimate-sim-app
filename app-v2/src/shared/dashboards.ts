@@ -3531,6 +3531,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc02_dash',
+    name: 'RaceCon RC-02 Purple Lap',
+    widgetId: 'raceconRc02Dash',
+    description:
+      'Full-screen RC-02 one-lap qualifying dashboard: a bidirectional delta spine, measured sector deltas, source-bound predicted lap, personal-best pace accent and tyre build-up.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'qualifying'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',
