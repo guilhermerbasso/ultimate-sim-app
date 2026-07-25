@@ -3558,6 +3558,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc06_dash',
+    name: 'RaceCon RC-06 Save Mode',
+    widgetId: 'raceconRc06Dash',
+    description:
+      'Full-screen RC-06 fuel-save strategy ledger: engineer target versus measured burn in two columns, a signed running balance hero with arrow and sign, the time cost of saving, a computed lift-and-coast track and per-lap budget-deviation alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'fuel', 'strategy'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',
