@@ -101,6 +101,7 @@ import { RaceconRc02DashWidget } from './RaceconRc02DashWidget'
 import { RaceconRc03DashWidget } from './RaceconRc03DashWidget'
 import { RaceconRc04DashWidget } from './RaceconRc04DashWidget'
 import { RaceconRc05DashWidget } from './RaceconRc05DashWidget'
+import { RaceconRc06DashWidget } from './RaceconRc06DashWidget'
 import { HifiDduWidget, HifiEnduranceWidget, HifiEngineerWidget, HifiMinimalWidget, HifiBroadcastWidget } from './HifiDashWidgets'
 import { PerCornerTyrePressureWidget } from './PerCornerTyrePressureWidget'
 import { BrakeTempCornersWidget } from './BrakeTempCornersWidget'
@@ -163,6 +164,7 @@ export const WIDGET_COMPONENTS: Record<string, (props: WidgetProps) => ReactElem
   raceconRc03Dash: RaceconRc03DashWidget,
   raceconRc04Dash: RaceconRc04DashWidget,
   raceconRc05Dash: RaceconRc05DashWidget,
+  raceconRc06Dash: RaceconRc06DashWidget,
   hifiDdu: HifiDduWidget,
   hifiEndurance: HifiEnduranceWidget,
   hifiEngineer: HifiEngineerWidget,
