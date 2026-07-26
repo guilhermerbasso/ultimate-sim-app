@@ -1,0 +1,550 @@
+/*
+ * RaceCon RC-03 "Long Night" — endurance night-stint DDU.
+ *
+ * Zone geometry follows ARTIFACT-PACKET.md section 11.1 for the 800x480 native canvas and
+ * section 12.1 for the 1024x600 app reflow. Absolute type sizes come from section 11.2, not
+ * from the reference render, which image-qa-v2 note 3 measures at about 84 % of spec.
+ *
+ * The app view is a genuine reflow, not a scale: the extra width reveals a stint-strategy
+ * rail and a fuel-per-lap trend that cannot fit 800x480, while the bands stay horizontal and
+ * dim so the night thesis survives. Nothing in this file animates: packet section 19 forbids
+ * motion that fatigues at night, so escalation is border and brightness only.
+ */
+
+.rc03-widget,
+.rc03-widget *,
+.rc03-widget *::before,
+.rc03-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc03-widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: #07090b;
+  color: #e8ecef;
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/*
+ * Packet 11.5 / 20: the night profile is the default and is driven by a display-switch event,
+ * so peak luminance is capped before a single frame is drawn.
+ */
+.rc03-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  filter: brightness(var(--rc03-brightness, 0.78));
+}
+
+.rc03-widget section,
+.rc03-widget aside {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rc03-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #e8ecef;
+  font-size: clamp(18px, 5.5cqw, 44px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* A stale or absent channel degrades to the packet's grey dash; it never freezes on a value. */
+.rc03-value.is-stale,
+.rc03-value.is-unavailable {
+  color: #7c8894;
+}
+
+.rc03-tone-good { color: #3fbe86; }
+.rc03-tone-bad { color: #e24438; }
+.rc03-tone-muted { color: #7c8894; }
+
+.rc03-label,
+.rc03-unit {
+  display: block;
+  color: #7c8894;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc03-value-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.35em;
+}
+
+/* ---------------------------------------------------------------- bands */
+
+/*
+ * Packet 11.3: three signature hairlines sit on the band tops. They are deliberately not
+ * closed borders — a closed border is reserved for the alert layer.
+ */
+.rc03-band {
+  display: flex;
+  align-items: stretch;
+  padding: 0.6cqh 1.2cqw;
+  border: 1px solid transparent;
+  border-top-color: #1e6f8c;
+  background: #10151a;
+}
+
+.rc03-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  gap: 0.2em;
+}
+
+/* ---------------------------------------------------------------- shift ribbon */
+
+/*
+ * Packet 11.4: ONE continuous dimmed bar, amber-forward, carrying no text, no ticks and no
+ * index marks, and deliberately lower in luminance than a daytime dashboard.
+ */
+.rc03-ribbon {
+  overflow: hidden;
+  border-radius: 2px;
+  background: #10151a;
+}
+
+.rc03-ribbon-fill {
+  display: block;
+  height: 100%;
+  background: #e6a833;
+}
+
+.rc03-ribbon[data-tone='danger'] .rc03-ribbon-fill {
+  background: #e24438;
+}
+
+.rc03-ribbon[data-unavailable='true'] .rc03-ribbon-fill {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------- pace band */
+
+.rc03-cell-gear { flex: 0 0 20%; }
+.rc03-cell-delta { flex: 0 0 50%; }
+.rc03-cell-speed { flex: 0 0 30%; }
+
+.rc03-gear {
+  font-size: clamp(36px, 12cqw, 96px);
+}
+
+.rc03-delta {
+  font-size: clamp(28px, 9cqw, 72px);
+  letter-spacing: -0.015em;
+}
+
+/* Note 2 of image-qa-v2: speed is tertiary and renders at the vitals scale, not delta scale. */
+.rc03-speed {
+  font-size: clamp(18px, 5.5cqw, 44px);
+}
+
+.rc03-stint-clock {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  gap: 0.2em;
+}
+
+.rc03-clock {
+  color: #34a0c4;
+  font-size: clamp(18px, 5.5cqw, 44px);
+}
+
+.rc03-clock.is-unavailable {
+  color: #7c8894;
+}
+
+/* ---------------------------------------------------------------- vitals band */
+
+.rc03-vitals {
+  display: grid;
+  align-items: stretch;
+  column-gap: 1cqw;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.rc03-vitals-grid {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rc03-vital {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 0.4cqw;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  gap: 0.2em;
+}
+
+.rc03-vital dt {
+  margin: 0;
+}
+
+.rc03-vital-value {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  margin: 0;
+  gap: 0.3em;
+}
+
+.rc03-vital .rc03-value {
+  color: #3fbe86;
+}
+
+.rc03-vital .rc03-value.is-stale,
+.rc03-vital .rc03-value.is-unavailable {
+  color: #7c8894;
+}
+
+/*
+ * Packet 14 / 19: an escalating gauge brightens AND gains a border. Hue alone never carries
+ * the state, and it never blinks.
+ */
+.rc03-vital[data-alert='true'] {
+  border-color: #e24438;
+  filter: brightness(1.35);
+}
+
+.rc03-vital[data-alert='true'] .rc03-value {
+  color: #e24438;
+}
+
+.rc03-soft-key {
+  align-self: center;
+  padding: 0.3em 0.5em;
+  border: 1px solid #1e6f8c;
+  border-radius: 3px;
+  background: transparent;
+  color: #7c8894;
+  font: inherit;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 600;
+  grid-column: 2;
+  grid-row: 1;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+/* Packet 14: the critical band carries a resettable alarm line — steady, never strobing. */
+.rc03-alarm-line {
+  display: flex;
+  align-items: center;
+  margin: 0.4cqh 0 0;
+  color: #e24438;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 700;
+  gap: 0.8em;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rc03-alarm-reset {
+  padding: 0.15em 0.5em;
+  border: 1px solid #e24438;
+  border-radius: 2px;
+  background: transparent;
+  color: #e24438;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- fuel-stint band */
+
+.rc03-cell-fuel-laps { flex: 0 0 28%; }
+.rc03-cell-stint-lap { flex: 0 0 24%; }
+
+/*
+ * Packet 11.2 makes caution amber the fuel typography, not an alert layer. The fuel-laps
+ * hero, the fuel bar and the litre readout are amber in the resting state by design.
+ */
+.rc03-fuel-laps {
+  color: #e6a833;
+  font-size: clamp(34px, 11.25cqw, 90px);
+}
+
+.rc03-fuel-laps.is-unavailable {
+  color: #7c8894;
+}
+
+.rc03-fuel-bar-cell {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 48%;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 1.2cqw;
+  gap: 0.35em;
+}
+
+.rc03-fuel-bar {
+  width: 100%;
+  height: clamp(10px, 4.5cqh, 26px);
+  overflow: hidden;
+  border: 1px solid #7c8894;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.rc03-fuel-bar-fill {
+  display: block;
+  height: 100%;
+  background: #e6a833;
+}
+
+.rc03-fuel-bar[data-unavailable='true'] {
+  border-color: #3a434c;
+}
+
+.rc03-fuel-level {
+  color: #e6a833;
+}
+
+.rc03-fuel-level.is-stale,
+.rc03-fuel-level.is-unavailable {
+  color: #7c8894;
+}
+
+.rc03-stint-lap {
+  color: #34a0c4;
+}
+
+.rc03-stint-lap.is-unavailable {
+  color: #7c8894;
+}
+
+.rc03-pit-window {
+  color: #e6a833;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+/* Packet 12.1: the fuel-per-lap trend is revealed only by the 1024x600 reflow. */
+.rc03-fuel-trend {
+  display: none;
+  min-width: 0;
+  flex: 0 0 26%;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  padding-left: 1.2cqw;
+  gap: 0.25em;
+}
+
+.rc03-fuel-trend .rc03-value {
+  color: #e6a833;
+  font-size: clamp(14px, 3cqw, 26px);
+}
+
+.rc03-fuel-trend .rc03-value.is-unavailable {
+  color: #7c8894;
+}
+
+.rc03-trend-bars {
+  display: flex;
+  height: 22%;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.rc03-trend-bar {
+  width: 6px;
+  min-height: 2px;
+  background: #1e6f8c;
+}
+
+/* ---------------------------------------------------------------- strategy rail (app only) */
+
+.rc03-rail {
+  display: none;
+  flex-direction: column;
+  justify-content: space-evenly;
+  padding: 0.6cqh 1.2cqw;
+  border: 1px solid transparent;
+  border-top-color: #1e6f8c;
+  background: #10151a;
+}
+
+.rc03-rail-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+  gap: 0.5em;
+}
+
+.rc03-rail-row .rc03-label {
+  flex: 0 0 45%;
+}
+
+.rc03-rail .rc03-value {
+  color: #34a0c4;
+  font-size: clamp(14px, 3cqw, 28px);
+}
+
+.rc03-rail .rc03-value.is-unavailable {
+  color: #7c8894;
+}
+
+.rc03-sr-alert {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- alert layer */
+
+/*
+ * Packet 15. Every one of these selectors is inert until its trigger latches: none of them is
+ * an always-on decoration, and none of them animates.
+ */
+.rc03-fuel[data-rc03-window='open'] {
+  border-color: #e6a833;
+}
+
+.rc03-vitals[data-rc03-alarm='oil-pressure'],
+.rc03-vitals[data-rc03-alarm='overheat'] {
+  border-color: #e24438;
+}
+
+.rc03-vitals[data-rc03-alarm='overheat'] {
+  filter: brightness(1.15);
+}
+
+/* ---------------------------------------------------------------- native 800x480 (packet 11.1) */
+
+.rc03-widget[data-rc03-layout='native'] .rc03-ribbon { left: 2%; top: 1.667%; width: 96%; height: 4.167%; }
+/* The stint-clock zone overlaps the pace band's right corner, so the band reserves it. */
+.rc03-widget[data-rc03-layout='native'] .rc03-pace { left: 2%; top: 8.333%; width: 96%; height: 31.25%; padding-right: 18.75%; }
+.rc03-widget[data-rc03-layout='native'] .rc03-stint-clock { left: 80%; top: 8.333%; width: 18%; height: 12.5%; }
+.rc03-widget[data-rc03-layout='native'] .rc03-vitals { left: 2%; top: 41.667%; width: 96%; height: 29.167%; }
+.rc03-widget[data-rc03-layout='native'] .rc03-fuel { left: 2%; top: 72.917%; width: 96%; height: 25%; }
+
+/* ---------------------------------------------------------------- app 1024x600 (packet 12.1) */
+
+.rc03-widget[data-rc03-layout='app'] .rc03-ribbon { left: 0; top: 0; width: 100%; height: 6.667%; border-radius: 0; }
+.rc03-widget[data-rc03-layout='app'] .rc03-pace { left: 2.344%; top: 9.333%; width: 68.359%; height: 30%; padding-right: 24%; }
+.rc03-widget[data-rc03-layout='app'] .rc03-stint-clock { left: 54.297%; top: 9.333%; width: 16.406%; height: 13.333%; }
+.rc03-widget[data-rc03-layout='app'] .rc03-rail { display: flex; left: 72.266%; top: 9.333%; width: 25.391%; height: 30%; }
+.rc03-widget[data-rc03-layout='app'] .rc03-vitals { left: 2.344%; top: 42%; width: 95.313%; height: 26.667%; }
+.rc03-widget[data-rc03-layout='app'] .rc03-fuel { left: 2.344%; top: 71.333%; width: 95.313%; height: 25%; }
+.rc03-widget[data-rc03-layout='app'] .rc03-fuel-trend { display: flex; }
+.rc03-widget[data-rc03-layout='app'] .rc03-cell-fuel-laps { flex: 0 0 22%; }
+.rc03-widget[data-rc03-layout='app'] .rc03-fuel-bar-cell { flex: 0 0 36%; }
+.rc03-widget[data-rc03-layout='app'] .rc03-cell-stint-lap { flex: 0 0 16%; }
+
+/* ---------------------------------------------------------------- compact base */
+
+.rc03-widget[data-rc03-layout='compact'] .rc03-ribbon { left: 2%; top: 2%; width: 96%; height: 4%; }
+.rc03-widget[data-rc03-layout='compact'] .rc03-pace { left: 2%; top: 9%; width: 96%; height: 30%; padding-right: 20.833%; }
+.rc03-widget[data-rc03-layout='compact'] .rc03-stint-clock { left: 78%; top: 9%; width: 20%; height: 13%; }
+.rc03-widget[data-rc03-layout='compact'] .rc03-vitals { left: 2%; top: 42%; width: 96%; height: 27%; }
+.rc03-widget[data-rc03-layout='compact'] .rc03-fuel { left: 2%; top: 72%; width: 96%; height: 25%; }
+
+/* ---------------------------------------------------------------- compact phone */
+
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-ribbon {
+  left: var(--rc03-phone-inset, 12px);
+  top: var(--rc03-phone-ribbon-top, 12px);
+  width: calc(100% - 2 * var(--rc03-phone-inset, 12px));
+  height: var(--rc03-phone-ribbon-height, 18px);
+}
+
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-pace {
+  left: var(--rc03-phone-inset, 12px);
+  top: var(--rc03-phone-pace-top, 44px);
+  width: calc(100% - 2 * var(--rc03-phone-inset, 12px));
+  height: var(--rc03-phone-pace-height, 197px);
+  padding-right: 36%;
+}
+
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-stint-clock {
+  right: var(--rc03-phone-inset, 12px);
+  left: auto;
+  top: var(--rc03-phone-pace-top, 44px);
+  width: 32%;
+  height: calc(var(--rc03-phone-pace-height, 197px) / 2);
+}
+
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-vitals {
+  left: var(--rc03-phone-inset, 12px);
+  top: var(--rc03-phone-vitals-top, 255px);
+  width: calc(100% - 2 * var(--rc03-phone-inset, 12px));
+  height: var(--rc03-phone-vitals-height, 197px);
+}
+
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-fuel {
+  left: var(--rc03-phone-inset, 12px);
+  top: var(--rc03-phone-fuel-top, 466px);
+  width: calc(100% - 2 * var(--rc03-phone-inset, 12px));
+  height: var(--rc03-phone-fuel-height, 200px);
+}
+
+/* Portrait halves every horizontal budget, so the heroes shrink with the container width.
+   The generic value rule comes FIRST so the hero rules that follow win the equal-specificity
+   cascade — the reverse order silently flattens every hero to the secondary scale. */
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-value { font-size: clamp(14px, 7cqw, 30px); }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-gear { font-size: clamp(30px, 16cqw, 72px); }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-delta { font-size: clamp(20px, 11cqw, 48px); }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-fuel-laps { font-size: clamp(26px, 14cqw, 60px); }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-vitals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* ---------------------------------------------------------------- compact landscape */
+
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='landscape'] .rc03-gear { font-size: clamp(30px, 10cqw, 80px); }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='landscape'] .rc03-delta { font-size: clamp(22px, 7.5cqw, 60px); }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='landscape'] .rc03-fuel-laps { font-size: clamp(28px, 9.5cqw, 76px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rc03-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
