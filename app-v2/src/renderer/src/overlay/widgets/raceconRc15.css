@@ -1,0 +1,636 @@
+/*
+ * RaceCon RC-15 "On The Nose — Brake & Chassis Balance".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480, as corrected by normative overrides 1 and
+ * 2) and packet 12.1 (1024x600) rects are declared in `raceconRc15Core.ts` in the packet's own
+ * pixels and applied as inline percentages by the widget, so the stylesheet and the packet cannot
+ * drift and the suite can assert the geometry as arithmetic. Override 6 is explicit: the approved
+ * render drifts as far as +16.50 pp on width and those pixels are never traced.
+ *
+ * THE SIZING TRAP THIS FILE EXISTS TO AVOID. `white-space: nowrap` makes a flex item's min-content
+ * width exceed its column, so `overflow: hidden` never clips it and `scrollWidth === clientWidth`
+ * while the glyph is physically outside its zone. Every hero numeral here is therefore sized with a
+ * `cqw` rung inside a `clamp()` whose MAXIMUM is conservative, sits in its own `min-width: 0` flex
+ * section, and is verified with `getBoundingClientRect` rather than `scrollWidth`. The bias numeral
+ * is the tallest glyph in the frame and its zone is only 360 px wide at 800x480: 9 cqw is 72 px
+ * there and 92.16 px at 1024x600, and the 96 px cap stops a 1920-wide canvas from launching it out
+ * of the zone entirely.
+ *
+ * Type ladder, packet 11.2, computed arithmetically and NOT measured off the render: bias 72 >
+ * balance index 48 >= brake temperature 44 > corner strip 30 px on the 800x480 canvas, which is
+ * 9 / 6 / 5.5 / 3.75 cqw. Normative override 3 reads those sizes as CAP HEIGHTS at 0.75 of the em,
+ * and override 5 downgrades the impossible 48/44 = 1.091x step to "at least as tall", asserted
+ * arithmetically rather than measured off a render.
+ *
+ * Palette, packet 11.3, with ONE deviation — normative override 4. The packet's `danger` `#FF3B2E`
+ * is dE76 12.95 and 7.23 deg from `signature` `#FF5E3A`, so the routine brake-heat colour IS the
+ * alarm colour at arm's length; `danger` is retuned to `#FF1F5B` (dE76 32.9, 27.0 deg of hue).
+ *
+ * THREE RULES THIS FILE ENFORCES, all asserted by the suite against these declarations:
+ *
+ *  1. `--rc15-danger` and `--rc15-caution` are referenced ONLY inside alert-scoped rules
+ *     (`.is-hot`, `.rc15-pan-alert`, `.is-pegged`, `.is-dashed`). All three RC-15 alerts are silent
+ *     by default, so a resting frame contains zero pixels of any alert token.
+ *  2. `--rc15-normal` is declared for completeness and never referenced at all: packet 14's normal
+ *     state is the ABSENCE of an alert, not a green light.
+ *  3. `--rc15-signature` is bound to brake heat only — the two pan numerals and the lit heat cells —
+ *     and never to the beam, the index, the bias or any label.
+ */
+
+.rc15-widget,
+.rc15-widget *,
+.rc15-widget *::before,
+.rc15-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc15-widget {
+  --rc15-bg: #0f0c0c;
+  --rc15-panel: #1c1414;
+  --rc15-primary: #f3ecec;
+  --rc15-secondary: #a8988f;
+  --rc15-info: #3fb0d2;
+  --rc15-signature: #ff5e3a;
+  /* Alert-layer tokens. `normal` is declared for completeness and deliberately never referenced. */
+  --rc15-normal: #4cc084;
+  --rc15-caution: #ff9e2c;
+  --rc15-danger: #ff1f5b;
+
+  --rc15-rule: #2a1f1f;
+  --rc15-cell-dark: #a8988f26;
+  --rc15-beam-deg: 0deg;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc15-bg);
+  color: var(--rc15-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.rc15-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc15-panel {
+  position: absolute;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--rc15-rule);
+  border-radius: 3px;
+  background: var(--rc15-panel);
+}
+
+.rc15-visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc15-strip-title,
+.rc15-beam-title,
+.rc15-bias-label,
+.rc15-pan-label,
+.rc15-strip-label,
+.rc15-trend-key {
+  color: var(--rc15-secondary);
+  font-size: clamp(6px, 1.6cqw, 20px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.rc15-strip-qualifier {
+  margin-left: 0.6em;
+  opacity: 0.75;
+}
+
+.rc15-notice {
+  margin: 0;
+  padding: 0.2cqw 0.6cqw;
+  color: var(--rc15-secondary);
+  font-size: clamp(6px, 1.5cqw, 18px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- balance beam */
+
+.rc15-beam-zone {
+  align-items: center;
+  padding: 1cqw 1.4cqw;
+  gap: 0.6cqw;
+}
+
+.rc15-beam-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9cqw;
+}
+
+.rc15-computed-chip {
+  padding: 0.1cqw 0.6cqw;
+  border: 1px solid var(--rc15-info);
+  border-radius: 2px;
+  color: var(--rc15-info);
+  font-size: clamp(5px, 1.3cqw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+
+.rc15-beam-read {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 1.2cqw;
+}
+
+/*
+ * Packet 11.2 rung 2, and override 5's "at least as tall as the brake temperature". Own flex item,
+ * own `min-width: 0`, conservative clamp maximum: the numeral cannot widen past its section.
+ * Override 3: the line box is the cap height, 0.75 of the em.
+ */
+.rc15-beam-index {
+  min-width: 0;
+  color: var(--rc15-primary);
+  font-size: clamp(10px, var(--rc15-type-index, 6cqw), 64px);
+  font-weight: 700;
+  line-height: 0.75;
+}
+
+/*
+ * Override 7: the UNDER / OVER word is routine accessibility chrome in `primary`, not the alert
+ * layer. It exists so balance is never encoded by beam angle or hue alone.
+ */
+.rc15-beam-word {
+  color: var(--rc15-primary);
+  font-size: clamp(7px, 2.6cqw, 30px);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.rc15-beam-stage {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.rc15-beam-datum {
+  position: absolute;
+  top: 50%;
+  right: 4%;
+  left: 4%;
+  border-top: 1px dashed var(--rc15-cell-dark);
+}
+
+.rc15-beam-bar {
+  position: absolute;
+  top: 50%;
+  right: 6%;
+  left: 6%;
+  height: 0.8cqw;
+  min-height: 3px;
+  border-radius: 2px;
+  background: var(--rc15-secondary);
+  transform-origin: 50% 50%;
+}
+
+.rc15-beam-fulcrum {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-right: 1.4cqw solid transparent;
+  border-bottom: 2.2cqw solid var(--rc15-secondary);
+  border-left: 1.4cqw solid transparent;
+  transform: translateX(-50%);
+}
+
+.rc15-beam-edge {
+  position: absolute;
+  bottom: 0;
+  color: var(--rc15-secondary);
+  font-size: clamp(5px, 1.4cqw, 16px);
+  letter-spacing: 0.16em;
+}
+
+.rc15-beam-edge-front {
+  left: 0;
+}
+
+.rc15-beam-edge-rear {
+  right: 0;
+}
+
+/* Alert layer: only the PEGGED beam belongs to balance-extreme (normative override 7). */
+.rc15-beam-zone.is-pegged .rc15-beam-bar {
+  background: var(--rc15-caution);
+}
+
+.rc15-beam-zone.is-pegged .rc15-beam-word {
+  color: var(--rc15-caution);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* ---------------------------------------------------------------- brake pans */
+
+.rc15-pan {
+  align-items: center;
+  justify-content: center;
+  padding: 0.8cqw;
+  gap: 0.5cqw;
+}
+
+.rc15-pan-row {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 0.5cqw;
+}
+
+/* Packet 11.2 rung 3, at override 3's cap-height line box. `signature` is bound to brake heat here and nowhere else. */
+.rc15-pan-value {
+  min-width: 0;
+  color: var(--rc15-signature);
+  font-size: clamp(9px, var(--rc15-type-temp, 5.5cqw), 58px);
+  font-weight: 700;
+  line-height: 0.75;
+}
+
+.rc15-pan-unit {
+  color: var(--rc15-secondary);
+  font-size: clamp(5px, 1.3cqw, 15px);
+  letter-spacing: 0.14em;
+}
+
+.rc15-pan-value.is-unavailable,
+.rc15-pan-value.is-stale {
+  color: var(--rc15-secondary);
+}
+
+.rc15-pan-bar {
+  display: flex;
+  width: 92%;
+  height: 1.6cqw;
+  min-height: 4px;
+  gap: 0.25cqw;
+}
+
+.rc15-pan-cell {
+  min-width: 0;
+  flex: 1 1 0;
+  border-radius: 1px;
+  background: var(--rc15-cell-dark);
+}
+
+.rc15-pan-cell.is-lit {
+  background: var(--rc15-signature);
+}
+
+/* Alert layer: brake overheat. Word plus border plus hue, never hue alone (packet 19). */
+.rc15-pan.is-hot {
+  border-color: var(--rc15-danger);
+}
+
+.rc15-pan.is-hot .rc15-pan-cell.is-lit {
+  background: var(--rc15-danger);
+}
+
+.rc15-pan-alert {
+  padding: 0.1cqw 0.5cqw;
+  border-radius: 2px;
+  background: var(--rc15-danger);
+  color: var(--rc15-bg);
+  font-size: clamp(5px, 1.4cqw, 16px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+/* ---------------------------------------------------------------- brake bias */
+
+/*
+ * Packet 12.1 grows the bias zone only 110/104 = 1.058x while packet 11.2's type ladder grows the
+ * full 1.28x, so a THREE-ROW bias stack fits at 800x480 and overflows at 1024x600 — measured, with
+ * `getBoundingClientRect`, not assumed. The block therefore reflows: the label sits over the numeral
+ * and the `LAST ADJ` hint moves alongside instead of underneath. One row of cap-height numeral fits
+ * both declared zones with margin to spare.
+ */
+.rc15-bias {
+  align-items: center;
+  justify-content: center;
+  padding: 0.6cqw 1.2cqw;
+  flex-direction: row;
+  gap: 2cqw;
+}
+
+.rc15-bias-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rc15-bias-read {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+  gap: 0.8cqw;
+}
+
+/*
+ * Packet 11.2 rung 1 — the tallest glyph in the frame. This is the numeral the sizing trap was
+ * written about: 9 cqw is 72 px inside a 360 px zone at 800x480 and 92.16 px inside a 464 px zone at
+ * 1024x600, and the 96 px maximum keeps it inside the zone on a canvas of any width. Normative
+ * override 3: the 11.2 size is a CAP HEIGHT, so the line box is 0.75 of the em rather than 1.0.
+ */
+.rc15-bias-value {
+  min-width: 0;
+  color: var(--rc15-primary);
+  font-size: clamp(14px, var(--rc15-type-bias, 9cqw), 96px);
+  font-weight: 700;
+  line-height: 0.75;
+}
+
+.rc15-bias-unit {
+  color: var(--rc15-secondary);
+  font-size: clamp(5px, 1.5cqw, 18px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+.rc15-bias-hint {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rc15-bias-hint-label {
+  color: var(--rc15-secondary);
+  font-size: clamp(5px, 1.3cqw, 15px);
+  letter-spacing: 0.16em;
+}
+
+.rc15-bias-hint-value {
+  color: var(--rc15-info);
+  font-size: clamp(6px, 1.8cqw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.rc15-bias-hint-value.is-unavailable {
+  color: var(--rc15-secondary);
+}
+
+.rc15-bias-value.is-unavailable {
+  color: var(--rc15-secondary);
+}
+
+/* Alert layer: the bias readout is DASHED only once the channel has actually been lost for 1 s. */
+.rc15-bias.is-dashed {
+  border-color: var(--rc15-caution);
+  border-style: dashed;
+}
+
+.rc15-bias.is-dashed .rc15-bias-value {
+  color: var(--rc15-caution);
+}
+
+/* ---------------------------------------------------------------- corner strip */
+
+.rc15-strip,
+.rc15-corner-map {
+  padding: 0.5cqw 0.8cqw;
+  gap: 0.4cqw;
+}
+
+.rc15-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1cqw;
+}
+
+.rc15-context {
+  display: flex;
+  gap: 1.4cqw;
+}
+
+.rc15-context-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35cqw;
+}
+
+.rc15-context-label,
+.rc15-context-unit {
+  color: var(--rc15-secondary);
+  font-size: clamp(5px, 1.3cqw, 15px);
+  letter-spacing: 0.14em;
+}
+
+.rc15-context-value {
+  color: var(--rc15-primary);
+  font-size: clamp(6px, 1.7cqw, 20px);
+  font-weight: 700;
+}
+
+.rc15-context-value.is-unavailable,
+.rc15-context-value.is-stale {
+  color: var(--rc15-secondary);
+}
+
+.rc15-strip-rows {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 0.8cqw;
+}
+
+.rc15-strip-labels {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 12%;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.2cqw 0;
+}
+
+/*
+ * Normative override 10: each row label is bound to the row it names. In the reference `CORNER`
+ * sits on the mini-track baseline instead of on the column-heading baseline; here the four labels
+ * and the four column rows share one `space-between` rhythm so they cannot drift apart.
+ */
+.rc15-strip-label {
+  overflow: hidden;
+  min-height: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc15-strip-columns {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 0.5cqw;
+}
+
+.rc15-corner {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.2cqw 0.2cqw 0.35cqw;
+  border-bottom: 2px solid transparent;
+}
+
+/* Exactly one current-corner underline, and it is always on column 6. */
+.rc15-corner.is-current {
+  border-bottom-color: var(--rc15-info);
+}
+
+.rc15-corner-id {
+  color: var(--rc15-secondary);
+  font-size: clamp(5px, 1.4cqw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-align: center;
+}
+
+.rc15-corner-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 1.4cqw;
+  min-height: 6px;
+}
+
+.rc15-corner-track::before {
+  position: absolute;
+  top: 50%;
+  right: 4%;
+  left: 4%;
+  border-top: 1px solid var(--rc15-cell-dark);
+  content: '';
+}
+
+.rc15-corner-datum {
+  position: absolute;
+  top: 15%;
+  bottom: 15%;
+  left: 50%;
+  width: 1px;
+  background: var(--rc15-secondary);
+}
+
+.rc15-corner-marker {
+  position: absolute;
+  top: 50%;
+  width: 0.7cqw;
+  height: 0.7cqw;
+  min-width: 4px;
+  min-height: 4px;
+  border-radius: 50%;
+  background: var(--rc15-primary);
+  transform: translate(-50%, -50%);
+}
+
+/* Packet 11.2 rung 4. Override 9's numeric readout, printed under every column unconditionally. */
+.rc15-corner-index {
+  color: var(--rc15-primary);
+  font-size: clamp(6px, var(--rc15-type-strip, 3.75cqw), 40px);
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.rc15-corner-index.is-unavailable {
+  color: var(--rc15-secondary);
+}
+
+.rc15-corner-pair {
+  display: flex;
+  justify-content: center;
+  gap: 0.25cqw;
+  color: var(--rc15-secondary);
+  font-size: clamp(5px, 1.4cqw, 16px);
+}
+
+.rc15-corner-temp.is-unavailable {
+  color: var(--rc15-secondary);
+}
+
+/* ---------------------------------------------------------------- app-only reveals */
+
+.rc15-trend {
+  padding: 0.5cqw 0.8cqw;
+  gap: 0.4cqw;
+}
+
+.rc15-trend-plot {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.rc15-trend-line {
+  fill: none;
+  stroke-width: 1.6;
+}
+
+.rc15-trend-front {
+  stroke: var(--rc15-signature);
+  stroke-dasharray: none;
+}
+
+/* The two axles are separated by LINE PATTERN before any colour is perceived (packet 19). */
+.rc15-trend-rear {
+  stroke: var(--rc15-secondary);
+  stroke-dasharray: 4 3;
+}
+
+.rc15-trend-legend {
+  display: flex;
+  gap: 1.2cqw;
+}
+
+/* ---------------------------------------------------------------- compact grammars */
+
+@container (max-width: 640px) {
+  .rc15-strip-labels {
+    flex-basis: 16%;
+  }
+
+  .rc15-beam-edge {
+    display: none;
+  }
+}
+
+@container (max-height: 420px) {
+  .rc15-pan-bar {
+    height: 2.4cqw;
+  }
+}
