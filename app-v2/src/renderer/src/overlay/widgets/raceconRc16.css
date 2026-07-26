@@ -1,0 +1,514 @@
+/*
+ * RaceCon RC-16 "Learn Lines - Novice Coaching & Consistency".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are declared in
+ * `raceconRc16Core.ts` in the packet's own pixels and applied as inline percentages by the widget,
+ * so the stylesheet and the packet cannot drift and the suite can assert the geometry as arithmetic.
+ * The consistency ring's three radii are declared there too and reach this file only as SVG
+ * attributes, because on this artifact a RADIUS IS THE VALUE and a stylesheet must never be able to
+ * move it.
+ *
+ * Type ladder, packet 11.2, computed arithmetically and NOT measured off the approved render:
+ * ring value 56 > delta 44 > smoothness 40 > cue 34 > summary 28 px on the 800x480 canvas, which is
+ * 7 / 5.5 / 5 / 4.25 / 3.5 cqw. Normative override 4 records that the 44-to-40 step is only 2.88 px
+ * of cap height and is unmeasurable in a raster render; in a DOM the ladder is arithmetic, strictly
+ * ordered and unit-tested, so packet 11.2 is implemented verbatim rather than re-spaced. Every label
+ * shares ONE rung at 18 px / 2.25 cqw and is smaller than every value it labels.
+ *
+ * Every hero numeral is sized with `cqw` plus a conservative `max` in `clamp()`, and every zone that
+ * carries one is `overflow: hidden` with `min-width: 0` on its flex children. `white-space: nowrap`
+ * is used ONLY on single-token values that have no break opportunity anyway, never on a flex item
+ * that has to share a row, because a nowrap item's min-content width defeats `overflow: hidden` and
+ * lets a hero escape its zone while every `scrollWidth` check still passes.
+ *
+ * Palette, packet 11.3, verbatim. FOUR RULES THIS FILE EXISTS TO ENFORCE, all asserted by the suite
+ * against this file's own declarations:
+ *
+ *  1. `--rc16-normal` is NEVER referenced. Normative override 5: it is only dE76 17.28 and 2.19
+ *     degrees of hue from `--rc16-signature`, so the two merge under deuteranopia. The consistency
+ *     ring uses `signature` alone and the smoothness fill uses `info`, 32 degrees away.
+ *  2. `--rc16-danger` is NEVER referenced. Packet 14 states there is no harsh critical state by
+ *     design and packet 18 forbids aggressive red warnings: this artifact has no red surface.
+ *  3. `--rc16-caution` is referenced ONLY inside `.rc16-cue.is-alert` rules. All three RC-16 alerts
+ *     are silent until their trigger fires, so a resting frame has zero pixels of any alert token.
+ *  4. Every dash placeholder, gate notice, label, hairline and guide circle is `--rc16-secondary`.
+ */
+
+.rc16-widget,
+.rc16-widget *,
+.rc16-widget *::before,
+.rc16-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc16-widget {
+  --rc16-bg: #0a0e0d;
+  --rc16-panel: #131c1a;
+  --rc16-primary: #eaf3f0;
+  --rc16-secondary: #8aa39c;
+  --rc16-info: #48c0c8;
+  --rc16-signature: #7ae0b0;
+  /*
+   * Alert-layer and completeness tokens. `caution` is referenced only by the engaged cue card;
+   * `normal` and `danger` are declared for packet completeness and deliberately never referenced.
+   */
+  --rc16-normal: #46d08a;
+  --rc16-caution: #f0c23c;
+  --rc16-danger: #f0603e;
+
+  --rc16-hairline: #8aa39c33;
+  --rc16-track: #8aa39c1f;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc16-bg);
+  color: var(--rc16-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.rc16-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---------------------------------------------------------------- panels and labels */
+
+/*
+ * Four flat `panel` tiles. The consistency ring deliberately has NO tile behind it (brief section
+ * 1): three concentric circles sit straight on the calm background.
+ */
+.rc16-panel {
+  position: absolute;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rc16-hairline);
+  border-radius: 4px;
+  background: var(--rc16-panel);
+}
+
+.rc16-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc16-secondary);
+  font-size: clamp(6px, var(--rc16-type-label, 2.25cqw), 27px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.rc16-notice {
+  margin: 0;
+  color: var(--rc16-secondary);
+  font-size: clamp(6px, var(--rc16-type-label, 2.25cqw), 27px);
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.rc16-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- consistency ring */
+
+.rc16-ring {
+  position: absolute;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: none;
+  border: 0;
+}
+
+.rc16-ring-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.rc16-ring-guide {
+  fill: none;
+  stroke: var(--rc16-secondary);
+  stroke-opacity: 0.45;
+  stroke-width: 0.6;
+}
+
+/*
+ * The encoded quantity. Normative override 5: `signature` alone, never paired with `normal`, so the
+ * ring stays separable from the smoothness fill under any colour-vision deficiency — and tightness
+ * is a SHAPE, so the quantity survives with no hue at all.
+ */
+.rc16-ring-band {
+  fill: none;
+  stroke: var(--rc16-signature);
+  stroke-linecap: round;
+  transition: r 420ms ease-out;
+}
+
+.rc16-ring-disc {
+  fill: var(--rc16-panel);
+  stroke: var(--rc16-hairline);
+  stroke-width: 0.4;
+}
+
+.rc16-ring-centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18%;
+  overflow: hidden;
+  gap: 0.2cqw;
+  text-align: center;
+}
+
+.rc16-ring-value {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rc16-primary);
+  font-size: clamp(14px, var(--rc16-type-ring, 7cqw), 84px);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.rc16-ring-unit {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rc16-secondary);
+  font-size: clamp(6px, var(--rc16-type-label, 2.25cqw), 27px);
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- smoothness meter */
+
+.rc16-smoothness {
+  gap: 0.6cqw;
+  padding: 1.2cqw 1.4cqw;
+}
+
+.rc16-smoothness-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  gap: 1.2cqw;
+  overflow: hidden;
+}
+
+.rc16-smoothness-track {
+  position: relative;
+  width: 22%;
+  min-width: 6px;
+  height: 100%;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--rc16-track);
+}
+
+/*
+ * One continuous fill. Its height is the same model number the numeral prints, so the bar and the
+ * value are arithmetically incapable of disagreeing.
+ */
+.rc16-smoothness-fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--rc16-info);
+  transition: height 420ms ease-out;
+}
+
+.rc16-smoothness-value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--rc16-primary);
+  font-size: clamp(10px, var(--rc16-type-smoothness, 5cqw), 60px);
+  font-weight: 600;
+  line-height: 1;
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- coaching cue card */
+
+.rc16-cue {
+  gap: 0.8cqw;
+  padding: 1.2cqw 1.4cqw;
+}
+
+.rc16-cue-icon {
+  width: 2.6cqw;
+  height: 2.6cqw;
+  min-width: 8px;
+  min-height: 8px;
+  flex: 0 0 auto;
+  border-radius: 1px;
+  background: var(--rc16-info);
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+}
+
+.rc16-cue-icon[data-rc16-icon='smooth'] {
+  clip-path: polygon(0% 70%, 30% 30%, 60% 60%, 100% 10%, 100% 100%, 0% 100%);
+}
+
+.rc16-cue-icon[data-rc16-icon='ring'] {
+  border-radius: 50%;
+  clip-path: none;
+}
+
+.rc16-cue-icon[data-rc16-icon='line'] {
+  clip-path: polygon(0% 60%, 100% 20%, 100% 40%, 0% 80%);
+}
+
+.rc16-cue-icon[data-rc16-icon='none'] {
+  background: var(--rc16-secondary);
+  clip-path: none;
+}
+
+.rc16-cue-lines {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+}
+
+.rc16-cue-line {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rc16-primary);
+  font-size: clamp(9px, var(--rc16-type-cue, 4.25cqw), 51px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+}
+
+/*
+ * The ONLY reference to `--rc16-caution` in this file. The cue card is a packet 11.1 layout zone and
+ * carries the section 14 encouraging nudge at rest; this rule is the alert layer, and it is
+ * unreachable until a trigger latches.
+ */
+.rc16-cue.is-alert {
+  border-color: var(--rc16-caution);
+}
+
+.rc16-cue.is-alert .rc16-cue-icon {
+  background: var(--rc16-caution);
+}
+
+/* ---------------------------------------------------------------- delta calm */
+
+/*
+ * Normative override 7. The native zone is 60 px tall and packet 11.2 asks for 44 px type, so the
+ * label, the value and the unit share ONE inline row instead of stacking. Every child carries
+ * `min-width: 0` so the hero numeral can never force the row wider than its zone.
+ */
+.rc16-delta {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.8cqw;
+  padding: 0.6cqw 1cqw;
+}
+
+.rc16-delta .rc16-label {
+  flex: 0 1 auto;
+}
+
+.rc16-delta-value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--rc16-primary);
+  font-size: clamp(11px, var(--rc16-type-delta, 5.5cqw), 66px);
+  font-weight: 600;
+  line-height: 1;
+  text-align: right;
+}
+
+.rc16-delta-unit {
+  flex: 0 0 auto;
+  color: var(--rc16-secondary);
+  font-size: clamp(6px, var(--rc16-type-label, 2.25cqw), 27px);
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+}
+
+/* ---------------------------------------------------------------- lap summary */
+
+.rc16-summary {
+  justify-content: center;
+  gap: 0.8cqw;
+  padding: 1cqw 1.4cqw;
+}
+
+.rc16-summary-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.8cqw;
+  overflow: hidden;
+}
+
+.rc16-summary-row .rc16-label {
+  flex: 0 1 auto;
+}
+
+.rc16-summary-value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--rc16-primary);
+  font-size: clamp(8px, var(--rc16-type-summary, 3.5cqw), 42px);
+  font-weight: 600;
+  line-height: 1.05;
+  text-align: right;
+}
+
+.rc16-summary-unit {
+  flex: 0 0 auto;
+  color: var(--rc16-secondary);
+  font-size: clamp(6px, var(--rc16-type-label, 2.25cqw), 27px);
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+}
+
+/* ---------------------------------------------------------------- consistency history */
+
+.rc16-history {
+  gap: 0.8cqw;
+  padding: 1cqw 1.4cqw;
+}
+
+.rc16-history-track {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  gap: 0.4cqw;
+  overflow: hidden;
+}
+
+/*
+ * One column per lap in the published window. A lap the widget never observed is an explicit GAP
+ * column drawn as a hairline stub — the series is never bridged across it.
+ */
+.rc16-history-point {
+  min-width: 2px;
+  height: var(--rc16-history-band, 6%);
+  flex: 1 1 0;
+  border-radius: 1px;
+  background: var(--rc16-signature);
+}
+
+.rc16-history-point.is-unavailable {
+  height: 6%;
+  background: var(--rc16-track);
+}
+
+.rc16-history-point.is-gap {
+  height: 6%;
+  background: repeating-linear-gradient(
+    to right,
+    var(--rc16-secondary) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* ---------------------------------------------------------------- focus-area selector */
+
+/*
+ * Packet 11.5's macro button. Zone gap 6: neither 11.1 nor 12.1 gives the selector a zone, so it is
+ * a purely off-screen input — reachable by keyboard and by test, drawing zero pixels on either
+ * canvas so the packet's five-zone geometry stays intact.
+ */
+.rc16-focus-selector {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  clip-path: inset(50%);
+  color: inherit;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- degraded states */
+
+/*
+ * Packet 16: an unavailable channel renders its dash state and a stale one is VISIBLY degraded. Both
+ * drop to `secondary` — never a plausible primary numeral, never a silent freeze.
+ */
+.rc16-ring-value.is-stale,
+.rc16-ring-value.is-unavailable,
+.rc16-smoothness-value.is-stale,
+.rc16-smoothness-value.is-unavailable,
+.rc16-delta-value.is-stale,
+.rc16-delta-value.is-unavailable,
+.rc16-summary-value.is-stale,
+.rc16-summary-value.is-unavailable {
+  color: var(--rc16-secondary);
+}
+
+.rc16-smoothness-value.is-unavailable,
+.rc16-delta-value.is-unavailable,
+.rc16-summary-value.is-unavailable,
+.rc16-ring-value.is-unavailable {
+  opacity: 0.85;
+}
+
+/* ---------------------------------------------------------------- compact grammars */
+
+/*
+ * The compact grammars reflow rather than scale: the ring stays the hero, the cue card stays a
+ * single cue, and the app-only consistency history is absent here exactly as it is at 800x480.
+ */
+@container (max-width: 1022px) {
+  .rc16-smoothness,
+  .rc16-cue,
+  .rc16-summary,
+  .rc16-history {
+    padding: 1.6cqw 1.8cqw;
+  }
+
+  .rc16-ring-centre {
+    padding: 0 15%;
+  }
+}
+
+@container (max-width: 520px) {
+  .rc16-cue-lines {
+    letter-spacing: 0;
+  }
+
+  .rc16-smoothness-body {
+    gap: 2cqw;
+  }
+}
