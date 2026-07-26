@@ -15,6 +15,10 @@ import { RaceconRc05DashWidget } from './RaceconRc05DashWidget'
 import { RaceconRc06DashWidget } from './RaceconRc06DashWidget'
 import { RaceconRc07DashWidget } from './RaceconRc07DashWidget'
 import { RaceconRc08DashWidget } from './RaceconRc08DashWidget'
+import { RaceconRc09DashWidget } from './RaceconRc09DashWidget'
+import { RaceconRc10DashWidget } from './RaceconRc10DashWidget'
+import { RaceconRc11DashWidget } from './RaceconRc11DashWidget'
+import { WIDGET_COMPONENTS } from './index'
 import { RC06_FUEL_MODEL_ENGAGE_MS } from './raceconRc06Core'
 
 type RaceconDashWidget = FunctionComponent<WidgetProps & { monotonicClock?: Rc01MonotonicClock }>
@@ -27,8 +31,14 @@ const RACECON_WIDGETS: ReadonlyArray<readonly [OverlayWidgetId, RaceconDashWidge
   ['raceconRc05Dash', RaceconRc05DashWidget],
   ['raceconRc06Dash', RaceconRc06DashWidget],
   ['raceconRc07Dash', RaceconRc07DashWidget],
-  ['raceconRc08Dash', RaceconRc08DashWidget]
+  ['raceconRc08Dash', RaceconRc08DashWidget],
+  ['raceconRc09Dash', RaceconRc09DashWidget],
+  ['raceconRc10Dash', RaceconRc10DashWidget],
+  ['raceconRc11Dash', RaceconRc11DashWidget]
 ]
+
+/** Every RaceCon dashboard actually wired into the renderer, straight from the registry. */
+const RACECON_ID_PATTERN = /^raceconRc\d+Dash$/
 
 /**
  * Comfortably past every time gate the family owns: RC-06's fuel-model engagement, and the
@@ -109,6 +119,24 @@ describe('RaceCon display clock freeze policy', () => {
   it('ticks only for a live render and freezes for every preview mode', () => {
     expect(raceconDisplayClockFrozen(undefined)).toBe(false)
     expect(raceconDisplayClockFrozen('inert')).toBe(true)
+  })
+
+  /**
+   * The freeze guarantee below is only worth as much as this enumeration. A new RaceCon
+   * dashboard that ships with the same unconditional interval would otherwise sit outside the
+   * loop and reintroduce the exact inert-preview text diff this suite exists to catch, while
+   * the suite stayed green. The family is therefore taken from the renderer registry rather
+   * than from a hand-maintained list that can silently stop at the last widget someone
+   * remembered, and every registered id must be covered here.
+   */
+  it('covers every RaceCon dashboard registered in the renderer', () => {
+    const registered = Object.keys(WIDGET_COMPONENTS).filter((id) => RACECON_ID_PATTERN.test(id)).sort()
+    const covered = RACECON_WIDGETS.map(([id]) => id as string).sort()
+    expect(registered.length).toBeGreaterThan(0)
+    expect(covered).toEqual(registered)
+    for (const [id, Widget] of RACECON_WIDGETS) {
+      expect(WIDGET_COMPONENTS[id], `${id} must be the component the renderer actually mounts`).toBe(Widget)
+    }
   })
 })
 

@@ -1,0 +1,550 @@
+/*
+ * RaceCon RC-10 "Clear Sight — High-Contrast Color-Vision-Safe Driver Display".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are declared
+ * in `raceconRc10Core.ts` and applied as inline percentages by the widget, so the stylesheet and
+ * the packet cannot drift and the suite can assert the geometry as arithmetic. Normative override
+ * N3 is explicit: the approved render drifts +4.9 / -4.7 / -7.9 / +7.6 pp on the tile widths and
+ * puts the row-two split at 59.5 % instead of 67.5 %, and those pixels are never traced.
+ *
+ * Type ladder, packet 11.2, computed arithmetically and NOT measured off the render: gear 210 >
+ * speed 150 > delta 86 > fuel 72 > status 44 > labels 24 px on the 800x480 canvas, which is
+ * 26.25 / 18.75 / 10.75 / 9 / 5.5 / 3 cqw. Normative override N2 is explicit that the render's
+ * compressed 1.250 gear/speed and 1.158 fuel/status steps must not be copied. Each rung is capped
+ * by its own zone's arithmetic fit in the core (`rc10RungCqw`), which is the documented
+ * RC-01/RC-02 nowrap trap.
+ *
+ * Palette, packet 11.3, verbatim — normative override N4 forbids the render's #070707 / #4EA5EE /
+ * #129675 / #F5DA31. `caution` and `danger` are bound ONLY to alert glyphs and alert patterns, so
+ * a silent frame contains zero pixels of either.
+ *
+ * TWO RULES THIS FILE EXISTS TO ENFORCE, both asserted by the suite against this file's own text:
+ *
+ *  1. Every `color:` declaration resolves to `--rc10-primary` (19.68:1 on panel) or
+ *     `--rc10-secondary` (14.49:1). Nothing else ever carries text. `caution` measures 8.74:1 and
+ *     `danger` 5.11:1 against `panel`, so tinting an alert WORD would drop it under packet section
+ *     19's >= 10:1 floor for exactly the driver this artifact exists for. The alert hue lives in
+ *     the icon glyph and the pattern, which are non-text graphics judged against the 3:1 floor.
+ *  2. There is no `opacity` anywhere. Normative override N5: an unavailable value is degraded by
+ *     TOKEN RANK and GLYPH — `secondary` plus the hollow ring — never by dimming.
+ */
+
+.rc10-widget,
+.rc10-widget *,
+.rc10-widget *::before,
+.rc10-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc10-widget {
+  --rc10-bg: #000000;
+  --rc10-panel: #0b0b0b;
+  --rc10-primary: #ffffff;
+  --rc10-secondary: #dddddd;
+  --rc10-info: #56b4e9;
+  --rc10-normal: #009e73;
+  --rc10-caution: #e69f00;
+  --rc10-danger: #d55e00;
+  --rc10-signature: #f0e442;
+  --rc10-outline: 2px;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc10-bg);
+  color: var(--rc10-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc10-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Packet 1/11.1: a flat `panel` rectangle with an unbroken 2 px `secondary` outline. No gradient. */
+.rc10-tile {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: var(--rc10-outline) solid var(--rc10-secondary);
+  border-radius: 4px;
+  background: var(--rc10-panel);
+}
+
+/*
+ * Packet 11.5: only ONE tile is ever emphasised, and none while the alert layer is silent. The
+ * emphasis is a thicker outline — a geometric change, not a hue change — so it reads without any
+ * colour perception at all.
+ */
+.rc10-tile.is-emphasised {
+  border-width: calc(var(--rc10-outline) * 2.5);
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc10-label,
+.rc10-unit {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc10-secondary);
+  font-size: clamp(10px, var(--rc10-type-label, 3cqw), 30px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc10-unit {
+  letter-spacing: 0.08em;
+}
+
+/*
+ * Normative override N5. A stale or absent channel degrades to the `secondary` token — 14.49:1
+ * against the panel, comfortably above the >= 10:1 floor — beside a hollow status ring. It is
+ * never dimmed, and it never freezes on a value that has stopped being true.
+ */
+.rc10-gear-value.is-stale,
+.rc10-gear-value.is-unavailable,
+.rc10-speed-value.is-stale,
+.rc10-speed-value.is-unavailable,
+.rc10-delta-value.is-stale,
+.rc10-delta-value.is-unavailable,
+.rc10-fuel-value.is-stale,
+.rc10-fuel-value.is-unavailable,
+.rc10-status-value.is-stale,
+.rc10-status-value.is-unavailable {
+  color: var(--rc10-secondary);
+}
+
+/* Every alert word is drawn at maximum contrast; the alert hue is carried by glyph and pattern. */
+.rc10-alert-word {
+  margin: 0;
+  overflow: hidden;
+  color: var(--rc10-primary);
+  font-size: clamp(10px, var(--rc10-type-label, 3cqw), 30px);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- status icons */
+
+.rc10-icon {
+  flex: 0 0 auto;
+  width: clamp(14px, 3.75cqw, 44px);
+  height: clamp(14px, 3.75cqw, 44px);
+}
+
+/* The no-data rank: a hollow outline. Shape first — the fill state alone separates it. */
+.rc10-icon[data-rc10-shape='ring'] .rc10-icon-hollow {
+  fill: none;
+  stroke: var(--rc10-secondary);
+  stroke-width: 4;
+}
+
+.rc10-icon[data-rc10-shape='circle'] .rc10-icon-solid {
+  fill: var(--rc10-normal);
+  stroke: none;
+}
+
+.rc10-icon[data-rc10-shape='triangle'] .rc10-icon-solid {
+  fill: var(--rc10-caution);
+  stroke: none;
+}
+
+.rc10-icon[data-rc10-shape='octagon'] .rc10-icon-solid {
+  fill: var(--rc10-danger);
+  stroke: none;
+}
+
+/* ---------------------------------------------------------------- gear tile */
+
+.rc10-gear {
+  display: flex;
+  flex-direction: column;
+  gap: 0.06em;
+  padding: 2cqw 2cqw 1.4cqw;
+}
+
+/*
+ * Packet 11.1: the shift bar is inset left and right inside the gear tile, 24 px tall, at the top.
+ * Normative override N1: NINE segments — eight ramp plus one over-rev cap — and the cap is
+ * separated by the widest gap in the bar so it is structurally distinct from the ramp.
+ */
+.rc10-shift {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.6cqw;
+  height: clamp(8px, var(--rc10-shift-bar-height, 3cqw), 32px);
+}
+
+.rc10-shift-seg {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid var(--rc10-secondary);
+  background: var(--rc10-panel);
+}
+
+/* The cap sits after the widest gap in the bar and is the one segment that is never striped. */
+.rc10-shift-seg.is-cap {
+  margin-left: 2.6cqw;
+}
+
+/*
+ * Packet 11.4: a striped fill pattern IN ADDITION to the CVD-safe hue ramp, so shift state is
+ * readable by pattern and segment count without any red-green perception.
+ */
+.rc10-shift-seg.is-active[data-rc10-seg-pattern='striped'][data-rc10-seg-tone='info'] {
+  border-color: var(--rc10-info);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--rc10-info) 0 3px,
+    var(--rc10-panel) 3px 6px
+  );
+}
+
+.rc10-shift-seg.is-active[data-rc10-seg-pattern='striped'][data-rc10-seg-tone='normal'] {
+  border-color: var(--rc10-normal);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--rc10-normal) 0 3px,
+    var(--rc10-panel) 3px 6px
+  );
+}
+
+/* Packet 15's over-rev visual: a SOLID cap segment, distinct from every striped ramp segment. */
+.rc10-shift-seg.is-active[data-rc10-seg-pattern='solid'] {
+  border-color: var(--rc10-danger);
+  background: var(--rc10-danger);
+}
+
+.rc10-gear-value {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc10-primary);
+  font-size: clamp(28px, var(--rc10-type-gear, 26.25cqw), 240px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  /*
+   * Gap G5, resolved: packet 11.2's ~210 px gear is the NOMINAL type size, giving a ~149 px cap
+   * height. A 0.75 line box keeps the digit, the 24 px shift bar and the 24 px label inside the
+   * packet's own 220 px tile.
+   */
+  line-height: 0.75;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rc10-gear-label {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+/* ---------------------------------------------------------------- speed tile */
+
+.rc10-speed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.06em;
+  padding: 2cqw;
+}
+
+.rc10-speed-value {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc10-primary);
+  font-size: clamp(20px, var(--rc10-type-speed, 18.75cqw), 180px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 0.92;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rc10-speed-unit {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* ---------------------------------------------------------------- delta tile */
+
+.rc10-delta {
+  display: flex;
+  gap: 1.4cqw;
+  align-items: stretch;
+  padding: 0;
+}
+
+/*
+ * Packet 11.3 and 19: the delta's THIRD redundant cue. A diagonal hatch means faster and a dotted
+ * field means slower — two patterns that are trivially separable in greyscale. With no measured
+ * delta the block is empty, because an unavailable value has no direction to state.
+ */
+.rc10-delta-pattern {
+  flex: 0 0 auto;
+  width: 11cqw;
+  min-width: 0;
+}
+
+.rc10-delta-pattern[data-rc10-pattern='hatch'] {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--rc10-info) 0 5px,
+    var(--rc10-panel) 5px 12px
+  );
+}
+
+.rc10-delta-pattern[data-rc10-pattern='dotted'] {
+  background: radial-gradient(var(--rc10-info) 1.6px, var(--rc10-panel) 1.7px);
+  background-size: 9px 9px;
+}
+
+.rc10-delta-pattern[data-rc10-pattern='flat'] {
+  background: var(--rc10-info);
+}
+
+.rc10-delta-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.05em;
+  justify-content: center;
+  min-width: 0;
+  padding: 1.2cqw 1.4cqw;
+}
+
+.rc10-delta-row {
+  display: flex;
+  gap: 0.9cqw;
+  align-items: baseline;
+  min-width: 0;
+}
+
+/*
+ * Packet 19's SECOND redundant cue: an up/down chevron whose direction is geometry, not hue. It
+ * is absent entirely when there is no measured delta, so it can never imply a direction.
+ */
+.rc10-chevron {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 0;
+  height: 0;
+}
+
+.rc10-chevron[data-rc10-chevron='down'] {
+  border-top: 3.4cqw solid var(--rc10-info);
+  border-right: 2.2cqw solid transparent;
+  border-left: 2.2cqw solid transparent;
+}
+
+.rc10-chevron[data-rc10-chevron='up'] {
+  border-right: 2.2cqw solid transparent;
+  border-bottom: 3.4cqw solid var(--rc10-info);
+  border-left: 2.2cqw solid transparent;
+}
+
+.rc10-chevron[data-rc10-chevron='level'] {
+  width: 4.4cqw;
+  height: 0.8cqw;
+  background: var(--rc10-info);
+}
+
+.rc10-delta-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc10-primary);
+  font-size: clamp(14px, var(--rc10-type-delta, 10.75cqw), 104px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- fuel tile */
+
+.rc10-fuel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  justify-content: space-between;
+  padding: 1.2cqw 1.4cqw;
+}
+
+.rc10-fuel-row {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 0.7cqw;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.rc10-fuel-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc10-primary);
+  font-size: clamp(14px, var(--rc10-type-fuel, 9cqw), 88px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/*
+ * Packet 11.1: a six-segment bar across the bottom, 16 px tall. Normative override N5: the lit
+ * count is `floor(laps / 2.0)` and can never disagree with the numeral above it.
+ */
+.rc10-fuel-bar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.5cqw;
+  height: clamp(6px, 2cqw, 22px);
+}
+
+.rc10-fuel-seg {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid var(--rc10-secondary);
+  background: var(--rc10-panel);
+}
+
+.rc10-fuel-seg.is-active {
+  border-color: var(--rc10-signature);
+  background: var(--rc10-signature);
+}
+
+/* ---------------------------------------------------------------- status row */
+
+.rc10-status {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  padding: 0 1.4cqw;
+}
+
+.rc10-status-cell {
+  display: flex;
+  gap: 0.8cqw;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc10-status-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc10-primary);
+  font-size: clamp(12px, var(--rc10-type-status, 5.5cqw), 56px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc10-status-alert {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
+/* ------------------------------------------ app-only plain-language status line */
+
+.rc10-plain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4cqw;
+  justify-content: center;
+  padding: 1cqw 1.4cqw;
+}
+
+.rc10-plain-headline {
+  margin: 0;
+  overflow: hidden;
+  color: var(--rc10-primary);
+  font-size: clamp(12px, calc(var(--rc10-type-status, 5.5cqw) * 0.82), 46px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+/*
+ * Gap G1's resolution. Packet 12.1 defines no 1024x600 zone for position, water or TC, so they
+ * keep their cells and their icon ranks here rather than vanishing on the wider canvas. This adds
+ * no channel and no gauge: it is the same three readouts the 800x480 status row already carries.
+ */
+.rc10-plain-cells {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------- native 800x480 */
+
+.rc10-widget[data-rc10-layout='native'] .rc10-gear,
+.rc10-widget[data-rc10-layout='native'] .rc10-speed {
+  padding: 16px;
+}
+
+.rc10-widget[data-rc10-layout='native'] .rc10-shift {
+  height: 24px;
+}
+
+.rc10-widget[data-rc10-layout='native'] .rc10-fuel-bar {
+  height: 16px;
+}
+
+/* ---------------------------------------------------------------- app 1024x600 */
+
+.rc10-widget[data-rc10-layout='app'] .rc10-gear,
+.rc10-widget[data-rc10-layout='app'] .rc10-speed {
+  padding: 1.8cqw;
+}
+
+/* ---------------------------------------------------------------- compact */
+
+.rc10-widget[data-rc10-layout='compact'][data-rc10-compact-mode='phone'] .rc10-shift {
+  height: var(--rc10-phone-shift-height, 16px);
+}
+
+.rc10-widget[data-rc10-layout='compact'][data-rc10-compact-mode='phone'] .rc10-icon {
+  width: var(--rc10-phone-icon, 20px);
+  height: var(--rc10-phone-icon, 20px);
+}
+
+.rc10-widget[data-rc10-layout='compact'][data-rc10-compact-mode='phone'] .rc10-gear-value {
+  font-size: clamp(40px, 34cqw, 190px);
+}
+
+.rc10-widget[data-rc10-layout='compact'][data-rc10-compact-mode='phone'] .rc10-speed-value {
+  font-size: clamp(28px, 24cqw, 150px);
+}
+
+.rc10-widget[data-rc10-layout='compact'] .rc10-status-cell {
+  gap: 0.6cqw;
+}
+
+/*
+ * Packet 14: the critical flash is low-rate and non-strobing, and it is a BORDER animation, not a
+ * hue swap — the emphasised outline is already twice as thick, so the state survives with motion
+ * disabled and without any colour perception.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .rc10-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
