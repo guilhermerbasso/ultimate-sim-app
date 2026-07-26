@@ -62,6 +62,7 @@ const appRoot = join(repoRoot, 'app-v2')
 const acceptancePath = join(repoRoot, 'docs', 'phase02', 'stint-passport-v2-acceptance-contract.json')
 const manifestPath = join(repoRoot, 'docs', 'phase02', 'stint-passport-v2-run-manifest.json')
 const generatorPath = join(repoRoot, 'scripts', 'generate-passport-v2-run-manifest.mjs')
+const acceptanceRunnerPath = join(repoRoot, 'scripts', 'run-passport-v2-acceptance.mjs')
 const contractVerifierPath = join(repoRoot, 'scripts', 'verify-phase02-contracts.mjs')
 const workerVerifierPath = join(appRoot, 'scripts', 'verify-passport-worker.mjs')
 const ciPath = join(repoRoot, '.github', 'workflows', 'ci.yml')
@@ -312,6 +313,7 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
     const contracts = workflow.jobs?.contracts
     const app = workflow.jobs?.app
     const acceptance = workflow.jobs?.['passport-acceptance']
+    const acceptanceRunner = readFileSync(acceptanceRunnerPath, 'utf8')
     const packageJson = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')) as {
       scripts: Record<string, string>
     }
@@ -356,12 +358,14 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
     expect(step(acceptance, 'Run source-bound acceptance')?.run).toBe(
       'node scripts/run-passport-v2-acceptance.mjs'
     )
+    expect(acceptanceRunner).toContain('process.stderr.write(output)')
     expect(step(acceptance, 'Generate runtime evidence')?.run).toBe(
       'node scripts/generate-passport-v2-run-manifest.mjs'
     )
-    expect(step(acceptance, 'Upload acceptance evidence')?.uses).toBe(
-      'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02'
-    )
+    expect(step(acceptance, 'Upload acceptance evidence')).toMatchObject({
+      uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
+      if: '${{ always() }}'
+    })
     expect(step(acceptance, 'Attest runtime evidence')).toMatchObject({
       uses: 'actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661',
       if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
