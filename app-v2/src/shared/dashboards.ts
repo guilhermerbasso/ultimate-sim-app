@@ -3549,6 +3549,24 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc04_dash',
+    name: 'RaceCon RC-04 Box Now',
+    widgetId: 'raceconRc04Dash',
+    description:
+      'Full-screen RC-04 pit entry, stop and exit sequence: a five-step phase ribbon, a dominant pit-speed-versus-limit safety bar, limiter state, crew service status and one imperative action line, with state-gated pit alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'pit'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc05_dash',
+    name: 'RaceCon RC-05 Thermal Window',
+    widgetId: 'raceconRc05Dash',
+    description:
+      'Full-screen RC-05 tyre thermal dashboard: a four-corner radial temperature and pressure mandala with computed window bands, a centre delta linking pace to tyre care, TC and brake-temp minis, a measured per-lap trend column and per-corner window alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'tyres'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',

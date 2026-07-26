@@ -1,0 +1,656 @@
+/*
+ * RaceCon RC-04 "Box Now" — pit entry / stop / exit sequence.
+ *
+ * Zone geometry follows ARTIFACT-PACKET.md section 11.1 for the 800x480 native canvas and
+ * section 12.1 for the 1024x600 app reflow. Absolute type sizes come from section 11.2, not
+ * from the reference render: image-qa-v1 residual 4 records that the reference swaps the
+ * limiter and action-line sizes, and residual 2 records up to 4.8 pp of vertical drift.
+ *
+ * The app view is a genuine reflow, not a scale: the extra width reveals a crew-status
+ * column (packet 12.1 `crew-column-reveal`) that cannot fit 800x480, the limiter badge and
+ * the action line merge into one stacked zone, and the service tile becomes a wide service
+ * summary. The five procedural zones keep their order at every breakpoint.
+ *
+ * Palette, packet 11.3: bg #0A0D10, panel #16202A, primary #FFFFFF, secondary #93A1AD,
+ * info #37C0FF (limiter state only), normal #34D06E and danger #FF3B30 strictly for under /
+ * over the limit, caution #FFB020 only in the near-threshold band, signature #FF7A18 only
+ * for pit-lane context. The one place the signature touches the alert layer is the
+ * unsafe-release HOLD block, because packet section 15 specifies that inhibitor as an
+ * "orange HOLD block" and #FF7A18 is the packet's pit-lane orange; danger red stays
+ * reserved for over-limit and caution amber for the near-threshold band.
+ */
+
+.rc04-widget,
+.rc04-widget *,
+.rc04-widget *::before,
+.rc04-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc04-widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: #0a0d10;
+  color: #ffffff;
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc04-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc04-widget section,
+.rc04-widget aside {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc04-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: clamp(14px, 3.25cqw, 26px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* A stale or absent channel degrades to the packet's grey dash; it never freezes on a value. */
+.rc04-value.is-stale,
+.rc04-value.is-unavailable {
+  color: #93a1ad;
+}
+
+.rc04-label,
+.rc04-unit {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #93a1ad;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc04-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+  gap: 0.45em;
+}
+
+.rc04-row .rc04-label {
+  flex: 1 1 auto;
+}
+
+.rc04-row .rc04-value {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- phase ribbon */
+
+/*
+ * Packet 11.1 / section 6: five discrete steps with exactly one enlarged. The active step is
+ * marked by size AND a caret AND an outline, never by highlight colour alone (packet 19).
+ */
+.rc04-ribbon {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5cqw;
+}
+
+.rc04-step {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 0.5cqw;
+  border: 2px solid transparent;
+  background: #16202a;
+}
+
+.rc04-step[data-done='true'] .rc04-step-label {
+  color: #5c6b78;
+}
+
+.rc04-step-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #93a1ad;
+  font-size: clamp(9px, 2.25cqw, 18px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc04-step[data-active='true'] {
+  flex: 1.7 1 0;
+  border-color: #ff7a18;
+}
+
+.rc04-step[data-active='true'] .rc04-step-label {
+  color: #ffffff;
+  font-size: clamp(16px, 5cqw, 40px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.rc04-step-caret {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-right: 0.9cqw solid transparent;
+  border-bottom: 0.9cqw solid #ff7a18;
+  border-left: 0.9cqw solid transparent;
+  transform: translateX(-50%);
+}
+
+/* ---------------------------------------------------------------- safety bar */
+
+.rc04-speed {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 1.2cqh 1.4cqw;
+  border: 1px solid transparent;
+  background: #16202a;
+}
+
+.rc04-speed-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1cqw;
+}
+
+.rc04-speed-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3em;
+}
+
+.rc04-speed-meta .rc04-row {
+  justify-content: flex-end;
+}
+
+.rc04-speed-hero {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+  gap: 0.25em;
+}
+
+/*
+ * Packet 11.2 puts the pit-speed hero at ~130 px on the 800 px canvas. It is sized in cqw
+ * with a conservative clamp maximum so the numeral cannot outgrow its own zone: a nowrap
+ * flex item's min-content width would otherwise exceed the column and escape it silently.
+ */
+.rc04-speed-value {
+  flex: 0 1 auto;
+  font-size: clamp(48px, 16.25cqw, 130px);
+  letter-spacing: -0.02em;
+}
+
+.rc04-speed-unit {
+  flex: 0 0 auto;
+  font-size: clamp(12px, 3cqw, 24px);
+}
+
+.rc04-bar {
+  position: relative;
+  width: 100%;
+  height: clamp(18px, 11cqh, 56px);
+  overflow: hidden;
+  border: 2px solid #22303d;
+  /* The over-limit stretch is UNLIT, not an alarm: it is darker than the panel (image-qa). */
+  background: linear-gradient(
+    to right,
+    #0e1724 0,
+    #0e1724 var(--rc04-limit-rule, 75%),
+    #2a0a0c var(--rc04-limit-rule, 75%),
+    #2a0a0c 100%
+  );
+}
+
+/* image-qa-v1 residual 1: the fill is arithmetic (`speed / fullScale`), never traced. */
+.rc04-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--rc04-bar-fill, 0%);
+  background: #34d06e;
+}
+
+/* The limit datum is an explicit white rule, so the decision is not carried by colour. */
+.rc04-bar-rule {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--rc04-limit-rule, 75%);
+  width: 3px;
+  background: #ffffff;
+  transform: translateX(-50%);
+}
+
+.rc04-speed[data-tone='caution'] .rc04-bar-fill {
+  background: #ffb020;
+}
+
+.rc04-speed[data-tone='danger'] .rc04-bar-fill {
+  background: #ff3b30;
+}
+
+/*
+ * Packet 15: a stale speed source must never read as "under the limit". The fill collapses,
+ * the track greys out and the numeral is already the '--' dash state.
+ */
+.rc04-speed[data-tone='unknown'] .rc04-bar {
+  border-style: dashed;
+  border-color: #3a434c;
+  background: #0e1724;
+}
+
+.rc04-speed[data-tone='unknown'] .rc04-bar-fill {
+  background: transparent;
+}
+
+.rc04-speed[data-tone='unknown'] .rc04-bar-rule {
+  background: #3a434c;
+}
+
+/* Trigger-only: inert until the debounced overspeed alert latches. */
+.rc04-speed[data-alert='true'] {
+  border-color: #ff3b30;
+}
+
+.rc04-speed[data-alert='true'] .rc04-bar {
+  border-color: #ff3b30;
+}
+
+/* ---------------------------------------------------------------- limiter badge */
+
+.rc04-limiter {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  padding: 1cqh 1.4cqw;
+  border: 2px solid transparent;
+  background: #16202a;
+  gap: 0.2em;
+}
+
+.rc04-limiter-value {
+  color: #37c0ff;
+  font-size: clamp(20px, 6cqw, 48px);
+}
+
+.rc04-limiter[data-state='off'] .rc04-limiter-value {
+  color: #93a1ad;
+}
+
+/* Packet 15: an absent limiter channel greys the badge; it never claims ON or OFF. */
+.rc04-limiter[data-state='unknown'] {
+  border-color: #22303d;
+}
+
+.rc04-limiter[data-state='unknown'] .rc04-limiter-value {
+  color: #5c6b78;
+}
+
+/*
+ * Packet 15, limiter mismatch: ONE pulse on engage. The badge element is keyed on the
+ * alert's pulse sequence, so React remounts it per engage and the animation cannot repeat.
+ */
+.rc04-limiter[data-mismatch='true'] {
+  border-color: #ff3b30;
+  animation: rc04-mismatch-pulse 420ms ease-out 1;
+}
+
+.rc04-limiter[data-mismatch='true'] .rc04-limiter-value {
+  color: #ff3b30;
+}
+
+@keyframes rc04-mismatch-pulse {
+  0% {
+    background: #ff3b30;
+  }
+
+  100% {
+    background: #16202a;
+  }
+}
+
+/* ---------------------------------------------------------------- service tile */
+
+.rc04-service {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  padding: 1cqh 1.4cqw;
+  border: 1px solid transparent;
+  background: #16202a;
+  gap: 0.35em;
+}
+
+/* Packet 12.1: the stop clock and the tyre count belong to the wide service summary. */
+.rc04-service-app {
+  display: none;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.35em;
+}
+
+/* ---------------------------------------------------------------- crew column (app only) */
+
+.rc04-crew {
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 1cqh 1.4cqw;
+  border: 1px solid transparent;
+  background: #16202a;
+  gap: 0.5em;
+}
+
+.rc04-crew-grid {
+  display: grid;
+  min-width: 0;
+  gap: 0.4em;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rc04-crew-corner {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0.3em 0.2em;
+  border: 1px solid #22303d;
+  gap: 0.2em;
+}
+
+.rc04-crew-corner[data-serviced='true'] .rc04-value {
+  color: #34d06e;
+}
+
+/* ---------------------------------------------------------------- action line */
+
+.rc04-action {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 0 1.5cqw;
+  border: 1px solid transparent;
+  background: #16202a;
+  gap: 1.2cqw;
+}
+
+.rc04-action-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: clamp(24px, 8cqw, 64px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc04-action[data-tone='signature'] .rc04-action-text {
+  color: #ff7a18;
+}
+
+.rc04-action[data-tone='info'] .rc04-action-text {
+  color: #37c0ff;
+}
+
+.rc04-action[data-tone='danger'] {
+  border-color: #ff3b30;
+}
+
+.rc04-action[data-tone='danger'] .rc04-action-text {
+  color: #ff3b30;
+}
+
+.rc04-lane {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.rc04-macro {
+  flex: 0 0 auto;
+  padding: 0.4em 0.7em;
+  border: 1px solid #37c0ff;
+  background: transparent;
+  color: #37c0ff;
+  font: inherit;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rc04-macro:disabled {
+  border-color: #3a434c;
+  color: #5c6b78;
+  cursor: not-allowed;
+}
+
+/* Packet 14: a resettable alarm line. Acknowledging silences the line, not the escalation. */
+.rc04-alarm-line {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin: 0;
+  color: #ff3b30;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 700;
+  gap: 0.8em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc04-alarm-reset {
+  padding: 0.15em 0.5em;
+  border: 1px solid #ff3b30;
+  background: transparent;
+  color: #ff3b30;
+  font: inherit;
+  cursor: pointer;
+}
+
+/*
+ * Packet 15: the unsafe-release inhibitor sits OVER the action line and exists in every
+ * layout, because the action zone exists in every layout.
+ */
+.rc04-hold {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ff7a18;
+  color: #0a0d10;
+  gap: 0.6em;
+}
+
+.rc04-hold-text {
+  font-size: clamp(24px, 8cqw, 64px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc04-hold-detail {
+  font-size: clamp(10px, 2.4cqw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.rc04-sr-alert {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- native 800x480 (packet 11.1) */
+
+.rc04-widget[data-rc04-layout='native'] .rc04-ribbon { left: 2%; top: 2.5%; width: 96%; height: 18.75%; }
+.rc04-widget[data-rc04-layout='native'] .rc04-speed { left: 2%; top: 25%; width: 65%; height: 45.833%; }
+.rc04-widget[data-rc04-layout='native'] .rc04-limiter { left: 69%; top: 25%; width: 29%; height: 20.833%; }
+.rc04-widget[data-rc04-layout='native'] .rc04-service { left: 69%; top: 48.333%; width: 29%; height: 22.5%; }
+.rc04-widget[data-rc04-layout='native'] .rc04-action { left: 2%; top: 74.167%; width: 96%; height: 22.917%; }
+
+/* ---------------------------------------------------------------- app 1024x600 (packet 12.1) */
+
+.rc04-widget[data-rc04-layout='app'] .rc04-ribbon { left: 0; top: 0; width: 100%; height: 16.667%; gap: 0.4cqw; }
+.rc04-widget[data-rc04-layout='app'] .rc04-speed { left: 2.344%; top: 20%; width: 62.5%; height: 43.333%; }
+/* Packet 12.1 merges the limiter badge and the action line into one stacked zone. */
+.rc04-widget[data-rc04-layout='app'] .rc04-limiter { left: 67.188%; top: 20%; width: 30.469%; height: 10.5%; }
+.rc04-widget[data-rc04-layout='app'] .rc04-action { left: 67.188%; top: 31%; width: 30.469%; height: 12.333%; }
+.rc04-widget[data-rc04-layout='app'] .rc04-crew { display: flex; left: 67.188%; top: 45.333%; width: 30.469%; height: 50%; }
+.rc04-widget[data-rc04-layout='app'] .rc04-service { left: 2.344%; top: 66.667%; width: 62.5%; height: 28.667%; }
+
+/* The service summary is wide, so its rows sit side by side and the app-only rows appear. */
+.rc04-widget[data-rc04-layout='app'] .rc04-service {
+  display: grid;
+  align-items: center;
+  column-gap: 1.5cqw;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rc04-widget[data-rc04-layout='app'] .rc04-service-app { display: flex; }
+
+/* The merged zone is a third of the native action width, so the imperative scales down. */
+.rc04-widget[data-rc04-layout='app'] .rc04-action { flex-wrap: wrap; }
+.rc04-widget[data-rc04-layout='app'] .rc04-action-text { font-size: clamp(18px, 2.9cqw, 34px); }
+.rc04-widget[data-rc04-layout='app'] .rc04-hold-text { font-size: clamp(18px, 2.9cqw, 34px); }
+.rc04-widget[data-rc04-layout='app'] .rc04-speed-value { font-size: clamp(48px, 11.5cqw, 130px); }
+.rc04-widget[data-rc04-layout='app'] .rc04-limiter-value { font-size: clamp(20px, 4.2cqw, 48px); }
+.rc04-widget[data-rc04-layout='app'] .rc04-step[data-active='true'] .rc04-step-label { font-size: clamp(16px, 3.5cqw, 40px); }
+.rc04-widget[data-rc04-layout='app'] .rc04-step-label { font-size: clamp(9px, 1.7cqw, 18px); }
+
+/* ---------------------------------------------------------------- compact base */
+
+.rc04-widget[data-rc04-layout='compact'] .rc04-ribbon { left: 2%; top: 2%; width: 96%; height: 13%; }
+.rc04-widget[data-rc04-layout='compact'] .rc04-speed { left: 2%; top: 17%; width: 62%; height: 42%; }
+.rc04-widget[data-rc04-layout='compact'] .rc04-limiter { left: 66%; top: 17%; width: 32%; height: 19%; }
+.rc04-widget[data-rc04-layout='compact'] .rc04-service { left: 66%; top: 38%; width: 32%; height: 21%; }
+.rc04-widget[data-rc04-layout='compact'] .rc04-action { left: 2%; top: 61%; width: 96%; height: 24%; }
+
+/* ---------------------------------------------------------------- compact phone */
+
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-ribbon {
+  left: var(--rc04-phone-inset, 12px);
+  top: var(--rc04-phone-ribbon-top, 12px);
+  width: calc(100% - 2 * var(--rc04-phone-inset, 12px));
+  height: var(--rc04-phone-ribbon-height, 76px);
+}
+
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-speed {
+  left: var(--rc04-phone-inset, 12px);
+  top: var(--rc04-phone-bar-top, 98px);
+  width: calc(100% - 2 * var(--rc04-phone-inset, 12px));
+  height: var(--rc04-phone-bar-height, 213px);
+}
+
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-limiter {
+  left: var(--rc04-phone-inset, 12px);
+  top: var(--rc04-phone-limiter-top, 321px);
+  width: calc(100% - 2 * var(--rc04-phone-inset, 12px));
+  height: var(--rc04-phone-limiter-height, 106px);
+}
+
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-service {
+  left: var(--rc04-phone-inset, 12px);
+  top: var(--rc04-phone-service-top, 437px);
+  width: calc(100% - 2 * var(--rc04-phone-inset, 12px));
+  height: var(--rc04-phone-service-height, 152px);
+}
+
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-action {
+  left: var(--rc04-phone-inset, 12px);
+  top: var(--rc04-phone-action-top, 599px);
+  width: calc(100% - 2 * var(--rc04-phone-inset, 12px));
+  height: var(--rc04-phone-action-height, 148px);
+  flex-wrap: wrap;
+}
+
+/* Portrait halves every horizontal budget, so the heroes shrink with the container width.
+   The generic value rule comes FIRST so the hero rules that follow win the equal-specificity
+   cascade — the reverse order silently flattens every hero to the secondary scale. */
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-value { font-size: clamp(13px, 5cqw, 24px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-speed-value { font-size: clamp(44px, 24cqw, 110px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-limiter-value { font-size: clamp(20px, 10cqw, 48px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-action-text { font-size: clamp(20px, 9cqw, 44px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-hold-text { font-size: clamp(20px, 9cqw, 44px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-step[data-active='true'] .rc04-step-label { font-size: clamp(13px, 7cqw, 30px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='phone'] .rc04-step-label { font-size: clamp(8px, 3cqw, 14px); }
+
+/* ---------------------------------------------------------------- compact landscape */
+
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='landscape'] .rc04-speed-value { font-size: clamp(44px, 15cqw, 120px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='landscape'] .rc04-action-text { font-size: clamp(22px, 7cqw, 56px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='landscape'] .rc04-hold-text { font-size: clamp(22px, 7cqw, 56px); }
+.rc04-widget[data-rc04-layout='compact'][data-rc04-compact-mode='landscape'] .rc04-limiter-value { font-size: clamp(20px, 5.5cqw, 44px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rc04-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

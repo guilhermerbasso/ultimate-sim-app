@@ -100,6 +100,84 @@ describe('dashboard overlaywidget resolution', () => {
     expect(output).not.toContain('Unknown widget')
   })
 
+  it('resolves and renders the live RaceCon RC-04 full-frame widget', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc04', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc04Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const snapshot = { ...PREVIEW_SNAPSHOT, timestamp: Date.now(), sessionUniqueId: 104 }
+    const output = renderToStaticMarkup(renderDashboardElement({ element, snapshot }))
+    expect(output).toContain('data-widget="raceconRc04Dash"')
+    expect(output).toContain('PIT SPEED')
+    expect(output).not.toContain('Unknown widget')
+  })
+
+  it('treats RC-04 as a responsive full-frame instrument at the native and app sizes', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc04', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc04Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const dashboard: Dashboard = {
+      id: 'racecon_rc04_dash',
+      name: 'RaceCon RC-04 Box Now',
+      width: 1024,
+      height: 600,
+      bg: '#0A0D10',
+      scaleMode: 'stretch',
+      elements: [element]
+    }
+
+    const native = resolveDashboardCanvasRenderModel(dashboard, { width: 800, height: 480 })
+    expect(native.baseWidth).toBe(800)
+    expect(native.baseHeight).toBe(480)
+    expect(native.dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 800, h: 480 })
+    // The stored preset must never be mutated by the responsive render model.
+    expect(dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 1024, h: 600 })
+
+    const app = resolveDashboardCanvasRenderModel(dashboard, { width: 1024, height: 600 })
+    expect(app.baseWidth).toBe(1024)
+    expect(app.dashboard.elements[0]).toMatchObject({ w: 1024, h: 600 })
+  })
+
+  it('resolves and renders the live RaceCon RC-05 full-frame widget', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc05', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc05Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const snapshot = { ...PREVIEW_SNAPSHOT, timestamp: Date.now(), sessionUniqueId: 105 }
+    const output = renderToStaticMarkup(renderDashboardElement({ element, snapshot }))
+    expect(output).toContain('data-widget="raceconRc05Dash"')
+    expect(output).toContain('DELTA')
+    expect(output).not.toContain('Unknown widget')
+  })
+
+  it('treats RC-05 as a responsive full-frame instrument at the native and app sizes', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc05', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc05Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const dashboard: Dashboard = {
+      id: 'racecon_rc05_dash',
+      name: 'RaceCon RC-05 Thermal Window',
+      width: 1024,
+      height: 600,
+      bg: '#0D0B0A',
+      scaleMode: 'stretch',
+      elements: [element]
+    }
+
+    const native = resolveDashboardCanvasRenderModel(dashboard, { width: 800, height: 480 })
+    expect(native.baseWidth).toBe(800)
+    expect(native.baseHeight).toBe(480)
+    expect(native.dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 800, h: 480 })
+    // The stored preset must never be mutated by the responsive render model.
+    expect(dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 1024, h: 600 })
+
+    const app = resolveDashboardCanvasRenderModel(dashboard, { width: 1024, height: 600 })
+    expect(app.baseWidth).toBe(1024)
+    expect(app.dashboard.elements[0]).toMatchObject({ w: 1024, h: 600 })
+  })
+
   it('treats RC-02 as a responsive full-frame instrument at the native and app sizes', () => {
     const element: DashboardElement = {
       id: 'racecon-rc02', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
