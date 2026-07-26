@@ -133,8 +133,13 @@ describe('rich-overlay catalog identity contract', () => {
   // Revised from 866 to 867 by the RaceCon RC-07 full-frame preset.
   // Revised from 867 to 868 by the RaceCon RC-03 full-frame preset.
   // Revised from 868 to 869 by the RaceCon RC-08 full-frame preset.
-  it('contains exactly 869 widgetId and 838 hifiModuleId variants', () => {
-    expect(withWidgetId).toHaveLength(869)
+  // Revised from 869 to 870 by the RaceCon RC-09 full-frame preset.
+  // Revised from 870 to 871 by the RaceCon RC-10 full-frame preset.
+  // Revised from 871 to 872 by the RaceCon RC-11 full-frame preset.
+  // Revised from 872 to 873 by the RaceCon RC-12 full-frame preset.
+  // Revised from 873 to 881 by the RaceCon RC-13 … RC-20 full-frame presets (873 + 8).
+  it('contains exactly 881 widgetId and 838 hifiModuleId variants', () => {
+    expect(withWidgetId).toHaveLength(881)
     expect(withHifiModuleId).toHaveLength(838)
   })
 
@@ -422,7 +427,12 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     // Intentional manifest revision: 16 to 17 by the RaceCon RC-07 full-frame preset.
     // Intentional manifest revision: 17 to 18 by the RaceCon RC-03 full-frame preset.
     // Intentional manifest revision: 18 to 19 by the RaceCon RC-08 full-frame preset.
-    expect(fullFrame.length).toBe(19)
+    // Intentional manifest revision: 19 to 20 by the RaceCon RC-09 full-frame preset.
+    // Intentional manifest revision: 20 to 21 by the RaceCon RC-10 full-frame preset.
+    // Intentional manifest revision: 21 to 22 by the RaceCon RC-11 full-frame preset.
+    // Intentional manifest revision: 22 to 23 by the RaceCon RC-12 full-frame preset.
+    // Intentional manifest revision: 23 to 31 by the RaceCon RC-13 … RC-20 full-frame presets (23 + 8).
+    expect(fullFrame.length).toBe(31)
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
@@ -430,7 +440,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')
-    expect(section?.variants.length).toBe(19)
+    expect(section?.variants.length).toBe(31)
   })
 
   it('surfaces RaceCon RC-01 in the full-frame gallery and search taxonomy', () => {
@@ -551,6 +561,211 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     // RC-08 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
     expect(rc08!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
     expect(variantToElement(rc08!, 0, 0).widgetId).toBe('raceconRc08Dash')
+  })
+
+  it('surfaces RaceCon RC-09 in the full-frame gallery and search taxonomy', () => {
+    const rc09 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc09_dash')
+    expect(rc09).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc09Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc09!, { search: 'rc-09' })).toBe(true)
+    expect(matchesQuery(rc09!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc09!, { search: 'rally' })).toBe(true)
+    expect(matchesQuery(rc09!, { search: 'stage' })).toBe(true)
+    // RC-09 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc09!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc09!, 0, 0).widgetId).toBe('raceconRc09Dash')
+  })
+
+  it('surfaces RaceCon RC-10 in the full-frame gallery and search taxonomy', () => {
+    const rc10 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc10_dash')
+    expect(rc10).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc10Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc10!, { search: 'rc-10' })).toBe(true)
+    expect(matchesQuery(rc10!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc10!, { search: 'accessibility' })).toBe(true)
+    expect(matchesQuery(rc10!, { search: 'high-contrast' })).toBe(true)
+    // RC-10 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc10!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc10!, 0, 0).widgetId).toBe('raceconRc10Dash')
+  })
+
+  it('surfaces RaceCon RC-11 in the full-frame gallery and search taxonomy', () => {
+    const rc11 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc11_dash')
+    expect(rc11).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc11Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc11!, { search: 'rc-11' })).toBe(true)
+    expect(matchesQuery(rc11!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc11!, { search: 'engineer' })).toBe(true)
+    expect(matchesQuery(rc11!, { search: 'analysis' })).toBe(true)
+    // RC-11 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc11!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc11!, 0, 0).widgetId).toBe('raceconRc11Dash')
+  })
+
+  it('surfaces RaceCon RC-12 in the full-frame gallery and search taxonomy', () => {
+    const rc12 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc12_dash')
+    expect(rc12).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc12Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc12!, { search: 'rc-12' })).toBe(true)
+    expect(matchesQuery(rc12!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc12!, { search: 'broadcast' })).toBe(true)
+    expect(matchesQuery(rc12!, { search: 'timing' })).toBe(true)
+    expect(matchesQuery(rc12!, { search: 'leaderboard' })).toBe(true)
+    // RC-12 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc12!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc12!, 0, 0).widgetId).toBe('raceconRc12Dash')
+  })
+
+  it('surfaces RaceCon RC-13 in the full-frame gallery and search taxonomy', () => {
+    const rc13 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc13_dash')
+    expect(rc13).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc13Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc13!, { search: 'rc-13' })).toBe(true)
+    expect(matchesQuery(rc13!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc13!, { search: 'safety-car' })).toBe(true)
+    expect(matchesQuery(rc13!, { search: 'restart' })).toBe(true)
+    // RC-13 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc13!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc13!, 0, 0).widgetId).toBe('raceconRc13Dash')
+  })
+
+  it('surfaces RaceCon RC-14 in the full-frame gallery and search taxonomy', () => {
+    const rc14 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc14_dash')
+    expect(rc14).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc14Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc14!, { search: 'rc-14' })).toBe(true)
+    expect(matchesQuery(rc14!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc14!, { search: 'triage' })).toBe(true)
+    expect(matchesQuery(rc14!, { search: 'health' })).toBe(true)
+    // RC-14 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc14!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc14!, 0, 0).widgetId).toBe('raceconRc14Dash')
+  })
+
+  it('surfaces RaceCon RC-15 in the full-frame gallery and search taxonomy', () => {
+    const rc15 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc15_dash')
+    expect(rc15).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc15Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc15!, { search: 'rc-15' })).toBe(true)
+    expect(matchesQuery(rc15!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc15!, { search: 'balance' })).toBe(true)
+    expect(matchesQuery(rc15!, { search: 'brakes' })).toBe(true)
+    // RC-15 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc15!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc15!, 0, 0).widgetId).toBe('raceconRc15Dash')
+  })
+
+  it('surfaces RaceCon RC-16 in the full-frame gallery and search taxonomy', () => {
+    const rc16 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc16_dash')
+    expect(rc16).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc16Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    // Packet section 1 title is authoritative; the bare alias "Learn Lines" is not a title.
+    expect(rc16!.label).toBe('RaceCon RC-16 Learn Lines - Novice Coaching & Consistency')
+    expect(matchesQuery(rc16!, { search: 'rc-16' })).toBe(true)
+    expect(matchesQuery(rc16!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc16!, { search: 'coaching' })).toBe(true)
+    expect(matchesQuery(rc16!, { search: 'consistency' })).toBe(true)
+    // RC-16 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc16!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc16!, 0, 0).widgetId).toBe('raceconRc16Dash')
+  })
+
+  it('surfaces RaceCon RC-17 in the full-frame gallery and search taxonomy', () => {
+    const rc17 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc17_dash')
+    expect(rc17).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc17Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc17!, { search: 'rc-17' })).toBe(true)
+    expect(matchesQuery(rc17!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc17!, { search: 'oval' })).toBe(true)
+    expect(matchesQuery(rc17!, { search: 'spotter' })).toBe(true)
+    // RC-17 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc17!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc17!, 0, 0).widgetId).toBe('raceconRc17Dash')
+  })
+
+  it('surfaces RaceCon RC-18 in the full-frame gallery and search taxonomy', () => {
+    const rc18 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc18_dash')
+    expect(rc18).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc18Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc18!, { search: 'rc-18' })).toBe(true)
+    expect(matchesQuery(rc18!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc18!, { search: 'setup' })).toBe(true)
+    expect(matchesQuery(rc18!, { search: 'comparison' })).toBe(true)
+    // RC-18 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc18!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc18!, 0, 0).widgetId).toBe('raceconRc18Dash')
+  })
+
+  it('surfaces RaceCon RC-19 in the full-frame gallery and search taxonomy', () => {
+    const rc19 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc19_dash')
+    expect(rc19).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc19Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc19!, { search: 'rc-19' })).toBe(true)
+    expect(matchesQuery(rc19!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc19!, { search: 'handover' })).toBe(true)
+    expect(matchesQuery(rc19!, { search: 'stint' })).toBe(true)
+    // RC-19 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc19!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc19!, 0, 0).widgetId).toBe('raceconRc19Dash')
+  })
+
+  it('surfaces RaceCon RC-20 in the full-frame gallery and search taxonomy', () => {
+    // RC-20's core originally exported `racecon-rc20-lights-out`; the wiring PR corrected it to the
+    // family pattern, so the catalog variant id is `dash-racecon_rc20_dash` like every sibling.
+    const rc20 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc20_dash')
+    expect(rc20).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'raceconRc20Dash',
+      cluster: 'Full-Frame Dashboards'
+    })
+    expect(matchesQuery(rc20!, { search: 'rc-20' })).toBe(true)
+    expect(matchesQuery(rc20!, { search: 'racecon' })).toBe(true)
+    expect(matchesQuery(rc20!, { search: 'start' })).toBe(true)
+    expect(matchesQuery(rc20!, { search: 'formation' })).toBe(true)
+    // RC-20 refuses mock/replay telemetry, so it is identity-scoped exactly like RC-01.
+    expect(rc20!.supportedSims).toEqual(['iracing', 'acc', 'ams2'])
+    expect(variantToElement(rc20!, 0, 0).widgetId).toBe('raceconRc20Dash')
+  })
+
+  it('surfaces every RaceCon RC-01 … RC-20 dashboard in the Full-Frame cluster a user picks from', () => {
+    const raceconFullFrame = curated
+      .filter((v) => v.cluster === 'Full-Frame Dashboards' && /^racecon/.test(String(v.widgetId)))
+      .map((v) => v.widgetId)
+    const expected = Array.from({ length: 20 }, (_, i) => `raceconRc${String(i + 1).padStart(2, '0')}Dash`)
+    expect(raceconFullFrame.slice().sort()).toEqual(expected.slice().sort())
   })
 
   it('full-frame variants carry their widgetId through variantToElement', () => {

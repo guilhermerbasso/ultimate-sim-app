@@ -27,6 +27,18 @@ const EMBEDDED: Array<{
   { id: 'racecon_rc06_dash', widgetId: 'raceconRc06Dash', name: 'RaceCon RC-06 Save Mode', family: 'racecon' },
   { id: 'racecon_rc07_dash', widgetId: 'raceconRc07Dash', name: 'RaceCon RC-07 Blue Flags', family: 'racecon' },
   { id: 'racecon_rc08_dash', widgetId: 'raceconRc08Dash', name: 'RaceCon RC-08 Rain Line', family: 'racecon' },
+  { id: 'racecon_rc09_dash', widgetId: 'raceconRc09Dash', name: 'RaceCon RC-09 Stage Time', family: 'racecon' },
+  { id: 'racecon_rc10_dash', widgetId: 'raceconRc10Dash', name: 'RaceCon RC-10 Clear Sight', family: 'racecon' },
+  { id: 'racecon_rc11_dash', widgetId: 'raceconRc11Dash', name: 'RaceCon RC-11 Trace Room', family: 'racecon' },
+  { id: 'racecon_rc12_dash', widgetId: 'raceconRc12Dash', name: 'RaceCon RC-12 On Air', family: 'racecon' },
+  { id: 'racecon_rc13_dash', widgetId: 'raceconRc13Dash', name: 'RaceCon RC-13 Hold Order', family: 'racecon' },
+  { id: 'racecon_rc14_dash', widgetId: 'raceconRc14Dash', name: 'RaceCon RC-14 Triage', family: 'racecon' },
+  { id: 'racecon_rc15_dash', widgetId: 'raceconRc15Dash', name: 'RaceCon RC-15 On The Nose', family: 'racecon' },
+  { id: 'racecon_rc16_dash', widgetId: 'raceconRc16Dash', name: 'RaceCon RC-16 Learn Lines - Novice Coaching & Consistency', family: 'racecon' },
+  { id: 'racecon_rc17_dash', widgetId: 'raceconRc17Dash', name: 'RaceCon RC-17 High Line', family: 'racecon' },
+  { id: 'racecon_rc18_dash', widgetId: 'raceconRc18Dash', name: 'RaceCon RC-18 Split Test', family: 'racecon' },
+  { id: 'racecon_rc19_dash', widgetId: 'raceconRc19Dash', name: 'RaceCon RC-19 Hand Over', family: 'racecon' },
+  { id: 'racecon_rc20_dash', widgetId: 'raceconRc20Dash', name: 'RaceCon RC-20 Lights Out', family: 'racecon' },
   { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
   { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
   { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' },
@@ -48,6 +60,31 @@ describe('full-frame dashboards embedded from the overlay-widget library', () =>
     const idSet = new Set(ids)
     for (const e of EMBEDDED) {
       expect(idSet.has(e.id), `BUILTIN_PRESETS must contain ${e.id}`).toBe(true)
+    }
+  })
+
+  /**
+   * Nothing enforced the shape of a preset id, and RC-20 arrived from its core PR as
+   * `racecon-rc20-lights-out` — the only non-snake_case id among the 31 embedded full-frame presets,
+   * and the only RaceCon id not of the form `racecon_rcNN_dash`. It was legal (`fileNameOf` keeps
+   * `-`, `STREAM_TARGET_SOURCE_ID` allows it) and kebab-case is not unknown elsewhere in the wider
+   * catalogue — the R16 `race-first-*` / `race-chase-*` / `race-hud-*` families in `dashboards-r16.ts`
+   * account for 122 kebab ids in `BUILTIN_PRESETS`. But those are a different family with their own
+   * internally consistent convention; RC-20's own peer group is uniformly snake_case. Since the
+   * preset id is user-facing — the persisted `<id>.json` filename, the `?dash=` query value and part
+   * of the catalog search haystack, which does no `-`/`_` normalisation — RC-20 was corrected to
+   * `racecon_rc20_dash`. This guard is deliberately scoped to the embedded presets this file owns,
+   * so it enforces the convention going forward without touching the pre-existing R16 ids.
+   */
+  it('names every RaceCon preset with the family id pattern, and every embedded preset in snake_case', () => {
+    const embeddedIds = OVERLAY_DASHBOARD_PRESETS.map((p) => p.id)
+    for (const id of embeddedIds) {
+      expect(id, `${id} must be snake_case, never kebab-case`).toMatch(/^[a-z0-9]+(?:_[a-z0-9]+)*$/)
+    }
+    const raceconIds = embeddedIds.filter((id) => id.startsWith('racecon'))
+    expect(raceconIds).toHaveLength(20)
+    for (const id of raceconIds) {
+      expect(id, `${id} must follow the racecon_rcNN_dash family pattern`).toMatch(/^racecon_rc\d{2}_dash$/)
     }
   })
 

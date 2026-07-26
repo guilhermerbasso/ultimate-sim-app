@@ -104,6 +104,18 @@ import { RaceconRc05DashWidget } from './RaceconRc05DashWidget'
 import { RaceconRc06DashWidget } from './RaceconRc06DashWidget'
 import { RaceconRc07DashWidget } from './RaceconRc07DashWidget'
 import { RaceconRc08DashWidget } from './RaceconRc08DashWidget'
+import { RaceconRc09DashWidget } from './RaceconRc09DashWidget'
+import { RaceconRc10DashWidget } from './RaceconRc10DashWidget'
+import { RaceconRc11DashWidget } from './RaceconRc11DashWidget'
+import { RaceconRc12DashWidget } from './RaceconRc12DashWidget'
+import { RaceconRc13DashWidget } from './RaceconRc13DashWidget'
+import { RaceconRc14DashWidget } from './RaceconRc14DashWidget'
+import { RaceconRc15DashWidget } from './RaceconRc15DashWidget'
+import { RaceconRc16DashWidget } from './RaceconRc16DashWidget'
+import { RaceconRc17DashWidget } from './RaceconRc17DashWidget'
+import { RaceconRc18DashWidget } from './RaceconRc18DashWidget'
+import { RaceconRc19DashWidget } from './RaceconRc19DashWidget'
+import { RaceconRc20DashWidget } from './RaceconRc20DashWidget'
 import { HifiDduWidget, HifiEnduranceWidget, HifiEngineerWidget, HifiMinimalWidget, HifiBroadcastWidget } from './HifiDashWidgets'
 import { PerCornerTyrePressureWidget } from './PerCornerTyrePressureWidget'
 import { BrakeTempCornersWidget } from './BrakeTempCornersWidget'
@@ -169,6 +181,18 @@ export const WIDGET_COMPONENTS: Record<string, (props: WidgetProps) => ReactElem
   raceconRc06Dash: RaceconRc06DashWidget,
   raceconRc07Dash: RaceconRc07DashWidget,
   raceconRc08Dash: RaceconRc08DashWidget,
+  raceconRc09Dash: RaceconRc09DashWidget,
+  raceconRc10Dash: RaceconRc10DashWidget,
+  raceconRc11Dash: RaceconRc11DashWidget,
+  raceconRc12Dash: RaceconRc12DashWidget,
+  raceconRc13Dash: RaceconRc13DashWidget,
+  raceconRc14Dash: RaceconRc14DashWidget,
+  raceconRc15Dash: RaceconRc15DashWidget,
+  raceconRc16Dash: RaceconRc16DashWidget,
+  raceconRc17Dash: RaceconRc17DashWidget,
+  raceconRc18Dash: RaceconRc18DashWidget,
+  raceconRc19Dash: RaceconRc19DashWidget,
+  raceconRc20Dash: RaceconRc20DashWidget,
   hifiDdu: HifiDduWidget,
   hifiEndurance: HifiEnduranceWidget,
   hifiEngineer: HifiEngineerWidget,
