@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -238,6 +239,7 @@ export interface RaceconRc09DashWidgetProps extends WidgetProps {
 export function RaceconRc09DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc09DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -245,7 +247,7 @@ export function RaceconRc09DashWidget({
   const auxRef = useRef(new Rc09AuxBuffer())
   const historyRef = useRef(new Rc09NoteHistory())
   const alertsRef = useRef(createRc09AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [paceNote, setPaceNote] = useState<Rc09PaceNote | null>(null)
   const [acknowledgedSequence, setAcknowledgedSequence] = useState<number | null>(null)
   const box = useContentBox(rootRef, config)
@@ -333,11 +335,6 @@ export function RaceconRc09DashWidget({
     historyRef.current = history
     alertsRef.current = alerts
   }, [candidate, aux, history, alerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   // Packet 11.5, 16 and 20: a pace note comes ONLY from a loaded roadbook. An unrecognised payload
   // never changes the cue, and an explicit clear unloads the roadbook back to the blank state.

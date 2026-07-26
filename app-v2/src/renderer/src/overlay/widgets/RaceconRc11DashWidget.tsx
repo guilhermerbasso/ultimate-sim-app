@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -316,6 +317,7 @@ export interface RaceconRc11DashWidgetProps extends WidgetProps {
 export function RaceconRc11DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc11DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -323,7 +325,7 @@ export function RaceconRc11DashWidget({
   const auxRef = useRef(new Rc11AuxBuffer())
   const traceRef = useRef(new Rc11TraceBuffer())
   const alertsRef = useRef(createRc11AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [cursorFraction, setCursorFraction] = useState(0.5)
   const [referenceEnabled, setReferenceEnabled] = useState(true)
   const [dismissed, setDismissed] = useState<readonly string[]>([])
@@ -414,11 +416,6 @@ export function RaceconRc11DashWidget({
     traceRef.current = traces
     alertsRef.current = alerts
   }, [candidate, aux, traces, alerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   const onScrub = useCallback((fraction: number) => {
     if (!Number.isFinite(fraction)) return

@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -224,6 +225,7 @@ export interface RaceconRc10DashWidgetProps extends WidgetProps {
 export function RaceconRc10DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc10DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -231,7 +233,7 @@ export function RaceconRc10DashWidget({
   const auxRef = useRef(new Rc10AuxBuffer())
   const alertsRef = useRef(createRc10AlertState())
   const sharedAlertsRef = useRef(createRc01AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const box = useContentBox(rootRef, config)
 
   // A receipt timestamp, not a display clock: it advances only when a new snapshot object or
@@ -326,11 +328,6 @@ export function RaceconRc10DashWidget({
     alertsRef.current = alerts
     sharedAlertsRef.current = sharedAlerts
   }, [candidate, aux, alerts, sharedAlerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   return (
     <div
