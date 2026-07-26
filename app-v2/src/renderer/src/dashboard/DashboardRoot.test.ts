@@ -256,6 +256,45 @@ describe('dashboard overlaywidget resolution', () => {
     expect(app.dashboard.elements[0]).toMatchObject({ w: 1024, h: 600 })
   })
 
+  it('resolves and renders the live RaceCon RC-08 full-frame widget', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc08', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc08Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const snapshot = { ...PREVIEW_SNAPSHOT, timestamp: Date.now(), sessionUniqueId: 108 }
+    const output = renderToStaticMarkup(renderDashboardElement({ element, snapshot }))
+    expect(output).toContain('data-widget="raceconRc08Dash"')
+    expect(output).toContain('GRIP STATE')
+    expect(output).not.toContain('Unknown widget')
+  })
+
+  it('treats RC-08 as a responsive full-frame instrument at the native and app sizes', () => {
+    const element: DashboardElement = {
+      id: 'racecon-rc08', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,
+      widgetId: 'raceconRc08Dash', style: { background: '#000000', borderWidth: 0, radius: 0 }
+    }
+    const dashboard: Dashboard = {
+      id: 'racecon_rc08_dash',
+      name: 'RaceCon RC-08 Rain Line',
+      width: 1024,
+      height: 600,
+      bg: '#06090C',
+      scaleMode: 'stretch',
+      elements: [element]
+    }
+
+    const native = resolveDashboardCanvasRenderModel(dashboard, { width: 800, height: 480 })
+    expect(native.baseWidth).toBe(800)
+    expect(native.baseHeight).toBe(480)
+    expect(native.dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 800, h: 480 })
+    // The stored preset must never be mutated by the responsive render model.
+    expect(dashboard.elements[0]).toMatchObject({ x: 0, y: 0, w: 1024, h: 600 })
+
+    const app = resolveDashboardCanvasRenderModel(dashboard, { width: 1024, height: 600 })
+    expect(app.baseWidth).toBe(1024)
+    expect(app.dashboard.elements[0]).toMatchObject({ w: 1024, h: 600 })
+  })
+
   it('treats RC-02 as a responsive full-frame instrument at the native and app sizes', () => {
     const element: DashboardElement = {
       id: 'racecon-rc02', type: 'overlaywidget', x: 0, y: 0, w: 1024, h: 600,

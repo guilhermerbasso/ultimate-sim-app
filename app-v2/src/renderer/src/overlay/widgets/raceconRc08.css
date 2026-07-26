@@ -1,0 +1,564 @@
+/*
+ * RaceCon RC-08 "Rain Line — Changing Wet Conditions".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are
+ * computed arithmetically in `raceconRc08Core.ts` from the grip-adaptive column weights and
+ * are applied as inline percentages by the widget, so the stylesheet and the packet cannot
+ * drift and the test suite can assert the geometry as arithmetic. image-qa-v1 normative
+ * override 2 is explicit: the approved render drifted up to 2 percentage points horizontally
+ * and about 30 px vertically against packet 11.1, and those pixels are never traced.
+ *
+ * The COLUMN WIDTHS are the artifact's thesis and they are never hard-coded here either: the
+ * regime picks a weight row in the core, the widget inlines it, and the equal-column
+ * `unknown` row is what an unconfirmed grip state looks like.
+ *
+ * Type ladder, packet 11.2, computed arithmetically and NOT measured off the render: grip word
+ * 56 > delta 52 > TC/ABS 48 > corner temps 36 > bias/gear/speed 32 > labels/units/banner 18 px
+ * on the 800x480 canvas, which is 7 / 6.5 / 6 / 4.5 / 4 / 2.25 cqw. image-qa-v1 override 1 is
+ * explicit that the render's 28 px delta must not be copied. Normative override 5 keeps those
+ * sizes and carries packet section 10's TC/ABS primacy through WEIGHT, POSITION and the width
+ * of the column the aids live in instead.
+ *
+ * Palette, packet 11.3: bg #06090C, panel #0F1620, primary #E9F1F6, secondary #7E93A3,
+ * signature #2E86FF. The grip hue binding is a documented packet gap filled in the core —
+ * DRY #3CC7B0, DAMP #5AB0E6, WET #2E86FF, FLOOD #F0523E — and arrives as `--rc08-grip-hue`.
+ * `info` #5AB0E6 is reserved for the cold-tyre marker; `caution` #F0B93A and `danger` #F0523E
+ * belong to the alert layer, so a silent frame contains neither on any alert surface.
+ *
+ * Packet 11.1 allocates NO zone for a shift arc, so — per RC08_PACKET_OMISSIONS.shiftArc —
+ * there is no LED, rev, shift or over-rev element anywhere in this stylesheet.
+ */
+
+.rc08-widget,
+.rc08-widget *,
+.rc08-widget *::before,
+.rc08-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc08-widget {
+  --rc08-bg: #06090c;
+  --rc08-panel: #0f1620;
+  --rc08-primary: #e9f1f6;
+  --rc08-secondary: #7e93a3;
+  --rc08-info: #5ab0e6;
+  --rc08-normal: #3cc7b0;
+  --rc08-caution: #f0b93a;
+  --rc08-danger: #f0523e;
+  --rc08-signature: #2e86ff;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc08-bg);
+  color: var(--rc08-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc08-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc08-widget > .rc08-dashboard > section {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--rc08-panel);
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc08-label,
+.rc08-unit {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc08-secondary);
+  font-size: clamp(8px, var(--rc08-type-label, 2.25cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc08-unit {
+  margin-left: 0.5em;
+  font-size: 0.82em;
+  letter-spacing: 0.1em;
+}
+
+.rc08-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc08-primary);
+  font-size: clamp(12px, calc(var(--rc08-type-secondary, 4cqw) * var(--rc08-scale-aids, 1)), 34px);
+  font-weight: var(--rc08-weight-delta, 600);
+  line-height: 1;
+  white-space: nowrap;
+  text-align: right;
+  text-overflow: clip;
+}
+
+/* A stale or absent channel degrades to the packet's dim state; it never freezes on a value. */
+.rc08-value.is-stale,
+.rc08-value.is-unavailable,
+.rc08-corner-value.is-stale,
+.rc08-corner-value.is-unavailable,
+.rc08-grip-word.is-stale,
+.rc08-grip-word.is-unavailable,
+.rc08-banner-source.is-unavailable,
+.rc08-banner-feed.is-unavailable {
+  color: var(--rc08-secondary);
+}
+
+.rc08-value[data-tone='good'] {
+  color: var(--rc08-normal);
+}
+
+.rc08-value[data-tone='bad'] {
+  color: var(--rc08-signature);
+}
+
+.rc08-value[data-tone='muted'] {
+  color: var(--rc08-secondary);
+}
+
+/* Screen-reader-only text: every alert states its meaning in words, never in colour alone. */
+.rc08-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- honesty banner */
+
+.rc08-banner {
+  display: flex;
+  gap: 0.6em;
+  align-items: center;
+  padding: 0 1.2cqw;
+}
+
+.rc08-banner-source,
+.rc08-banner-feed {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc08-primary);
+  font-size: clamp(8px, var(--rc08-type-label, 2.25cqw), 20px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Packet 19: unavailability is stated in words, and the word is what carries the meaning. */
+.rc08-banner-feed {
+  margin-left: auto;
+  color: var(--rc08-primary);
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- columns */
+
+.rc08-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+}
+
+/* ---------------------------------------------------------------- grip ribbon */
+
+.rc08-ribbon {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.5em;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 1.1cqw;
+  overflow: hidden;
+  /* The hue is the SECOND channel; the word is always present, so colour is never alone. */
+  border-left: 0.45cqw solid var(--rc08-grip-hue, var(--rc08-secondary));
+  background: linear-gradient(90deg, rgb(255 255 255 / 4%), transparent 70%);
+}
+
+.rc08-grip-word {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc08-grip-hue, var(--rc08-secondary));
+  font-size: clamp(16px, calc(var(--rc08-type-grip, 7cqw) * var(--rc08-scale-aids, 1)), 72px);
+  font-weight: var(--rc08-weight-grip, 800);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/*
+ * The packet's 56 px hero rung sizes the STATE WORD, which is at most five characters. The
+ * honesty word `UNAVAILABLE` is eleven, so it drops to the corner-temperature rung rather than
+ * escaping the ribbon. Its meaning is carried by the word itself, not by its size.
+ */
+.rc08-grip-word.is-unavailable {
+  font-size: clamp(11px, calc(var(--rc08-type-corner, 4.5cqw) * var(--rc08-scale-aids, 1)), 40px);
+  letter-spacing: 0.04em;
+}
+
+/* ---------------------------------------------------------------- aids cluster */
+
+.rc08-aids-rows {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.rc08-row {
+  display: flex;
+  flex: 1 1 0;
+  gap: 0.6em;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 1.1cqw;
+  overflow: hidden;
+  border-top: 1px solid rgb(126 147 163 / 16%);
+}
+
+/*
+ * Normative override 5. Packet 11.2 sizes the delta ABOVE TC/ABS while packet section 10 makes
+ * TC and ABS primary. The 11.2 sizes are honoured and the primacy is carried instead by weight
+ * (800 against the delta's 600), by position (the aids sit at the top of the column, directly
+ * under the grip chip) and by the width of the column they live in.
+ */
+.rc08-row[data-rc08-rung='aid'] .rc08-value {
+  font-size: clamp(14px, calc(var(--rc08-type-aid, 6cqw) * var(--rc08-scale-aids, 1)), 62px);
+  font-weight: var(--rc08-weight-aid, 800);
+}
+
+.rc08-row[data-rc08-rung='secondary'] .rc08-value {
+  font-size: clamp(11px, calc(var(--rc08-type-secondary, 4cqw) * var(--rc08-scale-aids, 1)), 34px);
+}
+
+/* Packet 15 aids-fault surface: red is used here and nowhere else in the aids column. */
+.rc08-row[data-rc08-faulted='true'] {
+  background: rgb(240 82 62 / 14%);
+}
+
+.rc08-row[data-rc08-faulted='true'] .rc08-value {
+  color: var(--rc08-danger);
+}
+
+.rc08-aids-note {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.25em 1.1cqw;
+  overflow: hidden;
+  background: var(--rc08-danger);
+  color: var(--rc08-bg);
+  font-size: clamp(8px, var(--rc08-type-label, 2.25cqw), 20px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- pace column */
+
+.rc08-cell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0.15em;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 1.1cqw;
+  overflow: hidden;
+  border-top: 1px solid rgb(126 147 163 / 16%);
+}
+
+.rc08-cell:first-child {
+  border-top: 0;
+}
+
+.rc08-cell .rc08-value {
+  text-align: left;
+}
+
+.rc08-cell[data-rc08-rung='delta'] .rc08-value {
+  font-size: clamp(13px, calc(var(--rc08-type-delta, 6.5cqw) * var(--rc08-scale-pace, 1)), 68px);
+  letter-spacing: -0.015em;
+}
+
+.rc08-cell[data-rc08-rung='secondary'] .rc08-value {
+  font-size: clamp(11px, calc(var(--rc08-type-secondary, 4cqw) * var(--rc08-scale-pace, 1)), 42px);
+}
+
+/* ---------------------------------------------------------------- tyre thermal */
+
+.rc08-tire-head {
+  flex: 0 0 auto;
+  padding: 0.4em 1.1cqw 0.2em;
+}
+
+.rc08-corner-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  min-height: 0;
+  padding: 0.4cqw;
+}
+
+.rc08-corner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgb(233 241 246 / 3%);
+}
+
+.rc08-corner-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc08-primary);
+  font-size: clamp(11px, calc(var(--rc08-type-corner, 4.5cqw) * var(--rc08-scale-tire, 1)), 46px);
+  font-weight: var(--rc08-weight-delta, 600);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/*
+ * Packet 15 cold-tyre-in-wet surface. `info` #5AB0E6 exists in this stylesheet ONLY here, so a
+ * frame in which the alert is silent contains no cold-marker cyan at all. The marker is
+ * accompanied by screen-reader text, so it is never colour alone.
+ */
+.rc08-corner.is-cold {
+  box-shadow: inset 0 0 0 2px var(--rc08-info);
+}
+
+.rc08-corner.is-cold .rc08-corner-value {
+  color: var(--rc08-info);
+}
+
+.rc08-corner-cold {
+  position: absolute;
+  top: 6%;
+  right: 6%;
+  width: 0.9cqw;
+  height: 0.9cqw;
+  min-width: 5px;
+  min-height: 5px;
+  border-radius: 50%;
+  background: var(--rc08-info);
+}
+
+/* ------------------------------------------------- app-only wet/dry crossover */
+
+.rc08-crossover {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.15em;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 1.1cqw 0.3em;
+  overflow: hidden;
+  border-top: 1px solid rgb(126 147 163 / 16%);
+}
+
+.rc08-crossover-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.4cqw;
+  min-width: 0;
+}
+
+.rc08-crossover-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.rc08-crossover-corner {
+  color: var(--rc08-secondary);
+  font-size: clamp(7px, calc(var(--rc08-type-label, 2.25cqw) * 0.82), 15px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.rc08-crossover-state {
+  color: var(--rc08-primary);
+  font-size: clamp(8px, var(--rc08-type-label, 2.25cqw), 18px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* The crossover side is a WORD; the hue only repeats what the word already says. */
+.rc08-crossover-cell[data-rc08-crossover='COLD'] .rc08-crossover-state {
+  color: var(--rc08-info);
+}
+
+.rc08-crossover-cell[data-rc08-crossover='WET'] .rc08-crossover-state {
+  color: var(--rc08-signature);
+}
+
+.rc08-crossover-cell[data-rc08-crossover='DRY'] .rc08-crossover-state {
+  color: var(--rc08-normal);
+}
+
+.rc08-crossover-cell[data-rc08-crossover='none'] .rc08-crossover-state {
+  color: var(--rc08-secondary);
+}
+
+/* ------------------------------------------------- app-only grip history timeline */
+
+.rc08-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  padding: 0.5em 1.1cqw;
+}
+
+.rc08-timeline-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgb(233 241 246 / 4%);
+}
+
+/* A period with no confirmed grip state leaves a REAL gap: nothing is back-filled. */
+.rc08-timeline-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--rc08-timeline-hue, var(--rc08-secondary));
+}
+
+.rc08-timeline-segment[data-rc08-grip='DRY'] {
+  --rc08-timeline-hue: #3cc7b0;
+}
+
+.rc08-timeline-segment[data-rc08-grip='DAMP'] {
+  --rc08-timeline-hue: #5ab0e6;
+}
+
+.rc08-timeline-segment[data-rc08-grip='WET'] {
+  --rc08-timeline-hue: #2e86ff;
+}
+
+.rc08-timeline-segment[data-rc08-grip='FLOOD'] {
+  --rc08-timeline-hue: #f0523e;
+}
+
+.rc08-timeline-empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--rc08-secondary);
+  font-size: clamp(9px, var(--rc08-type-label, 2.25cqw), 20px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+/* ---------------------------------------------------------------- native 800x480 */
+
+.rc08-widget[data-rc08-layout='native'] .rc08-banner {
+  padding: 0 10px;
+}
+
+.rc08-widget[data-rc08-layout='native'] .rc08-row,
+.rc08-widget[data-rc08-layout='native'] .rc08-cell {
+  padding: 0 10px;
+}
+
+/* ---------------------------------------------------------------- app 1024x600 */
+
+.rc08-widget[data-rc08-layout='app'] .rc08-banner {
+  border-radius: 0;
+}
+
+.rc08-widget[data-rc08-layout='app'] .rc08-corner-grid {
+  padding: 0.3cqw;
+}
+
+/* ---------------------------------------------------------------- compact */
+
+.rc08-widget[data-rc08-layout='compact'][data-rc08-compact-mode='phone'] .rc08-ribbon {
+  flex: 0 0 var(--rc08-phone-ribbon-height, 56px);
+}
+
+.rc08-widget[data-rc08-layout='compact'][data-rc08-compact-mode='phone'] .rc08-row {
+  flex: 0 0 var(--rc08-phone-row-height, 34px);
+}
+
+.rc08-widget[data-rc08-layout='compact'][data-rc08-compact-mode='phone'] .rc08-corner-grid {
+  grid-template-rows: repeat(2, minmax(0, var(--rc08-phone-corner-height, 40px)));
+}
+
+/*
+ * Portrait stacks the three columns, so the width can no longer encode the regime. The BAND
+ * HEIGHTS carry it instead, in exactly the packet's ratio — see `rc08CompactZones` — and the
+ * type ladder is driven from the widget box rather than from the column scale.
+ */
+.rc08-widget[data-rc08-layout='compact'][data-rc08-compact-mode='phone'] .rc08-grip-word {
+  font-size: clamp(20px, 13cqw, 64px);
+}
+
+.rc08-widget[data-rc08-layout='compact'][data-rc08-compact-mode='phone'] .rc08-cell {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.rc08-widget[data-rc08-layout='compact'][data-rc08-compact-mode='phone'] .rc08-cell .rc08-value {
+  text-align: right;
+}
+
+.rc08-widget[data-rc08-layout='compact'] .rc08-banner {
+  padding: 0 1.6cqw;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rc08-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
