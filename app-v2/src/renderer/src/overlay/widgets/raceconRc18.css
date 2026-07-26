@@ -1,0 +1,667 @@
+/*
+ * RaceCon RC-18 "Split Test — Setup A/B Practice Comparison".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are
+ * computed arithmetically in `raceconRc18Core.ts` and applied as inline percentages, so the
+ * stylesheet and the packet cannot drift and the suite can assert the geometry as arithmetic.
+ * Normative override NO-3 is explicit: the approved render puts the spine rules at x 293.5 and
+ * x 505.5 against the packet's 316 and 484, and those pixels are never traced.
+ *
+ * THE MIRROR IS THE PAYLOAD. Both columns are the same element with `data-rc18-side` flipped;
+ * side B only reverses its row direction and its text alignment, so the two halves cannot drift
+ * apart. The three delta bars grow from ONE shared datum on the mirror axis at 50 %, and the
+ * half span is a single constant (76/168 == 152/336 == 45.238 %) shared by both canvases.
+ *
+ * Type ladder, packet 11.2 with normative overrides NO-1 and NO-5, computed arithmetically and
+ * never measured off the render: verdict delta 44 > sector 34 > summary 28 > secondary 22 >
+ * label 16 px on the 800 px canvas, i.e. 5.5 / 4.25 / 3.5 / 2.75 / 2 cqw. The render compressed
+ * ranks 2-4 into 1 px of each other in six consecutive attempts; none of that is copied.
+ *
+ * Palette, packet 11.3: bg #0C0E11, panel #161A20, primary #E8ECEF, secondary #8B95A0.
+ * A is `info` #4FB0E0 and B is `signature` #B0A0FF, and they never swap (packet 20). `caution`
+ * #F0B83A is the INCOMPARABLE tag ONLY. `danger` #F0533E and `normal` #52C07A belong to the
+ * alert layer and must measure zero pixels while it is silent — the faster side is never green.
+ * bg vs panel is the closest token pair in the whole packet (ΔE76 6.03, hue delta 0.00), so the
+ * luminance separation is deliberate and load bearing.
+ *
+ * Packet 11.4 forbids an LED arc and packet 16 defines no RPM channel, so — per
+ * RC18_PACKET_OMISSIONS.rpmComparisonRow — there is no LED, rev, shift or gear element here.
+ *
+ * SIZING TRAP: `white-space: nowrap` pushes a flex item's min-content width past its column, so
+ * `overflow: hidden` never clips and `scrollWidth === clientWidth` while the glyph escapes.
+ * Every flex item below therefore carries `min-width: 0`, every numeral is sized in `cqw` with
+ * a conservative `clamp()` ceiling, and the packet's bar geometry rides a custom property on
+ * the inner element instead of a hard-coded width.
+ */
+
+.rc18-widget,
+.rc18-widget *,
+.rc18-widget *::before,
+.rc18-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc18-widget {
+  --rc18-bg: #0c0e11;
+  --rc18-panel: #161a20;
+  --rc18-primary: #e8ecef;
+  --rc18-secondary: #8b95a0;
+  --rc18-info: #4fb0e0;
+  --rc18-normal: #52c07a;
+  --rc18-caution: #f0b83a;
+  --rc18-danger: #f0533e;
+  --rc18-signature: #b0a0ff;
+
+  --rc18-side-a: var(--rc18-info);
+  --rc18-side-b: var(--rc18-signature);
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc18-bg);
+  color: var(--rc18-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc18-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Every top-level zone is placed by the core's packet rect, never by this stylesheet. */
+.rc18-widget > .rc18-dashboard > section {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--rc18-panel);
+}
+
+/* ------------------------------------------------------------------ shared type */
+
+.rc18-label,
+.rc18-unit {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc18-secondary);
+  font-size: clamp(7px, var(--rc18-type-label, 2cqw), 19px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc18-unit {
+  margin-left: 0.4em;
+  font-size: 0.8em;
+  letter-spacing: 0.08em;
+}
+
+.rc18-value {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rc18-primary);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc18-value.is-unavailable {
+  color: var(--rc18-secondary);
+}
+
+.rc18-value.is-stale {
+  color: var(--rc18-secondary);
+  opacity: 0.72;
+}
+
+/* ------------------------------------------------------------- summary header */
+
+.rc18-summary {
+  display: flex;
+  align-items: center;
+  gap: 1.2cqw;
+  padding: 0 1cqw;
+}
+
+.rc18-summary-verdict {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc18-primary);
+  font-size: clamp(9px, var(--rc18-type-summary, 3.5cqw), 40px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc18-summary-verdict[data-rc18-faster='a'] {
+  color: var(--rc18-side-a);
+}
+
+.rc18-summary-verdict[data-rc18-faster='b'] {
+  color: var(--rc18-side-b);
+}
+
+.rc18-summary-verdict.is-unavailable {
+  color: var(--rc18-secondary);
+}
+
+/*
+ * Trigger-only: the chip is absent from the DOM while the alert layer is silent, so it can
+ * never be read as decoration. It is also the surface that CARRIES every alert at the phone
+ * breakpoint, where the tyre and brake modules are dropped by the reflow.
+ */
+.rc18-summary-alert {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.2em 0.6em;
+  border: 1px solid var(--rc18-caution);
+  border-radius: 3px;
+  color: var(--rc18-caution);
+  font-size: clamp(7px, var(--rc18-type-label, 2cqw), 19px);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc18-summary-lock {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc18-secondary);
+  font-size: clamp(7px, var(--rc18-type-label, 2cqw), 19px);
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- setup columns (mirrored) */
+
+.rc18-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.8cqw 1cqw;
+  gap: 0.4cqh;
+}
+
+.rc18-column-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8cqw;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.rc18-column[data-rc18-side='b'] .rc18-column-head,
+.rc18-column[data-rc18-side='b'] .rc18-row {
+  flex-direction: row-reverse;
+}
+
+.rc18-column-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(7px, var(--rc18-type-label, 2cqw), 19px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc18-column[data-rc18-side='a'] .rc18-column-name {
+  color: var(--rc18-side-a);
+}
+
+.rc18-column[data-rc18-side='b'] .rc18-column-name {
+  color: var(--rc18-side-b);
+}
+
+/*
+ * Normative override NO-6, accessibility: A and B are separable WITHOUT colour. A carries one
+ * identity line, B carries two. The count is the pattern; a dash count was tried first and
+ * failed to hold in three consecutive renders.
+ */
+.rc18-identity {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  /*
+   * FIXED height, or the two-band B header would stand taller than the one-band A header and
+   * push B's rows down. A real-browser audit caught exactly that as a 3.6 px mirror error at
+   * the phone breakpoint, where the header stacks.
+   */
+  height: 6px;
+  max-height: 6px;
+}
+
+.rc18-identity-line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.rc18-column[data-rc18-side='a'] .rc18-identity-line {
+  background: var(--rc18-side-a);
+}
+
+.rc18-column[data-rc18-side='b'] .rc18-identity-line {
+  background: var(--rc18-side-b);
+}
+
+.rc18-rows {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: space-evenly;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rc18-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc18-row > .rc18-label {
+  flex: 0 1 auto;
+}
+
+/*
+ * The numeral's own section must be wide enough for the numeral, and it must be allowed to
+ * shrink below its min-content width, or `nowrap` lets it escape the column silently.
+ */
+.rc18-row > .rc18-value {
+  flex: 1 1 auto;
+  text-align: right;
+}
+
+.rc18-column[data-rc18-side='b'] .rc18-row > .rc18-value {
+  text-align: left;
+}
+
+.rc18-row[data-rc18-rung='timing'] > .rc18-value {
+  font-size: clamp(9px, var(--rc18-type-sector, 4.25cqw), 46px);
+  font-weight: 600;
+}
+
+.rc18-row[data-rc18-rung='secondary'] > .rc18-value {
+  font-size: clamp(8px, var(--rc18-type-secondary, 2.75cqw), 30px);
+  font-weight: 500;
+}
+
+.rc18-column[data-rc18-side='a'] .rc18-row[data-rc18-rung='timing'] > .rc18-value:not(.is-unavailable) {
+  color: var(--rc18-side-a);
+}
+
+.rc18-column[data-rc18-side='b'] .rc18-row[data-rc18-rung='timing'] > .rc18-value:not(.is-unavailable) {
+  color: var(--rc18-side-b);
+}
+
+/* Packet 14 critical state: the PAIR is tagged, so neither side can read as healthy. */
+.rc18-row[data-rc18-incomparable='true'] > .rc18-label {
+  color: var(--rc18-caution);
+}
+
+.rc18-incomparable-tag {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  margin-left: 0.4em;
+  color: var(--rc18-caution);
+  font-size: clamp(6px, calc(var(--rc18-type-label, 2cqw) * 0.8), 15px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- verdict spine */
+
+.rc18-spine {
+  background: transparent;
+}
+
+.rc18-delta-stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.6cqw 0.3cqw;
+  gap: 0.4cqh;
+  overflow: hidden;
+}
+
+.rc18-spine-title {
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.rc18-delta-rows {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: space-evenly;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rc18-delta-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc18-delta-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.4em;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/*
+ * The 44 px verdict numeral. It owns the FULL spine width minus 0.6 cqw of padding, is sized in
+ * cqw so it tracks the container rather than the canvas, and is capped at six characters by
+ * `rc18SignedSeconds` so it cannot outgrow the spine at any breakpoint.
+ */
+.rc18-delta-value {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rc18-secondary);
+  font-size: clamp(10px, var(--rc18-type-verdict, 5.5cqw), 60px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rc18-delta-row[data-rc18-highlight='true'][data-rc18-faster='a'] .rc18-delta-value {
+  color: var(--rc18-side-a);
+}
+
+.rc18-delta-row[data-rc18-highlight='true'][data-rc18-faster='b'] .rc18-delta-value {
+  color: var(--rc18-side-b);
+}
+
+.rc18-delta-label {
+  flex: 0 0 auto;
+}
+
+/*
+ * The shared axis. `--rc18-datum` is 50 % of the TRACK, the track is the full spine width, and
+ * every bar is anchored to that one datum, so the three bars cannot drift on to three axes.
+ */
+.rc18-delta-track {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: clamp(6px, 1.6cqh, 18px);
+  overflow: hidden;
+}
+
+.rc18-delta-datum {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--rc18-secondary);
+  opacity: 0.85;
+}
+
+.rc18-delta-bar {
+  position: absolute;
+  top: 50%;
+  width: var(--rc18-bar-length, 0%);
+  height: 45%;
+  transform: translateY(-50%);
+  background: var(--rc18-secondary);
+  opacity: 0.55;
+}
+
+.rc18-delta-bar[data-rc18-lean='a'] {
+  right: 50%;
+}
+
+.rc18-delta-bar[data-rc18-lean='b'] {
+  left: 50%;
+}
+
+/* Trigger-only: full thickness and the faster side's token ONLY while the latch is held. */
+.rc18-delta-row[data-rc18-highlight='true'] .rc18-delta-bar {
+  height: 100%;
+  opacity: 1;
+}
+
+.rc18-delta-row[data-rc18-highlight='true'] .rc18-delta-bar[data-rc18-lean='a'] {
+  background: var(--rc18-side-a);
+}
+
+.rc18-delta-row[data-rc18-highlight='true'] .rc18-delta-bar[data-rc18-lean='b'] {
+  background: var(--rc18-side-b);
+}
+
+/* Packet 19: the faster side is carried by an arrow head, not by hue alone. */
+.rc18-delta-arrow {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc18-secondary);
+  font-size: clamp(7px, calc(var(--rc18-type-label, 2cqw) * 1.1), 20px);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc18-delta-row[data-rc18-highlight='true'][data-rc18-faster='a'] .rc18-delta-arrow {
+  color: var(--rc18-side-a);
+}
+
+.rc18-delta-row[data-rc18-highlight='true'][data-rc18-faster='b'] .rc18-delta-arrow {
+  color: var(--rc18-side-b);
+}
+
+/* --------------------------------------------------------------- stability row */
+
+.rc18-stability {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2cqh;
+  min-width: 0;
+  padding: 0.4cqw 0.6cqw;
+}
+
+.rc18-stability-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/*
+ * The two balance lines stack inside the 168x70 native sub-zone and sit SIDE BY SIDE inside the
+ * 336x70 app sub-zone, because three stacked lines of 28 px type do not fit 70 px of height.
+ * Measured in a real browser, not assumed.
+ */
+.rc18-stability-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2cqh;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc18-widget[data-rc18-layout='app'] .rc18-stability-lines {
+  flex-direction: row;
+  gap: 1.2cqw;
+}
+
+.rc18-widget[data-rc18-layout='app'] .rc18-stability-line {
+  flex: 1 1 0;
+}
+
+.rc18-stability-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc18-stability-line > .rc18-value {
+  flex: 1 1 auto;
+  font-size: clamp(8px, var(--rc18-type-secondary, 2.75cqw), 30px);
+  text-align: right;
+}
+
+.rc18-stability-line[data-rc18-side='a'] > .rc18-label {
+  color: var(--rc18-side-a);
+}
+
+.rc18-stability-line[data-rc18-side='b'] > .rc18-label {
+  color: var(--rc18-side-b);
+}
+
+.rc18-stability[data-rc18-highlight='true'] {
+  outline: 1px solid var(--rc18-caution);
+  outline-offset: -1px;
+}
+
+.rc18-stability-source {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc18-secondary);
+  /*
+   * 0.62 of the label rank. At 800x480 the spine is only 168 px wide and must hold BALANCE plus
+   * this word on one line; a real-browser audit measured the full label rank escaping by 1.6 px
+   * and the NO SOURCE state escaping by 40.7 px before this was tightened.
+   */
+  font-size: clamp(6px, calc(var(--rc18-type-label, 2cqw) * 0.62), 13px);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------- app-only A/B speed trace (12.1) */
+
+.rc18-trace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0.3cqw 0.8cqw;
+}
+
+.rc18-trace-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc18-trace-plot {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rc18-trace-line {
+  fill: none;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.rc18-trace-line[data-rc18-side='a'] {
+  stroke: var(--rc18-side-a);
+}
+
+.rc18-trace-line[data-rc18-side='b'] {
+  stroke: var(--rc18-side-b);
+  stroke-dasharray: 5 3;
+}
+
+.rc18-trace-empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc18-secondary);
+  font-size: clamp(7px, var(--rc18-type-label, 2cqw), 19px);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- reflow tuning */
+
+.rc18-widget[data-rc18-layout='compact'] .rc18-column {
+  padding: 0.6cqw 0.7cqw;
+}
+
+.rc18-widget[data-rc18-compact-mode='phone'] .rc18-rows {
+  justify-content: space-around;
+}
+
+.rc18-widget[data-rc18-compact-mode='phone'] .rc18-column-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4cqh;
+}
+
+.rc18-widget[data-rc18-compact-mode='phone'] .rc18-column[data-rc18-side='b'] .rc18-column-head {
+  flex-direction: column;
+}
+
+/* The phone spine is narrow and tall, so the stability head stacks instead of shrinking. */
+.rc18-widget[data-rc18-compact-mode='phone'] .rc18-stability-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.rc18-widget[data-rc18-compact-mode='phone'] .rc18-stability-source {
+  font-size: clamp(6px, calc(var(--rc18-type-label, 2cqw) * 0.9), 13px);
+}
