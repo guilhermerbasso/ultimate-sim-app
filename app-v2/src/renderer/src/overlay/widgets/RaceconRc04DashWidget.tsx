@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import { Rc01LiveTelemetryBuffer, type Rc01MonotonicClock, rc01FieldDescription, rc01MonotonicNow } from './raceconRc01Core'
 import {
   RC04_DEFAULT_PIT_LIMIT_KMH,
@@ -112,6 +113,7 @@ export interface RaceconRc04DashWidgetProps extends WidgetProps {
 export function RaceconRc04DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow,
   pitLimitKmh = RC04_DEFAULT_PIT_LIMIT_KMH
 }: RaceconRc04DashWidgetProps): ReactElement {
@@ -121,7 +123,7 @@ export function RaceconRc04DashWidget({
   const trackerRef = useRef(new Rc04PitSequenceTracker())
   const alertsRef = useRef(createRc04AlertState())
   const appliedAckRef = useRef(0)
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [acknowledgeSeq, setAcknowledgeSeq] = useState(0)
   const [releaseAcknowledged, setReleaseAcknowledged] = useState(false)
   const [phaseOverride, setPhaseOverride] = useState<{ phase: ReturnType<typeof rc04PhaseFromEvent>; seq: number }>({
@@ -226,11 +228,6 @@ export function RaceconRc04DashWidget({
   useEffect(() => {
     if (model.phase !== 'release') setReleaseAcknowledged(false)
   }, [model.phase])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   // Packet 11.5: the phase advances on a display-switch event as well as on the observed pit
   // signals. An unrecognised payload never moves the checklist.

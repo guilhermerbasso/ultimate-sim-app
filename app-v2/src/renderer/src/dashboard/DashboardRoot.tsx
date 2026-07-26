@@ -1474,6 +1474,7 @@ function ElementOverlayWidget({
         <Widget
           snapshot={renderSnapshot}
           config={config}
+          preview={preview}
           visibility={visibility}
           alertsConfig={renderAlertsConfig}
         />

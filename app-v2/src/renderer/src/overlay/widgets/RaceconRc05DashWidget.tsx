@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -279,6 +280,7 @@ export interface RaceconRc05DashWidgetProps extends WidgetProps {
 export function RaceconRc05DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc05DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -286,7 +288,7 @@ export function RaceconRc05DashWidget({
   const auxRef = useRef(new Rc05AuxBuffer())
   const trendRef = useRef(new Rc05TrendRecorder())
   const alertsRef = useRef(createRc05AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [emphasis, setEmphasis] = useState<Rc05Emphasis>('temperature')
   const box = useContentBox(rootRef, config)
 
@@ -370,11 +372,6 @@ export function RaceconRc05DashWidget({
     trendRef.current = trend
     alertsRef.current = alerts
   }, [candidate, aux, trend, alerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   // Packet 11.5: a soft-key toggles temperature / pressure emphasis. An unrecognised payload
   // never changes the emphasis.

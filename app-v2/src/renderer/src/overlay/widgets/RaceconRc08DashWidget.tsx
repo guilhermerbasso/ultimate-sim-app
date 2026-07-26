@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -232,6 +233,7 @@ export interface RaceconRc08DashWidgetProps extends WidgetProps {
 export function RaceconRc08DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc08DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -239,7 +241,7 @@ export function RaceconRc08DashWidget({
   const auxRef = useRef(new Rc08AuxBuffer())
   const historyRef = useRef(new Rc08GripHistory())
   const alertsRef = useRef(createRc08AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [driverGripState, setDriverGripState] = useState<Rc08GripState | 'auto'>('auto')
   const box = useContentBox(rootRef, config)
 
@@ -329,11 +331,6 @@ export function RaceconRc08DashWidget({
     historyRef.current = history
     alertsRef.current = alerts
   }, [candidate, aux, history, alerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   // Packet 11.5 and 20: the grip state comes from a real sensor OR an explicit driver toggle.
   // An unrecognised payload never changes the state, and 'auto' hands the display back to the
