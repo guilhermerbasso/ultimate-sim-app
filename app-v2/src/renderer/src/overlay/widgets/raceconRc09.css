@@ -1,0 +1,602 @@
+/*
+ * RaceCon RC-09 "Stage Time — Rally Stage & Co-Driver Timing".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are declared
+ * in `raceconRc09Core.ts` and applied as inline percentages by the widget, so the stylesheet and
+ * the packet cannot drift and the suite can assert the geometry as arithmetic. image-qa-v1
+ * normative override 2 is explicit: the approved render drifts up to +6.46 pp against packet 11.1,
+ * and those pixels are never traced.
+ *
+ * ONE packet coordinate is deliberately changed: section 11.1 gives the note cue tile 25.0 %
+ * height, which ends it at y=340 while the support strip starts at y=320 — a 20 px overlap. The
+ * tile is 20.0 % tall instead, ending at 65.8 %, exactly where image-qa-v1 truth-table gap 3
+ * records the approved reference resolving it. See `RC09_NOTE_TILE_HEIGHT_PCT`.
+ *
+ * Type ladder, packet 11.2, computed arithmetically and NOT measured off the render: stage clock
+ * 150 > split 64 > note 40 = support 40 px on the 800x480 canvas, which is 18.75 / 8 / 5 / 5 cqw,
+ * with an 18 px (2.25 cqw) label tier. image-qa-v1 override 1 is explicit that the render's split,
+ * at only 1.083x the support numbers, must not be copied. Each rung is capped by its own zone's
+ * arithmetic fit in the core (`rc09RungCqw`), which is the documented RC-01/RC-02 nowrap trap:
+ * seven glyphs of `04:12.6` at 150 px need ~470 px and packet 11.1 gives the clock zone 420 px.
+ *
+ * Palette, packet 11.3: bg #0C0A07, panel #1A140D (normative override 5 — the exact token, not
+ * the render's luminance 17-18), primary #F6EEDF, secondary #B0997C. `info` #46B5C0 is reserved
+ * for the stage marker, `normal` #57C06A for a gaining split and the lit shift discs, `caution`
+ * #EEA82F and `danger` #E7452F for the alert layer alone, so a silent frame contains neither on
+ * any alert surface.
+ *
+ * `signature` #E8B84B is declared for palette completeness and bound to NOTHING: it sits only 33
+ * apart in RGB and 3.7 degrees of hue from `caution`, so it cannot carry meaning at panel size.
+ * TOKEN-RETUNE RECOMMENDATION: move it at least ~25 degrees off `caution` (or drop it from the
+ * RC-09 palette) before any future revision uses it as a semantic accent. See
+ * `RC09_PACKET_OMISSIONS.signatureAccent`.
+ */
+
+.rc09-widget,
+.rc09-widget *,
+.rc09-widget *::before,
+.rc09-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc09-widget {
+  --rc09-bg: #0c0a07;
+  --rc09-panel: #1a140d;
+  --rc09-primary: #f6eedf;
+  --rc09-secondary: #b0997c;
+  --rc09-info: #46b5c0;
+  --rc09-normal: #57c06a;
+  --rc09-caution: #eea82f;
+  --rc09-danger: #e7452f;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc09-bg);
+  color: var(--rc09-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc09-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc09-widget > .rc09-dashboard > section {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--rc09-panel);
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc09-label,
+.rc09-unit {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc09-secondary);
+  font-size: clamp(8px, var(--rc09-type-label, 2.25cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc09-unit {
+  letter-spacing: 0.1em;
+}
+
+/* A stale or absent channel degrades to the packet's dim state; it never freezes on a value. */
+.rc09-clock-value.is-stale,
+.rc09-clock-value.is-unavailable,
+.rc09-split-value.is-stale,
+.rc09-split-value.is-unavailable,
+.rc09-mini-value.is-stale,
+.rc09-mini-value.is-unavailable,
+.rc09-note-value.is-unavailable,
+.rc09-note-distance.is-unavailable,
+.rc09-timeline-finish.is-unavailable {
+  color: var(--rc09-secondary);
+}
+
+/* Screen-reader-only text: every alert states its meaning in words, never in colour alone. */
+.rc09-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- stage timeline */
+
+.rc09-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  padding: 0.45em 1.4cqw;
+}
+
+.rc09-timeline-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 0.6em;
+}
+
+.rc09-timeline-finish {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc09-primary);
+  font-size: clamp(8px, var(--rc09-type-label, 2.25cqw), 20px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.rc09-timeline-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgb(246 238 223 / 6%);
+}
+
+/* Both are drawn only from a computed stage progress; neither has a default position. */
+.rc09-timeline-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--rc09-secondary);
+}
+
+.rc09-timeline-marker {
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--rc09-info);
+}
+
+.rc09-timeline-marker::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  border-top: 0.9cqw solid var(--rc09-info);
+  border-right: 0.7cqw solid transparent;
+  border-left: 0.7cqw solid transparent;
+  transform: translateX(-50%);
+}
+
+/* No stage-distance channel: the track states the absence instead of parking a marker. */
+.rc09-timeline-empty {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin: 0;
+  padding: 0 0.8cqw;
+  color: var(--rc09-secondary);
+  font-size: clamp(8px, var(--rc09-type-label, 2.25cqw), 18px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- stage clock */
+
+.rc09-clock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  justify-content: center;
+  padding: 0.4em 1.4cqw;
+}
+
+.rc09-clock-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc09-primary);
+  font-size: clamp(20px, var(--rc09-type-clock, 12.6cqw), 190px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 0.96;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- split chip */
+
+.rc09-split {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  justify-content: center;
+  padding: 0.35em 1.4cqw;
+}
+
+.rc09-split-row {
+  display: flex;
+  gap: 0.35em;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.rc09-split-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc09-primary);
+  font-size: clamp(14px, var(--rc09-type-split, 8cqw), 84px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/*
+ * Packet 19: the split sign is carried by three redundant cues — the literal +/- character, the
+ * triangle's direction, and the hue. The triangle is absent when there is no measured split.
+ */
+.rc09-split-arrow {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 0;
+  height: 0;
+}
+
+.rc09-split-arrow[data-rc09-direction='gaining'] {
+  border-right: 1.5cqw solid transparent;
+  border-bottom: 2.4cqw solid var(--rc09-normal);
+  border-left: 1.5cqw solid transparent;
+}
+
+.rc09-split-arrow[data-rc09-direction='losing'] {
+  border-top: 2.4cqw solid var(--rc09-primary);
+  border-right: 1.5cqw solid transparent;
+  border-left: 1.5cqw solid transparent;
+}
+
+.rc09-split[data-rc09-split-loss='true'] .rc09-split-arrow[data-rc09-direction='losing'] {
+  border-top-color: var(--rc09-caution);
+}
+
+.rc09-split-value[data-tone='good'] {
+  color: var(--rc09-normal);
+}
+
+/* Packet 15's split-loss surface: caution amber appears here and nowhere else in the chip. */
+.rc09-split-value[data-tone='bad'] {
+  color: var(--rc09-caution);
+}
+
+.rc09-split-value[data-tone='muted'] {
+  color: var(--rc09-secondary);
+}
+
+.rc09-split.is-losing {
+  background: linear-gradient(90deg, rgb(238 168 47 / 16%), transparent 72%), var(--rc09-panel);
+}
+
+.rc09-split-alert {
+  flex: 0 0 auto;
+  margin: 0;
+  overflow: hidden;
+  color: var(--rc09-caution);
+  font-size: clamp(8px, var(--rc09-type-label, 2.25cqw), 18px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- note cue tile */
+
+.rc09-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  justify-content: center;
+  padding: 0.35em 1.4cqw;
+}
+
+.rc09-note-row {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  min-width: 0;
+}
+
+.rc09-note-glyph {
+  flex: 0 0 auto;
+  width: clamp(14px, 5.6cqw, 60px);
+  height: clamp(14px, 5.6cqw, 60px);
+  fill: none;
+  stroke: var(--rc09-primary);
+  stroke-width: 3;
+  stroke-linecap: square;
+}
+
+.rc09-note-glyph .rc09-note-arrow {
+  fill: var(--rc09-primary);
+  stroke: none;
+}
+
+/* Packet 15's caution-waypoint surface: danger red exists in the tile only while it is latched. */
+.rc09-note-glyph .rc09-note-hazard {
+  fill: var(--rc09-danger);
+  stroke: none;
+}
+
+.rc09-note-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc09-primary);
+  font-size: clamp(11px, var(--rc09-type-note, 5cqw), 54px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc09-note-distance {
+  align-self: flex-end;
+  overflow: hidden;
+  color: var(--rc09-secondary);
+  font-size: clamp(9px, calc(var(--rc09-type-note, 5cqw) * 0.62), 32px);
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc09-note.is-caution {
+  background: linear-gradient(90deg, rgb(231 69 47 / 18%), transparent 72%), var(--rc09-panel);
+}
+
+.rc09-note-alert {
+  flex: 0 0 auto;
+  margin: 0;
+  overflow: hidden;
+  color: var(--rc09-danger);
+  font-size: clamp(8px, var(--rc09-type-label, 2.25cqw), 18px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- support strip */
+
+.rc09-support {
+  display: flex;
+  flex-direction: column;
+  padding: 0.3em 1.4cqw 0.45em;
+}
+
+/*
+ * Packet 11.4 places the arc at the SUPPORT-STRIP edge, because the top of the canvas is owned by
+ * the stage timeline. Normative override 3: a real shallow arc, whose per-disc rise is computed in
+ * the core (`rc09LedArcOffsetPct`) rather than drawn flat like the reference's 1 px row.
+ */
+.rc09-arc {
+  position: relative;
+  flex: 0 0 auto;
+  height: clamp(12px, 5cqw, 44px);
+  min-height: 0;
+}
+
+.rc09-led {
+  position: absolute;
+  width: clamp(7px, 2.6cqw, 26px);
+  height: clamp(7px, 2.6cqw, 26px);
+  border: 1px solid rgb(176 153 124 / 55%);
+  border-radius: 50%;
+  background: rgb(246 238 223 / 4%);
+  transform: translateX(-50%);
+}
+
+/* Packet 16: dark whenever the RPM channel is invalid or stale. The lit band is never decorative. */
+.rc09-led.is-active[data-rc09-led-tone='normal'] {
+  border-color: var(--rc09-normal);
+  background: var(--rc09-normal);
+}
+
+.rc09-led.is-active[data-rc09-led-tone='caution'] {
+  border-color: var(--rc09-caution);
+  background: var(--rc09-caution);
+}
+
+.rc09-led.is-active[data-rc09-led-tone='danger'] {
+  border-color: var(--rc09-danger);
+  background: var(--rc09-danger);
+}
+
+.rc09-support-row {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: 0;
+}
+
+.rc09-mini {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05em;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid rgb(176 153 124 / 20%);
+}
+
+.rc09-mini:first-child {
+  border-left: 0;
+}
+
+.rc09-mini-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc09-primary);
+  font-size: clamp(12px, var(--rc09-type-support, 5cqw), 54px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Packet 15's mechanical-warning surface: red is used here and nowhere else in the strip. */
+.rc09-mini.is-faulted .rc09-mini-value,
+.rc09-mini-value[data-tone='bad'] {
+  color: var(--rc09-danger);
+}
+
+.rc09-mini-line {
+  position: absolute;
+  right: 8%;
+  bottom: 0;
+  left: 8%;
+  height: 3px;
+  background: var(--rc09-danger);
+}
+
+.rc09-support-alert {
+  flex: 0 0 auto;
+  margin: 0;
+  overflow: hidden;
+  color: var(--rc09-danger);
+  font-size: clamp(8px, var(--rc09-type-label, 2.25cqw), 18px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------- app-only measured stage profile */
+
+.rc09-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  padding: 0.45em 1.4cqw;
+}
+
+.rc09-profile-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid rgb(176 153 124 / 30%);
+  background: rgb(246 238 223 / 4%);
+}
+
+/* Each bar is a note the roadbook actually delivered; nothing between them is interpolated. */
+.rc09-profile-bar {
+  position: absolute;
+  bottom: 0;
+  border-right: 1px solid var(--rc09-bg);
+  background: var(--rc09-secondary);
+}
+
+.rc09-profile-bar[data-rc09-severity='ungraded'] {
+  background: repeating-linear-gradient(
+    90deg,
+    rgb(176 153 124 / 55%) 0 2px,
+    transparent 2px 4px
+  );
+}
+
+.rc09-profile-bar[data-rc09-severity='1'],
+.rc09-profile-bar[data-rc09-severity='2'] {
+  background: var(--rc09-info);
+}
+
+.rc09-profile-bar[data-rc09-hazard='true'] {
+  background: var(--rc09-danger);
+}
+
+.rc09-profile-empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  margin: 0;
+  color: var(--rc09-secondary);
+  font-size: clamp(9px, var(--rc09-type-label, 2.25cqw), 20px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+/* ---------------------------------------------------------------- native 800x480 */
+
+.rc09-widget[data-rc09-layout='native'] .rc09-timeline,
+.rc09-widget[data-rc09-layout='native'] .rc09-clock,
+.rc09-widget[data-rc09-layout='native'] .rc09-split,
+.rc09-widget[data-rc09-layout='native'] .rc09-note,
+.rc09-widget[data-rc09-layout='native'] .rc09-support {
+  padding-right: 11px;
+  padding-left: 11px;
+}
+
+/* ---------------------------------------------------------------- app 1024x600 */
+
+.rc09-widget[data-rc09-layout='app'] .rc09-timeline {
+  border-radius: 0;
+}
+
+/* ---------------------------------------------------------------- compact */
+
+.rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-timeline {
+  min-height: var(--rc09-phone-timeline-height, 40px);
+}
+
+.rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-clock-value {
+  font-size: clamp(28px, 20cqw, 96px);
+}
+
+.rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-split-value,
+.rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-note-value {
+  font-size: clamp(16px, 11cqw, 56px);
+}
+
+.rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-led {
+  width: var(--rc09-phone-led-size, 12px);
+  height: var(--rc09-phone-led-size, 12px);
+}
+
+.rc09-widget[data-rc09-layout='compact'] .rc09-timeline,
+.rc09-widget[data-rc09-layout='compact'] .rc09-clock,
+.rc09-widget[data-rc09-layout='compact'] .rc09-split,
+.rc09-widget[data-rc09-layout='compact'] .rc09-note,
+.rc09-widget[data-rc09-layout='compact'] .rc09-support {
+  padding-right: 1.8cqw;
+  padding-left: 1.8cqw;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rc09-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
