@@ -3612,6 +3612,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc11_dash',
+    name: 'RaceCon RC-11 Trace Room',
+    widgetId: 'raceconRc11Dash',
+    description:
+      'Full-screen RC-11 race-engineer analysis wall: four stacked distance-domain traces pinned to one pixel-identical plotting region so a single scrub cursor reads the same ordinate in every panel, a solid current lap against a dashed reference lap recorded only from a whole observed best lap, a cyan-throughout delta trace that is never traffic-light coloured, an isotropic G-G scatter with true guide rings, tyre and brake window tiles that never mirror a corner, an app-only steering trace and mini-sector module, and dismissible lift/coast plus never-interpolated DATA GAP annotations.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'engineer', 'analysis', 'trace'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',

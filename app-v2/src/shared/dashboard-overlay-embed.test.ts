@@ -29,6 +29,7 @@ const EMBEDDED: Array<{
   { id: 'racecon_rc08_dash', widgetId: 'raceconRc08Dash', name: 'RaceCon RC-08 Rain Line', family: 'racecon' },
   { id: 'racecon_rc09_dash', widgetId: 'raceconRc09Dash', name: 'RaceCon RC-09 Stage Time', family: 'racecon' },
   { id: 'racecon_rc10_dash', widgetId: 'raceconRc10Dash', name: 'RaceCon RC-10 Clear Sight', family: 'racecon' },
+  { id: 'racecon_rc11_dash', widgetId: 'raceconRc11Dash', name: 'RaceCon RC-11 Trace Room', family: 'racecon' },
   { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
   { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
   { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' },

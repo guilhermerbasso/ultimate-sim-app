@@ -1,0 +1,659 @@
+/*
+ * RaceCon RC-11 "Trace Room — Race Engineer Analysis Wall".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are declared in
+ * `raceconRc11Core.ts` in the packet's own pixels and applied as inline percentages by the widget,
+ * so the stylesheet and the packet cannot drift and the suite can assert the geometry as
+ * arithmetic. Normative override 1 is explicit: the approved render drifts as far as -14.58 pp on
+ * the G-G origin and +13.33 pp on its height, and those pixels are never traced.
+ *
+ * THE SHARED DISTANCE AXIS. Every distance-domain plot is inset with `--rc11-plot-left` and
+ * `--rc11-plot-right` expressed in CONTAINER-QUERY WIDTH UNITS, not in panel percentages. One cqw
+ * is one hundredth of the widget box for every panel, so the same pair of numbers resolves to the
+ * same canvas pixel inside a 768 px panel and inside a 510 px panel. That is what makes the four
+ * drawing regions pixel-identical — x = 70..520 at 800x480 and x = 88..718 at 1024x600 — and it is
+ * why a vertical cursor reads one distance in all four panels. Attempts 001-003 let the top traces
+ * run into the legend strip and were rejected for exactly this.
+ *
+ * Type ladder, packet 11.2, computed arithmetically and NOT measured off the render: tile values
+ * 28 > cursor readout 22 > trace legends 16 > axis labels 14 px on the 800x480 canvas, which is
+ * 3.5 / 2.75 / 2 / 1.75 cqw. Because the app canvas is exactly 1.28x the native canvas, the same
+ * cqw ladder is the packet's 1.28 step at 1024x600. Normative override 3 is explicit that all four
+ * attempts tied the cursor readout to the trace-legend cap height; that reading is not copied.
+ *
+ * Palette, packet 11.3, verbatim. THREE RULES THIS FILE EXISTS TO ENFORCE, all asserted by the
+ * suite against this file's own declarations:
+ *
+ *  1. `--rc11-caution` and `--rc11-danger` are referenced ONLY inside `.rc11-marker` rules, and
+ *     `--rc11-normal` is never referenced at all. All three RC-11 alerts are silent by default, so
+ *     a resting frame contains zero pixels of any alert token.
+ *  2. The delta trace is `--rc11-info` along its whole length, above and below the zero rule. It is
+ *     never coloured green for gain and red for loss — those are alert-layer tokens.
+ *  3. Every dash placeholder, gridline, axis numeral, zero rule and G-G ring is `--rc11-secondary`.
+ */
+
+.rc11-widget,
+.rc11-widget *,
+.rc11-widget *::before,
+.rc11-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc11-widget {
+  --rc11-bg: #0e1116;
+  --rc11-panel: #171c24;
+  --rc11-primary: #e6ebf0;
+  --rc11-secondary: #8a97a6;
+  --rc11-info: #4fc3f7;
+  --rc11-signature: #ab47bc;
+  /* Alert-layer tokens. `normal` is declared for completeness and deliberately never referenced. */
+  --rc11-normal: #66bb6a;
+  --rc11-caution: #ffb300;
+  --rc11-danger: #ef5350;
+
+  --rc11-grid: #8a97a626;
+  --rc11-shade: #4fc3f72e;
+  --rc11-plot-left: 6.75cqw;
+  --rc11-plot-right: 33cqw;
+  --rc11-plot-top: 2.2cqw;
+  --rc11-plot-bottom: 2.2cqw;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc11-bg);
+  color: var(--rc11-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.rc11-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * Normative override 2: ONE flat `panel` rectangle per packet zone. The render splits zones 1 and 2
+ * into a plot rectangle plus a legend rectangle with a background gutter — ten drawn rectangles
+ * against a compliant eight — and that divider is omitted here.
+ */
+.rc11-panel {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #232a35;
+  border-radius: 3px;
+  background: var(--rc11-panel);
+}
+
+/* ---------------------------------------------------------------- typography */
+
+.rc11-axis-title {
+  position: absolute;
+  z-index: 2;
+  top: 0.6cqw;
+  left: 1cqw;
+  color: var(--rc11-secondary);
+  font-size: clamp(7px, var(--rc11-type-legend, 2cqw), 26px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc11-axis-unit {
+  margin-left: 0.6em;
+  font-size: 0.82em;
+  font-style: normal;
+}
+
+.rc11-axis-label {
+  position: absolute;
+  right: calc(100% + 0.7cqw);
+  color: var(--rc11-secondary);
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc11-axis-top {
+  top: 0;
+}
+
+.rc11-axis-bottom {
+  bottom: 0;
+}
+
+/* ---------------------------------------------------------------- shared plot region */
+
+/*
+ * The single most important rule in the file. `left` and `right` are container-query widths, so
+ * every distance-domain plot occupies the SAME canvas pixels regardless of how wide its panel is.
+ */
+.rc11-plot {
+  position: absolute;
+  top: var(--rc11-plot-top);
+  right: var(--rc11-plot-right);
+  bottom: var(--rc11-plot-bottom);
+  left: var(--rc11-plot-left);
+  background-image:
+    repeating-linear-gradient(to right, var(--rc11-grid) 0 1px, transparent 1px 20%),
+    repeating-linear-gradient(to bottom, var(--rc11-grid) 0 1px, transparent 1px 25%);
+  touch-action: none;
+}
+
+/* The distance axis is drawn at the foot of the delta zone, so its plot stops short of the panel. */
+.rc11-trace-panel[data-rc11-zone='delta'] .rc11-plot {
+  bottom: 4.4cqw;
+}
+
+.rc11-plot-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Packet 11.3: the delta shading between the two speed traces, at ~18 % `info`. */
+.rc11-delta-shade {
+  fill: var(--rc11-shade);
+}
+
+.rc11-trace-line {
+  fill: none;
+  stroke: var(--rc11-secondary);
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/*
+ * Packet 19, and the whole accessibility contract: the lap identity and the pedal identity are
+ * carried by LINE PATTERN first and by hue second. Solid is the current lap and the throttle;
+ * dashed is the reference lap and the brake.
+ */
+.rc11-trace[data-rc11-trace-token='info'] .rc11-trace-line {
+  stroke: var(--rc11-info);
+}
+
+.rc11-trace[data-rc11-trace-token='signature'] .rc11-trace-line {
+  stroke: var(--rc11-signature);
+}
+
+.rc11-trace[data-rc11-trace-token='primary'] .rc11-trace-line {
+  stroke: var(--rc11-primary);
+}
+
+.rc11-trace[data-rc11-trace-token='secondary'] .rc11-trace-line {
+  stroke: var(--rc11-secondary);
+}
+
+.rc11-trace[data-rc11-trace-style='dashed'] .rc11-trace-line {
+  stroke-dasharray: 6 5;
+}
+
+/* Packet 16: a lost input flatlines GREY. It never disappears and it never freezes on a value. */
+.rc11-trace.is-flatline .rc11-trace-line,
+.rc11-trace.is-stale .rc11-trace-line {
+  stroke: var(--rc11-secondary);
+}
+
+.rc11-trace-flatline {
+  stroke-dasharray: 3 4;
+}
+
+/* Packet 11.5: the scrub cursor, one x position, drawn at the same canvas pixel in every panel. */
+.rc11-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--rc11-primary);
+  pointer-events: none;
+}
+
+/* The delta plot's signed zero rule. Packet 11.3: `secondary`, like every other rule on the wall. */
+.rc11-zero-rule {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--rc11-secondary);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- data gap band */
+
+/*
+ * Packet 14/15: a channel dropout is a GREY band across the affected span, labelled in words. The
+ * trace is broken on both sides of it — never a smoothed line through the gap.
+ */
+.rc11-gap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #8a97a633;
+  pointer-events: none;
+}
+
+.rc11-gap-label {
+  color: var(--rc11-secondary);
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- anomaly markers */
+
+/*
+ * Packet 15/19: a computed marker is a GLYPH SHAPE plus a TEXT LABEL, and it is dismissible. These
+ * are the only rules in the file that reference an alert token, so a silent frame measures zero
+ * caution and zero danger pixels.
+ */
+.rc11-marker {
+  position: absolute;
+  top: 4%;
+  display: flex;
+  align-items: center;
+  gap: 0.4cqw;
+  margin: 0;
+  padding: 0.2cqw 0.5cqw;
+  transform: translateX(-50%);
+  border: 0;
+  border-radius: 2px;
+  background: #0e1116cc;
+  color: var(--rc11-primary);
+  font: inherit;
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.rc11-marker-glyph {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  background: var(--rc11-secondary);
+}
+
+.rc11-marker-glyph[data-rc11-glyph='chevron'] {
+  clip-path: polygon(50% 0, 100% 100%, 50% 66%, 0 100%);
+}
+
+.rc11-marker-glyph[data-rc11-glyph='diamond'] {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.rc11-marker[data-rc11-marker='liftCoast'] .rc11-marker-glyph {
+  background: var(--rc11-caution);
+}
+
+.rc11-marker[data-rc11-marker='lockUp'] .rc11-marker-glyph {
+  background: var(--rc11-danger);
+}
+
+.rc11-marker-label {
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- legend block */
+
+/*
+ * The residual strip of zones 1 and 2, INSIDE the same panel rectangle. No divider, no gutter fill:
+ * normative override 2. When the strip is too narrow to carry a stacked block — packet 12.1 leaves
+ * the 1024x600 inputs overlay a 6 px residual — the legend moves onto the panel's title line
+ * instead of being squeezed to nothing. It never takes width away from the shared plot region.
+ */
+.rc11-legend {
+  position: absolute;
+  display: flex;
+  min-width: 0;
+}
+
+.rc11-legend[data-rc11-legend-placement='strip'] {
+  top: var(--rc11-plot-top);
+  right: 1.2cqw;
+  bottom: var(--rc11-plot-bottom);
+  flex-direction: column;
+  gap: 0.5cqw;
+  justify-content: flex-start;
+  width: max(0px, calc(var(--rc11-plot-right) - 2.4cqw));
+}
+
+.rc11-legend[data-rc11-legend-placement='inline'] {
+  top: 0.5cqw;
+  right: 1cqw;
+  flex-direction: row;
+  gap: 1.4cqw;
+  align-items: center;
+  max-width: 60cqw;
+}
+
+.rc11-legend-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.8cqw;
+  min-width: 0;
+}
+
+.rc11-legend-swatch {
+  flex: 0 0 auto;
+  width: 3.6cqw;
+  height: 0;
+  border-top: 2px solid var(--rc11-secondary);
+}
+
+.rc11-legend-entry[data-rc11-legend-token='info'] .rc11-legend-swatch {
+  border-top-color: var(--rc11-info);
+}
+
+.rc11-legend-entry[data-rc11-legend-token='signature'] .rc11-legend-swatch {
+  border-top-color: var(--rc11-signature);
+}
+
+.rc11-legend-entry[data-rc11-legend-token='primary'] .rc11-legend-swatch {
+  border-top-color: var(--rc11-primary);
+}
+
+.rc11-legend-entry[data-rc11-legend-style='dashed'] .rc11-legend-swatch {
+  border-top-style: dashed;
+}
+
+.rc11-legend-label {
+  overflow: hidden;
+  color: var(--rc11-primary);
+  font-size: clamp(7px, var(--rc11-type-legend, 2cqw), 26px);
+  letter-spacing: 0.12em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc11-reference-toggle {
+  margin: 0.2cqw 0 0;
+  padding: 0.2cqw 0.6cqw;
+  border: 1px solid var(--rc11-secondary);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--rc11-secondary);
+  font: inherit;
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  letter-spacing: 0.1em;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rc11-cursor-caption {
+  color: var(--rc11-secondary);
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+/*
+ * Normative override 3. The cursor readout is its OWN rung at 22 px — 2.75 cqw — and is never
+ * sized from the trace legend beside it.
+ */
+.rc11-cursor-readout {
+  display: block;
+  overflow: hidden;
+  color: var(--rc11-primary);
+  font-size: clamp(9px, var(--rc11-type-cursor, 2.75cqw), 36px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.rc11-delta-readout {
+  position: absolute;
+  top: 2%;
+  right: 1%;
+  text-align: right;
+}
+
+/* Packet 16/19: an unavailable or stale value degrades to the `secondary` token beside its dash. */
+.rc11-cursor-readout.is-stale,
+.rc11-cursor-readout.is-unavailable,
+.rc11-tile-value.is-stale,
+.rc11-tile-value.is-unavailable {
+  color: var(--rc11-secondary);
+}
+
+/* ---------------------------------------------------------------- distance axis */
+
+/*
+ * Packet 11/11.1 draw a shared distance axis that section 16 never defines a channel for. The axis
+ * is drawn; every tick is the dash placeholder in `secondary`, and no distance, lap or sector
+ * numeral appears anywhere on the wall.
+ */
+.rc11-distance-axis {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.rc11-distance-axis .rc11-axis-title {
+  position: static;
+  padding-right: 1cqw;
+}
+
+.rc11-distance-ticks {
+  position: absolute;
+  right: var(--rc11-plot-right);
+  bottom: 0;
+  left: var(--rc11-plot-left);
+  height: 100%;
+}
+
+.rc11-distance-tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  color: var(--rc11-secondary);
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- G-G scatter */
+
+.rc11-gg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.2cqw 1cqw 2.2cqw;
+}
+
+/*
+ * Normative override 4: identical units per g on BOTH axes, so the guide rings are true circles.
+ * The square is the constraint that guarantees it; the render is ~7 % anisotropic and that defect
+ * is not reproduced.
+ */
+.rc11-gg-square {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  height: 100%;
+  max-width: 100%;
+}
+
+.rc11-gg-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.rc11-gg-rule {
+  stroke: var(--rc11-secondary);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.rc11-gg-ring {
+  fill: none;
+  stroke: var(--rc11-secondary);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.rc11-gg-dot {
+  fill: var(--rc11-info);
+}
+
+.rc11-gg-ring-label {
+  position: absolute;
+  top: 50%;
+  transform: translate(0.3cqw, -110%);
+  color: var(--rc11-secondary);
+  font-size: clamp(5px, var(--rc11-type-axis, 1.75cqw), 22px);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.rc11-gg-long {
+  position: absolute;
+  top: 0.6cqw;
+  left: 1cqw;
+}
+
+.rc11-gg-lat {
+  position: absolute;
+  top: auto;
+  bottom: 0.4cqw;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ---------------------------------------------------------------- window tiles */
+
+.rc11-tiles {
+  display: flex;
+  gap: 1px;
+  padding: 0;
+  background: #232a35;
+}
+
+.rc11-tile {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 0.6cqw 0.8cqw;
+  overflow: hidden;
+  background: var(--rc11-panel);
+}
+
+.rc11-tile-label {
+  color: var(--rc11-secondary);
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.rc11-tile-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4cqw;
+  min-width: 0;
+}
+
+/*
+ * The numeral hierarchy of RC-11 is TILE-driven, not trace-driven: these are deliberately the
+ * tallest glyphs in the frame even though the traces own the area. Packet 11.2; do not "fix" it.
+ */
+.rc11-tile-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc11-primary);
+  font-size: clamp(11px, var(--rc11-type-tile, 3.5cqw), 46px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc11-tile-unit {
+  color: var(--rc11-secondary);
+  font-size: clamp(5px, var(--rc11-type-axis, 1.75cqw), 22px);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- mini-sector table */
+
+.rc11-sectors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4cqw;
+  padding: 2.4cqw 1cqw 1cqw;
+}
+
+.rc11-sector-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8cqw;
+  color: var(--rc11-primary);
+  font-size: clamp(7px, var(--rc11-type-legend, 2cqw), 26px);
+}
+
+.rc11-sector-value {
+  color: var(--rc11-secondary);
+}
+
+/*
+ * Packet 12.1 declares this zone; section 16 declares no lap-distance or sector channel to fill it.
+ * The module states its own unavailability in words rather than inventing a row count.
+ */
+.rc11-sector-notice {
+  margin: 0;
+  color: var(--rc11-secondary);
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- compact grammars */
+
+/*
+ * The compact grammars keep the trace wall and one shared axis. They drop only the two app-only
+ * reveals, so the cursor, the DATA GAP band and the lift/coast marker keep a visible surface at
+ * every size — no alert loses its surface at any breakpoint.
+ */
+.rc11-widget[data-rc11-layout='compact'] .rc11-legend {
+  gap: 0.3cqw;
+}
+.rc11-widget[data-rc11-layout='compact'][data-rc11-compact-mode='phone'] {
+  --rc11-plot-top: 3cqw;
+  --rc11-plot-bottom: 3cqw;
+}
+
+.rc11-widget[data-rc11-layout='compact'][data-rc11-compact-mode='phone'] .rc11-legend-label,
+.rc11-widget[data-rc11-layout='compact'][data-rc11-compact-mode='phone'] .rc11-cursor-caption {
+  display: none;
+}
+
+.rc11-widget[data-rc11-layout='compact'][data-rc11-compact-mode='phone'] .rc11-tiles {
+  flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rc11-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
