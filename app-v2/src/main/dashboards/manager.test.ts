@@ -1725,6 +1725,361 @@ describe('RC-12 full-frame preset lifecycle', () => {
   })
 })
 
+describe('RC-13 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc13-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-13 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc13_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-13 Hold Order')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc13Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc13_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc13_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc13_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc13Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc13_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-13 Hold Order')
+  })
+})
+
+describe('RC-14 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc14-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-14 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc14_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-14 Triage')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc14Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc14_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc14_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc14_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc14Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc14_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-14 Triage')
+  })
+})
+
+describe('RC-15 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc15-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-15 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc15_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-15 On The Nose')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc15Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc15_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc15_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc15_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc15Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc15_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-15 On The Nose')
+  })
+})
+
+describe('RC-16 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc16-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-16 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc16_dash') as { id: string; name: string }
+    // Packet section 1 title is authoritative; the bare alias "Learn Lines" is not a title.
+    expect(created.name).toContain('RaceCon RC-16 Learn Lines - Novice Coaching & Consistency')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc16Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc16_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc16_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc16_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc16Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc16_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-16 Learn Lines - Novice Coaching & Consistency')
+  })
+})
+
+describe('RC-17 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc17-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-17 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc17_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-17 High Line')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc17Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc17_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc17_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc17_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc17Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc17_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-17 High Line')
+  })
+})
+
+describe('RC-18 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc18-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-18 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc18_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-18 Split Test')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc18Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc18_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc18_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc18_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc18Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc18_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-18 Split Test')
+  })
+})
+
+describe('RC-19 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc19-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-19 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc19_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-19 Hand Over')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc19Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc19_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc19_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc19_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc19Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc19_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-19 Hand Over')
+  })
+})
+
+describe('RC-20 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc20-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  // RC-20's core exports `racecon-rc20-lights-out` as its preset id; that literal wins over
+  // the `racecon_rcNN_dash` house pattern used by RC-01 … RC-19.
+  it('creates through IPC, persists, lazily materializes, and opens the RC-20 preset', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon-rc20-lights-out') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-20 Lights Out')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc20Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon-rc20-lights-out', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon-rc20-lights-out', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon-rc20-lights-out')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc20Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon-rc20-lights-out.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-20 Lights Out')
+  })
+})
+
 describe('DashboardManager window replacement lifecycle', () => {
   let userData: string
   let manager: DashboardManager

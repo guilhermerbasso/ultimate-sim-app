@@ -133,6 +133,54 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "widgetId": "raceconRc12Dash"
   },
   {
+    "id": "dash-racecon_rc13_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-13 Hold Order",
+    "widgetId": "raceconRc13Dash"
+  },
+  {
+    "id": "dash-racecon_rc14_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-14 Triage",
+    "widgetId": "raceconRc14Dash"
+  },
+  {
+    "id": "dash-racecon_rc15_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-15 On The Nose",
+    "widgetId": "raceconRc15Dash"
+  },
+  {
+    "id": "dash-racecon_rc16_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-16 Learn Lines - Novice Coaching & Consistency",
+    "widgetId": "raceconRc16Dash"
+  },
+  {
+    "id": "dash-racecon_rc17_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-17 High Line",
+    "widgetId": "raceconRc17Dash"
+  },
+  {
+    "id": "dash-racecon_rc18_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-18 Split Test",
+    "widgetId": "raceconRc18Dash"
+  },
+  {
+    "id": "dash-racecon_rc19_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-19 Hand Over",
+    "widgetId": "raceconRc19Dash"
+  },
+  {
+    "id": "dash-racecon-rc20-lights-out",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-20 Lights Out",
+    "widgetId": "raceconRc20Dash"
+  },
+  {
     "id": "dash-ring_dash",
     "type": "overlaywidget",
     "label": "GT3 — Anel circular",

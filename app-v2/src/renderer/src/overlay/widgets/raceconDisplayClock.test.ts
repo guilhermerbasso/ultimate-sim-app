@@ -19,6 +19,14 @@ import { RaceconRc09DashWidget } from './RaceconRc09DashWidget'
 import { RaceconRc10DashWidget } from './RaceconRc10DashWidget'
 import { RaceconRc11DashWidget } from './RaceconRc11DashWidget'
 import { RaceconRc12DashWidget } from './RaceconRc12DashWidget'
+import { RaceconRc13DashWidget } from './RaceconRc13DashWidget'
+import { RaceconRc14DashWidget } from './RaceconRc14DashWidget'
+import { RaceconRc15DashWidget } from './RaceconRc15DashWidget'
+import { RaceconRc16DashWidget } from './RaceconRc16DashWidget'
+import { RaceconRc17DashWidget } from './RaceconRc17DashWidget'
+import { RaceconRc18DashWidget } from './RaceconRc18DashWidget'
+import { RaceconRc19DashWidget } from './RaceconRc19DashWidget'
+import { RaceconRc20DashWidget } from './RaceconRc20DashWidget'
 import { WIDGET_COMPONENTS } from './index'
 import { RC06_FUEL_MODEL_ENGAGE_MS } from './raceconRc06Core'
 
@@ -36,7 +44,15 @@ const RACECON_WIDGETS: ReadonlyArray<readonly [OverlayWidgetId, RaceconDashWidge
   ['raceconRc09Dash', RaceconRc09DashWidget],
   ['raceconRc10Dash', RaceconRc10DashWidget],
   ['raceconRc11Dash', RaceconRc11DashWidget],
-  ['raceconRc12Dash', RaceconRc12DashWidget]
+  ['raceconRc12Dash', RaceconRc12DashWidget],
+  ['raceconRc13Dash', RaceconRc13DashWidget],
+  ['raceconRc14Dash', RaceconRc14DashWidget],
+  ['raceconRc15Dash', RaceconRc15DashWidget],
+  ['raceconRc16Dash', RaceconRc16DashWidget],
+  ['raceconRc17Dash', RaceconRc17DashWidget],
+  ['raceconRc18Dash', RaceconRc18DashWidget],
+  ['raceconRc19Dash', RaceconRc19DashWidget],
+  ['raceconRc20Dash', RaceconRc20DashWidget]
 ]
 
 /** Every RaceCon dashboard actually wired into the renderer, straight from the registry. */
@@ -87,6 +103,23 @@ function snapshot(): TelemetrySnapshot {
     fuelLiters: 38.4,
     fuelPerLapLiters: 2.65,
     fuelLapsRemaining: 14.49,
+    // RC-15's chassis-balance index is only published while steering, yaw rate and the lateral-G
+    // cornering gate are all present and fresh, and its brake pans need real per-corner brake
+    // temperatures. Without them RC-15 renders every field dashed and has no time gate at all,
+    // which would make the live half of this suite vacuous for it. Every other RaceCon page that
+    // does not read these channels ignores them.
+    steerAngleDeg: 38,
+    latAccelG: 1.32,
+    longAccelG: -0.4,
+    yawRateRadSec: 0.18,
+    brakeBiasPct: 56.4,
+    brakeTempC: { lf: 430, rf: 426, lr: 393, rr: 389 },
+    // RC-18 compares archived practice laps: with no lap-distance or lap-clock channel its
+    // recorder never takes a sample, the page publishes NO MATCHED PAIR with feed 'none' and it
+    // too has no time gate at all. One live sample is enough — the match feed goes stale at
+    // RC18_MATCH_FEED_STALE_MS, so the frame genuinely ages.
+    lapDistPct: 0.42,
+    currentLapTimeSec: 47.35,
     // A timing/scoring feed, so the family's audience-facing pages have a frame to age too.
     // RC-12 is driven entirely by the standings feed and its 1 s freshness budget: without one it
     // publishes NO TIMING SOURCE and has no time gate at all, which would make the live half of
@@ -114,9 +147,14 @@ function snapshot(): TelemetrySnapshot {
  * Mounts a widget on a controllable monotonic clock and steps wall time and that clock together,
  * exactly as a real render observes them: the display interval fires several times per step and
  * re-reads the clock, so the widget sees elapsed time rather than a single unexplained jump.
+ *
+ * The observation is the widget's full markup, not just its `textContent`. RC-18 encodes its
+ * match-feed freshness as `data-rc18-feed` and an `is-stale` class rather than as printed text, so
+ * a text-only observation would report "no change" for a page that visibly went stale. Comparing
+ * markup is strictly stronger in both directions: the inert render must still be byte-identical.
  */
 function mount(Widget: RaceconDashWidget, id: OverlayWidgetId, preview: WidgetProps['preview']): {
-  text: () => string
+  markup: () => string
   advance: (ms: number) => void
 } {
   vi.useFakeTimers()
@@ -134,7 +172,7 @@ function mount(Widget: RaceconDashWidget, id: OverlayWidgetId, preview: WidgetPr
       })
     }
   }
-  return { text: () => view.container.textContent ?? '', advance }
+  return { markup: () => view.container.innerHTML, advance }
 }
 
 describe('RaceCon display clock freeze policy', () => {
@@ -178,20 +216,20 @@ describe('RaceCon inert previews hold a static frame', () => {
   it('never advances an inert preview past a time gate', () => {
     expect(PAST_EVERY_THRESHOLD_MS).toBeGreaterThan(RC06_FUEL_MODEL_ENGAGE_MS)
     for (const [id, Widget] of RACECON_WIDGETS) {
-      const { text, advance } = mount(Widget, id, 'inert')
-      const mounted = text()
+      const { markup, advance } = mount(Widget, id, 'inert')
+      const mounted = markup()
       advance(PAST_EVERY_THRESHOLD_MS)
-      expect(text(), `${id} inert preview text must be byte-identical after 30s`).toBe(mounted)
+      expect(markup(), `${id} inert preview render must be byte-identical after 30s`).toBe(mounted)
       cleanup()
     }
   }, 30_000)
 
   it('keeps the live display clock ticking so a real dashboard still ages its frame', () => {
     for (const [id, Widget] of RACECON_WIDGETS) {
-      const { text, advance } = mount(Widget, id, undefined)
-      const mounted = text()
+      const { markup, advance } = mount(Widget, id, undefined)
+      const mounted = markup()
       advance(PAST_EVERY_THRESHOLD_MS)
-      expect(text(), `${id} live render must still age its frame`).not.toBe(mounted)
+      expect(markup(), `${id} live render must still age its frame`).not.toBe(mounted)
       cleanup()
     }
   }, 30_000)

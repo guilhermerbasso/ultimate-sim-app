@@ -42,7 +42,8 @@ describe('CanvasElementVisual — overlaywidget embedding (Phase 0)', () => {
   })
 
   it('renders real content for every full-frame preset widgetId', () => {
-    const ids = ['gridStackDash', 'gridProDash', 'bosch296Dash', 'ringDash', 'lmuEnduranceDash', 'lmuStintDash', 'raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash', 'raceconRc07Dash', 'raceconRc08Dash', 'raceconRc09Dash', 'raceconRc10Dash', 'raceconRc11Dash', 'raceconRc12Dash']
+    const ids = ['gridStackDash', 'gridProDash', 'bosch296Dash', 'ringDash', 'lmuEnduranceDash', 'lmuStintDash', 'raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash', 'raceconRc07Dash', 'raceconRc08Dash', 'raceconRc09Dash', 'raceconRc10Dash', 'raceconRc11Dash', 'raceconRc12Dash', 'raceconRc13Dash', 'raceconRc14Dash', 'raceconRc15Dash', 'raceconRc16Dash', 'raceconRc17Dash', 'raceconRc18Dash', 'raceconRc19Dash', 'raceconRc20Dash']
+    expect(ids).toHaveLength(26)
     for (const id of ids) {
       const markup = render(overlayEl(id, id))
       expect(markup.length, `empty render for ${id}`).toBeGreaterThan(150)

@@ -100,14 +100,14 @@ import {
 } from './raceconRc13Core'
 
 /**
- * RC-13 is delivered as CORE ONLY. The widget id, the dashboard preset, the responsive full-frame
- * membership, the identity-scoped membership and the identity catalog are all shared-file changes and
- * land together in a separate catalog wiring PR, so this suite asserts the widget's own contract and
- * deliberately asserts that it is NOT yet reachable from the catalog. `config.id` is therefore cast:
- * `raceconRc13Dash` is not yet a member of `OverlayWidgetId`, and adding it is the wiring PR's job.
+ * RC-13 was delivered as CORE ONLY (PR #139). The widget id, the dashboard preset, the responsive
+ * full-frame membership, the identity-scoped membership and the identity catalog are all shared-file
+ * changes and landed together in the separate catalog wiring PR. `raceconRc13Dash` is now a member of
+ * `OverlayWidgetId`, so the assertions below are the post-wiring direction: RC-13 IS reachable from
+ * the catalog. The `config.id` cast is kept only because `RC13_WIDGET_ID` is a local `string` here.
  *
- * RC-13 does CONSUME two shared modules that already exist on `main` — `raceconRc01Core` and the
- * family display clock — it simply adds nothing to any shared file itself.
+ * RC-13 also CONSUMES two shared modules that already existed on `main` — `raceconRc01Core` and the
+ * family display clock — and still adds nothing to any shared file itself.
  */
 const RC13_WIDGET_ID = 'raceconRc13Dash'
 const RC13_PRESET_ID = 'racecon_rc13_dash'
@@ -308,13 +308,16 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('RC-13 is delivered core-only, with registration deferred to the wiring PR', () => {
-  it('ships four new files that collide with nothing and is deliberately not yet registered', () => {
-    expect(Object.keys(WIDGET_COMPONENTS)).not.toContain(RC13_WIDGET_ID)
-    expect(OVERLAY_DASHBOARD_PRESETS.map((entry) => entry.id)).not.toContain(RC13_PRESET_ID)
+describe('RC-13 is registered in the catalog by the wiring PR', () => {
+  it('is reachable from the shared registry and the preset table', () => {
+    expect(Object.keys(WIDGET_COMPONENTS)).toContain(RC13_WIDGET_ID)
+    const preset = OVERLAY_DASHBOARD_PRESETS.find((entry) => entry.id === RC13_PRESET_ID)
+    expect(preset).toBeDefined()
+    expect(preset?.widgetId).toBe(RC13_WIDGET_ID)
+    expect(preset?.scaleMode).toBe('stretch')
   })
 
-  it('names the widget id its own DOM already claims, so the wiring PR has one unambiguous target', () => {
+  it('names the widget id its own DOM already claims, so the wiring PR had one unambiguous target', () => {
     expect(markup(snapshot(), nativeConfig)).toContain(`data-widget="${RC13_WIDGET_ID}"`)
   })
 
@@ -1416,10 +1419,12 @@ describe('RC-13 shares the RC-01 fail-closed ingest buffer', () => {
 })
 
 /**
- * The family-wide preview-clock fix landed on `main` ahead of this branch. RC-13 is NOT in the
- * enumeration inside `raceconDisplayClock.test.ts` — that file lists widgets by `OverlayWidgetId`,
- * and `raceconRc13Dash` only becomes a member of that union in the catalog wiring PR — so RC-13
- * carries the same guard locally, in both directions, until the wiring PR can add it there.
+ * The family-wide preview-clock fix landed on `main` ahead of RC-13's core branch. RC-13 is now in
+ * the enumeration inside `raceconDisplayClock.test.ts` — the wiring PR added `raceconRc13Dash` to
+ * `OverlayWidgetId` and to that file's `RACECON_WIDGETS` roster — so the family contract is enforced
+ * centrally. These local checks are kept because they are artifact-specific: they assert RC-13's own
+ * source shape (no leftover interval) and its own packet-16 no-feed degradation, which the shared
+ * roster test does not look at.
  */
 describe('RC-13 shares the family display clock', () => {
   it('uses the shared hook and the shared freeze policy, with no local interval left behind', () => {
