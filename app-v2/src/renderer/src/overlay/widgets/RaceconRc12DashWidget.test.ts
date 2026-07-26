@@ -8,6 +8,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultOverlayStyle, type OverlayWidgetConfig } from '../../../../shared/overlays'
 import type { DriverEntry, TelemetrySnapshot } from '../../../../shared/telemetry'
 import { OVERLAY_DASHBOARD_PRESETS } from '../../../../shared/dashboards'
+import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
+import type { WidgetProps } from './types'
+import { RACECON_DISPLAY_CLOCK_INTERVAL_MS, raceconDisplayClockFrozen } from './raceconDisplayClock'
 import { WIDGET_COMPONENTS } from './index'
 import { RaceconRc12DashWidget } from './RaceconRc12DashWidget'
 import { Rc01LiveTelemetryBuffer } from './raceconRc01Core'
@@ -1287,8 +1290,145 @@ describe('RC-12 rendered DOM contract', () => {
   })
 })
 
-describe('RC-12 shares the RC-01 fail-closed ingest buffer', () => {
-  it('accepts a live identified snapshot and rejects an unidentified one', () => {
+describe('RC-12 display clock freezes in a preview and ages when live', () => {
+  const WIDGET_SOURCE = readFileSync(
+    resolve(process.cwd(), 'src/renderer/src/overlay/widgets/RaceconRc12DashWidget.tsx'),
+    'utf8'
+  )
+  const GUARD_SOURCE = readFileSync(
+    resolve(process.cwd(), 'src/renderer/src/overlay/widgets/raceconDisplayClock.test.ts'),
+    'utf8'
+  )
+
+  /**
+   * Mounts RC-12 on a controllable monotonic clock and steps wall time and that clock together,
+   * exactly as `raceconDisplayClock.test.ts` does — but on a snapshot RC-12 genuinely ACCEPTS, so
+   * the board has a live timing feed and a real time gate to cross rather than sitting on
+   * NO TIMING SOURCE.
+   */
+  function mountClocked(preview: WidgetProps['preview']): { text: () => string; advance: (ms: number) => void } {
+    vi.useFakeTimers()
+    let monotonicMs = 0
+    const monotonicClock = (): number => monotonicMs
+    const view = render(
+      createElement(RaceconRc12DashWidget, { snapshot: snapshot(), config: nativeConfig, preview, monotonicClock })
+    )
+    const step = RACECON_DISPLAY_CLOCK_INTERVAL_MS * 5
+    const advance = (ms: number): void => {
+      for (let elapsed = 0; elapsed < ms; elapsed += step) {
+        act(() => {
+          monotonicMs += step
+          vi.advanceTimersByTime(step)
+        })
+      }
+    }
+    return { text: () => view.container.textContent ?? '', advance }
+  }
+
+  it('routes its display clock through the shared hook and owns no interval of its own', () => {
+    const code = WIDGET_SOURCE.replace(/\r\n/g, '\n')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    expect(code).toContain("import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'")
+    expect(code).toContain('const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))')
+    expect(code).toMatch(/export function RaceconRc12DashWidget\(\{\n\s*snapshot,\n\s*config,\n\s*preview,\n\s*monotonicClock = rc01MonotonicNow\n\}/)
+    // The hook owns the timer. A widget-local one would sit outside the freeze policy entirely.
+    expect(code).not.toContain('setInterval')
+    expect(code).not.toContain('setTimeout')
+    expect(code).not.toContain('requestAnimationFrame')
+    expect(code).not.toContain('setNowMs')
+    // …and the deferred-work marker is gone: the shared hook exists now.
+    expect(WIDGET_SOURCE).not.toContain('TODO(PR #131)')
+  })
+
+  it('is enumerated in the shared RaceCon display-clock guard', () => {
+    // The guard cross-checks its list against WIDGET_COMPONENTS, and RC-12 is what makes
+    // `raceconRc12Dash` a registered RaceCon id. Mirrored here so dropping RC-12 from that list
+    // turns RC-12's own suite red as well.
+    expect(GUARD_SOURCE).toContain("['raceconRc12Dash', RaceconRc12DashWidget]")
+    expect(WIDGET_COMPONENTS.raceconRc12Dash).toBe(RaceconRc12DashWidget)
+    expect(raceconDisplayClockFrozen(undefined)).toBe(false)
+    expect(raceconDisplayClockFrozen('inert')).toBe(true)
+  })
+
+  it('holds an inert preview byte-identical across a 30 s wall-clock advance, feed and all', () => {
+    const { text, advance } = mountClocked('inert')
+    const mounted = text()
+    expect(mounted).toContain('P1')
+    expect(mounted).not.toContain(RC12_TIMING_DELAY_LABEL)
+    advance(30_000)
+    expect(text(), 'RC-12 inert preview text must be byte-identical after 30s').toBe(mounted)
+    expect(text()).not.toContain(RC12_TIMING_DELAY_LABEL)
+  }, 30_000)
+
+  it('still ages a live render, so a real board reaches its TIMING DELAY gate', () => {
+    const { text, advance } = mountClocked(undefined)
+    const mounted = text()
+    expect(mounted).not.toContain(RC12_TIMING_DELAY_LABEL)
+    advance(30_000)
+    expect(text(), 'RC-12 live render must still age its frame').not.toBe(mounted)
+    expect(text()).toContain(RC12_TIMING_DELAY_LABEL)
+  }, 30_000)
+
+  it('starts no timer at all while frozen, and clears the live one on unmount', () => {
+    vi.useFakeTimers()
+    const frozen = render(
+      createElement(RaceconRc12DashWidget, { snapshot: snapshot(), config: nativeConfig, preview: 'inert' })
+    )
+    expect(vi.getTimerCount()).toBe(0)
+    frozen.unmount()
+
+    const clearSpy = vi.spyOn(window, 'clearInterval')
+    const live = render(createElement(RaceconRc12DashWidget, { snapshot: snapshot(), config: nativeConfig }))
+    expect(vi.getTimerCount()).toBe(1)
+    live.unmount()
+    expect(clearSpy).toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    clearSpy.mockRestore()
+  })
+
+  /**
+   * The defect `inert-previews.browser.test.ts` catches is TEXT MUTATION under a ticking clock in a
+   * gallery preview. RC-12 renders through `renderDashboardElement({ preview: 'inert' })` with the
+   * shared `PREVIEW_SNAPSHOT`, whose `sim` is `'mock'` — refused outright by the RC-01 buffer. The
+   * freeze above is the real guarantee; this asserts the second, independent one still holds.
+   */
+  it('renders byte-identical markup at every point on the clock in an inert gallery preview', () => {
+    expect(PREVIEW_SNAPSHOT.sim).toBe('mock')
+    const frames = [0, 1_000, RC12_TIMING_STALE_MS + 1, 60_000, 3_600_000].map((clock) =>
+      renderToStaticMarkup(
+        createElement(RaceconRc12DashWidget, {
+          snapshot: PREVIEW_SNAPSHOT,
+          config: nativeConfig,
+          monotonicClock: () => clock
+        })
+      )
+    )
+    for (const frame of frames) {
+      expect(frame).toBe(frames[0])
+      expect(frame).toContain('data-rc12-buffer-state="mock-telemetry"')
+      expect(frame).toContain('data-rc12-alerts="silent"')
+      expect(frame).toContain('data-rc12-timing="absent"')
+      expect(frame).not.toContain(RC12_TIMING_DELAY_LABEL)
+    }
+  })
+
+  it('never crosses a time-gated threshold from a snapshot the buffer refused', () => {
+    for (const refused of [PREVIEW_SNAPSHOT, snapshot({ sim: 'mock' }), snapshot({ sim: 'replay' })]) {
+      const early = markup(refused as TelemetrySnapshot, nativeConfig)
+      const late = renderToStaticMarkup(
+        createElement(RaceconRc12DashWidget, {
+          snapshot: refused as TelemetrySnapshot,
+          config: nativeConfig,
+          monotonicClock: () => 10 * RC12_FASTEST_LAP_HOLD_MS
+        })
+      )
+      expect(late).toBe(early)
+    }
+  })
+})
+
+describe('RC-12 shares the RC-01 fail-closed ingest buffer', () => {  it('accepts a live identified snapshot and rejects an unidentified one', () => {
     const buffer = new Rc01LiveTelemetryBuffer()
     expect(buffer.ingest(snapshot(), 0).reason).toBe('accepted')
 

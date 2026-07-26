@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import type { Rc01Field } from './raceconRc01Core'
 import { Rc01LiveTelemetryBuffer, type Rc01MonotonicClock, rc01MonotonicNow } from './raceconRc01Core'
 import {
@@ -216,13 +217,14 @@ export interface RaceconRc12DashWidgetProps extends WidgetProps {
 export function RaceconRc12DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc12DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
   const bufferRef = useRef(new Rc01LiveTelemetryBuffer())
   const timingRef = useRef(new Rc12TimingBuffer())
   const alertsRef = useRef(createRc12AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const box = useContentBox(rootRef, config)
 
   // A receipt timestamp, not a display clock: it advances only when a new snapshot object or
@@ -294,11 +296,6 @@ export function RaceconRc12DashWidget({
     timingRef.current = timing
     alertsRef.current = alerts
   }, [candidate, timing, alerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   const alertsActive =
     model.tag.showing || model.leadTag.showing || model.timingDelay || model.rows.some((row) => row.change !== null)
