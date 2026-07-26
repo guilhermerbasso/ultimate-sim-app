@@ -1,0 +1,643 @@
+/*
+ * RaceCon RC-06 "Save Mode — Fuel & Lift-and-Coast Strategy".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are the
+ * exported `RC06_NATIVE_ZONES` / `RC06_APP_ZONES` tables in `raceconRc06Core.ts` and are
+ * applied as inline percentages by the widget, so the stylesheet and the packet cannot drift
+ * and the test suite can assert the geometry arithmetically. image-qa-v1 residual 2 is a
+ * normative override: the reference render drifts down by up to 7.7 pp and is never traced.
+ *
+ * Type scale is packet 11.2 — 96 / 64 / 56 / 28 / 16 px at the 800 px native canvas — not the
+ * reference's compressed 75 / 37 / 28 / 22 / 14 cap heights (image-qa-v1 residual 3).
+ *
+ * Palette, packet 11.3: bg #0B0D0A, panel #161A12, primary #F1F5EA, secondary #98A68A,
+ * info #57B8C6 (the over-saving PUSH OK cue only), normal #7BC24B (a surplus balance and the
+ * lift marker), caution #E8C233 (a deficit inside tolerance and the fuel-model note),
+ * danger #E5533A (the latched behind-plan balance) and signature #C9E265 confined to the two
+ * ledger column headers and their header rules.
+ *
+ * Packet section 16 declares no RPM channel, so the packet 11.4 slim rev cue / short-shift
+ * marker has no data source and no rev cue exists anywhere in this stylesheet.
+ */
+
+.rc06-widget,
+.rc06-widget *,
+.rc06-widget *::before,
+.rc06-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc06-widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: #0b0d0a;
+  color: #f1f5ea;
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc06-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc06-widget > .rc06-dashboard > section {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc06-label,
+.rc06-unit {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #98a68a;
+  font-size: clamp(9px, 2cqw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc06-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #f1f5ea;
+  font-size: clamp(12px, 3cqw, 28px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* A stale or absent channel degrades to the packet's dim dash; it never freezes on a value. */
+.rc06-value.is-stale,
+.rc06-value.is-unavailable,
+.rc06-balance-value.is-stale,
+.rc06-balance-value.is-unavailable {
+  color: #98a68a;
+}
+
+.rc06-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 0.15em;
+}
+
+/*
+ * The value and its unit share a row. `min-width: 0` is load-bearing: without it the nowrap
+ * numeral's min-content width would keep the flex item from ever shrinking, `overflow: hidden`
+ * would never clip, and a hero numeral could escape its zone while every scrollWidth check
+ * still passed.
+ */
+.rc06-row-value {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  overflow: hidden;
+  gap: 0.3em;
+}
+
+.rc06-row-value .rc06-value {
+  flex: 0 1 auto;
+}
+
+.rc06-row-value .rc06-unit {
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------- ledger columns */
+
+.rc06-column {
+  display: flex;
+  flex-direction: column;
+  padding: 1.4% 1.6%;
+  border-radius: 2px;
+  background: #161a12;
+  gap: 2%;
+}
+
+.rc06-column-head {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.35em;
+}
+
+/* Signature #C9E265 is confined to these two elements per column and nothing else. */
+.rc06-column-title {
+  margin: 0;
+  overflow: hidden;
+  color: #c9e265;
+  font-size: clamp(10px, 2.2cqw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc06-column-rule {
+  display: block;
+  width: 86%;
+  height: 2px;
+  margin: 0 auto;
+  background: #c9e265;
+}
+
+.rc06-column .rc06-row {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+/* Packet 11.2: laps remaining is 64 px and fuel/lap is 56 px at the native canvas. */
+.rc06-row[data-rc06-row='target-burn'] .rc06-value,
+.rc06-row[data-rc06-row='actual-burn'] .rc06-value {
+  font-size: clamp(18px, 7cqw, 56px);
+}
+
+.rc06-row[data-rc06-row='plan-laps'] .rc06-value,
+.rc06-row[data-rc06-row='laps-remaining'] .rc06-value {
+  font-size: clamp(20px, 8cqw, 64px);
+}
+
+.rc06-row[data-rc06-row='pit-lap'] .rc06-value,
+.rc06-row[data-rc06-row='fuel-level'] .rc06-value {
+  font-size: clamp(14px, 4cqw, 32px);
+}
+
+/* The projected pit ladder only has room in the app column; elsewhere it is not drawn. */
+.rc06-ladder {
+  display: none;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+/* Packet section 15: an invalid fuel model dashes the ledger values and adds an amber note. */
+.rc06-widget[data-rc06-fuel-model='invalid'] .rc06-column .rc06-row-value {
+  border-bottom: 1px dashed #e8c233;
+}
+
+/* ---------------------------------------------------------------- balance hero */
+
+.rc06-balance {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.2% 1.4%;
+  border-radius: 2px;
+  background: #161a12;
+  gap: 0.1em;
+}
+
+.rc06-balance-label {
+  flex: 0 0 auto;
+}
+
+.rc06-balance-line {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  gap: 0.18em;
+}
+
+.rc06-balance-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #7bc24b;
+  font-size: clamp(26px, 12cqw, 96px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* Packet 19: the arrow is a filled SHAPE, so plan status is never carried by colour alone. */
+.rc06-balance-arrow {
+  display: block;
+  width: clamp(14px, 6cqw, 48px);
+  height: clamp(14px, 6cqw, 48px);
+  flex: 0 0 auto;
+  fill: #7bc24b;
+}
+
+.rc06-balance-unit {
+  flex: 0 0 auto;
+}
+
+/* Packet section 14 display states: near-zero/surplus normal, deficit caution, latched danger. */
+.rc06-balance[data-rc06-tone='caution'] .rc06-balance-value,
+.rc06-balance[data-rc06-tone='caution'] .rc06-balance-arrow {
+  color: #e8c233;
+  fill: #e8c233;
+}
+
+.rc06-balance[data-rc06-tone='danger'] .rc06-balance-value,
+.rc06-balance[data-rc06-tone='danger'] .rc06-balance-arrow {
+  color: #e5533a;
+  fill: #e5533a;
+}
+
+.rc06-balance[data-rc06-tone='muted'] .rc06-balance-value {
+  color: #98a68a;
+}
+
+/* Trigger-only: this line exists in the DOM only while the behind-plan alert is latched. */
+.rc06-save-more {
+  margin: 0.1em 0 0;
+  flex: 0 0 auto;
+  color: #e5533a;
+  font-size: clamp(10px, 2.4cqw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- delta mini */
+
+.rc06-delta {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1% 1.4%;
+  border-radius: 2px;
+  background: #161a12;
+  gap: 4%;
+}
+
+.rc06-delta .rc06-row {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.5em;
+}
+
+.rc06-delta .rc06-label {
+  flex: 1 1 auto;
+}
+
+.rc06-delta .rc06-value {
+  font-size: clamp(12px, 2.8cqw, 26px);
+}
+
+.rc06-value[data-tone='good'] {
+  color: #7bc24b;
+}
+
+.rc06-value[data-tone='bad'] {
+  color: #e8c233;
+}
+
+/* ---------------------------------------------------------------- app-only trend */
+
+.rc06-trend {
+  display: flex;
+  flex-direction: column;
+  padding: 1% 1.4%;
+  border-radius: 2px;
+  background: #161a12;
+  gap: 0.4em;
+}
+
+.rc06-trend-rows {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  overflow: hidden;
+  gap: 0.35em;
+}
+
+.rc06-trend-point {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  color: #f1f5ea;
+  font-size: clamp(9px, 1.6cqw, 15px);
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.rc06-trend-point.is-unavailable {
+  color: #98a68a;
+}
+
+.rc06-trend-target {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 0.4em;
+}
+
+.rc06-trend-target .rc06-value {
+  font-size: clamp(10px, 1.8cqw, 17px);
+}
+
+/* ---------------------------------------------------------------- lift cue bar */
+
+.rc06-lift {
+  display: flex;
+  align-items: center;
+  padding: 0 1.2%;
+  border-radius: 2px;
+  background: #161a12;
+  gap: 1.6%;
+}
+
+.rc06-lift .rc06-row {
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.4em;
+}
+
+.rc06-lift-cue {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: baseline;
+  overflow: hidden;
+  gap: 0.4em;
+}
+
+/* Packet 11.2: the lift cue band is 28 px at the native canvas. */
+.rc06-lift-value {
+  font-size: clamp(12px, 3.5cqw, 28px);
+}
+
+.rc06-lift .rc06-row[data-rc06-row='gear'] .rc06-value {
+  font-size: clamp(12px, 3.5cqw, 28px);
+}
+
+/*
+ * The track. The groove is the canvas token so the lit marks read as marks, and the geometry
+ * is carried by inline percentages computed in the core: the plan datum at exactly 50 %
+ * (image-qa-v1 residual 1) and the marker at 0.5 + (target - actual) / (2 * fullDeflection).
+ */
+.rc06-lift-track {
+  position: relative;
+  min-width: 0;
+  height: 46%;
+  flex: 1 1 auto;
+  border-radius: 1px;
+  background: #0b0d0a;
+}
+
+.rc06-lift-datum {
+  position: absolute;
+  top: -10%;
+  width: 2px;
+  height: 120%;
+  background: #f1f5ea;
+  transform: translateX(-50%);
+}
+
+.rc06-lift-marker {
+  position: absolute;
+  top: 10%;
+  width: clamp(8px, 2.4cqw, 22px);
+  height: 80%;
+  background: #7bc24b;
+  transform: translateX(-50%);
+}
+
+.rc06-lift-marker[data-rc06-side='behind'] {
+  background: #e8c233;
+}
+
+/* Trigger-only: the cyan hint exists in the DOM only while over-saving is latched. */
+.rc06-push-ok {
+  margin: 0;
+  flex: 0 0 auto;
+  color: #57b8c6;
+  font-size: clamp(10px, 2.4cqw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc06-soft-key {
+  min-width: clamp(22px, 4cqw, 34px);
+  height: 62%;
+  flex: 0 0 auto;
+  padding: 0 0.4em;
+  border: 1px solid #98a68a;
+  border-radius: 2px;
+  background: transparent;
+  color: #98a68a;
+  font: inherit;
+  font-size: clamp(9px, 1.8cqw, 16px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- peripheral strip */
+
+.rc06-peripheral {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  gap: 2.4%;
+}
+
+.rc06-peripheral .rc06-row {
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.4em;
+}
+
+.rc06-peripheral .rc06-value {
+  font-size: clamp(10px, 2.2cqw, 20px);
+}
+
+/* Packet section 15: the amber note exists only while the fuel model is latched invalid. */
+.rc06-note {
+  margin: 0 0 0 auto;
+  flex: 0 0 auto;
+  color: #e8c233;
+  font-size: clamp(9px, 2cqw, 17px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- native 800x480 */
+
+.rc06-widget[data-rc06-layout='native'] .rc06-column {
+  gap: 1.5%;
+}
+
+.rc06-widget[data-rc06-layout='native'] .rc06-lift {
+  gap: 1.2%;
+}
+
+/* ---------------------------------------------------------------- app 1024x600 */
+
+/*
+ * Packet 12.1 `ledger-trend-reveal`: the extra width is a genuine reflow, not a scale. It
+ * reveals the per-lap burn trend under the balance and the projected pit ladder inside the
+ * wider target column — two modules the 800x480 canvas has no room for.
+ */
+.rc06-widget[data-rc06-layout='app'] .rc06-ladder {
+  display: block;
+  border-top: 1px solid #2a3122;
+  padding-top: 0.4em;
+}
+
+.rc06-widget[data-rc06-layout='app'] .rc06-ladder .rc06-row {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.5em;
+}
+
+.rc06-widget[data-rc06-layout='app'] .rc06-ladder .rc06-label {
+  flex: 1 1 auto;
+}
+
+.rc06-widget[data-rc06-layout='app'] .rc06-ladder .rc06-value {
+  font-size: clamp(12px, 2.4cqw, 24px);
+}
+
+/* The delta mini is folded inside the enlarged balance hero, so it drops its own panel fill. */
+.rc06-widget[data-rc06-layout='app'] .rc06-delta {
+  background: transparent;
+  padding-top: 0;
+}
+
+.rc06-widget[data-rc06-layout='app'] .rc06-balance {
+  justify-content: flex-start;
+  padding-top: 2.5%;
+}
+
+/* ---------------------------------------------------------------- compact base */
+
+.rc06-widget[data-rc06-layout='compact'] .rc06-column {
+  gap: 1%;
+  padding: 2% 2.4%;
+}
+
+.rc06-widget[data-rc06-layout='compact'] .rc06-row[data-rc06-row='target-burn'] .rc06-value,
+.rc06-widget[data-rc06-layout='compact'] .rc06-row[data-rc06-row='actual-burn'] .rc06-value {
+  font-size: clamp(16px, 6cqw, 44px);
+}
+
+.rc06-widget[data-rc06-layout='compact'] .rc06-row[data-rc06-row='plan-laps'] .rc06-value,
+.rc06-widget[data-rc06-layout='compact'] .rc06-row[data-rc06-row='laps-remaining'] .rc06-value {
+  font-size: clamp(18px, 7cqw, 50px);
+}
+
+.rc06-widget[data-rc06-layout='compact'] .rc06-balance-value {
+  font-size: clamp(24px, 11cqw, 74px);
+}
+
+.rc06-widget[data-rc06-layout='compact'] .rc06-lift {
+  flex-wrap: wrap;
+  align-content: center;
+  padding: 1% 2%;
+  gap: 2%;
+}
+
+.rc06-widget[data-rc06-layout='compact'] .rc06-lift-track {
+  height: 22%;
+  flex: 1 0 60%;
+}
+
+/* ---------------------------------------------------------------- compact phone */
+
+/*
+ * Portrait: the balance hero leads, the two ledger columns sit side by side beneath it, and
+ * the lift bar wraps onto two rows so the track keeps a usable length. Both alert surfaces
+ * (SAVE MORE inside the balance, PUSH OK inside the lift bar) stay on screen.
+ */
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone'] .rc06-balance {
+  padding: 2% 3%;
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone'] .rc06-balance-value {
+  font-size: clamp(30px, 18cqw, 92px);
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone'] .rc06-column {
+  gap: 2%;
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone']
+  .rc06-row[data-rc06-row='target-burn']
+  .rc06-value,
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone']
+  .rc06-row[data-rc06-row='actual-burn']
+  .rc06-value {
+  font-size: clamp(16px, 9cqw, 46px);
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone']
+  .rc06-row[data-rc06-row='plan-laps']
+  .rc06-value,
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone']
+  .rc06-row[data-rc06-row='laps-remaining']
+  .rc06-value {
+  font-size: clamp(18px, 10cqw, 52px);
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone'] .rc06-lift-track {
+  height: var(--rc06-phone-track-height, 12px);
+  flex: 1 0 100%;
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='phone'] .rc06-soft-key {
+  min-width: var(--rc06-phone-toggle-size, 44px);
+  height: var(--rc06-phone-toggle-size, 44px);
+}
+
+/* ---------------------------------------------------------------- compact landscape */
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='landscape'] .rc06-lift {
+  flex-wrap: nowrap;
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='landscape'] .rc06-lift-track {
+  height: 40%;
+  flex: 1 1 auto;
+}
+
+.rc06-widget[data-rc06-layout='compact'][data-rc06-compact-mode='landscape'] .rc06-balance-value {
+  font-size: clamp(24px, 10cqw, 80px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rc06-widget * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

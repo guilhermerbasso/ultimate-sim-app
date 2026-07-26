@@ -1474,6 +1474,7 @@ function ElementOverlayWidget({
         <Widget
           snapshot={renderSnapshot}
           config={config}
+          preview={preview}
           visibility={visibility}
           alertsConfig={renderAlertsConfig}
         />
@@ -1754,7 +1755,7 @@ export interface DashboardCanvasRenderModel {
   scaleMode: DashboardScaleMode
 }
 
-const RESPONSIVE_FULL_FRAME_WIDGET_IDS = new Set<string>(['raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash'])
+const RESPONSIVE_FULL_FRAME_WIDGET_IDS = new Set<string>(['raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash', 'raceconRc07Dash', 'raceconRc08Dash'])
 
 function isResponsiveFullFrame(dashboard: Dashboard): boolean {
   if (dashboard.elements.length !== 1) return false

@@ -1410,6 +1410,141 @@ describe('RC-05 full-frame preset lifecycle', () => {
   })
 })
 
+describe('RC-06 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc06-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-06 preset', async () => {
+    // Keep a non-empty store so lazy materialization is exercised rather than first-run seeding.
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc06_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-06 Save Mode')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc06Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc06_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc06_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc06_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc06Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc06_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-06 Save Mode')
+  })
+})
+
+describe('RC-07 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc07-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-07 preset', async () => {
+    // Keep a non-empty store so lazy materialization is exercised rather than first-run seeding.
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc07_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-07 Blue Flags')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc07Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc07_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc07_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc07_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc07Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc07_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-07 Blue Flags')
+  })
+})
+
+describe('RC-08 full-frame preset lifecycle', () => {
+  let userData: string
+
+  beforeEach(() => {
+    userData = mkdtempSync(join(process.cwd(), 'dashboard-racecon-rc08-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('creates through IPC, persists, lazily materializes, and opens the RC-08 preset', async () => {
+    // Keep a non-empty store so lazy materialization is exercised rather than first-run seeding.
+    persistDashboard(userData, raceTrafficAttack())
+    const handlers = new Map<string, IpcHandler>()
+    const manager = makeHeadlessManager(userData, handlers)
+    manager.registerIpc()
+    await manager.load()
+
+    const create = handlers.get('app:dash:createPreset')
+    expect(create).toBeDefined()
+    const created = await create!({}, 'racecon_rc08_dash') as { id: string; name: string }
+    expect(created.name).toContain('RaceCon RC-08 Rain Line')
+    expect(manager.getDashboard(created.id)?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc08Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', `${created.id}.json`))).toBe(true)
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opened = manager.openWindow('racecon_rc08_dash', { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc08_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc08_dash')?.elements).toMatchObject([
+      { type: 'overlaywidget', widgetId: 'raceconRc08Dash' }
+    ])
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc08_dash.json'))).toBe(true)
+    expect(window.options.title).toContain('RaceCon RC-08 Rain Line')
+  })
+})
+
 describe('DashboardManager window replacement lifecycle', () => {
   let userData: string
   let manager: DashboardManager

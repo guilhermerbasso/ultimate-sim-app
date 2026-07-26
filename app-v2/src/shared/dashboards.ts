@@ -3567,6 +3567,33 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc06_dash',
+    name: 'RaceCon RC-06 Save Mode',
+    widgetId: 'raceconRc06Dash',
+    description:
+      'Full-screen RC-06 fuel-save strategy ledger: engineer target versus measured burn in two columns, a signed running balance hero with arrow and sign, the time cost of saving, a computed lift-and-coast track and per-lap budget-deviation alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'fuel', 'strategy'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc07_dash',
+    name: 'RaceCon RC-07 Blue Flags',
+    widgetId: 'raceconRc07Dash',
+    description:
+      'Full-screen RC-07 multiclass awareness display: a proximity radar whose blip radii are computed from each contact\u2019s own distance, class-coded gap-behind and gap-ahead panels with direction-only closing glyphs, a fail-closed flag ribbon that never assumes green, and blue-flag, fast-closing and imminent-proximity alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'traffic', 'radar'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc08_dash',
+    name: 'RaceCon RC-08 Rain Line',
+    widgetId: 'raceconRc08Dash',
+    description:
+      'Full-screen RC-08 changing-wet display: grip-adaptive columns whose widths encode the regime, an explicit DRY/DAMP/WET/FLOOD grip chip bound to the track-condition feed or the driver toggle, a weather-honesty banner that states UNAVAILABLE rather than inventing rain, per-corner tyre thermals with a measured wet/dry crossover, an app-only grip history timeline and grip-drop, cold-tyre and aids-fault alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'wet', 'weather'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',
