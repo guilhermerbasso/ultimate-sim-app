@@ -115,6 +115,12 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "widgetId": "raceconRc09Dash"
   },
   {
+    "id": "dash-racecon_rc10_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-10 Clear Sight",
+    "widgetId": "raceconRc10Dash"
+  },
+  {
     "id": "dash-ring_dash",
     "type": "overlaywidget",
     "label": "GT3 — Anel circular",

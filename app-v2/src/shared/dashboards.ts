@@ -3603,6 +3603,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc10_dash',
+    name: 'RaceCon RC-10 Clear Sight',
+    widgetId: 'raceconRc10Dash',
+    description:
+      'Full-screen RC-10 high-contrast, colour-vision-safe driver display: a hero gear digit with a nine-segment shift bar whose lit count is arithmetic, a speed tile, an asymmetric delta tile carrying sign, chevron and pattern, a six-segment fuel bar that can never disagree with its numeral, a hollow-ring to solid-circle to triangle to octagon status ladder so no state is read by hue alone, an app-only plain-language status line, and fuel-low, over-rev and overheat alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'accessibility', 'high-contrast'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',
