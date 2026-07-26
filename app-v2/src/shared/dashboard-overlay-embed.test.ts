@@ -21,6 +21,7 @@ const EMBEDDED: Array<{
   { id: 'lmu_stint_dash', widgetId: 'lmuStintDash', name: 'LMU — Stint/Fuel', family: 'lmu' },
   { id: 'racecon_rc01_dash', widgetId: 'raceconRc01Dash', name: 'RaceCon RC-01 Apex Strike', family: 'racecon' },
   { id: 'racecon_rc02_dash', widgetId: 'raceconRc02Dash', name: 'RaceCon RC-02 Purple Lap', family: 'racecon' },
+  { id: 'racecon_rc03_dash', widgetId: 'raceconRc03Dash', name: 'RaceCon RC-03 Long Night', family: 'racecon' },
   { id: 'racecon_rc04_dash', widgetId: 'raceconRc04Dash', name: 'RaceCon RC-04 Box Now', family: 'racecon' },
   { id: 'racecon_rc05_dash', widgetId: 'raceconRc05Dash', name: 'RaceCon RC-05 Thermal Window', family: 'racecon' },
   { id: 'racecon_rc06_dash', widgetId: 'raceconRc06Dash', name: 'RaceCon RC-06 Save Mode', family: 'racecon' },

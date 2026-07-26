@@ -42,7 +42,7 @@ describe('CanvasElementVisual — overlaywidget embedding (Phase 0)', () => {
   })
 
   it('renders real content for every full-frame preset widgetId', () => {
-    const ids = ['gridStackDash', 'gridProDash', 'bosch296Dash', 'ringDash', 'lmuEnduranceDash', 'lmuStintDash', 'raceconRc01Dash', 'raceconRc02Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash', 'raceconRc07Dash']
+    const ids = ['gridStackDash', 'gridProDash', 'bosch296Dash', 'ringDash', 'lmuEnduranceDash', 'lmuStintDash', 'raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash', 'raceconRc07Dash']
     for (const id of ids) {
       const markup = render(overlayEl(id, id))
       expect(markup.length, `empty render for ${id}`).toBeGreaterThan(150)
