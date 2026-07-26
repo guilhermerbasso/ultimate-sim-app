@@ -3594,6 +3594,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc09_dash',
+    name: 'RaceCon RC-09 Stage Time',
+    widgetId: 'raceconRc09Dash',
+    description:
+      'Full-screen RC-09 rally special-stage display: a linear stage timeline whose fill and marker are withheld until a real stage-distance channel exists, a measured stage-clock hero, a signed split chip against the reference run, a co-driver note cue that stays blank until a roadbook is loaded, a shallow shift arc at the support-strip edge, an app-only measured stage-severity profile, and caution-waypoint, split-loss and mechanical alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'rally', 'stage'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',
