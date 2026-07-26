@@ -743,9 +743,9 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
   })
 
   it('surfaces RaceCon RC-20 in the full-frame gallery and search taxonomy', () => {
-    // RC-20's core exports `racecon-rc20-lights-out` as its preset id; that literal wins
-    // over the `racecon_rcNN_dash` house pattern used by RC-01 … RC-19.
-    const rc20 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon-rc20-lights-out')
+    // RC-20's core originally exported `racecon-rc20-lights-out`; the wiring PR corrected it to the
+    // family pattern, so the catalog variant id is `dash-racecon_rc20_dash` like every sibling.
+    const rc20 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc20_dash')
     expect(rc20).toMatchObject({
       type: 'overlaywidget',
       widgetId: 'raceconRc20Dash',

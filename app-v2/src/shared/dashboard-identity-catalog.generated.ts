@@ -175,7 +175,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "widgetId": "raceconRc19Dash"
   },
   {
-    "id": "dash-racecon-rc20-lights-out",
+    "id": "dash-racecon_rc20_dash",
     "type": "overlaywidget",
     "label": "RaceCon RC-20 Lights Out",
     "widgetId": "raceconRc20Dash"

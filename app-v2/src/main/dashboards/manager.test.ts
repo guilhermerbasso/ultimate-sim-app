@@ -2045,8 +2045,9 @@ describe('RC-20 full-frame preset lifecycle', () => {
     rmSync(userData, { recursive: true, force: true })
   })
 
-  // RC-20's core exports `racecon-rc20-lights-out` as its preset id; that literal wins over
-  // the `racecon_rcNN_dash` house pattern used by RC-01 … RC-19.
+  // RC-20's core originally exported `racecon-rc20-lights-out`; the wiring PR corrected it to the
+  // `racecon_rcNN_dash` family pattern, so the persisted file is `racecon_rc20_dash.json` like every
+  // sibling rather than the one non-snake_case name among the embedded full-frame dashboards.
   it('creates through IPC, persists, lazily materializes, and opens the RC-20 preset', async () => {
     persistDashboard(userData, raceTrafficAttack())
     const handlers = new Map<string, IpcHandler>()
@@ -2056,7 +2057,7 @@ describe('RC-20 full-frame preset lifecycle', () => {
 
     const create = handlers.get('app:dash:createPreset')
     expect(create).toBeDefined()
-    const created = await create!({}, 'racecon-rc20-lights-out') as { id: string; name: string }
+    const created = await create!({}, 'racecon_rc20_dash') as { id: string; name: string }
     expect(created.name).toContain('RaceCon RC-20 Lights Out')
     expect(manager.getDashboard(created.id)?.elements).toMatchObject([
       { type: 'overlaywidget', widgetId: 'raceconRc20Dash' }
@@ -2068,14 +2069,14 @@ describe('RC-20 full-frame preset lifecycle', () => {
       window = new FakeDashboardWindow(options as Record<string, unknown>)
       return window
     })
-    const opened = manager.openWindow('racecon-rc20-lights-out', { displayId: primaryDisplay.id, fullscreen: true })
+    const opened = manager.openWindow('racecon_rc20_dash', { displayId: primaryDisplay.id, fullscreen: true })
     await vi.waitFor(() => expect(window).toBeDefined())
     window.finishLoad()
-    await expect(opened).resolves.toMatchObject({ id: 'racecon-rc20-lights-out', displayId: primaryDisplay.id })
-    expect(manager.getDashboard('racecon-rc20-lights-out')?.elements).toMatchObject([
+    await expect(opened).resolves.toMatchObject({ id: 'racecon_rc20_dash', displayId: primaryDisplay.id })
+    expect(manager.getDashboard('racecon_rc20_dash')?.elements).toMatchObject([
       { type: 'overlaywidget', widgetId: 'raceconRc20Dash' }
     ])
-    expect(existsSync(join(userData, 'dashboards', 'racecon-rc20-lights-out.json'))).toBe(true)
+    expect(existsSync(join(userData, 'dashboards', 'racecon_rc20_dash.json'))).toBe(true)
     expect(window.options.title).toContain('RaceCon RC-20 Lights Out')
   })
 })

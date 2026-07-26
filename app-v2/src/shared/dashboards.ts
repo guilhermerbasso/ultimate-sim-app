@@ -3693,7 +3693,7 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
-    id: 'racecon-rc20-lights-out',
+    id: 'racecon_rc20_dash',
     name: 'RaceCon RC-20 Lights Out',
     widgetId: 'raceconRc20Dash',
     description:
