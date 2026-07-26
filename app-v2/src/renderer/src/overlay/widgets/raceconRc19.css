@@ -1,0 +1,619 @@
+/*
+ * RaceCon RC-19 "Hand Over — Endurance Driver-Swap Handover".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are
+ * converted arithmetically from the packet's own pixel rectangles in `raceconRc19Core.ts` and
+ * applied as inline percentages by the widget, so the stylesheet and the packet cannot drift
+ * and the suite can assert the geometry as arithmetic. Normative override OV-3 is explicit:
+ * the approved render drifts up to 2.50 pp on the panels and 5.62 pp on the confirm control,
+ * and those pixels are never traced.
+ *
+ * Type ladder, packet 11.2, built from the packet's own 40 / 30 / 24 / 15 px nominals and NOT
+ * measured off the approved render (OV-3), which sits +17.86 % above the packet on the
+ * headline ratio. That is 5 / 3.75 / 3 / 1.875 cqw on the 800x480 canvas. OV-13: ONE rank-3
+ * size is held everywhere — the checklist item word, the checklist state word, the outstanding
+ * count, NONE ACTIVE and CONFIRM READY are all `item`.
+ *
+ * Palette, packet 11.3, verbatim: bg #0A0D11, panel #151B22, primary #EAEFF3,
+ * secondary #8B99A6, info #40BEDC, normal #46C86E, signature #34E0C0. OV-4: the panel is built
+ * at #151B22 on #0A0D11 exactly, because attempt-002 proved a slumped fill turns the panels
+ * into hollow outlines; a 1 px hairline carries the step if a display flattens it, and the
+ * fill is never darkened. OV-5: the packet's "crew-teal" identity is `signature` and lives on
+ * the three column titles ONLY — `normal` is confined to the checklist state column, because
+ * a teal title beside a green state word is the artifact's closest chromatic confusion.
+ *
+ * `caution #FFB52E` and `danger #FF3F30` appear on alert surfaces alone. A silent frame — the
+ * approved reference state — contains neither, and packet 11.5's NOT READY gate is rendered in
+ * `primary` off-white because readiness is a gate, not an alert.
+ *
+ * Packet 11.4 states "No shift LEDs" and packet 10 suppresses the live shift/gear/pace heroes,
+ * so there is no LED, rev, arc, gear, speed or delta element anywhere in this stylesheet.
+ *
+ * SIZING: every text node that carries `white-space: nowrap` is a flex item with `min-width: 0`
+ * and `overflow: hidden`, because a nowrap item's min-content width otherwise exceeds its
+ * column and escapes an `overflow: hidden` parent while `scrollWidth === clientWidth`.
+ */
+
+.rc19-widget,
+.rc19-widget *,
+.rc19-widget *::before,
+.rc19-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc19-widget {
+  --rc19-bg: #0a0d11;
+  --rc19-panel: #151b22;
+  --rc19-primary: #eaeff3;
+  --rc19-secondary: #8b99a6;
+  --rc19-info: #40bedc;
+  --rc19-normal: #46c86e;
+  --rc19-caution: #ffb52e;
+  --rc19-danger: #ff3f30;
+  --rc19-signature: #34e0c0;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc19-bg);
+  color: var(--rc19-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc19-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc19-widget > .rc19-dashboard > section {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  /* OV-4: the panel fill is never darkened, and the hairline carries the step if a display
+     flattens the 14-luminance gap between `panel` and `bg`. */
+  border: 1px solid rgba(139, 153, 166, 0.16);
+  background: var(--rc19-panel);
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc19-label,
+.rc19-unit {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-secondary);
+  font-size: clamp(7px, var(--rc19-type-label, 1.875cqw), 17px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc19-unit {
+  margin-left: 0.45em;
+  font-size: 0.85em;
+  letter-spacing: 0.1em;
+}
+
+/* OV-5: `signature` teal is confined to the three column titles and appears nowhere else. */
+.rc19-title {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--rc19-signature);
+  font-size: clamp(7px, var(--rc19-type-label, 1.875cqw), 17px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc19-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-primary);
+  font-size: clamp(11px, var(--rc19-type-value, 3.75cqw), 34px);
+  font-weight: 600;
+  line-height: 1;
+  text-align: right;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+/* A stale or absent channel degrades to the packet's grey state; it never freezes on a value. */
+.rc19-value.is-stale,
+.rc19-value.is-unavailable,
+.rc19-fault-value.is-stale,
+.rc19-fault-value.is-unavailable,
+.rc19-timeline-empty.is-unavailable {
+  color: var(--rc19-secondary);
+}
+
+.rc19-value[data-tone='muted'] {
+  color: var(--rc19-secondary);
+}
+
+.rc19-value[data-tone='good'] {
+  color: var(--rc19-normal);
+}
+
+.rc19-value[data-tone='bad'] {
+  color: var(--rc19-danger);
+}
+
+/* Screen-reader-only text: every state is stated in words, never in colour alone. */
+.rc19-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- readiness header */
+
+.rc19-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2%;
+  padding: 0 1.6%;
+}
+
+/*
+ * OV-9: packet 11.2's 40 px word needs a 54 px line box and packet 11.1 gives the band 44 px,
+ * so the band only works because READY / NOT READY is uppercase-only. `line-height: 1` plus
+ * `text-transform: uppercase` keeps it on cap height; never place descender-bearing text here.
+ * Packet 11.5: this is a GATE, so it is `primary`, never `caution` and never `danger`.
+ */
+.rc19-readiness {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-primary);
+  font-size: clamp(16px, var(--rc19-type-readiness, 5cqw), 44px);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc19-outstanding {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-info);
+  font-size: clamp(9px, var(--rc19-type-item, 3cqw), 27px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- columns */
+
+.rc19-column {
+  padding: 0;
+}
+
+.rc19-column-body,
+.rc19-check-list,
+.rc19-tertiary,
+.rc19-confirm {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rc19-column-body,
+.rc19-next-stint {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.6%;
+  padding: 2.5% 5%;
+}
+
+/*
+ * OV-10: inline label+value pairs. Stacking every packet 11.1 car-state field label-above-value
+ * at the packet 11.2 scale needs 404 px in a 374 px usable column; this layout needs 332 px.
+ */
+.rc19-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc19-row > .rc19-label {
+  flex: 0 1 auto;
+}
+
+.rc19-row > .rc19-value {
+  flex: 1 1 auto;
+}
+
+.rc19-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc19-grid-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-secondary);
+  font-size: clamp(7px, var(--rc19-type-label, 1.875cqw), 17px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc19-grid-cells {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+  /* OV-14: the hairline cell separators are permitted structural chrome. They carry no value. */
+  background: rgba(139, 153, 166, 0.2);
+  border: 1px solid rgba(139, 153, 166, 0.2);
+  border-radius: 3px;
+}
+
+.rc19-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05em;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.2em 0.45em;
+  background: var(--rc19-panel);
+}
+
+.rc19-cell > .rc19-value {
+  text-align: left;
+}
+
+/* ---------------------------------------------------------------- fault briefing */
+
+.rc19-faults {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc19-fault-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-primary);
+  font-size: clamp(9px, var(--rc19-type-item, 3cqw), 27px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Packet 15's carried-fault chip. Amber belongs to the alert layer and only appears latched. */
+.rc19-faults.is-active {
+  padding: 0.15em 0.4em;
+  border: 1px solid var(--rc19-caution);
+  border-radius: 3px;
+}
+
+.rc19-faults.is-active > .rc19-fault-value {
+  color: var(--rc19-caution);
+}
+
+/* ---------------------------------------------------------------- swap checklist */
+
+.rc19-check-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.4%;
+  padding: 2.5% 5%;
+}
+
+.rc19-check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc19-check-glyph {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-secondary);
+  font-size: clamp(9px, var(--rc19-type-item, 3cqw), 27px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc19-check-item {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-secondary);
+  font-size: clamp(9px, var(--rc19-type-item, 3cqw), 27px);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc19-check-state {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-secondary);
+  font-size: clamp(9px, var(--rc19-type-item, 3cqw), 27px);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Glyph + word + hue. `normal` green is confined to this column (OV-5). */
+.rc19-check-row[data-rc19-state='CONFIRMED'] > .rc19-check-glyph,
+.rc19-check-row[data-rc19-state='CONFIRMED'] > .rc19-check-state {
+  color: var(--rc19-normal);
+}
+
+.rc19-check-row[data-rc19-state='CONFIRMED'] > .rc19-check-item {
+  color: var(--rc19-primary);
+}
+
+/*
+ * Packet 14 reserves highlight for unconfirmed CRITICAL items, and packet 15 makes that the
+ * alert. A pending non-critical item stays `secondary` grey and is never amber; the red only
+ * appears while the safety alert is genuinely engaged.
+ */
+.rc19-check-row.is-blocking > .rc19-check-glyph,
+.rc19-check-row.is-blocking > .rc19-check-item,
+.rc19-check-row.is-blocking > .rc19-check-state {
+  color: var(--rc19-danger);
+}
+
+/* ---------------------------------------------------------------- confirm control */
+
+.rc19-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* OV-14: the outline is permitted structural chrome, not a packet element. */
+  border: 1px solid var(--rc19-secondary);
+  border-radius: 4px;
+  background: var(--rc19-panel);
+}
+
+.rc19-confirm-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc19-secondary);
+  font-size: clamp(9px, var(--rc19-type-item, 3cqw), 27px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc19-confirm.is-enabled {
+  border-color: var(--rc19-info);
+}
+
+.rc19-confirm.is-enabled > .rc19-confirm-label {
+  color: var(--rc19-info);
+}
+
+.rc19-confirm.is-latched {
+  border-color: var(--rc19-normal);
+}
+
+.rc19-confirm.is-latched > .rc19-confirm-label {
+  color: var(--rc19-normal);
+}
+
+/* ---------------------------------------------------------------- next stint */
+
+.rc19-note {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--rc19-caution);
+  font-size: clamp(7px, var(--rc19-type-label, 1.875cqw), 17px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-align: right;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- tertiary strip (OV-6) */
+
+.rc19-tertiary {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.4em;
+  padding: 2.5% 5%;
+  border-top: 1px solid rgba(139, 153, 166, 0.2);
+}
+
+/* ---------------------------------------------------------------- stint-plan timeline */
+
+.rc19-timeline {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5em;
+  padding: 2.5% 4%;
+}
+
+.rc19-timeline-track {
+  flex: 0 0 auto;
+  height: 18%;
+  min-height: 6px;
+  border: 1px solid rgba(139, 153, 166, 0.2);
+  border-radius: 3px;
+  background: rgba(139, 153, 166, 0.06);
+}
+
+.rc19-timeline-empty {
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(7px, var(--rc19-type-label, 1.875cqw), 17px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- alert surface */
+
+/*
+ * The alert layer's only always-present element is nothing at all: this strip exists in the DOM
+ * only while at least one alert is engaged, so it can never be a decoration. It is pinned to
+ * the canvas floor so every breakpoint carries the same alert surface.
+ */
+.rc19-alerts {
+  position: absolute;
+  right: 1.6%;
+  bottom: 0;
+  left: 1.6%;
+  z-index: 2;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.15em 0.5em;
+  border: 1px solid var(--rc19-danger);
+  border-radius: 4px;
+  background: var(--rc19-panel);
+  color: var(--rc19-danger);
+  font-size: clamp(7px, var(--rc19-type-label, 1.875cqw), 17px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- app canvas */
+
+.rc19-widget[data-rc19-layout='app'] .rc19-column-body,
+.rc19-widget[data-rc19-layout='app'] .rc19-next-stint,
+.rc19-widget[data-rc19-layout='app'] .rc19-check-list {
+  padding: 2.2% 5.5%;
+}
+
+/* ---------------------------------------------------------------- compact canvases */
+
+/*
+ * The packet specifies no canvas below 800x480. The three-column procedural spine is what makes
+ * the transfer auditable, so it survives every canvas that can hold three columns; the phone
+ * stacks it instead. The app-only stint-plan timeline and tertiary strip never appear here.
+ */
+.rc19-widget[data-rc19-layout='compact'] .rc19-readiness {
+  font-size: clamp(14px, 4cqw, 34px);
+}
+
+.rc19-widget[data-rc19-layout='compact'] .rc19-value {
+  font-size: clamp(10px, 3cqw, 26px);
+}
+
+.rc19-widget[data-rc19-layout='compact'] .rc19-outstanding,
+.rc19-widget[data-rc19-layout='compact'] .rc19-check-glyph,
+.rc19-widget[data-rc19-layout='compact'] .rc19-check-item,
+.rc19-widget[data-rc19-layout='compact'] .rc19-check-state,
+.rc19-widget[data-rc19-layout='compact'] .rc19-fault-value,
+.rc19-widget[data-rc19-layout='compact'] .rc19-confirm-label {
+  font-size: clamp(8px, 2.4cqw, 20px);
+}
+
+.rc19-widget[data-rc19-layout='compact'] .rc19-label,
+.rc19-widget[data-rc19-layout='compact'] .rc19-unit,
+.rc19-widget[data-rc19-layout='compact'] .rc19-title,
+.rc19-widget[data-rc19-layout='compact'] .rc19-grid-title,
+.rc19-widget[data-rc19-layout='compact'] .rc19-note {
+  font-size: clamp(6px, 1.6cqw, 13px);
+}
+
+/* Portrait: one full-width column per module, so the type can grow back off the canvas width. */
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-readiness {
+  font-size: clamp(14px, 8cqw, 34px);
+}
+
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-value {
+  font-size: clamp(11px, 6cqw, 26px);
+}
+
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-outstanding,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-check-glyph,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-check-item,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-check-state,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-fault-value,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-confirm-label {
+  font-size: clamp(9px, 5cqw, 22px);
+}
+
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-label,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-unit,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-title,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-grid-title,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-note {
+  font-size: clamp(7px, 3.2cqw, 14px);
+}
+
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-column-body,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-check-list,
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-next-stint {
+  padding: 1.5% 3.5%;
+}
+
+.rc19-widget[data-rc19-compact-mode='phone'] .rc19-grid-cells {
+  grid-template-columns: repeat(4, 1fr);
+}

@@ -303,7 +303,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('RC-14 registration is owned by the separate catalog wiring PR', () => {
+describe('RC-14 registration was applied by the separate catalog wiring PR', () => {
   it('publishes the exact registration facts the wiring PR must apply', () => {
     expect(RC14_REGISTRATION.widgetId).toBe('raceconRc14Dash')
     expect(RC14_REGISTRATION.presetId).toBe('racecon_rc14_dash')
@@ -321,23 +321,22 @@ describe('RC-14 registration is owned by the separate catalog wiring PR', () => 
     expect(RC14_REGISTRATION.identityScoped).toBe(true)
   })
 
-  it('binds the component to its canonical id in the DOM even before the registry knows it', () => {
+  it('binds the component to its canonical id in the DOM, matching the registry', () => {
     expect(markup(snapshot())).toContain(`data-widget="${RC14_REGISTRATION.widgetId}"`)
   })
 
-  it('agrees with the shared registry and preset table once the wiring PR has landed', () => {
-    // Written to pass BEFORE wiring (the entries do not exist yet) and AFTER it (they must match).
-    const registered = WIDGET_COMPONENTS[RC14_REGISTRATION.widgetId]
-    if (registered) expect(registered).toBe(RaceconRc14DashWidget)
+  it('agrees with the shared registry and preset table now that the wiring PR has landed', () => {
+    // Was permissive (`if (registered)` / `if (preset)`) so it could pass on the core-only branch.
+    // The wiring PR has landed, so the entries must exist and match — asserted unconditionally.
+    expect(WIDGET_COMPONENTS[RC14_REGISTRATION.widgetId]).toBe(RaceconRc14DashWidget)
 
     const preset = OVERLAY_DASHBOARD_PRESETS.find((entry) => entry.id === RC14_REGISTRATION.presetId)
-    if (preset) {
-      expect(preset.widgetId).toBe(RC14_REGISTRATION.widgetId)
-      expect(preset.name).toBe(RC14_REGISTRATION.name)
-      expect(preset.scaleMode).toBe(RC14_REGISTRATION.scaleMode)
-      expect(preset.description).toBe(RC14_REGISTRATION.description)
-      expect(OVERLAY_DASHBOARD_PRESETS.filter((entry) => entry.id === RC14_REGISTRATION.presetId)).toHaveLength(1)
-    }
+    expect(preset).toBeDefined()
+    expect(preset!.widgetId).toBe(RC14_REGISTRATION.widgetId)
+    expect(preset!.name).toBe(RC14_REGISTRATION.name)
+    expect(preset!.scaleMode).toBe(RC14_REGISTRATION.scaleMode)
+    expect(preset!.description).toBe(RC14_REGISTRATION.description)
+    expect(OVERLAY_DASHBOARD_PRESETS.filter((entry) => entry.id === RC14_REGISTRATION.presetId)).toHaveLength(1)
   })
 
   it('touches no shared registration file from inside this artifact', () => {

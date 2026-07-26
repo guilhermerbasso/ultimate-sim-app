@@ -1,0 +1,541 @@
+/*
+ * RaceCon RC-20 "Lights Out — Formation, Grid & Start Procedure".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are
+ * computed from the packet's own PIXELS in `raceconRc20Core.ts` and applied as inline
+ * percentages by the widget, so the stylesheet and the packet cannot drift and the suite can
+ * assert the geometry as arithmetic. Normative override NO-1 is explicit: the approved render
+ * drifted up to +28 px vertically and +40 px horizontally against packet 11.1, and those pixels
+ * are never traced. Override NO-6 is the single deliberate deviation — the ladder origin moves
+ * from the packet's y 40 to y 48 because a 4 px header gutter is not implementable.
+ *
+ * Type ladder, packet 11.2, computed arithmetically and NOT measured off the render: launch RPM
+ * 64 > clutch 44 > grid-strip values 30 > every label, unit, caption and mode word 17 px on the
+ * 800x480 canvas, which is 8 / 5.5 / 3.75 / 2.125 cqw. Adjacent separations are 31.3 / 31.8 /
+ * 43.3 %, all far above the 8 % floor the re-adjudication set after attempts 004 and 006
+ * returned the chain to a tie and inverted it. Every clamp maximum below is a CONTAINMENT
+ * guard, chosen so the chain stays strictly descending at 1024x600 as well (76 / 52 / 34 / 20).
+ *
+ * Sizing discipline: heroes are sized in `cqw` with a conservative `clamp()` maximum and each
+ * lives in its own full-width row. `white-space: nowrap` makes a flex item's min-content width
+ * exceed its column, so `overflow: hidden` never clips it and `scrollWidth === clientWidth`
+ * while the glyph escapes its zone. Containment here is arithmetic, never `overflow` alone.
+ *
+ * Palette, packet 11.3, shipped verbatim (override NO-5): bg #08090C, panel #12141C — an
+ * 11-unit luminance step, above the >= 9 floor — primary #F2F4F8, secondary #939AAC, info
+ * #4A8CFF. Override NO-8: `danger` #FF3A2E and `signature` #FF2A2A are 16.49 apart in RGB and
+ * no pixel test separates them, so they are separated by MEANING — `--rc20-signature` appears
+ * on the lit ladder bar and NOWHERE else, `--rc20-danger` on the alert layer and nowhere else.
+ * A silent frame therefore contains no danger pixel at all, which is exactly what the approved
+ * reference frame measures: 15,810 true-red pixels, every one inside the ladder card.
+ *
+ * Packet 11.1 allocates NO zone for a shift arc on either canvas, so — per
+ * RC20_PACKET_OMISSIONS.shiftLedReturn — there is no LED, rev, shift or arc element anywhere
+ * in this stylesheet.
+ */
+
+.rc20-widget,
+.rc20-widget *,
+.rc20-widget *::before,
+.rc20-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc20-widget {
+  --rc20-bg: #08090c;
+  --rc20-panel: #12141c;
+  --rc20-primary: #f2f4f8;
+  --rc20-secondary: #939aac;
+  --rc20-info: #4a8cff;
+  --rc20-normal: #38d06a;
+  --rc20-caution: #ffc22e;
+  --rc20-danger: #ff3a2e;
+  --rc20-signature: #ff2a2a;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc20-bg);
+  color: var(--rc20-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc20-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * Override NO-2: 0.978 % of the reference frame's ink falls outside all five declared zones
+ * against a 0.30 % target. Every zone is an absolutely positioned, clipped box, and override
+ * NO-3's declared-empty bands stay empty because nothing is ever painted outside one.
+ */
+.rc20-widget > .rc20-dashboard > section {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--rc20-panel);
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+/*
+ * Every LABEL wraps. `white-space: nowrap` makes a flex item's min-content width exceed its
+ * column, so `overflow: hidden` never clips it and `scrollWidth === clientWidth` while the
+ * glyph escapes into its neighbour. A real-browser audit caught exactly that on the ladder's
+ * feed caption, the launch card's scale label and the warm-up map's provenance caption, in a
+ * pass that every jsdom and `scrollWidth` check had already declared clean. Labels therefore
+ * wrap; only NUMERALS keep `nowrap`, and every numeral is sized in `cqw` with a conservative
+ * clamp maximum and given its own full-width row so the arithmetic — not `overflow` — contains it.
+ */
+.rc20-label,
+.rc20-unit {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rc20-secondary);
+  font-size: clamp(7px, var(--rc20-type-label, 2.125cqw), 20px);
+  font-weight: var(--rc20-weight-label, 600);
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  hyphens: none;
+}
+
+.rc20-unit {
+  margin-left: 0.5em;
+  font-size: 0.82em;
+  letter-spacing: 0.1em;
+}
+
+/* A stale or absent channel degrades to the packet's dim state; it never freezes on a value. */
+.rc20-hero.is-stale,
+.rc20-hero.is-unavailable,
+.rc20-clutch-value.is-stale,
+.rc20-clutch-value.is-unavailable,
+.rc20-strip-value.is-stale,
+.rc20-strip-value.is-unavailable,
+.rc20-warmup-value.is-stale,
+.rc20-warmup-value.is-unavailable,
+.rc20-stage.is-unavailable,
+.rc20-feed.is-unavailable {
+  color: var(--rc20-secondary);
+}
+
+.rc20-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- mode header */
+
+.rc20-header {
+  display: flex;
+  align-items: center;
+  gap: 1.2cqw;
+  padding: 0 1cqw;
+}
+
+.rc20-mode-words {
+  display: flex;
+  align-items: center;
+  gap: 1.4cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc20-mode-word {
+  color: var(--rc20-secondary);
+  font-size: clamp(7px, var(--rc20-type-label, 2.125cqw), 20px);
+  font-weight: var(--rc20-weight-label, 600);
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Packet 19: the live mode is spelled out AND bracketed, so it is never colour-only. */
+.rc20-mode-word.is-active {
+  color: var(--rc20-primary);
+  font-weight: 800;
+}
+
+.rc20-mode-state {
+  margin-left: auto;
+  color: var(--rc20-primary);
+  font-size: clamp(7px, var(--rc20-type-label, 2.125cqw), 20px);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc20-header[data-rc20-mode='unavailable'] .rc20-mode-state {
+  color: var(--rc20-secondary);
+}
+
+/* Gap G-3: the 1024x600 ribbon carries the slot and start status packet 12.1 drops. */
+.rc20-ribbon-status {
+  display: flex;
+  align-items: center;
+  gap: 2cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc20-ribbon-status .rc20-strip-value {
+  font-size: clamp(8px, var(--rc20-type-label, 2.125cqw), 20px);
+}
+
+/* ---------------------------------------------------------------- start-light ladder */
+
+.rc20-ladder {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.6cqw;
+  padding: 0.9cqw 1cqw;
+  text-align: center;
+}
+
+.rc20-ladder-caption {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.rc20-ladder-bars {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.5cqw;
+  min-height: 0;
+}
+
+/*
+ * Packet 16: "Never simulate start lights; keep dark if feed absent." An unlit bar is the panel
+ * token with a secondary outline — structure without illumination — and only a bar the real
+ * feed lights carries the signature token. There is no animation and no default lit state.
+ */
+.rc20-ladder-bar {
+  flex: 1 1 0;
+  min-height: 0;
+  border: 1px solid var(--rc20-secondary);
+  border-radius: 3px;
+  background: var(--rc20-panel);
+}
+
+.rc20-ladder-bar.is-lit {
+  border-color: var(--rc20-signature);
+  background: var(--rc20-signature);
+}
+
+.rc20-stage {
+  flex: 0 0 auto;
+  color: var(--rc20-primary);
+  font-size: clamp(7px, var(--rc20-type-label, 2.125cqw), 20px);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.rc20-feed {
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------- launch + clutch cards */
+
+.rc20-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.6cqw;
+  padding: 0.9cqw 1.2cqw;
+}
+
+/*
+ * The hero gets its OWN full-width row and a conservative clamp maximum. At 800x480 that is
+ * 64 px in a 220 px zone; at 1024x600, 76 px in a 300 px zone; at 360 px wide, 32 px in a
+ * 167 px zone. `overflow: hidden` is a backstop, never the containment mechanism.
+ */
+.rc20-hero {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc20-primary);
+  font-size: clamp(14px, var(--rc20-type-rpm, 8cqw), 76px);
+  font-weight: var(--rc20-weight-rpm, 800);
+  line-height: 1;
+  white-space: nowrap;
+  text-align: left;
+  text-overflow: clip;
+}
+
+.rc20-clutch-value {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc20-primary);
+  font-size: clamp(12px, var(--rc20-type-clutch, 5.5cqw), 52px);
+  font-weight: var(--rc20-weight-clutch, 700);
+  line-height: 1;
+  white-space: nowrap;
+  text-align: left;
+  text-overflow: clip;
+}
+
+/*
+ * Override NO-4: the track is a plain axis and every mark on it is COMPUTED from
+ * (value - scaleMin) / (scaleMax - scaleMin), inlined by the widget. Nothing here encodes a
+ * position, so a traced fill cannot creep back in through the stylesheet.
+ */
+.rc20-track {
+  position: relative;
+  width: 100%;
+  height: clamp(6px, 1.75cqw, 18px);
+  overflow: hidden;
+  border: 1px solid var(--rc20-secondary);
+  border-radius: 2px;
+  background: var(--rc20-panel);
+}
+
+.rc20-track-band,
+.rc20-track-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--rc20-info);
+}
+
+.rc20-track-fill {
+  left: 0;
+}
+
+.rc20-track-needle {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--rc20-primary);
+}
+
+/* Packet 15's launch over-rev cue. The ONLY danger-token element in the launch card. */
+.rc20-track-cap {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--rc20-danger);
+}
+
+/*
+ * The band and scale captions STACK. Side by side in a 220 px zone at the label step they
+ * overran the launch card by up to 9.5 px in the browser audit, and the packet's own auditable
+ * `BAND 4650-4950` caption must never be the thing that escapes.
+ */
+.rc20-card-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/*
+ * Every alert-layer surface. Silent until its trigger fires: none of these elements exists in
+ * the DOM while its alert is clear, so no alert token can become an always-on decoration.
+ */
+.rc20-alert-line,
+.rc20-hold {
+  margin: 0;
+  color: var(--rc20-danger);
+  font-size: clamp(7px, var(--rc20-type-label, 2.125cqw), 20px);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.rc20-hold {
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------- grid / formation strip */
+
+.rc20-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8cqw;
+  padding: 0 1.2cqw;
+}
+
+.rc20-strip-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc20-strip-value {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc20-primary);
+  font-size: clamp(10px, var(--rc20-type-strip, 3.75cqw), 34px);
+  font-weight: var(--rc20-weight-strip, 600);
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* Packet 15's cold-warm-up surface. `caution` appears here and on no other element. */
+.rc20-strip-cell.is-cold .rc20-strip-value,
+.rc20-strip-cell.is-cold .rc20-label,
+.rc20-warmup-tile.is-cold .rc20-warmup-value,
+.rc20-warmup-tile.is-cold .rc20-label {
+  color: var(--rc20-caution);
+}
+
+/* ---------------------------------------------------------------- app-only warm-up map */
+
+.rc20-warmup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6cqw;
+  padding: 0.8cqw 1cqw;
+}
+
+.rc20-warmup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.2cqw 1cqw;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rc20-warmup-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 0.5cqw 0.8cqw;
+  min-height: 0;
+}
+
+.rc20-warmup-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rc20-warmup-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc20-primary);
+  font-size: clamp(10px, var(--rc20-type-strip, 3.75cqw), 30px);
+  font-weight: var(--rc20-weight-strip, 600);
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.rc20-warmup-target {
+  color: var(--rc20-secondary);
+  font-size: clamp(6px, calc(var(--rc20-type-label, 2.125cqw) * 0.8), 15px);
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- app-only launch review */
+
+.rc20-review {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5cqw;
+  padding: 0.8cqw 1cqw;
+}
+
+.rc20-review-rows {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 0.4cqw;
+  min-height: 0;
+}
+
+.rc20-review .rc20-strip-cell {
+  justify-content: space-between;
+}
+
+.rc20-review .rc20-strip-value {
+  font-size: clamp(10px, var(--rc20-type-strip, 3.75cqw), 28px);
+}
+
+/* ---------------------------------------------------------------- compact reflow */
+
+/*
+ * Portrait keeps every zone and every alert surface and drops only the two app-only modules.
+ * The ladder lies down into a five-bar row so its bars stay legible in a short, wide zone, and
+ * the eight strip cells wrap into a 4x2 grid instead of being crushed into one 360 px row.
+ */
+.rc20-widget[data-rc20-compact-mode='phone'] .rc20-ladder-bars {
+  flex-direction: row;
+}
+
+.rc20-widget[data-rc20-compact-mode='phone'] .rc20-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8cqw 1cqw;
+}
+
+.rc20-widget[data-rc20-compact-mode='phone'] .rc20-strip-cell {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.rc20-widget[data-rc20-compact-mode='landscape'] .rc20-card,
+.rc20-widget[data-rc20-compact-mode='standard'] .rc20-card {
+  gap: 0.5cqw;
+}
