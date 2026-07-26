@@ -149,10 +149,10 @@ describe('RC-04 registration and preset wiring', () => {
     expect(WIDGET_COMPONENTS.raceconRc04Dash).toBe(RaceconRc04DashWidget)
   })
 
-  it('declares exactly one RC-04 full-frame preset directly after RC-02', () => {
+  it('declares exactly one RC-04 full-frame preset directly after RC-03', () => {
     const ids = OVERLAY_DASHBOARD_PRESETS.map((preset) => preset.id)
     expect(ids.filter((id) => id === 'racecon_rc04_dash')).toHaveLength(1)
-    expect(ids.indexOf('racecon_rc04_dash')).toBe(ids.indexOf('racecon_rc02_dash') + 1)
+    expect(ids.indexOf('racecon_rc04_dash')).toBe(ids.indexOf('racecon_rc03_dash') + 1)
     const preset = OVERLAY_DASHBOARD_PRESETS.find((entry) => entry.id === 'racecon_rc04_dash')
     expect(preset?.widgetId).toBe('raceconRc04Dash')
     expect(preset?.name).toBe('RaceCon RC-04 Box Now')
