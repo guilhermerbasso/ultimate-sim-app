@@ -25,6 +25,7 @@ const EMBEDDED: Array<{
   { id: 'racecon_rc04_dash', widgetId: 'raceconRc04Dash', name: 'RaceCon RC-04 Box Now', family: 'racecon' },
   { id: 'racecon_rc05_dash', widgetId: 'raceconRc05Dash', name: 'RaceCon RC-05 Thermal Window', family: 'racecon' },
   { id: 'racecon_rc06_dash', widgetId: 'raceconRc06Dash', name: 'RaceCon RC-06 Save Mode', family: 'racecon' },
+  { id: 'racecon_rc07_dash', widgetId: 'raceconRc07Dash', name: 'RaceCon RC-07 Blue Flags', family: 'racecon' },
   { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
   { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
   { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' },

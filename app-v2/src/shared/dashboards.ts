@@ -3576,6 +3576,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc07_dash',
+    name: 'RaceCon RC-07 Blue Flags',
+    widgetId: 'raceconRc07Dash',
+    description:
+      'Full-screen RC-07 multiclass awareness display: a proximity radar whose blip radii are computed from each contact\u2019s own distance, class-coded gap-behind and gap-ahead panels with direction-only closing glyphs, a fail-closed flag ribbon that never assumes green, and blue-flag, fast-closing and imminent-proximity alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'traffic', 'radar'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',

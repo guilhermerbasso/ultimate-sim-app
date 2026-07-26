@@ -1,0 +1,600 @@
+/*
+ * RaceCon RC-07 "Blue Flags — Dense Traffic & Multiclass Awareness".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are the
+ * exported `RC07_NATIVE_ZONES` / `RC07_APP_ZONES` tables in `raceconRc07Core.ts` and are
+ * applied as inline percentages by the widget, so the stylesheet and the packet cannot drift
+ * and the test suite can assert the geometry arithmetically. image-qa-v1 residual 1 is a
+ * normative override: the reference renders the flag ribbon at 8.7 % against the packet's
+ * 5.0 %, splits the columns at 53.6/54.9 % against 49.5/51.5 % and runs to 97.7 % of height
+ * against 91.7 %. Those pixels are never traced.
+ *
+ * Radar blip radii are computed arithmetically in the core and arrive as inline percentages;
+ * there is no hard-coded blip position anywhere in this file. That is deliberate — reference
+ * attempts 001 and 003 were rejected precisely because a fixed layout collapsed the radius
+ * ordering, which is the failure mode a hard-coded stylesheet would reproduce.
+ *
+ * Palette, packet 11.3: bg #0A0C10, panel #131924, primary #EEF2F7, secondary #869AB0,
+ * Class A / info #45C4E0, Class B / normal #43CE7C, Class C / signature #FF8C1A, caution
+ * #FFB524 and danger #FF4234. image-qa-v1 residuals 3 and 4 are normative overrides: the
+ * reference rendered panels at #111721 and the Class C orange at green/red 0.48; the packet's
+ * #131924 and #FF8C1A are used here. Caution and danger appear ONLY on the three packet 15
+ * alert surfaces, so a silent frame contains neither.
+ *
+ * Packet section 16 declares no engine-speed channel, so the packet 11.4 shift-LED edge cue
+ * has no data source and no rev, shift or over-rev element exists anywhere in this stylesheet.
+ */
+
+.rc07-widget,
+.rc07-widget *,
+.rc07-widget *::before,
+.rc07-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc07-widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: #0a0c10;
+  color: #eef2f7;
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc07-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc07-widget > .rc07-dashboard > section {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #131924;
+}
+
+/* ---------------------------------------------------------------- shared type */
+
+.rc07-label,
+.rc07-unit {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #869ab0;
+  font-size: clamp(9px, 1.9cqw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc07-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #eef2f7;
+  font-size: clamp(14px, 4.5cqw, 36px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* A stale or absent channel degrades to the packet's dim dash; it never freezes on a value. */
+.rc07-value.is-stale,
+.rc07-value.is-unavailable,
+.rc07-gap-value.is-stale,
+.rc07-gap-value.is-unavailable,
+.rc07-flag-state.is-stale,
+.rc07-flag-state.is-unavailable {
+  color: #869ab0;
+}
+
+.rc07-value[data-tone='good'] {
+  color: #43ce7c;
+}
+
+.rc07-value[data-tone='bad'] {
+  color: #ffb524;
+}
+
+.rc07-value[data-tone='muted'] {
+  color: #869ab0;
+}
+
+/* Screen-reader-only text: every alert states its meaning in words, never in colour alone. */
+.rc07-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- flag ribbon */
+
+.rc07-flag {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0 0.7em;
+  gap: 0.8em;
+}
+
+.rc07-flag-state {
+  min-width: 0;
+  overflow: hidden;
+  color: #eef2f7;
+  font-size: clamp(11px, 2.6cqw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc07-flag-state[data-tone='normal'] {
+  color: #43ce7c;
+}
+
+.rc07-flag-state[data-tone='info'] {
+  color: #45c4e0;
+}
+
+.rc07-flag-state[data-tone='caution'] {
+  color: #ffb524;
+}
+
+.rc07-flag-state[data-tone='danger'] {
+  color: #ff4234;
+}
+
+.rc07-flag-state[data-tone='signature'] {
+  color: #ff8c1a;
+}
+
+/*
+ * The BLUE gate chip is alert layer, not decoration: it exists in the DOM only while the
+ * packet 15 blue-flag duty alert is latched, and it carries the word BLUE plus a yield arrow
+ * so the duty is never signalled by hue alone.
+ */
+.rc07-flag-duty {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  margin-left: auto;
+  padding: 0.1em 0.5em;
+  border: 1px solid #45c4e0;
+  border-radius: 4px;
+  background: rgb(69 196 224 / 18%);
+  color: #45c4e0;
+  font-size: clamp(10px, 2.4cqw, 20px);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  gap: 0.4em;
+}
+
+/* ---------------------------------------------------------------- radar */
+
+.rc07-radar {
+  display: flex;
+  flex-direction: column;
+  padding: 0.6em;
+  gap: 0.4em;
+}
+
+.rc07-radar-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+}
+
+.rc07-spotter {
+  color: #869ab0;
+  font-size: clamp(8px, 1.7cqw, 14px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.rc07-spotter[data-rc07-spotter='left'],
+.rc07-spotter[data-rc07-spotter='right'],
+.rc07-spotter[data-rc07-spotter='both'] {
+  color: #eef2f7;
+}
+
+/*
+ * The plot is square whatever the zone's aspect ratio: a stretched radar would misreport the
+ * angle of every contact. `aspect-ratio` plus the two `min()` bounds keep it inscribed.
+ */
+.rc07-radar-plot {
+  position: relative;
+  width: min(100%, 100cqh);
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  aspect-ratio: 1 / 1;
+}
+
+/*
+ * The rings are drawn at the fractions the core computes from the CONFIGURED range, not at
+ * traced pixel radii: `--rc07-radar-inner` / `--rc07-radar-outer` come from the widget.
+ */
+.rc07-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 1px solid rgb(134 154 176 / 45%);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.rc07-ring-inner {
+  width: var(--rc07-radar-inner, 40%);
+  height: var(--rc07-radar-inner, 40%);
+}
+
+.rc07-ring-outer {
+  width: var(--rc07-radar-outer, 80%);
+  height: var(--rc07-radar-outer, 80%);
+}
+
+.rc07-own-car {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-right: 0.62em solid transparent;
+  border-bottom: 1.05em solid #eef2f7;
+  border-left: 0.62em solid transparent;
+  transform: translate(-50%, -50%);
+}
+
+.rc07-blip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  gap: 0.15em;
+}
+
+.rc07-blip-code {
+  display: inline-flex;
+  min-width: 1.55em;
+  height: 1.45em;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: #869ab0;
+  color: #0a0c10;
+  font-size: clamp(9px, 2cqw, 17px);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.rc07-blip-arrow {
+  color: #869ab0;
+  font-size: clamp(7px, 1.5cqw, 13px);
+  line-height: 1;
+}
+
+.rc07-blip[data-tone='info'] .rc07-blip-code {
+  background: #45c4e0;
+}
+
+.rc07-blip[data-tone='normal'] .rc07-blip-code {
+  background: #43ce7c;
+}
+
+.rc07-blip[data-tone='signature'] .rc07-blip-code {
+  background: #ff8c1a;
+}
+
+.rc07-blip[data-tone='unknown'] .rc07-blip-code {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #869ab0;
+  color: #869ab0;
+}
+
+/* A contact inside the critical ring is outlined as well as alerted, never hue-only. */
+.rc07-blip[data-rc07-critical='true'] .rc07-blip-code {
+  box-shadow: 0 0 0 2px #ff4234;
+}
+
+.rc07-radar-nodata {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: #869ab0;
+  font-size: clamp(12px, 3cqw, 26px);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+/* Packet 14 critical state: a red edge on the side carrying the contact, alert-layer only. */
+.rc07-radar-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: #ff4234;
+}
+
+.rc07-radar-edge[data-rc07-side='left'] {
+  left: 0;
+}
+
+.rc07-radar-edge[data-rc07-side='right'] {
+  right: 0;
+}
+
+.rc07-radar-edge[data-rc07-side='both'] {
+  right: 0;
+  left: 0;
+  width: auto;
+  background: linear-gradient(90deg, #ff4234 0 6px, transparent 6px calc(100% - 6px), #ff4234 calc(100% - 6px) 100%);
+}
+
+/* ---------------------------------------------------------------- gap panels */
+
+.rc07-gap {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 0.7em;
+  gap: 0.2em;
+}
+
+.rc07-gap-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  gap: 0.35em;
+}
+
+/*
+ * `min-width: 0` is load-bearing on both the line and the numeral. Without it the nowrap
+ * hero's min-content width keeps the flex item from ever shrinking, `overflow: hidden` never
+ * clips, and the numeral escapes its zone while every scrollWidth check still passes.
+ */
+.rc07-gap-value {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: #eef2f7;
+  /* Packet 11.2: the gap values are the largest glyphs on the canvas at ~64 px of 800. */
+  font-size: clamp(20px, 8cqw, 64px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.rc07-class-badge {
+  display: inline-flex;
+  min-width: 1.6em;
+  height: 1.5em;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #869ab0;
+  color: #0a0c10;
+  /* Packet 11.2: ~28 px class-code badge at the 800 px canvas. */
+  font-size: clamp(11px, 3.5cqw, 28px);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.rc07-class-badge[data-tone='info'] {
+  background: #45c4e0;
+}
+
+.rc07-class-badge[data-tone='normal'] {
+  background: #43ce7c;
+}
+
+.rc07-class-badge[data-tone='signature'] {
+  background: #ff8c1a;
+}
+
+.rc07-class-badge[data-tone='unknown'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #869ab0;
+  color: #869ab0;
+}
+
+/*
+ * Direction only. Packet section 16 defines no closing-rate channel, so this glyph is derived
+ * from the sign of the interval's first difference and never carries a numeral.
+ */
+.rc07-direction {
+  margin-left: auto;
+  color: #869ab0;
+  font-size: clamp(10px, 2.6cqw, 22px);
+  line-height: 1;
+}
+
+/* Packet 15 fast-closing behind: the panel highlight is alert layer, never decoration. */
+.rc07-gap[data-rc07-highlight='true'] {
+  background: rgb(255 181 36 / 14%);
+  box-shadow: inset 0 0 0 2px #ffb524;
+}
+
+/* ---------------------------------------------------------------- self strip */
+
+.rc07-self {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0 0.4em;
+  gap: 0.4em;
+}
+
+.rc07-cell {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  gap: 0.15em;
+}
+
+/* ---------------------------------------------------------------- tower (app only) */
+
+.rc07-tower {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 0.5em;
+  gap: 0.3em;
+}
+
+.rc07-tower-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  gap: 0.3em;
+  list-style: none;
+}
+
+.rc07-tower-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  gap: 0.35em;
+}
+
+.rc07-tower-row .rc07-class-badge {
+  font-size: clamp(10px, 1.6cqw, 16px);
+}
+
+.rc07-tower-car {
+  min-width: 0;
+  overflow: hidden;
+  color: #869ab0;
+  font-size: clamp(9px, 1.5cqw, 15px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rc07-tower-gap {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: #eef2f7;
+  font-size: clamp(10px, 1.7cqw, 18px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rc07-tower-empty {
+  margin: 0;
+  color: #869ab0;
+  font-size: clamp(11px, 2cqw, 20px);
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- native 800x480 */
+
+.rc07-widget[data-rc07-layout='native'] .rc07-gap-value {
+  font-size: clamp(28px, 8cqw, 64px);
+}
+
+.rc07-widget[data-rc07-layout='native'] .rc07-class-badge {
+  /* image-qa-v1 residual 5: the reference badge came out at ~7.1 radar units; 34 px at 800. */
+  min-width: 34px;
+  height: 32px;
+  font-size: 26px;
+}
+
+.rc07-widget[data-rc07-layout='native'] .rc07-self .rc07-value {
+  /* Packet 11.2: the self strip reads at ~36 px on the native canvas. */
+  font-size: clamp(18px, 4.5cqw, 36px);
+}
+
+/* ---------------------------------------------------------------- app 1024x600 */
+
+.rc07-widget[data-rc07-layout='app'] .rc07-gap-value {
+  font-size: clamp(24px, 5.5cqw, 56px);
+}
+
+.rc07-widget[data-rc07-layout='app'] .rc07-self {
+  flex-wrap: wrap;
+  align-content: center;
+}
+
+.rc07-widget[data-rc07-layout='app'] .rc07-self .rc07-cell {
+  flex: 1 1 30%;
+}
+
+.rc07-widget[data-rc07-layout='app'] .rc07-self .rc07-value {
+  font-size: clamp(14px, 2.6cqw, 30px);
+}
+
+/* ---------------------------------------------------------------- compact: phone */
+
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='phone'] .rc07-radar-plot {
+  width: min(100%, var(--rc07-phone-radar-size, 100cqh));
+}
+
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='phone'] .rc07-gap {
+  padding: 0 0.4em;
+}
+
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='phone'] .rc07-gap-value {
+  font-size: clamp(18px, 9cqw, 40px);
+}
+
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='phone'] .rc07-class-badge {
+  font-size: clamp(11px, 4.5cqw, 22px);
+}
+
+/* The soft-key target stays at the accessible minimum on a touch canvas. */
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='phone'] .rc07-radar-plot {
+  min-height: var(--rc07-phone-soft-key-size, 44px);
+}
+
+/* ---------------------------------------------------------------- compact: landscape */
+
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='landscape'] .rc07-gap-value {
+  font-size: clamp(18px, 5cqw, 44px);
+}
+
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='landscape'] .rc07-self .rc07-value {
+  font-size: clamp(13px, 3cqw, 26px);
+}
+
+/* ---------------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .rc07-blip,
+  .rc07-flag-duty,
+  .rc07-radar-edge {
+    transition: none;
+  }
+}
