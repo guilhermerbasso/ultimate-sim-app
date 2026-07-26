@@ -98,6 +98,7 @@ import { LmuEnduranceDashWidget } from './LmuEnduranceDashWidget'
 import { LmuStintDashWidget } from './LmuStintDashWidget'
 import { RaceconRc01DashWidget } from './RaceconRc01DashWidget'
 import { RaceconRc02DashWidget } from './RaceconRc02DashWidget'
+import { RaceconRc03DashWidget } from './RaceconRc03DashWidget'
 import { RaceconRc04DashWidget } from './RaceconRc04DashWidget'
 import { RaceconRc05DashWidget } from './RaceconRc05DashWidget'
 import { RaceconRc06DashWidget } from './RaceconRc06DashWidget'
@@ -160,6 +161,7 @@ export const WIDGET_COMPONENTS: Record<string, (props: WidgetProps) => ReactElem
   lmuStintDash: LmuStintDashWidget,
   raceconRc01Dash: RaceconRc01DashWidget,
   raceconRc02Dash: RaceconRc02DashWidget,
+  raceconRc03Dash: RaceconRc03DashWidget,
   raceconRc04Dash: RaceconRc04DashWidget,
   raceconRc05Dash: RaceconRc05DashWidget,
   raceconRc06Dash: RaceconRc06DashWidget,

@@ -73,6 +73,12 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "widgetId": "raceconRc02Dash"
   },
   {
+    "id": "dash-racecon_rc03_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-03 Long Night",
+    "widgetId": "raceconRc03Dash"
+  },
+  {
     "id": "dash-racecon_rc04_dash",
     "type": "overlaywidget",
     "label": "RaceCon RC-04 Box Now",

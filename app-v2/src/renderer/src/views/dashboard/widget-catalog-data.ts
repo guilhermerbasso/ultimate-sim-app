@@ -523,7 +523,7 @@ export const NEW_WIDGET_KINDS: DashboardElementType[] = [
 const RC_IDENTITY_REQUIRES: TelemetryRequirement[] = ['sessionUniqueId']
 const RC_IDENTITY_ALTERNATIVES: TelemetryRequirement[][] = [['replayContext']]
 /** RaceCon full-frame dashboards refuse mock/replay feeds, so they need live-session identity. */
-const IDENTITY_SCOPED_WIDGET_IDS = new Set<string>(['raceconRc01Dash', 'raceconRc02Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash'])
+const IDENTITY_SCOPED_WIDGET_IDS = new Set<string>(['raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash'])
 
 function fullFrameVariant(preset: (typeof OVERLAY_DASHBOARD_PRESETS)[number]): WidgetVariant {
   const identityScoped = IDENTITY_SCOPED_WIDGET_IDS.has(preset.widgetId)
