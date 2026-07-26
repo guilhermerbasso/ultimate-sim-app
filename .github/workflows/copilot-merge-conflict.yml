@@ -1,0 +1,222 @@
+# Resolução automática de conflitos de merge com o Copilot
+#
+# Sempre que um PR aberto fica com conflito (mergeable_state = "dirty"), este
+# workflow pede ao @copilot para resolver o conflito na própria branch do PR.
+# É o mesmo mecanismo de delegação usado em "copilot-qa-loop.yml".
+#
+# Quando roda:
+#   - push na main            -> um merge acabou de acontecer e pode ter
+#                                conflitado os outros PRs abertos (caso mais comum)
+#   - pull_request            -> PR aberto/reaberto/atualizado
+#   - schedule (a cada 6h)    -> rede de segurança para conflitos que surgiram
+#                                sem nenhum dos eventos acima
+#   - workflow_dispatch       -> execução manual, com PR específico ou todos
+#
+# Proteções contra loop e ruído:
+#   - marcador ROUND_MARKER conta as rodadas; para em MAX_ROUNDS e chama humano
+#   - não repete o pedido enquanto o Copilot ainda não empurrou nada novo
+#   - ignora rascunhos, PRs de forks e PRs com a label OPT_OUT_LABEL
+#
+# Requisito: secret COPILOT_AGENT_PAT (conta com licença Copilot).
+# Sem o secret, o workflow apenas avisa e não faz nada (no-op seguro).
+name: Copilot QA - Resolver conflitos de merge
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Número do PR (vazio = verifica todos os PRs abertos)'
+        required: false
+        type: string
+
+concurrency:
+  group: copilot-merge-conflict-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+env:
+  MAX_ROUNDS: '3'
+  ROUND_MARKER: '<!-- copilot-merge-conflict-fix -->'
+  CONFLICT_LABEL: 'merge-conflict'
+  OPT_OUT_LABEL: 'no-auto-conflict-resolution'
+  # Quantas vezes reconsultar a API enquanto o GitHub calcula a mergeabilidade.
+  MERGEABILITY_RETRIES: '8'
+  MERGEABILITY_DELAY_SECONDS: '5'
+
+jobs:
+  resolve-conflicts:
+    # Em pull_request, ignora rascunhos e PRs vindos de forks (sem acesso a secrets).
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir ao Copilot para resolver conflitos
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_AGENT_PAT }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          INPUT_PR: ${{ github.event.inputs.pr }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::Secret COPILOT_AGENT_PAT ausente — configure-o para ativar a resolução automática de conflitos. Pulando."
+            exit 0
+          fi
+
+          # ---------------------------------------------------------------
+          # 1. Descobrir quais PRs verificar
+          # ---------------------------------------------------------------
+          if [ -n "${INPUT_PR:-}" ]; then
+            PR_LIST="$INPUT_PR"
+            echo "Execução manual — verificando apenas o PR #$INPUT_PR."
+          elif [ "$EVENT_NAME" = "pull_request" ] && [ -n "${EVENT_PR:-}" ]; then
+            PR_LIST="$EVENT_PR"
+            echo "Evento de PR — verificando o PR #$EVENT_PR."
+          else
+            # push na main / schedule: varre todos os PRs abertos do próprio repo.
+            PR_LIST=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --paginate \
+              --jq ".[] | select(.draft == false) | select(.head.repo.full_name == \"$REPO\") | .number" 2>/dev/null || echo "")
+            COUNT=$(printf '%s\n' "$PR_LIST" | grep -c . || true)
+            echo "Evento '$EVENT_NAME' — verificando ${COUNT:-0} PR(s) aberto(s)."
+          fi
+
+          if [ -z "${PR_LIST//[[:space:]]/}" ]; then
+            echo "Nenhum PR para verificar."
+            exit 0
+          fi
+
+          # Garante que a label de conflito exista (idempotente).
+          gh api -X POST "repos/$REPO/labels" \
+            -f "name=$CONFLICT_LABEL" \
+            -f "color=b60205" \
+            -f "description=PR com conflito de merge; o Copilot foi acionado" \
+            >/dev/null 2>&1 || true
+
+          # ---------------------------------------------------------------
+          # 2. Processar cada PR
+          # ---------------------------------------------------------------
+          for PR in $PR_LIST; do
+            echo "::group::PR #$PR"
+
+            STATE=$(gh api "repos/$REPO/pulls/$PR" --jq '.state' 2>/dev/null || echo "unknown")
+            if [ "$STATE" != "open" ]; then
+              echo "PR #$PR não está aberto (estado: $STATE). Pulando."
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Opt-out explícito por label.
+            if [ "$(gh api "repos/$REPO/issues/$PR/labels" --jq "any(.name == \"$OPT_OUT_LABEL\")" 2>/dev/null || echo false)" = "true" ]; then
+              echo "PR #$PR tem a label '$OPT_OUT_LABEL'. Pulando."
+              echo "::endgroup::"
+              continue
+            fi
+
+            # A mergeabilidade é calculada de forma assíncrona: pode vir null nas
+            # primeiras consultas, principalmente logo após um push na base.
+            MERGEABLE="null"
+            MERGE_STATE="unknown"
+            i=0
+            while [ "$i" -lt "$MERGEABILITY_RETRIES" ]; do
+              MERGEABLE=$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable // "null"' 2>/dev/null || echo "null")
+              MERGE_STATE=$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable_state // "unknown"' 2>/dev/null || echo "unknown")
+              if [ "$MERGEABLE" != "null" ] && [ "$MERGE_STATE" != "unknown" ]; then
+                break
+              fi
+              i=$((i + 1))
+              echo "Mergeabilidade ainda sendo calculada (tentativa $i)..."
+              sleep "$MERGEABILITY_DELAY_SECONDS"
+            done
+            echo "PR #$PR -> mergeable=$MERGEABLE mergeable_state=$MERGE_STATE"
+
+            # Só "dirty" é conflito real. "blocked" = falta review/check,
+            # "behind" = base avançou mas sem conflito, "unstable" = check falhando.
+            if [ "$MERGE_STATE" != "dirty" ]; then
+              # Se estava marcado como conflitado e resolveu, limpa a label.
+              if [ "$(gh api "repos/$REPO/issues/$PR/labels" --jq "any(.name == \"$CONFLICT_LABEL\")" 2>/dev/null || echo false)" = "true" ]; then
+                gh api -X DELETE "repos/$REPO/issues/$PR/labels/$CONFLICT_LABEL" >/dev/null 2>&1 || true
+                echo "Conflito resolvido — label '$CONFLICT_LABEL' removida."
+              fi
+              echo "Sem conflito. Nada a fazer."
+              echo "::endgroup::"
+              continue
+            fi
+
+            # -------------------------------------------------------------
+            # 3. Há conflito: aplicar label e decidir se pede ajuda ao Copilot
+            # -------------------------------------------------------------
+            gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=$CONFLICT_LABEL" >/dev/null 2>&1 || true
+
+            ROUNDS=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+              --jq "[.[] | select(.body | contains(\"$ROUND_MARKER\"))] | length" 2>/dev/null || echo "0")
+
+            if [ "${ROUNDS:-0}" -ge "$MAX_ROUNDS" ]; then
+              echo "PR #$PR já teve $ROUNDS rodadas (máx.: $MAX_ROUNDS). Não vou insistir."
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Evita repetir o pedido enquanto o Copilot ainda não empurrou nada:
+            # só pede de novo se houve commit novo DEPOIS do último pedido.
+            LAST_ASK=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+              --jq "[.[] | select(.body | contains(\"$ROUND_MARKER\")) | .created_at] | last // \"\"" 2>/dev/null || echo "")
+            HEAD_AT=$(gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
+              --jq '[.[].commit.committer.date] | last // ""' 2>/dev/null || echo "")
+
+            if [ -n "$LAST_ASK" ] && [ -n "$HEAD_AT" ] && [ ! "$HEAD_AT" \> "$LAST_ASK" ]; then
+              echo "Já pedi em $LAST_ASK e não há commit novo (último: $HEAD_AT). Aguardando o Copilot."
+              echo "::endgroup::"
+              continue
+            fi
+
+            BASE=$(gh api "repos/$REPO/pulls/$PR" --jq '.base.ref' 2>/dev/null || echo "main")
+            HEAD=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.ref' 2>/dev/null || echo "")
+            NEXT=$(( ${ROUNDS:-0} + 1 ))
+
+            echo "Pedindo resolução ao Copilot (rodada $NEXT de $MAX_ROUNDS)..."
+            MSG=$(printf '%s\n' \
+              "$ROUND_MARKER" \
+              "@copilot este PR está com **conflito de merge** com \`$BASE\` (\`mergeable_state: dirty\`). Por favor resolva:" \
+              "" \
+              "1. Traga \`$BASE\` para dentro de \`$HEAD\` (\`git merge origin/$BASE\`, ou rebase se preferir manter o histórico linear)." \
+              "2. Resolva cada conflito **preservando as duas intenções**: o que veio de \`$BASE\` e o que este PR adiciona. Nunca descarte um lado inteiro só para o merge passar." \
+              "3. Atenção especial aos pontos que costumam conflitar neste repositório: a união \`OverlayWidgetId\`, o registry em \`widgets/index.ts\`, \`OVERLAY_DASHBOARD_PRESETS\`, a tabela \`EMBEDDED\`, os contadores fixos em \`widget-catalog.test.ts\`, \`RESPONSIVE_FULL_FRAME_WIDGET_IDS\`, \`IDENTITY_SCOPED_WIDGET_IDS\`, a lista de smoke do editor e o catálogo gerado \`dashboard-identity-catalog.generated.ts\`. Nos contadores, o valor correto após o merge normalmente é a **soma** dos dois incrementos, não o de um dos lados." \
+              "4. Se o catálogo de identidade conflitar, **não resolva à mão**: refaça com \`npm run dashboard:identity-catalog\` a partir do estado já mesclado." \
+              "5. Rode \`npm run typecheck\` e os testes direcionados relevantes antes de commitar." \
+              "6. Faça push nesta mesma branch e explique brevemente como resolveu cada conflito." \
+              "" \
+              "(rodada automática $NEXT de $MAX_ROUNDS — depois disso eu chamo um humano)")
+
+            if gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$MSG" >/dev/null 2>&1; then
+              echo "Comentário @copilot publicado no PR #$PR."
+            else
+              echo "::warning::Falha ao publicar o comentário no PR #$PR."
+            fi
+
+            # Na última rodada permitida, já avisa o dono do repositório.
+            if [ "$NEXT" -ge "$MAX_ROUNDS" ]; then
+              WARN=$(printf '%s\n' \
+                "⚠️ Esta é a última tentativa automática de resolver o conflito deste PR." \
+                "Se continuar conflitado, será preciso resolver manualmente. cc @$OWNER")
+              gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$WARN" >/dev/null 2>&1 || true
+            fi
+
+            echo "::endgroup::"
+          done
+
+          echo "Verificação de conflitos concluída."
