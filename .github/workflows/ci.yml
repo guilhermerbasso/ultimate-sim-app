@@ -161,6 +161,7 @@ jobs:
         run: node scripts/generate-passport-v2-run-manifest.mjs
 
       - name: Upload acceptance evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stint-passport-v2-acceptance-${{ github.sha }}
