@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -153,6 +154,7 @@ export interface RaceconRc06DashWidgetProps extends WidgetProps {
 export function RaceconRc06DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow,
   plan: planProp
 }: RaceconRc06DashWidgetProps): ReactElement {
@@ -161,7 +163,7 @@ export function RaceconRc06DashWidget({
   const auxRef = useRef(new Rc06AuxBuffer())
   const ledgerRef = useRef(new Rc06LapLedger())
   const alertsRef = useRef(createRc06AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [liftMode, setLiftMode] = useState<Rc06LiftMode>('liters')
   const [eventPlan, setEventPlan] = useState<Rc06Plan | null>(null)
   const box = useContentBox(rootRef, config)
@@ -246,11 +248,6 @@ export function RaceconRc06DashWidget({
     ledgerRef.current = ledger
     alertsRef.current = alerts
   }, [candidate, aux, ledger, alerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   // Packet 11.5: the soft-key toggles the lift cue between litres-to-plan and
   // distance-to-plan. An unrecognised payload never changes the mode.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import { Rc01LiveTelemetryBuffer, type Rc01MonotonicClock, rc01FieldDescription, rc01MonotonicNow } from './raceconRc01Core'
 import {
   RC03_BRIGHTNESS_SCALE,
@@ -123,6 +124,7 @@ export interface RaceconRc03DashWidgetProps extends WidgetProps {
 export function RaceconRc03DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow,
   pitWindowLaps = RC03_PIT_WINDOW_LAPS
 }: RaceconRc03DashWidgetProps): ReactElement {
@@ -132,7 +134,7 @@ export function RaceconRc03DashWidget({
   const trackerRef = useRef(new Rc03StintFuelTracker())
   const alertsRef = useRef(createRc03AlertState())
   const appliedAckRef = useRef(0)
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [vitalsPage, setVitalsPage] = useState<Rc03VitalsPage>('temps')
   const [brightness, setBrightness] = useState<Rc03BrightnessProfile>(RC03_DEFAULT_BRIGHTNESS_PROFILE)
   const [acknowledgeSeq, setAcknowledgeSeq] = useState(0)
@@ -221,11 +223,6 @@ export function RaceconRc03DashWidget({
     alertsRef.current = alerts
     appliedAckRef.current = acknowledgeSeq
   }, [candidate, aux, tracker, alerts, acknowledgeSeq])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   // Packet 11.5 / 20: auto-brightness is a display-switch EVENT with a night profile default,
   // never an ambient reading the dashboard invents for itself.

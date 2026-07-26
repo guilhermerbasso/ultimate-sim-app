@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -258,6 +259,7 @@ export interface RaceconRc07DashWidgetProps extends WidgetProps {
 export function RaceconRc07DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc07DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -265,7 +267,7 @@ export function RaceconRc07DashWidget({
   const auxRef = useRef(new Rc07AuxBuffer())
   const closingRef = useRef(new Rc07ClosingTracker())
   const alertsRef = useRef(createRc07AlertState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [rangeIndex, setRangeIndex] = useState<number | 'auto'>('auto')
   const box = useContentBox(rootRef, config)
 
@@ -349,11 +351,6 @@ export function RaceconRc07DashWidget({
     closingRef.current = closing
     alertsRef.current = alerts
   }, [candidate, aux, closing, alerts])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   // Packet 11.5: a soft-key toggles the radar range. Packet 11.1 allocates it no legend zone,
   // so the key is bound and unlabelled. An unrecognised payload never changes the range.

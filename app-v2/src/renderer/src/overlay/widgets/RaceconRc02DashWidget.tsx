@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import { Rc01LiveTelemetryBuffer, type Rc01MonotonicClock, rc01FieldDescription, rc01MonotonicNow } from './raceconRc01Core'
 import {
   type Rc02DashboardModel,
@@ -98,12 +99,12 @@ export interface RaceconRc02DashWidgetProps extends WidgetProps {
   monotonicClock?: Rc01MonotonicClock
 }
 
-export function RaceconRc02DashWidget({ snapshot, config, monotonicClock = rc01MonotonicNow }: RaceconRc02DashWidgetProps): ReactElement {
+export function RaceconRc02DashWidget({ snapshot, config, preview, monotonicClock = rc01MonotonicNow }: RaceconRc02DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
   const bufferRef = useRef(new Rc01LiveTelemetryBuffer())
   const trackerRef = useRef(new Rc02SectorTracker())
   const pbPaceRef = useRef(createRc02PbPaceState())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const box = useContentBox(rootRef, config)
 
   // A receipt timestamp, not a display clock: it advances only when a new snapshot object
@@ -163,11 +164,6 @@ export function RaceconRc02DashWidget({ snapshot, config, monotonicClock = rc01M
     trackerRef.current = tracker
     pbPaceRef.current = pbPace
   }, [candidate, tracker, pbPace])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   const fillPercent = model.spine.unavailable ? 0 : model.spine.fill * 50
   const fillStyle: CSSProperties = model.spine.direction === 'down' ? { top: '50%', height: `${fillPercent}%` } : { bottom: '50%', height: `${fillPercent}%` }

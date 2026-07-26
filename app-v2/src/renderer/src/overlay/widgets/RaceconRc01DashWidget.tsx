@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { WidgetProps } from './types'
+import { raceconDisplayClockFrozen, useRaceconDisplayClock } from './raceconDisplayClock'
 import {
   Rc01LiveTelemetryBuffer,
   type Rc01MonotonicClock,
@@ -90,11 +91,12 @@ export interface RaceconRc01DashWidgetProps extends WidgetProps {
 export function RaceconRc01DashWidget({
   snapshot,
   config,
+  preview,
   monotonicClock = rc01MonotonicNow
 }: RaceconRc01DashWidgetProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null)
   const bufferRef = useRef(new Rc01LiveTelemetryBuffer())
-  const [nowMs, setNowMs] = useState(() => monotonicClock())
+  const nowMs = useRaceconDisplayClock(monotonicClock, raceconDisplayClockFrozen(preview))
   const [detail, setDetail] = useState<'fuel' | 'tyres'>('fuel')
   const box = useContentBox(rootRef, config)
   // This is a receipt timestamp, not a display-clock timestamp. It changes only
@@ -138,11 +140,6 @@ export function RaceconRc01DashWidget({
   useLayoutEffect(() => {
     bufferRef.current = candidate
   }, [candidate])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(monotonicClock()), 100)
-    return () => window.clearInterval(timer)
-  }, [monotonicClock])
 
   const deltaChevron = model.delta.direction === 'down' ? '\u25C0' : model.delta.direction === 'up' ? '\u25B6' : '\u2014'
   const deltaDescription = model.delta.unavailable
