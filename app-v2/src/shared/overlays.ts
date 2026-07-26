@@ -78,6 +78,7 @@ export type OverlayWidgetId =
   | 'raceconRc02Dash'
   | 'raceconRc03Dash'
   | 'raceconRc04Dash'
+  | 'raceconRc05Dash'
   | 'hifiDdu'
   | 'hifiEndurance'
   | 'hifiEngineer'

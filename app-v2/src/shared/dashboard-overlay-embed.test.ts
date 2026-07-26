@@ -23,6 +23,7 @@ const EMBEDDED: Array<{
   { id: 'racecon_rc02_dash', widgetId: 'raceconRc02Dash', name: 'RaceCon RC-02 Purple Lap', family: 'racecon' },
   { id: 'racecon_rc03_dash', widgetId: 'raceconRc03Dash', name: 'RaceCon RC-03 Long Night', family: 'racecon' },
   { id: 'racecon_rc04_dash', widgetId: 'raceconRc04Dash', name: 'RaceCon RC-04 Box Now', family: 'racecon' },
+  { id: 'racecon_rc05_dash', widgetId: 'raceconRc05Dash', name: 'RaceCon RC-05 Thermal Window', family: 'racecon' },
   { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
   { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
   { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' },
