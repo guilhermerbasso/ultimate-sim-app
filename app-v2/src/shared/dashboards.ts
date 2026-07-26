@@ -3621,6 +3621,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc12_dash',
+    name: 'RaceCon RC-12 On Air',
+    widgetId: 'raceconRc12Dash',
+    description:
+      'Full-screen RC-12 audience-facing broadcast timing presentation: a ranked leaderboard band whose rows come only from the timing feed\u2019s own position channel, a featured-battle lower third built on the one interval this app genuinely measures, a neutral name badge that never prints an entrant because no identity channel exists, a session ribbon that dashes because no session-time or lap-count channel exists, an app-only measured gap-history graphic and driver tags carrying gap behind and best lap, and trigger-only fastest-lap, lead-change and position-change editorial highlights with a TIMING DELAY freeze when the feed goes stale.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'broadcast', 'timing', 'leaderboard'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',
