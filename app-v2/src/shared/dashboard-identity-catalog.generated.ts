@@ -109,6 +109,24 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "widgetId": "raceconRc08Dash"
   },
   {
+    "id": "dash-racecon_rc09_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-09 Stage Time",
+    "widgetId": "raceconRc09Dash"
+  },
+  {
+    "id": "dash-racecon_rc10_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-10 Clear Sight",
+    "widgetId": "raceconRc10Dash"
+  },
+  {
+    "id": "dash-racecon_rc11_dash",
+    "type": "overlaywidget",
+    "label": "RaceCon RC-11 Trace Room",
+    "widgetId": "raceconRc11Dash"
+  },
+  {
     "id": "dash-ring_dash",
     "type": "overlaywidget",
     "label": "GT3 — Anel circular",

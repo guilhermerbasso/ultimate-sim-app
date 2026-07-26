@@ -3594,6 +3594,33 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc09_dash',
+    name: 'RaceCon RC-09 Stage Time',
+    widgetId: 'raceconRc09Dash',
+    description:
+      'Full-screen RC-09 rally special-stage display: a linear stage timeline whose fill and marker are withheld until a real stage-distance channel exists, a measured stage-clock hero, a signed split chip against the reference run, a co-driver note cue that stays blank until a roadbook is loaded, a shallow shift arc at the support-strip edge, an app-only measured stage-severity profile, and caution-waypoint, split-loss and mechanical alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'rally', 'stage'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc10_dash',
+    name: 'RaceCon RC-10 Clear Sight',
+    widgetId: 'raceconRc10Dash',
+    description:
+      'Full-screen RC-10 high-contrast, colour-vision-safe driver display: a hero gear digit with a nine-segment shift bar whose lit count is arithmetic, a speed tile, an asymmetric delta tile carrying sign, chevron and pattern, a six-segment fuel bar that can never disagree with its numeral, a hollow-ring to solid-circle to triangle to octagon status ladder so no state is read by hue alone, an app-only plain-language status line, and fuel-low, over-rev and overheat alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'accessibility', 'high-contrast'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc11_dash',
+    name: 'RaceCon RC-11 Trace Room',
+    widgetId: 'raceconRc11Dash',
+    description:
+      'Full-screen RC-11 race-engineer analysis wall: four stacked distance-domain traces pinned to one pixel-identical plotting region so a single scrub cursor reads the same ordinate in every panel, a solid current lap against a dashed reference lap recorded only from a whole observed best lap, a cyan-throughout delta trace that is never traffic-light coloured, an isotropic G-G scatter with true guide rings, tyre and brake window tiles that never mirror a corner, an app-only steering trace and mini-sector module, and dismissible lift/coast plus never-interpolated DATA GAP annotations.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'engineer', 'analysis', 'trace'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',
