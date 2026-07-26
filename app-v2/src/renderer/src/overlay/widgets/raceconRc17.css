@@ -1,0 +1,592 @@
+/*
+ * RaceCon RC-17 "High Line — Oval Spotter Awareness".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rectangles are
+ * computed arithmetically in `raceconRc17Core.ts` straight from the packet's own pixel
+ * coordinates and applied as inline percentages by the widget, so the stylesheet and the packet
+ * cannot drift and the suite can assert the geometry as arithmetic. Brief normative override
+ * OV-1 is explicit: zone origins in the approved render drift up to 4.17 pp and the panels run
+ * wider than the packet rectangles, and none of those pixels are traced.
+ *
+ * Ring geometry likewise lives in the core (OV-3): outer radius 114, inner 86, band 28, centred
+ * at (130, 130) of a 260x260 viewBox, so the whole assembly including the 12 o'clock heading
+ * tick fits inside packet 11.1's 260x260 zone. The render's 149.5 px outer circle overhangs it.
+ *
+ * Type ladder, packet 11.2, arithmetic and NOT measured off the render: closing 44 > line cue 40
+ * > pace 34 > clock sector word 20 > side flag 18 > tertiary 15 > label 13 px on the 800x480
+ * canvas, which is 5.5 / 5 / 4.25 / 2.5 / 2.25 / 1.875 / 1.625 cqw. The sector word is sized in
+ * the ring's own viewBox units so it always rides its arc. OV-7: these are SLOT sizes and a dash
+ * in a slot stays a dash — no ink is ever enlarged to fill a dashed slot.
+ *
+ * Palette, packet 11.3 verbatim: bg #0B0C10, panel #14171F, primary #EEF0F5, secondary #8A90A0,
+ * info #4A9CE0, normal #46C070, caution #FFB82E, danger #FF4436, signature #FF5AA0.
+ *
+ *   - OV-6: bg vs panel is only deltaE76 6.05 with a luminance gap of 10, the RC-14 dissolution
+ *     risk. The panel fill is NEVER darkened; a 1 px hairline carries the step instead.
+ *   - OV-5: the render's pink drifted to #FD437B at hue 341.84 deg. The token is used, never a
+ *     sampled colour, so the signature stays 22.3 deg clear of the danger hue.
+ *   - The brief's colour note: `secondary` and `info` are separable in colour but have a
+ *     luminance gap of exactly ZERO, so the rev cue's fill is never distinguished from its track
+ *     by colour alone — its LENGTH carries the value.
+ *   - `normal` is deliberately unused. OV-8: 'clear' is the ABSENCE of fill, never green, so
+ *     nothing unmonitored can read as healthy. `caution` and `danger` belong to the alert layer,
+ *     so a silent frame contains neither on any alert surface.
+ */
+
+.rc17-widget,
+.rc17-widget *,
+.rc17-widget *::before,
+.rc17-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc17-widget {
+  --rc17-bg: #0b0c10;
+  --rc17-panel: #14171f;
+  --rc17-hairline: #1e2230;
+  --rc17-primary: #eef0f5;
+  --rc17-secondary: #8a90a0;
+  --rc17-info: #4a9ce0;
+  --rc17-normal: #46c070;
+  --rc17-caution: #ffb82e;
+  --rc17-danger: #ff4436;
+  --rc17-signature: #ff5aa0;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc17-bg);
+  color: var(--rc17-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.rc17-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.rc17-widget > .rc17-dashboard > section {
+  position: absolute;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--rc17-hairline);
+  border-radius: 6px;
+  background: var(--rc17-panel);
+}
+
+/* ----------------------------------------------------------------- shared type */
+
+.rc17-label,
+.rc17-unit {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc17-secondary);
+  font-size: clamp(7px, var(--rc17-type-label, 1.625cqw), 13px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc17-unit {
+  margin-left: 0.45em;
+  font-size: 0.82em;
+  letter-spacing: 0.08em;
+}
+
+.rc17-cell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0.15em;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/*
+ * The `white-space: nowrap` trap: a nowrap flex item's min-content width exceeds its column, so
+ * `overflow: hidden` never clips and `scrollWidth === clientWidth` while the glyph escapes. Every
+ * hero here is therefore sized in `cqw` with a CONSERVATIVE clamp maximum, and every cell carries
+ * `min-width: 0` so the flex algorithm may actually shrink it.
+ */
+.rc17-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc17-primary);
+  font-size: clamp(11px, var(--rc17-type-pace, 4.25cqw), 34px);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* A stale or absent channel degrades to the packet's dim state; it never freezes on a value. */
+.rc17-value.is-stale,
+.rc17-value.is-unavailable,
+.rc17-empty.is-unavailable,
+.rc17-flag.is-unavailable {
+  color: var(--rc17-secondary);
+}
+
+.rc17-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- packet 11.1 flags */
+
+/*
+ * Packet 19: the side is carried by the WORD, so the word must never be clipped. The band is only
+ * 200x30 on the native canvas, so the flag is sized against the BAND rather than the canvas and
+ * the zone carries no label of its own — measured in a real browser, a `SIDE` label plus
+ * `CARS BOTH SIDES` truncated the flag at three of the six breakpoints.
+ */
+.rc17-flags {
+  flex-direction: row;
+  gap: 0.6em;
+  align-items: center;
+  container-type: inline-size;
+  padding: 0.25em 0.6em;
+}
+
+/*
+ * `NO DATA` is deliberately dim — packet 16 forbids a false 'clear', and a dim honesty word can
+ * never read as healthy.
+ */
+.rc17-flag {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc17-signature);
+  font-size: clamp(8px, 9cqw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.rc17-flag.is-critical {
+  color: var(--rc17-danger);
+}
+
+/* -------------------------------------------------------------- packet 11.1 line */
+
+.rc17-line {
+  flex-direction: column;
+  gap: 0.4em;
+  justify-content: center;
+  padding: 0.4em 0.6em;
+}
+
+.rc17-line [data-rc17-rung='line'] .rc17-value {
+  font-size: clamp(12px, var(--rc17-type-line, 5cqw), 40px);
+}
+
+.rc17-line-options {
+  display: flex;
+  gap: 0.6em;
+  min-width: 0;
+}
+
+/*
+ * RC17_PACKET_OMISSIONS.lineChoice: no lane channel exists, so BOTH options render identically.
+ * There is no `[data-rc17-selected='true']` rule anywhere in this stylesheet on purpose — a
+ * selection style would be a recommendation the app cannot make.
+ */
+.rc17-line-option {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc17-secondary);
+  font-size: clamp(8px, var(--rc17-type-label, 1.625cqw), 13px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- packet 11.1 clock */
+
+.rc17-clock {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3em;
+}
+
+/*
+ * The ring scales with its zone, and every glyph inside the viewBox scales with it. Past about
+ * 440 px the 20 px packet 11.2 sector word would overtake the 34 px pace value and invert the
+ * ladder, so the assembly stops growing there. Below that cap it always fills its packet zone.
+ */
+.rc17-ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 440px;
+  max-height: 440px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 12 o'clock is structural heading, never a data sector (OV-10). */
+.rc17-quadrant-structural,
+.rc17-sector-arc {
+  fill: var(--rc17-panel);
+  stroke: var(--rc17-hairline);
+  stroke-width: 1;
+}
+
+/* An occupied sector is a flat signature-pink arc; a clear one is the absence of fill (OV-8). */
+.rc17-sector[data-rc17-tone='signature'] .rc17-sector-arc {
+  fill: var(--rc17-signature);
+  stroke: var(--rc17-signature);
+}
+
+.rc17-sector[data-rc17-tone='danger'] .rc17-sector-arc {
+  fill: var(--rc17-danger);
+  stroke: var(--rc17-danger);
+}
+
+.rc17-sector[data-rc17-tone='info'] .rc17-sector-arc {
+  fill: var(--rc17-info);
+  stroke: var(--rc17-info);
+}
+
+/*
+ * The word is the accessibility channel (packet 19), so it must stay legible wherever the arc
+ * behind it happens to be filled. It carries the approved frame's own colour contract — the
+ * sector word is `primary` and an un-addressable sector's word is `secondary` — plus a canvas
+ * halo, because a 20 px word is wider than the 28 px band it rides at 9 and 3 o'clock (GAP-9).
+ */
+.rc17-sector-word {
+  fill: var(--rc17-primary);
+  stroke: var(--rc17-bg);
+  stroke-width: 3;
+  paint-order: stroke fill;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.rc17-sector[data-rc17-unavailable='true'] .rc17-sector-word {
+  fill: var(--rc17-secondary);
+}
+
+.rc17-divider,
+.rc17-heading-tick {
+  stroke: var(--rc17-hairline);
+  stroke-width: 2;
+}
+
+.rc17-heading-tick {
+  stroke: var(--rc17-primary);
+  stroke-width: 3;
+}
+
+.rc17-own-car {
+  fill: var(--rc17-primary);
+}
+
+.rc17-contact {
+  fill: var(--rc17-info);
+}
+
+.rc17-contact[data-rc17-lit='true'] {
+  fill: var(--rc17-signature);
+}
+
+/* Packet 15 three-wide: the CRITICAL word, on the alert layer, only while the alert is latched. */
+.rc17-three-wide {
+  position: absolute;
+  right: 0.4em;
+  bottom: 0.2em;
+  left: 0.4em;
+  margin: 0;
+  color: var(--rc17-danger);
+  font-size: clamp(9px, var(--rc17-type-flag, 2.25cqw), 18px);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* ----------------------------------------------------------- packet 11.1 closing */
+
+.rc17-closing {
+  flex-direction: column;
+  gap: 0.3em;
+  justify-content: center;
+  padding: 0.4em 0.6em;
+}
+
+.rc17-closing [data-rc17-cell='closing-rate'] .rc17-value {
+  font-size: clamp(12px, var(--rc17-type-closing, 5.5cqw), 44px);
+}
+
+/* Packet 15's only closing surface. Silent frames carry no border, no tint and no arrow. */
+.rc17-closing.is-alert {
+  border-color: var(--rc17-caution);
+}
+
+.rc17-closing-arrow {
+  position: absolute;
+  top: 0.35em;
+  right: 0.5em;
+  width: 0;
+  height: 0;
+  border-right: 0.45em solid transparent;
+  border-bottom: 0.7em solid var(--rc17-caution);
+  border-left: 0.45em solid transparent;
+}
+
+/* -------------------------------------------------------------- packet 11.1 pace */
+
+.rc17-pace {
+  flex-direction: row;
+  gap: 0.8em;
+  align-items: center;
+  padding: 0.3em 0.8em;
+}
+
+/* ------------------------------------------------- governed tertiary strip (GAP-5) */
+
+.rc17-tertiary {
+  flex-direction: row;
+  gap: 0.8em;
+  align-items: center;
+  padding: 0.25em 0.8em;
+}
+
+.rc17-tertiary .rc17-value {
+  font-size: clamp(9px, var(--rc17-type-tertiary, 1.875cqw), 15px);
+}
+
+.rc17-rev {
+  display: flex;
+  flex: 2 1 0;
+  flex-direction: row;
+  gap: 0.6em;
+  align-items: center;
+  min-width: 0;
+}
+
+/*
+ * Packet 11.4: revs yield to side awareness, so this is a thin cue and never a shift bank. The
+ * fill LENGTH is the value; `info` on `panel` is a redundant second channel, never the only one,
+ * because those two tokens have a luminance gap of exactly zero.
+ */
+.rc17-rev-track {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 0.35em;
+  overflow: hidden;
+  border: 1px solid var(--rc17-hairline);
+  border-radius: 2px;
+  background: var(--rc17-bg);
+}
+
+.rc17-rev-fill {
+  display: block;
+  width: var(--rc17-rev-fill, 0%);
+  height: 100%;
+  background: var(--rc17-info);
+}
+
+/* ------------------------------------------------ packet 12.1 app-only modules */
+
+.rc17-pack-map,
+.rc17-lane {
+  flex-direction: column;
+  gap: 0.3em;
+  padding: 0.4em 0.6em;
+}
+
+.rc17-pack-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--rc17-hairline);
+  border-radius: 4px;
+}
+
+.rc17-pack-car,
+.rc17-pack-own {
+  position: absolute;
+  width: 0.9em;
+  height: 0.9em;
+  margin: -0.45em 0 0 -0.45em;
+  border-radius: 50%;
+  background: var(--rc17-info);
+}
+
+.rc17-pack-own {
+  top: 50%;
+  left: 50%;
+  background: var(--rc17-primary);
+}
+
+.rc17-empty {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(8px, var(--rc17-type-label, 1.625cqw), 13px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- compact behaviour */
+
+/*
+ * Portrait stacks the packet modules into full-width bands. All three packet 15 alert surfaces —
+ * the lit sector, the persistent flag and the closing panel — survive every compact breakpoint,
+ * so no alert can lose its surface at a size the packet does not describe.
+ */
+.rc17-widget[data-rc17-compact-mode='phone'] .rc17-flags {
+  gap: 0.4em;
+  padding: 0.2em var(--rc17-phone-inset, 12px);
+}
+
+.rc17-widget[data-rc17-compact-mode='phone'] .rc17-pace,
+.rc17-widget[data-rc17-compact-mode='phone'] .rc17-tertiary {
+  padding: 0.2em var(--rc17-phone-inset, 12px);
+}
+
+.rc17-widget[data-rc17-compact-mode='phone'] .rc17-pace .rc17-value {
+  font-size: clamp(14px, 7cqw, 34px);
+}
+
+.rc17-widget[data-rc17-compact-mode='phone'] .rc17-closing [data-rc17-cell='closing-rate'] .rc17-value {
+  font-size: clamp(12px, 8cqw, 44px);
+}
+
+.rc17-widget[data-rc17-compact-mode='phone'] .rc17-line [data-rc17-rung='line'] .rc17-value {
+  font-size: clamp(12px, 7.5cqw, 40px);
+}
+
+/*
+ * The compact canvases are narrower than 800 px, so a `cqw` ladder authored for the native canvas
+ * would shrink every rung together and the peripheral rungs would fall below legibility. The
+ * hero rungs are re-expressed against the compact container instead, and the clamp maxima keep
+ * them at or below their packet 11.2 sizes.
+ */
+.rc17-widget[data-rc17-layout='compact']:not([data-rc17-compact-mode='phone']) .rc17-pace .rc17-value {
+  font-size: clamp(12px, 4.4cqw, 34px);
+}
+
+.rc17-widget[data-rc17-layout='compact']:not([data-rc17-compact-mode='phone'])
+  .rc17-closing
+  [data-rc17-cell='closing-rate']
+  .rc17-value {
+  font-size: clamp(12px, 5cqw, 44px);
+}
+
+.rc17-widget[data-rc17-layout='compact']:not([data-rc17-compact-mode='phone'])
+  .rc17-line
+  [data-rc17-rung='line']
+  .rc17-value {
+  font-size: clamp(12px, 4.6cqw, 40px);
+}
+
+.rc17-widget[data-rc17-layout='compact'] .rc17-label,
+.rc17-widget[data-rc17-layout='compact'] .rc17-unit,
+.rc17-widget[data-rc17-layout='compact'] .rc17-line-option,
+.rc17-widget[data-rc17-layout='compact'] .rc17-empty {
+  font-size: clamp(7px, 2cqw, 13px);
+}
+
+.rc17-widget[data-rc17-layout='compact'] .rc17-flag {
+  font-size: clamp(8px, 9cqw, 18px);
+}
+
+.rc17-widget[data-rc17-layout='compact'] .rc17-tertiary .rc17-value {
+  font-size: clamp(9px, 2.2cqw, 15px);
+}
+
+/*
+ * The app canvas is 1024 px wide against the native 800, so a native-authored `cqw` ladder would
+ * scale every rung by 1.28 and the packet 11.2 sizes would be overshot. The clamp maxima above
+ * already bound that, and the app rungs are stated here explicitly so the intent is legible.
+ */
+.rc17-widget[data-rc17-layout='app'] .rc17-pace .rc17-value {
+  font-size: clamp(12px, 3.4cqw, 34px);
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-closing [data-rc17-cell='closing-rate'] .rc17-value {
+  font-size: clamp(12px, 4.3cqw, 44px);
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-line [data-rc17-rung='line'] .rc17-value {
+  font-size: clamp(12px, 3.9cqw, 40px);
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-flag {
+  font-size: clamp(8px, 9cqw, 18px);
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-label,
+.rc17-widget[data-rc17-layout='app'] .rc17-unit,
+.rc17-widget[data-rc17-layout='app'] .rc17-line-option,
+.rc17-widget[data-rc17-layout='app'] .rc17-empty {
+  font-size: clamp(7px, 1.27cqw, 13px);
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-tertiary .rc17-value {
+  font-size: clamp(9px, 1.47cqw, 15px);
+}
+
+/*
+ * Packet 12.1 makes the governed tertiary block TALL (260x180) and the pace block TALL too
+ * (300x160) rather than the native strips' 720x50 and 720x80, so both reflow into stacks.
+ * Measured in a real browser: as rows, the WATER cell's `DEG C` unit escaped its zone by 30 px
+ * and the `SPEED KM/H` label was clipped by 7 px, and in both cases `scrollWidth` on the escaping
+ * element reported clean. That is precisely the `white-space: nowrap` trap.
+ */
+.rc17-widget[data-rc17-layout='app'] .rc17-tertiary,
+.rc17-widget[data-rc17-layout='app'] .rc17-pace {
+  flex-direction: column;
+  gap: 0.25em;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-tertiary .rc17-cell,
+.rc17-widget[data-rc17-layout='app'] .rc17-rev {
+  flex: 0 1 auto;
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-rev {
+  flex-direction: column;
+  gap: 0.2em;
+  align-items: stretch;
+}
+
+.rc17-widget[data-rc17-layout='app'] .rc17-rev-track {
+  flex: 0 0 auto;
+}
+

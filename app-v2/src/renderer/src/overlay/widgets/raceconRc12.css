@@ -1,0 +1,586 @@
+/*
+ * RaceCon RC-12 "On Air — Broadcast Timing Presentation".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are declared in
+ * `raceconRc12Core.ts` in the packet's own pixels and applied as inline percentages by the widget,
+ * so the stylesheet and the packet cannot drift and the suite can assert the geometry as arithmetic.
+ * Normative override `zoneCoordinates` is explicit: the approved render drifts as far as +10.41 pp
+ * on the strip origin, and those pixels are never traced.
+ *
+ * Type ladder, packet 11.2 at normative override `typeScale`'s x0.5455: battle gap 72 > gap 24 >
+ * position 22 > badge 16 = last lap 16 px on the 800x480 canvas, which is 9 / 3 / 2.75 / 2 cqw.
+ * Because the app canvas is exactly 1.28x the native canvas, the same cqw ladder is the packet's
+ * 1.28 step at 1024x600, so the gap glyph is 24 px inside a 30 px row pitch at 800 wide and 30.72 px
+ * inside a 32.5 px row pitch at 1024 wide.
+ *
+ * THE SIZING TRAP THIS FILE EXISTS TO AVOID. `white-space: nowrap` makes a flex item's min-content
+ * width exceed its column, so `overflow: hidden` never clips and `scrollWidth === clientWidth` while
+ * the glyph physically escapes its box. Every hero numeral is therefore sized with `clamp()` around
+ * a `cqw` rung with a conservative maximum, every row column is given its share of the row width by
+ * an explicit `flex: 0 0 <fraction>` with `min-width: 0`, and the suite verifies containment with
+ * `getBoundingClientRect`, never with `scrollWidth`.
+ *
+ * Palette, packet 11.3 verbatim plus the one token normative override `panelAltToken` adds. THREE
+ * RULES THIS FILE EXISTS TO ENFORCE, all asserted by the suite against this file's own declarations:
+ *
+ *  1. `--rc12-signature`, `--rc12-info`, `--rc12-caution` and `--rc12-danger` are referenced ONLY
+ *     inside alert-scoped rules — `.rc12-tag`, `.rc12-lead-tag`, `.rc12-row.is-fastest`,
+ *     `.rc12-row.is-lead`, `.rc12-change[data-rc12-change='loss']` and `.rc12-delay`. Every RC-12
+ *     alert is silent by default, so a resting frame contains zero pixels of any alert token.
+ *  2. `--rc12-normal` is the GAIN semantic and is deliberately NOT an alert-only token: packet 11.1's
+ *     closing arrow is a measured data element. It is bound to the closing cue and to the
+ *     position-gain arrow, and both carry a word and a glyph as well as the hue.
+ *  3. No shift LED, gear numeral, RPM bar or driver-aid element exists anywhere in this file. Packet
+ *     10 suppresses them and packet 18 forbids them outright.
+ */
+
+.rc12-widget,
+.rc12-widget *,
+.rc12-widget *::before,
+.rc12-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc12-widget {
+  --rc12-bg: #0a0e1a;
+  --rc12-panel: #121a2e;
+  /* Normative override `panelAltToken`: packet 11.1 asks for an alternating row tint and 11.3
+     supplies one surface tone, so the alternate is declared rather than improvised per rule. */
+  --rc12-panel-alt: #0e1524;
+  --rc12-primary: #ffffff;
+  --rc12-secondary: #a9b6cc;
+  /* Alert-layer tokens. Referenced only inside the alert-scoped rules at the end of this file. */
+  --rc12-info: #4fa8ff;
+  --rc12-caution: #ffc93c;
+  --rc12-danger: #ff5470;
+  /* The GAIN semantic. Not an alert-only token — see rule 2 above. */
+  --rc12-normal: #37d67a;
+  --rc12-signature: #00e0c6;
+
+  --rc12-rule: #a9b6cc26;
+  --rc12-row-inset-right: 0cqw;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc12-bg);
+  color: var(--rc12-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+.rc12-broadcast {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * Packet 11.1's title-safe frame, at normative override `sessionClockTitleSafe`'s redefined top of
+ * y = 8. It is a conceptual guide in the packet, so it is drawn as a hairline that carries no ink of
+ * its own beyond a 6 % secondary rule.
+ */
+.rc12-safe-frame {
+  position: absolute;
+  z-index: 0;
+  border: 1px dashed #a9b6cc14;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.rc12-zone {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rc12-panel {
+  border: 1px solid #1d2740;
+  border-radius: 3px;
+  background: var(--rc12-panel);
+}
+
+/* ------------------------------------------------------------- session ribbon */
+
+.rc12-ribbon {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1.4cqw;
+  padding: 0 0.6cqw;
+  color: var(--rc12-secondary);
+  font-size: clamp(6px, var(--rc12-type-ribbon, 1.5cqw), 22px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.rc12-ribbon-group {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.5cqw;
+  overflow: hidden;
+}
+
+.rc12-ribbon-label {
+  color: var(--rc12-secondary);
+  opacity: 0.75;
+}
+
+.rc12-ribbon-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc12-secondary);
+  text-overflow: clip;
+}
+
+.rc12-ribbon-spacer {
+  flex: 1 1 auto;
+}
+
+/* ------------------------------------------------------------- leaderboard band */
+
+.rc12-board {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.rc12-row {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: center;
+  padding-right: var(--rc12-row-inset-right);
+  background: transparent;
+  /* Packet 11.5 / 15: rows reorder with a smooth transition rather than a jump cut. */
+  transition: background-color 500ms ease, color 500ms ease;
+}
+
+.rc12-row.is-alt {
+  background: var(--rc12-panel-alt);
+}
+
+.rc12-row.is-empty .rc12-cell {
+  color: var(--rc12-secondary);
+  opacity: 0.55;
+}
+
+.rc12-row-columns {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: baseline;
+  /*
+   * No flex gap. Each column carries an EXACT share of the row width as its flex basis, so the four
+   * shares sum to 100 % with nothing left over; the breathing room lives inside each column as
+   * padding, which `box-sizing: border-box` keeps inside that share. A flex gap here would push the
+   * last column past the row edge, where `overflow: hidden` would silently clip a real value.
+   */
+  gap: 0;
+  padding: 0 0.9cqw;
+}
+
+.rc12-cell {
+  min-width: 0;
+  padding: 0 0.2cqw;
+  overflow: hidden;
+  line-height: 1;
+  /* Deliberate: the trap in the header. Every cell has an explicit flex basis and min-width 0, so a
+     nowrap glyph is clipped by its own column instead of pushing the column wider than its share. */
+  white-space: nowrap;
+}
+
+.rc12-cell.is-right {
+  text-align: right;
+}
+
+.rc12-cell-position {
+  color: var(--rc12-primary);
+  font-size: clamp(7px, var(--rc12-type-position, 2.75cqw), 44px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.rc12-cell-badge {
+  color: var(--rc12-secondary);
+  font-size: clamp(6px, var(--rc12-type-badge, 2cqw), 32px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.rc12-cell-gap {
+  color: var(--rc12-primary);
+  font-size: clamp(7px, var(--rc12-type-gap, 3cqw), 48px);
+  font-weight: 700;
+}
+
+/* Normative override `lastLapInk`: packet 10 calls last lap time primary although 11.2 puts it in
+   the smallest tier, so it keeps the small size and takes the primary ink. */
+.rc12-cell-last {
+  color: var(--rc12-primary);
+  font-size: clamp(6px, var(--rc12-type-last, 2cqw), 32px);
+  font-weight: 600;
+}
+
+.rc12-cell.is-unavailable {
+  color: var(--rc12-secondary);
+}
+
+.rc12-cell.is-stale {
+  color: var(--rc12-secondary);
+  opacity: 0.7;
+}
+
+.rc12-board-header {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0;
+  padding: 0 0.9cqw;
+  color: var(--rc12-secondary);
+  font-size: clamp(5px, var(--rc12-type-ribbon, 1.5cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.rc12-battle-gap-label {
+  color: var(--rc12-secondary);
+  font-size: clamp(5px, var(--rc12-type-ribbon, 1.5cqw), 22px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------- featured battle */
+
+.rc12-battle {
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  padding: 0.6cqw 1cqw;
+  gap: 1cqw;
+}
+
+.rc12-widget[data-rc12-layout='app'] .rc12-battle,
+.rc12-widget[data-rc12-compact-mode='phone'] .rc12-battle {
+  flex-direction: column;
+}
+
+.rc12-battle-car {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3cqw;
+  overflow: hidden;
+}
+
+.rc12-battle-car.is-trail {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.rc12-widget[data-rc12-layout='app'] .rc12-battle-car.is-trail {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.rc12-battle-position {
+  color: var(--rc12-primary);
+  font-size: clamp(8px, var(--rc12-type-position, 2.75cqw), 44px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc12-battle-badge {
+  color: var(--rc12-secondary);
+  font-size: clamp(6px, var(--rc12-type-badge, 2cqw), 32px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc12-battle-last {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4cqw;
+  color: var(--rc12-primary);
+  font-size: clamp(6px, var(--rc12-type-last, 2cqw), 32px);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc12-battle-last-label {
+  color: var(--rc12-secondary);
+  font-size: 0.8em;
+  letter-spacing: 0.14em;
+}
+
+/*
+ * The hero numeral. It is sized from a cqw rung with a conservative clamp maximum and its own
+ * section owns a fixed share of the strip, so it can never escape the strip and collide with a
+ * driver tag. Verified with getBoundingClientRect.
+ */
+.rc12-battle-gap {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 34%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.rc12-widget[data-rc12-layout='app'] .rc12-battle-gap,
+.rc12-widget[data-rc12-compact-mode='phone'] .rc12-battle-gap,
+.rc12-widget[data-rc12-compact-mode='landscape'] .rc12-battle-gap {
+  flex: 0 0 auto;
+}
+
+.rc12-battle-gap-value {
+  display: flex;
+  max-width: 100%;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.3em;
+  overflow: hidden;
+  color: var(--rc12-primary);
+  font-size: clamp(10px, var(--rc12-type-battle-gap, 9cqw), 96px);
+  font-weight: 700;
+  line-height: 0.92;
+  white-space: nowrap;
+}
+
+.rc12-battle-gap-unit {
+  color: var(--rc12-secondary);
+  font-size: 0.34em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.rc12-battle-gap-value.is-unavailable {
+  color: var(--rc12-secondary);
+}
+
+/*
+ * Packet 11.1's closing arrow. Packet 19: gain/loss is arrow PLUS hue, and the word is always
+ * present, so the cue survives both compression and colour-vision loss.
+ */
+.rc12-trend {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.4cqw;
+  overflow: hidden;
+  color: var(--rc12-secondary);
+  font-size: clamp(5px, var(--rc12-type-ribbon, 1.5cqw), 22px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc12-trend[data-rc12-trend-token='normal'] {
+  color: var(--rc12-normal);
+}
+
+.rc12-trend-glyph {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.rc12-battle-empty {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--rc12-secondary);
+  font-size: clamp(6px, var(--rc12-type-ribbon, 1.5cqw), 22px);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Packet 12.1 driver tags: the only surface Gap behind and Best lap time are given a zone on. */
+.rc12-driver-tag {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5cqw;
+  color: var(--rc12-secondary);
+  font-size: clamp(5px, var(--rc12-type-ribbon, 1.5cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- gap history (app only) */
+
+.rc12-history {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0.6cqw 0.8cqw;
+  gap: 0.4cqw;
+}
+
+.rc12-history-title {
+  color: var(--rc12-secondary);
+  font-size: clamp(5px, var(--rc12-type-ribbon, 1.5cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.rc12-history-plot {
+  display: block;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.rc12-history-line {
+  fill: none;
+  stroke: var(--rc12-primary);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.rc12-history-empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--rc12-secondary);
+  font-size: clamp(5px, var(--rc12-type-ribbon, 1.5cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  opacity: 0.75;
+}
+
+/* ------------------------------------------------------------- alert layer */
+
+/*
+ * EVERYTHING BELOW IS ALERT-SCOPED. `signature`, `info`, `caution` and `danger` are referenced here
+ * and nowhere else in this file: each rule is gated on an alert that is silent until its packet 15
+ * trigger fires, so a resting frame measures zero pixels of all four tokens.
+ */
+
+/* Packet 15 alert 1 — fastest lap: teal tag, 5 s editorial lifetime, then it retires. */
+.rc12-tag {
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6cqw;
+  border: 1px solid var(--rc12-signature);
+  border-radius: 3px;
+  background: #00e0c61f;
+  color: var(--rc12-signature);
+  font-size: clamp(6px, var(--rc12-type-tag, 2.25cqw), 34px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc12-row.is-fastest {
+  box-shadow: inset 0.45cqw 0 0 0 var(--rc12-signature);
+}
+
+.rc12-row.is-fastest .rc12-cell-last {
+  color: var(--rc12-signature);
+}
+
+/* Packet 15 alert 3 — lead change: editorial blue emphasis on the P1 row, 5 s, then it retires. */
+.rc12-row.is-lead {
+  box-shadow: inset 0.45cqw 0 0 0 var(--rc12-info);
+}
+
+.rc12-lead-tag {
+  margin-left: 0.5cqw;
+  border: 1px solid var(--rc12-info);
+  border-radius: 2px;
+  padding: 0 0.35em;
+  color: var(--rc12-info);
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+/* Packet 15 alert 2 — position change: a 500 ms arrow plus a word, never colour alone. */
+.rc12-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  margin-left: 0.4em;
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.rc12-change[data-rc12-change='gain'] {
+  color: var(--rc12-normal);
+}
+
+.rc12-change[data-rc12-change='loss'] {
+  color: var(--rc12-danger);
+}
+
+/* Packet 15 unavailable-data behaviour: the board freezes and SAYS SO. */
+.rc12-delay {
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5cqw;
+  border: 1px solid var(--rc12-caution);
+  border-radius: 3px;
+  background: #ffc93c1f;
+  color: var(--rc12-caution);
+  font-size: clamp(6px, var(--rc12-type-tag, 2.25cqw), 34px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- compact grammars */
+
+.rc12-widget[data-rc12-compact-mode='phone'] .rc12-row-columns,
+.rc12-widget[data-rc12-compact-mode='phone'] .rc12-board-header {
+  padding: 0 0.6cqw;
+}
+
+.rc12-widget[data-rc12-compact-mode='landscape'] .rc12-battle {
+  flex-direction: column;
+  padding: 0.5cqw 0.6cqw;
+}
+
+.rc12-widget[data-rc12-compact-mode='landscape'] .rc12-battle-car.is-trail {
+  align-items: flex-start;
+  text-align: left;
+}
