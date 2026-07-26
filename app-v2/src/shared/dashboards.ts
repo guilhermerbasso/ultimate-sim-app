@@ -3540,6 +3540,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+    id: 'racecon_rc03_dash',
+    name: 'RaceCon RC-03 Long Night',
+    widgetId: 'raceconRc03Dash',
+    description:
+      'Full-screen RC-03 endurance night-stint dashboard: three low-glare horizontal bands under a continuous shift ribbon, measured fuel-burn laps, engine vitals, an explicit stint marker and steady non-blinking endurance alerts.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'endurance', 'night'],
+    scaleMode: 'stretch'
+  },
+  {
     id: 'racecon_rc04_dash',
     name: 'RaceCon RC-04 Box Now',
     widgetId: 'raceconRc04Dash',
