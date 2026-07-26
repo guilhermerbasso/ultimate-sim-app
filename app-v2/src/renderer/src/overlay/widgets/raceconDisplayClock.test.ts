@@ -18,6 +18,7 @@ import { RaceconRc08DashWidget } from './RaceconRc08DashWidget'
 import { RaceconRc09DashWidget } from './RaceconRc09DashWidget'
 import { RaceconRc10DashWidget } from './RaceconRc10DashWidget'
 import { RaceconRc11DashWidget } from './RaceconRc11DashWidget'
+import { RaceconRc12DashWidget } from './RaceconRc12DashWidget'
 import { WIDGET_COMPONENTS } from './index'
 import { RC06_FUEL_MODEL_ENGAGE_MS } from './raceconRc06Core'
 
@@ -34,7 +35,8 @@ const RACECON_WIDGETS: ReadonlyArray<readonly [OverlayWidgetId, RaceconDashWidge
   ['raceconRc08Dash', RaceconRc08DashWidget],
   ['raceconRc09Dash', RaceconRc09DashWidget],
   ['raceconRc10Dash', RaceconRc10DashWidget],
-  ['raceconRc11Dash', RaceconRc11DashWidget]
+  ['raceconRc11Dash', RaceconRc11DashWidget],
+  ['raceconRc12Dash', RaceconRc12DashWidget]
 ]
 
 /** Every RaceCon dashboard actually wired into the renderer, straight from the registry. */
@@ -84,7 +86,27 @@ function snapshot(): TelemetrySnapshot {
     oilTempC: 104,
     fuelLiters: 38.4,
     fuelPerLapLiters: 2.65,
-    fuelLapsRemaining: 14.49
+    fuelLapsRemaining: 14.49,
+    // A timing/scoring feed, so the family's audience-facing pages have a frame to age too.
+    // RC-12 is driven entirely by the standings feed and its 1 s freshness budget: without one it
+    // publishes NO TIMING SOURCE and has no time gate at all, which would make the live half of
+    // this suite vacuous for it. Every other RaceCon page ignores these fields.
+    playerCarIdx: 4,
+    drivers: Array.from({ length: 8 }, (_unused, index) => ({
+      carIdx: index + 1,
+      name: `Entrant ${index + 1}`,
+      carNumber: String(index + 1),
+      position: index + 1,
+      classPosition: index + 1,
+      classId: 1,
+      isPlayer: index + 1 === 4,
+      lastLapTimeSec: 113.2 + index * 0.184,
+      bestLapTimeSec: 112.418 + index * 0.15
+    })),
+    relatives: {
+      ahead: { carIdx: 3, name: 'Entrant 3', carNumber: '3', position: 3, gapSec: 1.2, lastLapTimeSec: 113.568 },
+      behind: { carIdx: 5, name: 'Entrant 5', carNumber: '5', position: 5, gapSec: -0.9, lastLapTimeSec: 113.936 }
+    }
   } as TelemetrySnapshot
 }
 
