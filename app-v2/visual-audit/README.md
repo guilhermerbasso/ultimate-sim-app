@@ -68,6 +68,52 @@ The metric fixture and the PNG pixel audit are covered by `node --test`:
 node --test visual-audit/racecon-rc02-capture.test.mjs
 ```
 
+## RaceCon RC-03 … RC-08 dev capture
+
+RC-01 and RC-02 were the only two RaceCon artifacts with a capture harness; RC-03 … RC-08 shipped
+without one and therefore had no render QA against their approved reference images. Each now has
+the same four files, driven through one shared harness:
+
+```bash
+npm run racecon:capture:rc05 -- --mode validate --out C:/Temp/racecon-rc05-capture
+npm run racecon:capture:test
+npm run racecon:responsive
+```
+
+`racecon-capture-shared.mjs` owns everything that is genuinely identical across the family: the six
+governed viewports, the breakpoint contract (all eight widgets export the same
+`RCnn_NATIVE_WIDTH_PX` … `RCnn_LANDSCAPE_MAX_HEIGHT_PX` constants and the same
+`rcNNLayoutForContentBox` / `rcNNCompactModeForContentBox` pair), the in-page geometry helpers, the
+shared metric contract, the pixel and hue primitives, and the whole capture lifecycle. It re-exports
+RC-01's disk-safety primitives unchanged rather than forking them, exactly as RC-02 already did.
+Each `racecon-rcNN-capture-lib.mjs` keeps only what that artifact's own zones, channels, alert
+families and documented packet omissions make different.
+
+Every harness captures the six governed viewports in at least two states — a silent frame and the
+artifact's own alert scenario — and asserts, per frame:
+
+- zone overlap, zone escape and out-of-frame, measured with `getBoundingClientRect` in a real
+  browser. `white-space: nowrap` defeats `overflow: hidden`, so an element can escape its box while
+  `scrollWidth === clientWidth` and a full green jsdom suite says nothing; only the measured
+  rectangles disagree.
+- the governed type-scale hierarchy at every breakpoint, as a strict order. **A tie is a failure**,
+  not a pass — two readouts at the same size carry no hierarchy.
+- alert colour confirmed by **hue family**, never by a channel ratio. A ratio test such as
+  `g,b < 0.62r` is not a red test: it also accepts amber, and it once reported 8,578 "red" pixels on
+  a frame whose hue-confirmed red count was zero. The silent frame must carry zero pixels of the
+  alert hue family; the alert frame must carry them and every one of them must fall inside the
+  element that owns the alert. Hue also survives the `filter: brightness()` some of these
+  dashboards apply, because scaling every channel by the same factor leaves the hue angle unchanged.
+- the **documented packet omissions** as the contract. Where a packet demanded something no
+  telemetry channel can feed, the widget publishes an honest empty state (`--`, `UNAVAILABLE`, zero
+  rows, or no element at all). The harness asserts that empty state and asserts the element stays
+  absent; it never reports a documented omission as a missing-element failure.
+
+Measured render defects in the shipped widgets are **recorded, not suppressed**: each artifact's
+`knownDefects`, `zoneOverflowDefects` and `containmentDefects` ledgers carry the measured budget and
+a note, the capture prints every one it observes, and a defect that grows, spreads to another
+breakpoint or appears on another element still fails closed.
+
 ## What gets rendered
 
 - **Overlays** — every id in `WIDGET_COMPONENTS`
