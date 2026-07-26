@@ -1,0 +1,583 @@
+/*
+ * RaceCon RC-13 "Hold Order — Safety-Car & Restart Procedure".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are declared in
+ * `raceconRc13Core.ts` in the packet's own pixels and applied as inline percentages by the widget,
+ * so the stylesheet and the packet cannot drift and the suite can assert the geometry as arithmetic.
+ * Normative override N2 is explicit — "Build every zone from packet 11.1 / 12.1 coordinates. Never
+ * trace the image." — and the approved image-QA report records the header block sitting 8 px below
+ * its packet zone floor, which is a defect and is not reproduced.
+ *
+ * TYPE LADDER, packet 11.2 and normative override N5, computed arithmetically and NOT measured off
+ * the render: SC delta window 80 > queue gap 64 > SC status 40 > restart 32 > muted strip 28 px on
+ * the 800x480 canvas, which is 10 / 8 / 5 / 4 / 3.5 cqw. Because the app canvas is exactly 1.28x the
+ * native canvas the same cqw ladder is the packet's 1.28 step at 1024x600. Every clamp bound below is
+ * the SAME multiple of its rung — 2x for the floor, 15x for the ceiling — so the five ranks stay
+ * strictly descending at every canvas size instead of colliding when a clamp engages. The approved
+ * derivative measures 146.2 / 137.5 / 40.3 / 29.2 / 25.0 px; that reading is not copied.
+ *
+ * THE SIZING TRAP. `white-space: nowrap` makes a flex item's min-content width exceed its column, so
+ * `overflow: hidden` never clips and `scrollWidth === clientWidth` while a hero numeral escapes its
+ * zone. Both heroes are therefore sized in `cqw` — the SAME unit their zone width is expressed in —
+ * so the ratio of numeral width to zone width is constant at every breakpoint, and every flex child
+ * that carries a nowrap string also carries `min-width: 0`. The suite verifies containment with
+ * `getBoundingClientRect`, never with `scrollWidth`.
+ *
+ * PALETTE, packet 11.3, verbatim. THREE RULES THIS FILE EXISTS TO ENFORCE, all asserted by the suite
+ * against this file's own declarations:
+ *
+ *  1. `--rc13-normal`, `--rc13-caution` and `--rc13-danger` are the ALERT LAYER. They may only be
+ *     referenced inside a state-scoped rule — an engaged `[data-rc13-alert]` element or an
+ *     `[data-rc13-window-zone-active='true']` band. Packet 15 forbids an alert-layer element being
+ *     used as decoration, and because section 16 supplies neither the SC delta nor its window bounds,
+ *     no zone can ever be active: a resting frame contains zero pixels of any alert token.
+ *  2. `--rc13-signature` never carries alert meaning. Packet 11.3's `caution #FFC400` and
+ *     `signature #FFD100` measure dE00 4.40 and are not perceptually distinct, so the signature token
+ *     is bound only to non-alert chrome and compliance state is always carried by a WORD.
+ *  3. Every dash placeholder, no-source notice, label and muted-strip value is `--rc13-secondary`.
+ *     Under caution the racing telemetry is de-emphasised, and that muting is a permanent property of
+ *     the strip rather than an alert.
+ */
+
+.rc13-widget,
+.rc13-widget *,
+.rc13-widget *::before,
+.rc13-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc13-widget {
+  --rc13-bg: #0b0d0f;
+  --rc13-panel: #17140d;
+  --rc13-primary: #fff6e6;
+  --rc13-secondary: #a99c82;
+  --rc13-info: #46b0e0;
+  --rc13-signature: #ffd100;
+  /* Alert-layer tokens. Referenced only inside the state-scoped rules at the foot of this file. */
+  --rc13-normal: #46c46e;
+  --rc13-caution: #ffc400;
+  --rc13-danger: #ff3b30;
+
+  --rc13-edge: #2a2419;
+  --rc13-rule: #a99c8226;
+
+  --rc13-type-window: 10cqw;
+  --rc13-type-gap: 8cqw;
+  --rc13-type-status: 5cqw;
+  --rc13-type-restart: 4cqw;
+  --rc13-type-pace: 3.5cqw;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc13-bg);
+  color: var(--rc13-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.rc13-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* One flat `panel` rectangle per packet zone. No zone is ever split into two drawn rectangles. */
+.rc13-panel {
+  position: absolute;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--rc13-edge);
+  border-radius: 3px;
+  background: var(--rc13-panel);
+}
+
+/* ---------------------------------------------------------------- typography */
+
+.rc13-zone-label {
+  min-width: 0;
+  flex: 0 0 auto;
+  color: var(--rc13-secondary);
+  font-size: clamp(6px, 1.75cqw, 26px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc13-unit {
+  min-width: 0;
+  flex: 0 0 auto;
+  color: var(--rc13-secondary);
+  font-size: clamp(6px, 1.6cqw, 24px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/*
+ * The honest empty state. Packet 16 forbids a plausible fake number, so every structure whose channel
+ * section 16 never defined says so in words rather than quietly rendering nothing.
+ */
+.rc13-notice {
+  min-width: 0;
+  color: var(--rc13-secondary);
+  font-size: clamp(6px, 1.6cqw, 24px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0.86;
+}
+
+.rc13-value {
+  min-width: 0;
+  color: var(--rc13-primary);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc13-value.is-stale,
+.rc13-value.is-unavailable {
+  color: var(--rc13-secondary);
+}
+
+/* ------------------------------------------------- zone 1: SC status header */
+
+.rc13-status {
+  gap: 1.6cqw;
+  padding: 0 1.6cqw;
+}
+
+/*
+ * `RC13_PACKET_OMISSIONS.statusHeaderTypeFit`: packet 11.1 gives this zone 50 px and packet 11.2 asks
+ * for a ~40 px word, so a stacked label cannot fit above it. The label sits INLINE on the status
+ * word's own row and the whole header is a single centred line.
+ */
+.rc13-status-word {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--rc13-primary);
+  font-size: clamp(10px, var(--rc13-type-status, 5cqw), 75px);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc13-status-word.is-stale,
+.rc13-status-word.is-unavailable {
+  color: var(--rc13-secondary);
+}
+
+.rc13-status-flag {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 0.8cqw;
+}
+
+.rc13-status-flag-value {
+  min-width: 0;
+  color: var(--rc13-primary);
+  font-size: clamp(7px, 2.4cqw, 36px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc13-status-flag-value.is-stale,
+.rc13-status-flag-value.is-unavailable {
+  color: var(--rc13-secondary);
+}
+
+/* -------------------------------------------- zone 2: delta-window gauge */
+
+.rc13-window {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1.2cqw;
+  padding: 1.4cqw 1.6cqw;
+}
+
+.rc13-window-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.2cqw;
+}
+
+/*
+ * The hero. Sized in the SAME container unit the zone width is expressed in, so its share of the zone
+ * is constant at every breakpoint and it cannot escape the panel while `scrollWidth` stays clean.
+ */
+.rc13-window-delta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc13-primary);
+  font-size: clamp(20px, var(--rc13-type-window, 10cqw), 150px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc13-window-delta.is-unavailable,
+.rc13-window-delta.is-stale {
+  color: var(--rc13-secondary);
+}
+
+/*
+ * Normative override N3: the three zones are computed at 0-34, 34-66 and 66-100 units of the bar and
+ * the words sit at 17, 50 and 83. Both are applied as inline percentages by the widget, so the
+ * arithmetic is visible in the DOM and asserted by the suite rather than hidden in a gradient.
+ */
+.rc13-window-bar {
+  position: relative;
+  width: 100%;
+  height: 5.2cqw;
+  min-height: 14px;
+  border: 1px solid var(--rc13-edge);
+  border-radius: 2px;
+  background: #0f0d08;
+}
+
+.rc13-window-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--rc13-rule);
+}
+
+.rc13-window-zone + .rc13-window-zone {
+  border-left: 1px solid var(--rc13-edge);
+}
+
+.rc13-window-zone-word {
+  position: absolute;
+  top: 100%;
+  transform: translateX(-50%);
+  margin-top: 0.5cqw;
+  color: var(--rc13-secondary);
+  font-size: clamp(6px, 1.7cqw, 26px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/*
+ * Normative override N4: no marker exists until BOTH the SC delta and its target window exist. The
+ * element is not rendered at all in that case, so there is nothing to hide and nothing to mistake for
+ * a reading of zero.
+ */
+.rc13-window-marker {
+  position: absolute;
+  top: -0.6cqw;
+  bottom: -0.6cqw;
+  width: 0.6cqw;
+  min-width: 2px;
+  transform: translateX(-50%);
+  background: var(--rc13-primary);
+}
+
+.rc13-window-foot {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2cqw;
+  margin-top: 2.6cqw;
+}
+
+/* ----------------------------------------------- zone 3: queue gap tile */
+
+.rc13-queue {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1cqw;
+  padding: 1.4cqw 1.6cqw;
+}
+
+.rc13-queue-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 1cqw;
+}
+
+.rc13-queue-gap {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc13-primary);
+  font-size: clamp(16px, var(--rc13-type-gap, 8cqw), 120px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc13-queue-gap.is-stale,
+.rc13-queue-gap.is-unavailable {
+  color: var(--rc13-secondary);
+}
+
+/*
+ * Packet 12.1's app-only queue-train reveal. Section 16 defines no nearby-car channel, so the panel
+ * renders its label and its no-source notice with ZERO rows. A fixed row count would be an invented
+ * number, which is exactly what packet 16 forbids.
+ */
+.rc13-train {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.6cqw;
+  overflow: hidden;
+  border-top: 1px solid var(--rc13-edge);
+  padding-top: 1cqw;
+}
+
+.rc13-train-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8cqw;
+  color: var(--rc13-secondary);
+  font-size: clamp(6px, 1.8cqw, 28px);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------ zone 4: restart-status block */
+
+.rc13-restart {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.8cqw;
+  padding: 1cqw 1.6cqw;
+}
+
+.rc13-restart-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 1.2cqw;
+}
+
+.rc13-restart-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc13-primary);
+  font-size: clamp(8px, var(--rc13-type-restart, 4cqw), 60px);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc13-restart-value.is-stale,
+.rc13-restart-value.is-unavailable {
+  color: var(--rc13-secondary);
+}
+
+.rc13-restart-zone-value {
+  min-width: 0;
+  color: var(--rc13-secondary);
+  font-size: clamp(7px, 2.4cqw, 36px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/*
+ * Packet 12's app-only restart-zone sketch. It has no track-position channel either, so it renders as
+ * a labelled empty frame carrying zero markers and the same no-source notice.
+ */
+.rc13-restart-sketch {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 1.2cqw;
+  overflow: hidden;
+  border-top: 1px solid var(--rc13-edge);
+  padding-top: 0.7cqw;
+}
+
+.rc13-restart-track {
+  position: relative;
+  height: 1.4cqw;
+  min-height: 4px;
+  flex: 1 1 auto;
+  border: 1px solid var(--rc13-edge);
+  border-radius: 999px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--rc13-rule) 0,
+    var(--rc13-rule) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+/* --------------------------------------------- zone 5: muted pace strip */
+
+/*
+ * Packet 10 / 19: "racing telemetry is muted because racing is not permitted until green". The strip
+ * is de-emphasised as a permanent property of the caution page — never through the alert layer — and
+ * it un-mutes only on a CONFIRMED green, never on an unknown or stale race-control feed.
+ */
+.rc13-pace {
+  gap: 1.4cqw;
+  padding: 0 1.6cqw;
+  color: var(--rc13-secondary);
+}
+
+.rc13-pace-cell {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.7cqw;
+}
+
+.rc13-pace-value {
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(7px, var(--rc13-type-pace, 3.5cqw), 52.5px);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rc13-pace[data-rc13-muted='true'] {
+  opacity: 0.62;
+}
+
+.rc13-pace[data-rc13-muted='false'] .rc13-pace-value {
+  color: var(--rc13-primary);
+}
+
+.rc13-pace-value.is-stale,
+.rc13-pace-value.is-unavailable {
+  color: var(--rc13-secondary);
+}
+
+/* ------------------------------------------------------------ alert layer */
+
+/*
+ * Every element below exists only while its trigger is engaged. The widget renders no alert element
+ * at all in a silent frame, so these rules match nothing at rest and the three alert tokens measure
+ * zero pixels. Packet 19: the alert is a WORD first — the colour is redundant reinforcement.
+ */
+.rc13-alert {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid currentcolor;
+  border-radius: 2px;
+  padding: 0.3cqw 0.9cqw;
+  font-size: clamp(6px, 1.8cqw, 28px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc13-alert[data-rc13-alert='restartImminent'] {
+  color: var(--rc13-caution);
+}
+
+.rc13-alert[data-rc13-alert='overtakeReminder'] {
+  color: var(--rc13-caution);
+}
+
+.rc13-alert[data-rc13-alert='windowViolation'] {
+  color: var(--rc13-danger);
+}
+
+/*
+ * The window bar's zones are inert structure until a zone is genuinely ACTIVE, which requires both an
+ * SC delta and its legal bounds. Section 16 supplies neither, so no rule below can ever match and the
+ * bar carries no alert-token pixel — packet 15's "no alert-layer element as decoration" and packet
+ * 20's "never assume legal", enforced by the selector itself.
+ */
+.rc13-window-zone[data-rc13-window-zone-active='true'][data-rc13-window-zone-id='in'] {
+  background: color-mix(in srgb, var(--rc13-normal) 34%, transparent);
+}
+
+.rc13-window-zone[data-rc13-window-zone-active='true'][data-rc13-window-zone-id='under'] {
+  background: color-mix(in srgb, var(--rc13-caution) 34%, transparent);
+}
+
+.rc13-window-zone[data-rc13-window-zone-active='true'][data-rc13-window-zone-id='over'] {
+  background: color-mix(in srgb, var(--rc13-danger) 34%, transparent);
+}
+
+.rc13-window-zone[data-rc13-window-zone-active='true'] .rc13-window-zone-word {
+  color: var(--rc13-primary);
+}
+
+/*
+ * Non-alert chrome only. `signature` is packet 11.3's caution-yellow identity and reads as
+ * "neutralized"; it measures dE00 4.40 against `caution`, so it is deliberately kept away from every
+ * alert surface and used only for the static header rule and the bar's window-target ticks.
+ */
+.rc13-status {
+  border-bottom: 2px solid var(--rc13-signature);
+}
+
+.rc13-window-bar::before,
+.rc13-window-bar::after {
+  position: absolute;
+  top: -0.4cqw;
+  bottom: -0.4cqw;
+  width: 1px;
+  background: var(--rc13-signature);
+  content: '';
+  opacity: 0.55;
+}
+
+.rc13-window-bar::before {
+  left: 34%;
+}
+
+.rc13-window-bar::after {
+  left: 66%;
+}
+
+/* -------------------------------------------------- compact reflow tuning */
+
+.rc13-widget[data-rc13-layout='compact'] .rc13-window-bar {
+  height: 6.5cqw;
+}
+
+.rc13-widget[data-rc13-compact-mode='phone'] .rc13-status,
+.rc13-widget[data-rc13-compact-mode='phone'] .rc13-pace {
+  gap: 2.4cqw;
+}
+
+.rc13-widget[data-rc13-compact-mode='phone'] .rc13-window-bar {
+  height: 9cqw;
+}
