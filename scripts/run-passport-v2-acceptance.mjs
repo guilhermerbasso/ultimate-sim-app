@@ -82,7 +82,10 @@ function runStep(name, command, cwd, executable, args, env = process.env) {
     finishedAt: new Date().toISOString(),
     logSha256: sha256(output)
   }
-  if (status !== 'passed') failed = true
+  if (status !== 'passed') {
+    failed = true
+    process.stderr.write(output)
+  }
   console.log(`${name}: ${status}`)
   return result
 }
