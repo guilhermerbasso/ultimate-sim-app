@@ -436,9 +436,12 @@ class RealPersistenceProcess {
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
         execArgv: [],
         serialization: 'advanced',
-        stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc']
       }
     )
+    // Koffi's Windows teardown requires valid stdio handles during deterministic crash exits.
+    this.child.stdout?.resume()
+    this.child.stderr?.resume()
   }
 
   postMessage(value: unknown): void {
