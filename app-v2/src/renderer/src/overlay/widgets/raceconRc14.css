@@ -1,0 +1,711 @@
+/*
+ * RaceCon RC-14 "Triage — Vehicle Health & Damage Assessment".
+ *
+ * Zone geometry does NOT live here. Packet 11.1 (800x480) and 12.1 (1024x600) rects are declared in
+ * `raceconRc14Core.ts` in the packet's own pixels and applied as inline percentages by the widget,
+ * so the stylesheet and the packet cannot drift and the suite can assert the geometry as arithmetic.
+ * Normative override N5 is explicit: the approved render's measured origins drift up to -4.00 pp
+ * horizontally and -3.33 pp vertically, and those pixels are never traced.
+ *
+ * THE SIZING TRAP THIS FILE EXISTS TO AVOID. `white-space: nowrap` raises a flex item's min-content
+ * width above its column, so `overflow: hidden` never clips it and `scrollWidth === clientWidth`
+ * while the glyphs are physically outside their zone. Every hero here is therefore sized with a
+ * `clamp()` carrying a conservative px MAXIMUM, every flex and grid child that can carry nowrap text
+ * also carries `min-width: 0` so it may shrink below its min-content width, and the suite verifies
+ * containment with `getBoundingClientRect` and with the arithmetic bound in `rc14HeroFitsZone` —
+ * never with `scrollWidth`.
+ *
+ * Type ladder, packet 11.2 plus normative override N2, computed arithmetically and NOT measured off
+ * the render: vitals numerals 40 = decision word 40 > fault-list system names 24 > severity chip
+ * words 19 > zone labels / vitals labels / vitals units / corner values 14 > corner-status headers
+ * 12 px on the 800x480 canvas, which is 5 / 5 / 3 / 2.375 / 1.75 / 1.5 cqw. Because the app canvas
+ * is exactly 1.28x the native canvas, the same cqw ladder is the packet's 1.28 step at 1024x600.
+ * In the approved frame the chip word and the zone label both measure an 11 px cap height, so the
+ * chip is not visibly larger than the smallest tier; that reading is deliberately not copied.
+ *
+ * Palette, packet 11.3, verbatim except for ONE declared retune. THREE RULES THIS FILE ENFORCES,
+ * all asserted by the suite against this file's own declarations:
+ *
+ *  1. `--rc14-caution` and `--rc14-danger` are referenced ONLY inside a severity-scoped rule. All
+ *     three packet section 15 alerts are silent until triggered, so a frame with no engaged alert
+ *     contains zero pixels of either alert token.
+ *  2. `--rc14-info` is retuned from the packet's #40B8D0 to #3F93CF (hue ~205 deg). The packet's
+ *     `info` and `signature` sit 0.1 degrees apart in hue at dE76 16.55 and cannot be told apart;
+ *     `info` is bound to the gauge-bar FILL only and `signature` to the silhouette OUTLINE only, so
+ *     the two roles are separable. The packet file is left unmodified.
+ *  3. Every dash placeholder, unmonitored zone outline, label, unit and column header is
+ *     `--rc14-secondary`. An unmonitored zone is NEVER filled `--rc14-normal` green: that would
+ *     assert health the app cannot know (implementation brief gap G7).
+ */
+
+.rc14-widget,
+.rc14-widget *,
+.rc14-widget *::before,
+.rc14-widget *::after {
+  box-sizing: border-box;
+}
+
+.rc14-widget {
+  --rc14-bg: #0d0f12;
+  --rc14-panel: #171b20;
+  --rc14-primary: #eaedf0;
+  --rc14-secondary: #8c97a2;
+  /* Retuned from the packet's #40b8d0: see rule 2 in the header and RC14_INFO_RETUNE. */
+  --rc14-info: #3f93cf;
+  --rc14-signature: #6ee7ff;
+  /* Status token. OK is published only because a real fault channel reported clear. */
+  --rc14-normal: #46c86e;
+  /* Alert-layer tokens. Referenced only inside severity-scoped rules. */
+  --rc14-caution: #ffa82e;
+  --rc14-danger: #ff3e30;
+
+  --rc14-edge: #232a33;
+  --rc14-track: #0d0f12;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+  overflow: hidden;
+  background: var(--rc14-bg);
+  color: var(--rc14-primary);
+  font-family: 'Barlow Condensed', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.rc14-dashboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * Normative override N1: panels are a SOLID `panel` fill, lighter than the canvas, never an
+ * outline. The approved frame renders them at #10151a, only +6 luminance above canvas instead of
+ * the packet's +12, and the token is used rather than the picture.
+ */
+.rc14-panel {
+  position: absolute;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.5cqw 0.6cqw;
+  border: 1px solid var(--rc14-edge);
+  border-radius: 3px;
+  background: var(--rc14-panel);
+  gap: 0.4cqw;
+}
+
+.rc14-panel-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-secondary);
+  font-size: clamp(7px, var(--rc14-type-corner-head, 1.5cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc14-empty,
+.rc14-unmonitored {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-secondary);
+  font-size: clamp(7px, var(--rc14-type-corner-head, 1.5cqw), 20px);
+  letter-spacing: 0.12em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rc14-visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------- fault list */
+
+/*
+ * Normative override N3: the row pitch is COMPUTED, never traced. The list is a uniform-track grid,
+ * so every row is identical by construction; the approved frame drifts from 62.0 px at the top to
+ * 56.0 px at the bottom (stdev 2.159) and that drift is not reproduced.
+ */
+.rc14-fault-list {
+  display: grid;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 0.3cqw;
+  list-style: none;
+}
+
+.rc14-fault-row {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 0.4cqw solid var(--rc14-secondary);
+  background: #0f1317;
+  gap: 0.3cqw;
+}
+
+.rc14-fault-select {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.2cqw 0.4cqw;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  grid-template-areas:
+    'system stamp'
+    'chip detail';
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rc14-fault-system {
+  grid-area: system;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-primary);
+  font-size: clamp(8px, var(--rc14-type-system, 3cqw), 34px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc14-fault-chip {
+  grid-area: chip;
+  justify-self: start;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 0.4cqw;
+  border-radius: 2px;
+  font-size: clamp(7px, var(--rc14-type-chip, 2.375cqw), 26px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc14-fault-detail,
+.rc14-fault-nozone,
+.rc14-fault-stamp {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-secondary);
+  font-size: clamp(6px, var(--rc14-type-corner-head, 1.5cqw), 20px);
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc14-fault-detail {
+  grid-area: detail;
+  justify-self: end;
+}
+
+.rc14-fault-stamp {
+  grid-area: stamp;
+  justify-self: end;
+}
+
+.rc14-fault-nozone {
+  grid-area: stamp;
+  justify-self: end;
+  border: 1px dashed var(--rc14-secondary);
+  padding: 0 0.3cqw;
+}
+
+.rc14-fault-ack {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.2cqw 0.5cqw;
+  border: 1px solid var(--rc14-secondary);
+  border-radius: 2px;
+  background: none;
+  color: var(--rc14-primary);
+  font: inherit;
+  font-size: clamp(6px, var(--rc14-type-corner-head, 1.5cqw), 20px);
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/*
+ * Severity binding. The chip WORD is always present in the DOM and the row also carries a fill
+ * PATTERN, so severity is never encoded by hue alone — which matters twice over, because packet
+ * 11.3 offers only three status hues for four levels (gap G2) and because caution and danger
+ * converge under protanopia.
+ */
+.rc14-fault-row[data-rc14-severity='ok'] {
+  border-left-color: var(--rc14-normal);
+}
+
+.rc14-fault-row[data-rc14-severity='ok'] .rc14-fault-chip {
+  background: var(--rc14-normal);
+  color: #06180d;
+}
+
+.rc14-fault-row[data-rc14-severity='minor'],
+.rc14-fault-row[data-rc14-severity='major'] {
+  border-left-color: var(--rc14-caution);
+}
+
+.rc14-fault-row[data-rc14-severity='minor'] .rc14-fault-chip,
+.rc14-fault-row[data-rc14-severity='major'] .rc14-fault-chip {
+  background: var(--rc14-caution);
+  color: #1a1000;
+}
+
+.rc14-fault-row[data-rc14-severity='major'] .rc14-fault-chip {
+  background-image: repeating-linear-gradient(
+    45deg,
+    #00000000 0 3px,
+    #0000004d 3px 6px
+  );
+}
+
+.rc14-fault-row[data-rc14-severity='minor'] .rc14-fault-chip {
+  background-image: radial-gradient(#0000004d 0.8px, #00000000 0.9px);
+  background-size: 4px 4px;
+}
+
+.rc14-fault-row[data-rc14-severity='critical'] {
+  border-left-color: var(--rc14-danger);
+}
+
+.rc14-fault-row[data-rc14-severity='critical'] .rc14-fault-chip {
+  background: var(--rc14-danger);
+  background-image:
+    repeating-linear-gradient(45deg, #00000000 0 2px, #0000005c 2px 4px),
+    repeating-linear-gradient(-45deg, #00000000 0 2px, #0000005c 2px 4px);
+  color: #200200;
+}
+
+.rc14-fault-row[data-rc14-selected='true'] {
+  outline: 1px solid var(--rc14-signature);
+  outline-offset: -1px;
+}
+
+/* -------------------------------------------------------------- silhouette */
+
+.rc14-panel-silhouette {
+  align-items: stretch;
+}
+
+.rc14-silhouette {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * Packet 11.3: the silhouette outline is the ONLY `signature` binding, and the gauge-bar fill is
+ * the only `info` binding. Keeping the two roles exclusive is what makes the retune in rule 2
+ * meaningful rather than cosmetic.
+ */
+.rc14-silhouette-outline {
+  fill: #10141a;
+  stroke: var(--rc14-signature);
+  stroke-width: 1.4;
+}
+
+.rc14-zone-rect {
+  stroke-width: 0.6;
+}
+
+.rc14-zone-label {
+  dominant-baseline: middle;
+  fill: var(--rc14-primary);
+  font-size: 5.4px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+}
+
+/* Gap G7: an UNMONITORED zone is outline-only in `secondary` with a dashed edge, never a filled
+   OK green. It is the visual statement "this zone has no fault channel", not "this zone is fine". */
+.rc14-zone[data-rc14-zone-pattern='outline'] .rc14-zone-rect {
+  fill: none;
+  stroke: var(--rc14-secondary);
+  stroke-dasharray: 2.4 1.6;
+}
+
+.rc14-zone[data-rc14-zone-pattern='outline'] .rc14-zone-label {
+  fill: var(--rc14-secondary);
+}
+
+.rc14-zone[data-rc14-zone-severity='ok'] .rc14-zone-rect {
+  fill: var(--rc14-normal);
+  stroke: var(--rc14-normal);
+}
+
+.rc14-zone[data-rc14-zone-severity='minor'] .rc14-zone-rect,
+.rc14-zone[data-rc14-zone-severity='major'] .rc14-zone-rect {
+  fill: var(--rc14-caution);
+  stroke: var(--rc14-caution);
+}
+
+.rc14-zone[data-rc14-zone-severity='critical'] .rc14-zone-rect {
+  fill: var(--rc14-danger);
+  stroke: var(--rc14-danger);
+}
+
+.rc14-zone[data-rc14-zone-severity='ok'] .rc14-zone-label,
+.rc14-zone[data-rc14-zone-severity='minor'] .rc14-zone-label,
+.rc14-zone[data-rc14-zone-severity='major'] .rc14-zone-label,
+.rc14-zone[data-rc14-zone-severity='critical'] .rc14-zone-label {
+  fill: #0b0d10;
+}
+
+/*
+ * The pattern overlay punches the canvas colour back through the severity fill, so MINOR (sparse
+ * dots), MAJOR (diagonal stripes) and CRITICAL (dense cross-hatch) are separable as TEXTURE with no
+ * colour perception at all. OK is a plain fill and unmonitored is an outline.
+ */
+#rc14-dots circle {
+  fill: var(--rc14-bg);
+}
+
+#rc14-stripes path,
+#rc14-crosshatch path {
+  stroke: var(--rc14-bg);
+  fill: none;
+}
+
+.rc14-zone-pattern {
+  stroke: none;
+}
+
+.rc14-zone[data-rc14-zone-pattern='dots'] .rc14-zone-pattern {
+  fill: url('#rc14-dots');
+}
+
+.rc14-zone[data-rc14-zone-pattern='stripes'] .rc14-zone-pattern {
+  fill: url('#rc14-stripes');
+}
+
+.rc14-zone[data-rc14-zone-pattern='crosshatch'] .rc14-zone-pattern {
+  fill: url('#rc14-crosshatch');
+}
+
+/* ------------------------------------------------------------------ vitals */
+
+.rc14-vitals {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 0.4cqw;
+}
+
+.rc14-vital {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  align-content: center;
+  grid-template-areas:
+    'label unit'
+    'value value'
+    'track track';
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.4cqw;
+}
+
+.rc14-vital-label,
+.rc14-vital-unit {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-secondary);
+  font-size: clamp(7px, var(--rc14-type-zone, 1.75cqw), 22px);
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc14-vital-label {
+  grid-area: label;
+}
+
+.rc14-vital-unit {
+  grid-area: unit;
+}
+
+/*
+ * The hero numeral. `clamp()` with a conservative px maximum plus `min-width: 0` is what keeps it
+ * inside its zone: a bare `nowrap` here is exactly the failure mode described in the header.
+ */
+.rc14-vital-value {
+  grid-area: value;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-primary);
+  font-size: clamp(10px, var(--rc14-type-vital, 5cqw), 52px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.rc14-vital-track {
+  grid-area: track;
+  display: block;
+  min-width: 0;
+  height: 0.9cqw;
+  min-height: 3px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: var(--rc14-track);
+  box-shadow: inset 0 0 0 1px var(--rc14-edge);
+}
+
+/* Packet 11.3: `info` is bound HERE and nowhere else. */
+.rc14-vital-fill {
+  display: block;
+  height: 100%;
+  background: var(--rc14-info);
+}
+
+.rc14-vital[data-rc14-vital-unavailable='true'] .rc14-vital-value {
+  color: var(--rc14-secondary);
+}
+
+.rc14-vital[data-rc14-vital-stale='true'] .rc14-vital-value {
+  color: var(--rc14-secondary);
+  opacity: 0.72;
+}
+
+/*
+ * Packet 15 row 3: the vital out-of-range alert is the ONLY thing that may colour a gauge. A dashed
+ * gauge is the UNAVAILABLE path, not the alert path — it gets no red, no amber and no border.
+ */
+.rc14-vital[data-rc14-vital-alerting='true'] .rc14-vital-value {
+  color: var(--rc14-danger);
+}
+
+.rc14-vital[data-rc14-vital-alerting='true'] .rc14-vital-fill {
+  background: var(--rc14-danger);
+}
+
+/* ---------------------------------------------------------------- decision */
+
+.rc14-decision {
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-content: center;
+  justify-items: center;
+  row-gap: 0.2cqw;
+}
+
+.rc14-decision-label,
+.rc14-decision-reason {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-secondary);
+  font-size: clamp(6px, var(--rc14-type-corner-head, 1.5cqw), 20px);
+  letter-spacing: 0.18em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc14-decision-word {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-primary);
+  font-size: clamp(10px, var(--rc14-type-decision, 5cqw), 52px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.rc14-decision[data-rc14-decision-token='normal'] .rc14-decision-word {
+  color: var(--rc14-normal);
+}
+
+.rc14-decision[data-rc14-decision-token='caution'] .rc14-decision-word {
+  color: var(--rc14-caution);
+}
+
+.rc14-decision[data-rc14-decision-token='danger'] .rc14-decision-word {
+  color: var(--rc14-danger);
+}
+
+.rc14-decision[data-rc14-decision-available='false'] .rc14-decision-word {
+  color: var(--rc14-secondary);
+}
+
+/* ----------------------------------------------------------- corner status */
+
+/*
+ * Gap G6: 11.2 gives corner status no type size at all and the 208x70 px zone must carry four
+ * column headers, two row labels and eight values. The per-corner grain is KEPT — averaging two
+ * independent sensors into an axle is the mirroring packet 16 forbids — and the tier is declared
+ * here at 14 px values over 12 px headers, which the suite checks against the real cell width.
+ */
+.rc14-corner-table {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.rc14-corner-head,
+.rc14-corner-rowhead {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-secondary);
+  font-size: clamp(6px, var(--rc14-type-corner-head, 1.5cqw), 20px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc14-corner-rowhead {
+  width: 26%;
+  text-align: left;
+}
+
+.rc14-corner-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-primary);
+  font-size: clamp(7px, var(--rc14-type-corner, 1.75cqw), 22px);
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.rc14-corner-value[data-rc14-unavailable='true'] {
+  color: var(--rc14-secondary);
+}
+
+.rc14-corner-value[data-rc14-stale='true'] {
+  color: var(--rc14-secondary);
+  opacity: 0.72;
+}
+
+/* ---------------------------------------------------------------- timeline */
+
+.rc14-panel-decision-corners {
+  justify-content: space-between;
+}
+
+.rc14-timeline-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid var(--rc14-edge);
+  border-bottom: 1px solid var(--rc14-edge);
+}
+
+.rc14-timeline-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  border-left: 2px solid var(--rc14-secondary);
+  padding-left: 0.3cqw;
+}
+
+.rc14-timeline-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rc14-secondary);
+  font-size: clamp(6px, var(--rc14-type-corner-head, 1.5cqw), 20px);
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc14-timeline-mark[data-rc14-timeline-severity='minor'],
+.rc14-timeline-mark[data-rc14-timeline-severity='major'] {
+  border-left-color: var(--rc14-caution);
+}
+
+.rc14-timeline-mark[data-rc14-timeline-severity='critical'] {
+  border-left-color: var(--rc14-danger);
+}
+
+.rc14-timeline-mark[data-rc14-timeline-clamped='true'] {
+  border-left-style: dashed;
+}
+
+/* --------------------------------------------------------- compact reflows */
+
+/*
+ * The compact grammars are not packet-specified. They keep the triage structure so every alert
+ * keeps a visible surface at every size, and only the app-only timeline is dropped.
+ *
+ * The 440 px height threshold is deliberately BELOW the 480 px native canvas, so the packet 11.2
+ * ladder is never reduced at 800x480 or at 1024x600 — only in the unspecified short-and-wide
+ * compact grammar, where four stacked gauges would otherwise clip a hero numeral in half.
+ */
+@container (max-width: 520px) {
+  .rc14-vitals {
+    grid-auto-rows: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rc14-fault-select {
+    grid-template-areas:
+      'system stamp'
+      'chip detail';
+  }
+}
+
+@container (max-height: 440px) {
+  .rc14-vital-value {
+    font-size: clamp(9px, calc(var(--rc14-type-vital, 5cqw) * 0.62), 34px);
+  }
+
+  .rc14-decision-word {
+    font-size: clamp(9px, calc(var(--rc14-type-decision, 5cqw) * 0.72), 40px);
+  }
+}
+
+@container (max-height: 420px) {
+  .rc14-fault-detail {
+    display: none;
+  }
+}
