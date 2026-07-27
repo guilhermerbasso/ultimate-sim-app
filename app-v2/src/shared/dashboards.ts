@@ -3621,6 +3621,90 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
+<<<<<<< HEAD
+=======
+    id: 'racecon_rc12_dash',
+    name: 'RaceCon RC-12 On Air',
+    widgetId: 'raceconRc12Dash',
+    description:
+      'Full-screen RC-12 audience-facing broadcast timing presentation: a ranked leaderboard band whose rows come only from the timing feed\u2019s own position channel, a featured-battle lower third built on the one interval this app genuinely measures, a neutral name badge that never prints an entrant because no identity channel exists, a session ribbon that dashes because no session-time or lap-count channel exists, an app-only measured gap-history graphic and driver tags carrying gap behind and best lap, and trigger-only fastest-lap, lead-change and position-change editorial highlights with a TIMING DELAY freeze when the feed goes stale.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'broadcast', 'timing', 'leaderboard'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc13_dash',
+    name: 'RaceCon RC-13 Hold Order',
+    widgetId: 'raceconRc13Dash',
+    description:
+      'Full-screen RC-13 safety-car and restart procedure page: a compliance status header, a dominant safety-car delta-window gauge that renders its three arithmetic zones but draws no marker until real SC-delta value and target channels exist, a measured queue gap to the car ahead, an explicit restart-state ladder, a muted racing-pace strip while the race is neutralised, and compliance-gated delta-window and restart-imminent alerts instead of race-pace thresholds.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'safety-car', 'restart', 'procedure'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc14_dash',
+    name: 'RaceCon RC-14 Triage',
+    widgetId: 'raceconRc14Dash',
+    description:
+      'Full-screen RC-14 live vehicle-health triage: a car-silhouette fault map with unmonitored zones held honestly grey, a prioritized fault list, oil/water/battery/oil-temperature vitals, per-corner brake and tyre status, and a continue/limp/pit decision derived only from real fault channels.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'telemetry', 'health', 'triage'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc15_dash',
+    name: 'RaceCon RC-15 On The Nose',
+    widgetId: 'raceconRc15Dash',
+    description:
+      'Full-screen RC-15 brake and chassis balance tuning page: a tipping balance beam whose angle is the computed chassis-balance index, flanked by front and rear brake-temperature pans, over the largest numeral in the frame — the brake bias — and a per-corner balance strip, with the index, the word and the corner scores all withheld unless steering, yaw rate and the lateral-G cornering gate are every one present and fresh.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'balance', 'brakes', 'setup'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc16_dash',
+    name: 'RaceCon RC-16 Learn Lines - Novice Coaching & Consistency',
+    widgetId: 'raceconRc16Dash',
+    description:
+      'Full-screen RC-16 novice coaching page: a consistency ring whose tightness is measured lap-time dispersion over a trailing three-lap window of genuinely observed laps, a throttle-smoothness index published only for laps observed from their first frame without a channel gap, a plain-language single-cue selector, and a calm delta and best-lap readout that fails closed rather than grading a partial lap.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'coaching', 'consistency', 'novice'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc17_dash',
+    name: 'RaceCon RC-17 High Line',
+    widgetId: 'raceconRc17Dash',
+    description:
+      'Full-screen RC-17 oval spotter-awareness page: a lane-occupancy band with debounced alongside and three-wide states, a proximity pack map drawn only from real relative-position channels, a race-control flag strip, a closing-rate readout, a lap clock and pace line, and tertiary channels that stay dark rather than being inferred.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'oval', 'spotter', 'awareness'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc18_dash',
+    name: 'RaceCon RC-18 Split Test',
+    widgetId: 'raceconRc18Dash',
+    description:
+      'Full-screen RC-18 setup A/B practice comparison: a mirrored split whose two sides are archived only from laps whose three sectors were genuinely measured, a central spine carrying the signed per-sector deltas between setup A and setup B, a stability band from observed lap dispersion, and a comparison trace that is absent rather than interpolated when a side has no complete lap.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'setup', 'comparison', 'practice'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc19_dash',
+    name: 'RaceCon RC-19 Hand Over',
+    widgetId: 'raceconRc19Dash',
+    description:
+      'Full-screen RC-19 endurance driver-swap handover: readiness gate, crew-confirmed swap checklist, car state at handover and the next-stint plan, with dashed honest states for every field the packet leaves unbacked.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'telemetry'],
+    scaleMode: 'stretch'
+  },
+  {
+    id: 'racecon_rc20_dash',
+    name: 'RaceCon RC-20 Lights Out',
+    widgetId: 'raceconRc20Dash',
+    description:
+      'Full-screen RC-20 formation, grid and start procedure: a start-light ladder decoded only from the one genuine start-system feed the app carries, a FORMATION → GRID → LAUNCH display-mode machine, a launch-RPM band and clutch-bite scale, a grid and formation strip, a tyre and brake warm-up module, a measured post-launch review, and three sequence-gated alerts that never simulate start lights.',
+    tags: ['racecon', 'dashboard', 'fullscreen', 'start', 'grid', 'formation'],
+    scaleMode: 'stretch'
+  },
+  {
+>>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',

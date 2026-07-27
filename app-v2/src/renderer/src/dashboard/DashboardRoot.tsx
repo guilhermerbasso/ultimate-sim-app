@@ -1755,7 +1755,11 @@ export interface DashboardCanvasRenderModel {
   scaleMode: DashboardScaleMode
 }
 
+<<<<<<< HEAD
 const RESPONSIVE_FULL_FRAME_WIDGET_IDS = new Set<string>(['raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash', 'raceconRc07Dash', 'raceconRc08Dash', 'raceconRc09Dash', 'raceconRc10Dash', 'raceconRc11Dash'])
+=======
+const RESPONSIVE_FULL_FRAME_WIDGET_IDS = new Set<string>(['raceconRc01Dash', 'raceconRc02Dash', 'raceconRc03Dash', 'raceconRc04Dash', 'raceconRc05Dash', 'raceconRc06Dash', 'raceconRc07Dash', 'raceconRc08Dash', 'raceconRc09Dash', 'raceconRc10Dash', 'raceconRc11Dash', 'raceconRc12Dash', 'raceconRc13Dash', 'raceconRc14Dash', 'raceconRc15Dash', 'raceconRc16Dash', 'raceconRc17Dash', 'raceconRc18Dash', 'raceconRc19Dash', 'raceconRc20Dash'])
+>>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
 
 function isResponsiveFullFrame(dashboard: Dashboard): boolean {
   if (dashboard.elements.length !== 1) return false

@@ -59,7 +59,17 @@ export type Rc20Layout = 'native' | 'app' | 'compact'
  * catalog, which is why these four files collide with no other artifact in flight.
  */
 export const RC20_WIDGET_ID = 'raceconRc20Dash'
-export const RC20_DASHBOARD_PRESET_ID = 'racecon-rc20-lights-out'
+/**
+ * Corrected by the catalog wiring PR from `racecon-rc20-lights-out`. That kebab-case value was the
+ * only non-snake_case id among the 31 embedded full-frame presets in `src/shared/dashboards.ts`, and
+ * the only RaceCon id not of the form `racecon_rcNN_dash` — RC-01 … RC-19 all use it. Nothing
+ * enforces the shape (`fileNameOf` keeps `-`, `STREAM_TARGET_SOURCE_ID` allows it) and kebab-case is
+ * used consistently by the unrelated R16 `race-first-*` / `race-chase-*` families, but the preset id
+ * is user-facing in three places — the persisted `<id>.json` filename, the `?dash=` query parameter,
+ * and the catalog search haystack, which does no `-`/`_` normalisation — so the divergence would have
+ * made RC-20 the one family member a `racecon_rc20` search could not find.
+ */
+export const RC20_DASHBOARD_PRESET_ID = 'racecon_rc20_dash'
 
 export const RC20_REGISTRATION = Object.freeze({
   /** `src/shared/overlays.ts` — new member of the `OverlayWidgetId` literal union. */

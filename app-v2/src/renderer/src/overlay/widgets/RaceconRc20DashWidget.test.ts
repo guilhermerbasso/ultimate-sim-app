@@ -257,7 +257,9 @@ describe('RC-20 registration facts for the catalog wiring PR', () => {
    */
   it('exports the exact literals the wiring PR must register', () => {
     expect(RC20_WIDGET_ID).toBe('raceconRc20Dash')
-    expect(RC20_DASHBOARD_PRESET_ID).toBe('racecon-rc20-lights-out')
+    // Corrected by the catalog wiring PR from `racecon-rc20-lights-out`: RC-01 … RC-19 all use
+    // `racecon_rcNN_dash`, and that value was the only hyphenated preset id in the catalogue.
+    expect(RC20_DASHBOARD_PRESET_ID).toBe('racecon_rc20_dash')
     expect(RC20_REGISTRATION.overlayWidgetId).toBe(RC20_WIDGET_ID)
     expect(RC20_REGISTRATION.presetId).toBe(RC20_DASHBOARD_PRESET_ID)
     expect(RC20_REGISTRATION.widgetComponent).toBe('RaceconRc20DashWidget')
