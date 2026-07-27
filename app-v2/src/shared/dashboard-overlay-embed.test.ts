@@ -30,8 +30,6 @@ const EMBEDDED: Array<{
   { id: 'racecon_rc09_dash', widgetId: 'raceconRc09Dash', name: 'RaceCon RC-09 Stage Time', family: 'racecon' },
   { id: 'racecon_rc10_dash', widgetId: 'raceconRc10Dash', name: 'RaceCon RC-10 Clear Sight', family: 'racecon' },
   { id: 'racecon_rc11_dash', widgetId: 'raceconRc11Dash', name: 'RaceCon RC-11 Trace Room', family: 'racecon' },
-<<<<<<< HEAD
-=======
   { id: 'racecon_rc12_dash', widgetId: 'raceconRc12Dash', name: 'RaceCon RC-12 On Air', family: 'racecon' },
   { id: 'racecon_rc13_dash', widgetId: 'raceconRc13Dash', name: 'RaceCon RC-13 Hold Order', family: 'racecon' },
   { id: 'racecon_rc14_dash', widgetId: 'raceconRc14Dash', name: 'RaceCon RC-14 Triage', family: 'racecon' },
@@ -41,7 +39,6 @@ const EMBEDDED: Array<{
   { id: 'racecon_rc18_dash', widgetId: 'raceconRc18Dash', name: 'RaceCon RC-18 Split Test', family: 'racecon' },
   { id: 'racecon_rc19_dash', widgetId: 'raceconRc19Dash', name: 'RaceCon RC-19 Hand Over', family: 'racecon' },
   { id: 'racecon_rc20_dash', widgetId: 'raceconRc20Dash', name: 'RaceCon RC-20 Lights Out', family: 'racecon' },
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
   { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
   { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
   { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' },

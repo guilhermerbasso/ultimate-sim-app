@@ -3621,8 +3621,6 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
-<<<<<<< HEAD
-=======
     id: 'racecon_rc12_dash',
     name: 'RaceCon RC-12 On Air',
     widgetId: 'raceconRc12Dash',
@@ -3704,7 +3702,6 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     scaleMode: 'stretch'
   },
   {
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
     id: 'hifi_ddu_cockpit',
     name: 'GT3 — DDU Cockpit (hi-fi)',
     widgetId: 'hifiDdu',

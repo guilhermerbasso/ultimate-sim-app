@@ -85,8 +85,6 @@ export type OverlayWidgetId =
   | 'raceconRc09Dash'
   | 'raceconRc10Dash'
   | 'raceconRc11Dash'
-<<<<<<< HEAD
-=======
   | 'raceconRc12Dash'
   | 'raceconRc13Dash'
   | 'raceconRc14Dash'
@@ -96,7 +94,6 @@ export type OverlayWidgetId =
   | 'raceconRc18Dash'
   | 'raceconRc19Dash'
   | 'raceconRc20Dash'
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
   | 'hifiDdu'
   | 'hifiEndurance'
   | 'hifiEngineer'

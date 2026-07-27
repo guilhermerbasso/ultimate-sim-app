@@ -1680,8 +1680,6 @@ describe('RC-11 full-frame preset lifecycle', () => {
   })
 })
 
-<<<<<<< HEAD
-=======
 describe('RC-12 full-frame preset lifecycle', () => {
   let userData: string
 
@@ -2083,7 +2081,6 @@ describe('RC-20 full-frame preset lifecycle', () => {
   })
 })
 
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
 describe('DashboardManager window replacement lifecycle', () => {
   let userData: string
   let manager: DashboardManager

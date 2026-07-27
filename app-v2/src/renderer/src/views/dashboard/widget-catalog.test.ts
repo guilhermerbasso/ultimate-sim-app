@@ -136,15 +136,10 @@ describe('rich-overlay catalog identity contract', () => {
   // Revised from 869 to 870 by the RaceCon RC-09 full-frame preset.
   // Revised from 870 to 871 by the RaceCon RC-10 full-frame preset.
   // Revised from 871 to 872 by the RaceCon RC-11 full-frame preset.
-<<<<<<< HEAD
-  it('contains exactly 871 widgetId and 838 hifiModuleId variants', () => {
-    expect(withWidgetId).toHaveLength(872)
-=======
   // Revised from 872 to 873 by the RaceCon RC-12 full-frame preset.
   // Revised from 873 to 881 by the RaceCon RC-13 … RC-20 full-frame presets (873 + 8).
   it('contains exactly 881 widgetId and 838 hifiModuleId variants', () => {
     expect(withWidgetId).toHaveLength(881)
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
     expect(withHifiModuleId).toHaveLength(838)
   })
 
@@ -435,13 +430,9 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     // Intentional manifest revision: 19 to 20 by the RaceCon RC-09 full-frame preset.
     // Intentional manifest revision: 20 to 21 by the RaceCon RC-10 full-frame preset.
     // Intentional manifest revision: 21 to 22 by the RaceCon RC-11 full-frame preset.
-<<<<<<< HEAD
-    expect(fullFrame.length).toBe(22)
-=======
     // Intentional manifest revision: 22 to 23 by the RaceCon RC-12 full-frame preset.
     // Intentional manifest revision: 23 to 31 by the RaceCon RC-13 … RC-20 full-frame presets (23 + 8).
     expect(fullFrame.length).toBe(31)
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
@@ -449,11 +440,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')
-<<<<<<< HEAD
-    expect(section?.variants.length).toBe(22)
-=======
     expect(section?.variants.length).toBe(31)
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
   })
 
   it('surfaces RaceCon RC-01 in the full-frame gallery and search taxonomy', () => {
@@ -624,8 +611,6 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     expect(variantToElement(rc11!, 0, 0).widgetId).toBe('raceconRc11Dash')
   })
 
-<<<<<<< HEAD
-=======
   it('surfaces RaceCon RC-12 in the full-frame gallery and search taxonomy', () => {
     const rc12 = ALL_VARIANTS.find((variant) => variant.id === 'dash-racecon_rc12_dash')
     expect(rc12).toMatchObject({
@@ -783,7 +768,6 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     expect(raceconFullFrame.slice().sort()).toEqual(expected.slice().sort())
   })
 
->>>>>>> 5c124a950b198c6b235603802bcf4999f8c63d91
   it('full-frame variants carry their widgetId through variantToElement', () => {
     const ff = ALL_VARIANTS.find((v) => v.cluster === 'Full-Frame Dashboards')
     expect(ff).toBeTruthy()
