@@ -381,14 +381,25 @@ The committed gallery and contact-sheet images are curated from those real-rende
 
 ## Hardware and firmware
 
-The reference ButtonBox uses:
+> [!CAUTION]
+> **`WIRING.*`, `BOM.*`, `docs/serial-protocol.md`, `simhub/custom_serial_bb.md`
+> and `firmware/buttonbox_v2|v3/` are QUARANTINED.** They contradict each other
+> and contradict the reference firmware pinout, and `WIRING.csv` assigns
+> CD74HC4067 physical pins 6, 7, 8 and 16 twice. **Do not build, order or flash
+> from them** until a qualified person completes an electrical review.
+> The conflicts, with citations, are recorded in
+> [`docs/HARDWARE-QUARANTINE.md`](docs/HARDWARE-QUARANTINE.md).
 
-- Arduino Pro Micro / Leonardo-compatible ATmega32U4 board
-- 6 EC11 rotary encoders with push buttons
-- SSD1306 OLED display
-- CD74HC4067 multiplexer
+The reference ButtonBox firmware is [`firmware/sim-x-reference/`](firmware/sim-x-reference/README.md),
+whose `pinout.h` declares **3× CD74HC4067, 4 rotary encoders, an SSD1306 OLED
+and WS2812B rev lights on `D10`** on an Arduino Pro Micro (ATmega32U4). The
+quarantined `WIRING.csv`/`BOM.csv` describe a different, incompatible topology
+(1 multiplexer, 6 encoders, no rev lights); which one is correct is an open
+decision for the maintainer and an electrical reviewer.
 
-Firmware and wiring docs live under `firmware/`, `docs/`, `simhub/`, `BOM.*`, and `WIRING.*`.
+The current serial protocols are the SIM-X / SimHub one-letter protocol
+(`app-v2/src/main/protocol.ts`) and companion v2
+(`app-v2/src/shared/companion.ts`, `firmware/companion/PROTOCOL.md`).
 
 ---
 
