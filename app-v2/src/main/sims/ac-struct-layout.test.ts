@@ -249,6 +249,12 @@ describe('decoding a sentinel page through the production struct', () => {
       graphics: { view: graphics, close: () => undefined },
       staticInfo: { view: { smVersion: '1.7' }, close: () => undefined }
     })
+    // AC and ACC share `Local\acpmf_*`, so isConnected() now gates on identity. AC's
+    // smVersion 1.7 classifies as `ambiguous` — acpmf-identity.ts deliberately has no
+    // positive test for AC — and an ambiguous page is claimed only under an explicit
+    // selection. That is exactly how a real AC session reaches poll(), so the harness
+    // has to reach it the same way instead of relying on auto-detection.
+    provider.setSelectionMode('explicit')
 
     const snapshot = provider.poll()
     expect(snapshot?.lapDistPct).toBeCloseTo(SENTINELS.normalizedCarPosition, 5)
