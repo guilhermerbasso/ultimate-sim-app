@@ -12,6 +12,7 @@
     "dev": "electron-vite dev",
     "dist:win": "bash scripts/fetch-win-cloudflared.sh && bash scripts/fetch-win-llama.sh && bash scripts/fetch-win-whisper.sh && bash scripts/fetch-win-sherpa.sh && bash scripts/verify-win-tts.sh && (bash scripts/fetch-win-sharp.sh || true) && npm run build && bash scripts/fetch-win-cloudflared.sh --verify && electron-builder --win --publish never",
     "verify:win-package": "bash scripts/fetch-win-cloudflared.sh --verify-package",
+    "verify:release-artifacts": "node scripts/verify-release-artifacts.mjs",
     "test": "npm run test:unit && npm run test:ledger-performance",
     "test:unit": "vitest run --exclude src/shared/visual-artifact-ledger/performance.test.ts",
     "test:ledger-performance": "vitest run src/shared/visual-artifact-ledger/performance.test.ts --maxWorkers=1 --no-file-parallelism",
