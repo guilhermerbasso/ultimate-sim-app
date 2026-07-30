@@ -22,6 +22,22 @@ const DEFAULT_PROVIDER_POLL_RATE_HZ = 60
 const MIN_RATE_HZ = 1
 const MAX_RATE_HZ = 120
 
+/**
+ * How often a provider that should be running but is not connected is torn down and
+ * re-opened. Shared-memory providers (ACC/AC/AMS2/LMU) can only attach to a mapping
+ * that already exists, so a sim launched AFTER the app would never be picked up
+ * without this retry — start() was previously called exactly once, at source change.
+ */
+const RECONNECT_INTERVAL_MS = 2000
+
+/**
+ * A provider that still reports `isConnected()` but has returned null for this many
+ * consecutive polls is recycled. ACC/AC/AMS2/LMU keep their mapping handle open after
+ * the sim exits, so `isConnected()` stays true against a dead mapping and the app
+ * needed a restart before it could attach to the relaunched sim.
+ */
+export const STALE_POLL_LIMIT = 90
+
 // Dispatch a value to each listener in ISOLATION. Node's EventEmitter.emit() stops
 // as soon as one listener throws — which would let a single bad telemetry subscriber
 // (a coaching/predictions module, or a swallowed serial write) starve every later
@@ -56,6 +72,8 @@ export class TelemetryHub extends EventEmitter {
   private broadcastedVersion = -1
   private sourceChangeQueue: Promise<void> = Promise.resolve()
   private resettingProviders = new Set<SimId>()
+  private reconnectTimer: ReturnType<typeof setInterval> | null = null
+  private stalePolls = new Map<SimId, number>()
 
   constructor() {
     super()
@@ -127,21 +145,59 @@ export class TelemetryHub extends EventEmitter {
       if (!this.pollTimer) {
         this.pollTimer = setInterval(() => this.tick(), Math.round(1000 / this.providerPollRateHz))
       }
+      if (!this.reconnectTimer) {
+        this.reconnectTimer = setInterval(() => this.reconnectIdleProviders(), RECONNECT_INTERVAL_MS)
+      }
       if (!this.broadcastTimer) this.restartBroadcastTimer()
     } else {
       if (this.pollTimer) {
         clearInterval(this.pollTimer)
         this.pollTimer = null
       }
+      if (this.reconnectTimer) {
+        clearInterval(this.reconnectTimer)
+        this.reconnectTimer = null
+      }
       if (this.broadcastTimer) {
         clearInterval(this.broadcastTimer)
         this.broadcastTimer = null
       }
+      this.stalePolls.clear()
       this.active = 'none'
       this.latest = null
       this.latestVersion += 1
       this.emitIsolated('sample', null)
       this.emitSnapshotNow(null)
+    }
+  }
+
+  /** Providers that should be attached for the current source. */
+  private wantedProviders(): TelemetryProvider[] {
+    if (this.source === 'off') return []
+    if (this.source === 'auto') {
+      return [...this.providers.entries()].filter(([id]) => id !== 'mock').map(([, provider]) => provider)
+    }
+    const provider = this.providers.get(this.source as SimId)
+    return provider ? [provider] : []
+  }
+
+  /**
+   * Re-attach every provider that should be running but is not connected. A
+   * shared-memory provider can only open a mapping that already exists, so without
+   * this a simulator launched after the app — or relaunched after being closed — was
+   * never picked up and the user had to restart the whole app.
+   */
+  private reconnectIdleProviders(): void {
+    for (const provider of this.wantedProviders()) {
+      let connected = false
+      try {
+        connected = provider.isConnected()
+      } catch {
+        connected = false
+      }
+      if (connected) continue
+      this.stalePolls.delete(provider.id)
+      this.resetProvider(provider)
     }
   }
 
@@ -179,12 +235,26 @@ export class TelemetryHub extends EventEmitter {
       snapshot = provider.poll()
     } catch {
       this.resetProvider(provider)
+      this.stalePolls.delete(provider.id)
       this.active = 'none'
       this.latest = null
       this.latestVersion += 1
       this.emitIsolated('sample', null)
       this.emitSnapshotNow(null)
       return
+    }
+    // A provider that still claims to be connected but has stopped producing samples is
+    // holding a dead mapping: the sim exited without us noticing. Recycle it so the next
+    // launch of that sim can be attached to, instead of requiring an app restart.
+    if (snapshot === null) {
+      const stale = (this.stalePolls.get(provider.id) ?? 0) + 1
+      this.stalePolls.set(provider.id, stale)
+      if (stale >= STALE_POLL_LIMIT) {
+        this.stalePolls.delete(provider.id)
+        this.resetProvider(provider)
+      }
+    } else {
+      this.stalePolls.delete(provider.id)
     }
     this.active = provider.id
     this.latest = snapshot
@@ -221,6 +291,11 @@ export class TelemetryHub extends EventEmitter {
     )
   }
 
+  /**
+   * Release and re-acquire a provider's resources. `stop()` first is essential: the
+   * shared-memory providers early-return from `start()` while a handle is still held,
+   * so a stale handle would otherwise block every reconnection attempt forever.
+   */
   private resetProvider(provider: TelemetryProvider): void {
     if (this.resettingProviders.has(provider.id)) return
     this.resettingProviders.add(provider.id)
