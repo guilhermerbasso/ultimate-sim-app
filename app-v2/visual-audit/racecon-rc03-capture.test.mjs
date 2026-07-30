@@ -297,7 +297,10 @@ test("an element that escapes its zone or the frame fails closed", () => {
   assertRejects((metrics) => { metrics.values[0].rect = measured(rect(760, 60, 90, 96)) }, /gear value is not contained/u)
 })
 
-test("an unrecorded overflow fails and a recorded one is reported with its measurement", () => {
+test("every measured overflow now fails closed, because the defect ledger is empty", () => {
+  // The compact-phone overruns this ledger used to record are fixed, so there is no waiver left
+  // for the sweep to consult: an overflow at any viewport, in any state, on any leaf, fails.
+  assert.deepEqual(RC03_SPEC.knownDefects, [])
   assertRejects(
     (metrics) => {
       metrics.overflowLeaves = [
@@ -306,18 +309,48 @@ test("an unrecorded overflow fails and a recorded one is reported with its measu
     },
     /paints 30px wider than its 60px box/u
   )
+  // The exact leaf the shipped build overran at compact phone, at the exact measured size.
   const phone = RC03_CAPTURE_MATRIX.find((entry) => entry.state === "silent" && entry.size.width === 393)
   const metrics = nativeMetrics()
   metrics.overflowLeaves = [
     { key: "rc03-value rc03-delta", text: "-0.112", fontSize: 43.23, whiteSpace: "nowrap", clientWidth: 100, scrollWidth: 115, overflowX: 15, textLeft: 61.86, textRight: 176.81 }
   ]
-  const audit = validateCaptureMetrics(withSize(metrics, phone), phone)
-  assert.equal(audit.knownDefects.length, 1)
-  assert.equal(audit.knownDefects[0].overflowX, 15)
-  assert.match(audit.knownDefects[0].note, /collides with the speed cell/u)
-  // The ledger records a measurement, not a blanket exemption: a defect that grows still fails.
-  metrics.overflowLeaves[0].overflowX = 40
-  assert.throws(() => validateCaptureMetrics(withSize(metrics, phone), phone), /past the 20px recorded/u)
+  assert.throws(
+    () => validateCaptureMetrics(withSize(metrics, phone), phone),
+    /rc03-value rc03-delta "-0\.112" paints 15px wider than its 100px box/u
+  )
+  // A single pixel is enough: there is no budget to grow into.
+  metrics.overflowLeaves[0] = { ...metrics.overflowLeaves[0], overflowX: 1, scrollWidth: 101 }
+  assert.throws(() => validateCaptureMetrics(withSize(metrics, phone), phone), /paints 1px wider/u)
+})
+
+test("a numeral that paints into the next pace cell fails even when scrollWidth says it fits", () => {
+  // The defect `scrollWidth` cannot see. `white-space: nowrap` sizes the delta box to its own
+  // glyphs, so the leaf sweep reports nothing while the glyphs still cross into the speed cell.
+  const phone = RC03_CAPTURE_MATRIX.find((entry) => entry.state === "silent" && entry.size.width === 393)
+  const overpainted = withSize(nativeMetrics(), phone)
+  const delta = overpainted.values[1]
+  delta.textRect = { ...delta.rect, width: delta.rect.width + 6 }
+  assert.equal(overpainted.overflowLeaves.length, 0)
+  assert.ok(delta.textRect.left + delta.textRect.width > delta.rect.left + delta.rect.width)
+  assert.ok(delta.textRect.left + delta.textRect.width < overpainted.values[2].rect.left)
+  assert.throws(() => validateCaptureMetrics(overpainted, phone), /paints 6\.00px past its own cell/u)
+
+  // And the pure collision: a numeral that fits its own cell but still reaches the next one.
+  const touching = withSize(nativeMetrics(), phone)
+  const shifted = rect(
+    touching.values[2].rect.left - touching.values[1].rect.width + 4.5,
+    touching.values[1].rect.top,
+    touching.values[1].rect.width,
+    touching.values[1].rect.height
+  )
+  touching.values[1].rect = measured(shifted)
+  touching.values[1].textRect = shifted
+  assert.equal(touching.overflowLeaves.length, 0)
+  assert.throws(
+    () => validateCaptureMetrics(touching, phone),
+    /while the speed cell begins at x=.*the pace band's cells collide/u
+  )
 })
 
 function withSize(metrics, entry) {
@@ -347,11 +380,13 @@ function withSize(metrics, entry) {
   scaled.ribbon = { ...metrics.ribbon, rect: rect(0, 0, 100, 10), fill: rect(0, 0, 100 * RC03_EXPECTED_RIBBON_FILL, 10) }
   scaled.fuelBar = { ...metrics.fuelBar, rect: rect(0, 0, 100, 10), fill: rect(0, 0, 100 * RC03_EXPECTED_FUEL_FILL, 10) }
   scaled.alarmLineRect = metrics.alarmLineRect ? rect(vitalsZone.left, vitalsZone.top, 4, 4) : null
-  scaled.values = metrics.values.map((candidate) => ({
-    ...candidate,
-    rect: measured(rect(0, 0, 40, 40)),
-    textRect: rect(0, 0, 40, 40)
-  }))
+  scaled.values = metrics.values.map((candidate, index) => {
+    // Lay the readouts out side by side rather than stacking them all at the origin: the
+    // pace-band collision guard compares one cell's painted glyphs against the NEXT cell's box,
+    // so a degenerate fixture would make every capture look like a collision.
+    const box = rect(index * 50, 0, 40, 40)
+    return { ...candidate, rect: measured(box), textRect: box }
+  })
   return scaled
 }
 

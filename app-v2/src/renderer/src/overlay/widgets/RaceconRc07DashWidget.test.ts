@@ -427,8 +427,12 @@ describe('RC-07 packet zone geometry', () => {
   it('uses the packet 12.1 coordinates for the app canvas and reveals the tower', () => {
     expect(RC07_APP_ZONES.radar).toEqual({ left: 2.3, top: 8.0, width: 44.9, height: 84.0 })
     expect(RC07_APP_ZONES.behind).toEqual({ left: 49.2, top: 8.0, width: 29.3, height: 28.3 })
-    expect(RC07_APP_ZONES.ahead).toEqual({ left: 49.2, top: 38.7, width: 29.3, height: 25.0 })
-    expect(RC07_APP_ZONES.self).toEqual({ left: 49.2, top: 66.0, width: 29.3, height: 26.0 })
+    // ahead and self swap one point against 12.1's literal percentages: taken literally the
+    // ahead strip renders shorter than the self strip, inverting behind > ahead > self.
+    expect(RC07_APP_ZONES.ahead).toEqual({ left: 49.2, top: 38.7, width: 29.3, height: 26.0 })
+    expect(RC07_APP_ZONES.self).toEqual({ left: 49.2, top: 67.0, width: 29.3, height: 25.0 })
+    expect(RC07_APP_ZONES.behind.height).toBeGreaterThan(RC07_APP_ZONES.ahead.height)
+    expect(RC07_APP_ZONES.ahead.height).toBeGreaterThan(RC07_APP_ZONES.self.height)
     expect(RC07_APP_ZONES.tower).toEqual({ left: 80.1, top: 8.0, width: 17.6, height: 84.0 })
   })
 

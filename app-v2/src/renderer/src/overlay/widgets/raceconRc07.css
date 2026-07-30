@@ -556,6 +556,11 @@
   font-size: clamp(14px, 2.6cqw, 30px);
 }
 
+/* Badge in the gap panels uses 2.4cqw so it stays below the 2.6cqw self-value at 1024px. */
+.rc07-widget[data-rc07-layout='app'] .rc07-gap .rc07-class-badge {
+  font-size: clamp(11px, 2.4cqw, 24px);
+}
+
 /* ---------------------------------------------------------------- compact: phone */
 
 .rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='phone'] .rc07-radar-plot {
@@ -571,7 +576,8 @@
 }
 
 .rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='phone'] .rc07-class-badge {
-  font-size: clamp(11px, 4.5cqw, 22px);
+  /* Use 3.8cqw (not 4.5cqw) so the badge stays below the self-value (4.5cqw) at all phone widths. */
+  font-size: clamp(11px, 3.8cqw, 22px);
 }
 
 /* The soft-key target stays at the accessible minimum on a touch canvas. */
@@ -587,6 +593,11 @@
 
 .rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='landscape'] .rc07-self .rc07-value {
   font-size: clamp(13px, 3cqw, 26px);
+}
+
+/* Badge uses 2.6cqw so it stays below the 3cqw self-value at all landscape widths (650–1022px). */
+.rc07-widget[data-rc07-layout='compact'][data-rc07-compact-mode='landscape'] .rc07-class-badge {
+  font-size: clamp(11px, 2.6cqw, 24px);
 }
 
 /* ---------------------------------------------------------------- reduced motion */

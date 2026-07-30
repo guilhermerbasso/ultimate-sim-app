@@ -109,49 +109,18 @@ export const RC03_SPEC = Object.freeze({
     Object.freeze(["an engine-speed numeral", '[data-channel="rpm"], [data-rc03-zone="rpm"], .rc03-rpm'])
   ]),
   /**
-   * Measured render defects in the shipped RC-03 build, recorded rather than suppressed.
+   * The defect ledger is EMPTY, so every measured overflow now fails closed.
    *
-   * The compact-phone pace band reserves `padding-right: 36%` for the stint clock, which shrinks
-   * the delta and speed cells, but the type scale is still sized from `cqw` on the FULL container
-   * width. The delta numeral therefore paints 15px wider than its 100px cell and its glyphs reach
-   * x=176.8 while the speed cell begins at x=172.3 — a real ~4.5px collision that jsdom,
-   * `scrollWidth` on the band and the green unit suite all pass, because `white-space: nowrap`
-   * sizes the numeral to its own text. Both landscape compact viewports, the native canvas and
-   * the app reflow are clean.
-   *
-   * Each budget is the measured overflow plus a small allowance for font-metric variation, so a
-   * defect that grows, spreads to another breakpoint or appears on another element still fails.
+   * It used to record four compact-phone overruns: the delta numeral paid 15px past its 100px
+   * cell and its glyphs reached x=176.8 while the speed cell began at x=172.3 — a real ~4.5px
+   * collision — with speed (+3..4px), the fuel-laps hero (+3px) and the unit labels (+1..2px)
+   * alongside it. The cause was a pace band that reserved a flat `padding-right: 36%` for a stint
+   * clock only 32% wide while the type scale was still sized from `cqw` on the FULL container
+   * width. The gutter is now derived from the clock, the portrait cell shares are budgeted from
+   * what each cell must paint, the delta step is 9cqw and a unit no longer shrinks below its own
+   * text. Deleting the ledger is the regression guard: any recurrence is unrecorded and fails.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "rc03-value rc03-delta",
-      states: Object.freeze(["silent", "oil-alarm"]),
-      sizes: Object.freeze(["393x759", "412x867"]),
-      budgetPx: 20,
-      note: "compact-phone delta numeral overruns its cell and collides with the speed cell"
-    }),
-    Object.freeze({
-      key: "rc03-value rc03-speed",
-      states: Object.freeze(["silent", "oil-alarm"]),
-      sizes: Object.freeze(["393x759", "412x867"]),
-      budgetPx: 8,
-      note: "compact-phone speed numeral overruns its cell"
-    }),
-    Object.freeze({
-      key: "rc03-value rc03-fuel-laps",
-      states: Object.freeze(["silent", "oil-alarm"]),
-      sizes: Object.freeze(["393x759", "412x867"]),
-      budgetPx: 8,
-      note: "compact-phone fuel-laps hero overruns its cell"
-    }),
-    Object.freeze({
-      key: "rc03-unit",
-      states: Object.freeze(["silent", "oil-alarm"]),
-      sizes: Object.freeze(["393x759", "412x867"]),
-      budgetPx: 5,
-      note: "compact-phone unit labels overrun their boxes alongside the numerals they annotate"
-    })
-  ])
+  knownDefects: Object.freeze([])
 })
 
 export const RC03_CAPTURE_MATRIX = Object.freeze(
@@ -388,6 +357,44 @@ function assertTypeScale(metrics) {
   ])
 }
 
+export const RC03_CELL_TOLERANCE_PX = 0.5
+
+/**
+ * The regression guard for the compact-phone pace-band collision.
+ *
+ * Neither the leaf sweep nor `scrollWidth` is enough on its own here. `white-space: nowrap` sizes
+ * a numeral to its own text, so a cell can be exactly as wide as its glyphs — `scrollWidth ===
+ * clientWidth`, zero reported overflow — while the NEXT cell begins to the left of where those
+ * glyphs stop painting. Only the RANGE rectangle against the neighbouring cell's layout box sees
+ * that, so the two readouts either side of the reserved clock gutter are compared directly.
+ */
+function assertReadoutsPaintInsideTheirCells(metrics) {
+  for (const value of metrics.values ?? []) {
+    if (!value.present || value.display === "none") continue
+    const paintedRight = finite(value.textRect.left, `${value.label} text left`) + value.textRect.width
+    const cellRight = finite(value.rect.left, `${value.label} cell left`) + value.rect.width
+    if (paintedRight - cellRight > RC03_CELL_TOLERANCE_PX) {
+      fail(
+        `the ${value.label} readout "${value.text}" paints ${(paintedRight - cellRight).toFixed(2)}px past its own ` +
+          `cell (glyphs reach x=${paintedRight.toFixed(2)}, cell ends at x=${cellRight.toFixed(2)})`
+      )
+    }
+    if (value.rect.left - value.textRect.left > RC03_CELL_TOLERANCE_PX) {
+      fail(`the ${value.label} readout "${value.text}" paints past the left edge of its own cell`)
+    }
+  }
+
+  const delta = valueOf(metrics, "delta")
+  const speed = valueOf(metrics, "speed")
+  const deltaRight = delta.textRect.left + delta.textRect.width
+  if (deltaRight > speed.rect.left - RC03_CELL_TOLERANCE_PX) {
+    fail(
+      `the delta numeral "${delta.text}" reaches x=${deltaRight.toFixed(2)} while the speed cell begins at ` +
+        `x=${speed.rect.left.toFixed(2)}: the pace band's cells collide`
+    )
+  }
+}
+
 export function validateCaptureMetrics(metrics, entry) {
   const common = validateCommonMetrics(metrics, entry, RC03_SPEC)
   if (metrics.stateAttributes.brightness !== "night") {
@@ -404,6 +411,7 @@ export function validateCaptureMetrics(metrics, entry) {
   assertAlertSurfaces(metrics, entry)
   assertAppOnlyReveals(metrics, entry)
   assertMeasuredValues(metrics)
+  assertReadoutsPaintInsideTheirCells(metrics)
   return { ...common, typeScale: assertTypeScale(metrics) }
 }
 

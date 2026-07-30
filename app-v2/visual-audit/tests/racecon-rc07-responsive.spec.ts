@@ -269,13 +269,10 @@ for (const size of viewports) {
         }
       }
 
-      // Zone height ordering: behind > ahead > self (governance evidence, normative)
-      // Known defects (see RC07_SPEC.knownDefects):
-      //  compact/phone: behind and ahead are SIDE-BY-SIDE with equal height (design choice:
+      // Zone height ordering: behind > ahead >= self (normative, no exemptions).
+      // compact/phone: behind and ahead are SIDE-BY-SIDE with equal height (design choice:
       //    single `--rc07-phone-gap-height` token), skip the between-gap check.
-      //  app + compact/landscape: ahead may be shorter than self; tolerate within budgets.
       const isCompactPhone = size.compactMode === 'phone'
-      const isCompactLandscape = size.compactMode === 'landscape'
       const behind = geometry.zones.find((z) => z.name === 'rc07-behind')
       const ahead  = geometry.zones.find((z) => z.name === 'rc07-ahead')
       const self   = geometry.zones.find((z) => z.name === 'rc07-self')
@@ -283,12 +280,7 @@ for (const size of viewports) {
         if (!isCompactPhone) {
           expect(behind.rect.height, 'behind must be taller than ahead').toBeGreaterThan(ahead.rect.height)
         }
-        const aheadSelfDelta = self.rect.height - ahead.rect.height
-        if (aheadSelfDelta > 0) {
-          // ahead < self: only tolerated within the per-layout budget.
-          const budget = size.layout === 'app' ? 8 : isCompactLandscape ? 9 : 0
-          expect(aheadSelfDelta, `ahead must be taller than self (known defect budget ${budget}px)`).toBeLessThanOrEqual(budget)
-        }
+        expect(ahead.rect.height, 'ahead must be at least as tall as self').toBeGreaterThanOrEqual(self.rect.height)
       }
 
       // Tower: absent from DOM in native and compact; present and visible only in app
@@ -301,28 +293,20 @@ for (const size of viewports) {
         expect(tower?.present).toBe(false)
       }
 
-      // Type scale: gap value > self value > class badge > label
-      // Known defects: badge may equal or exceed self-value in compact/phone (tie, budget 0.5px),
-      // app and compact/landscape (inversion, budgets 2px and 4px respectively).
+      // Type scale: gap value > self value > class badge > label, strict order, ≥1px step each tier.
       const scale = geometry.values
       if (scale.length >= 2) {
-        // gap > self-value: always strict
         expect(scale[0].fontSize, `${scale[0].label} must be strictly larger than ${scale[1].label}`).toBeGreaterThan(scale[1].fontSize)
+        expect(scale[0].fontSize - scale[1].fontSize, `step ${scale[0].label}→${scale[1].label} must be ≥1px`).toBeGreaterThanOrEqual(1.0)
       }
       if (scale.length >= 3) {
-        // self-value vs class-badge: budget-aware per layout
-        const selfBadgeDelta = scale[2].fontSize - scale[1].fontSize  // positive if badge > self
-        const tsBudget = size.layout === 'app' ? 2.0
-          : isCompactPhone    ? 0.5
-          : isCompactLandscape ? 4.0
-          : -0.001  // native: selfBadgeDelta must be negative (strict hierarchy, no tie)
-        expect(selfBadgeDelta,
-          `${scale[1].label} must be larger than ${scale[2].label} (budget ${tsBudget}px)`
-        ).toBeLessThan(tsBudget + 0.001)
+        // self-value must strictly exceed class-badge with at least 1px step (no budgets, no ties).
+        expect(scale[1].fontSize, `${scale[1].label} must be strictly larger than ${scale[2].label}`).toBeGreaterThan(scale[2].fontSize)
+        expect(scale[1].fontSize - scale[2].fontSize, `step ${scale[1].label}→${scale[2].label} must be ≥1px`).toBeGreaterThanOrEqual(1.0)
       }
       if (scale.length >= 4) {
-        // badge > label: always strict
         expect(scale[2].fontSize, `${scale[2].label} must be strictly larger than ${scale[3].label}`).toBeGreaterThan(scale[3].fontSize)
+        expect(scale[2].fontSize - scale[3].fontSize, `step ${scale[2].label}→${scale[3].label} must be ≥1px`).toBeGreaterThanOrEqual(1.0)
       }
 
       // App-only cells visible only at 1024×600
