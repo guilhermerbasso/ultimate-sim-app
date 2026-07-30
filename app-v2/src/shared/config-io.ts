@@ -121,6 +121,7 @@ export const CONFIG_SECTIONS: readonly ConfigSectionDescriptor[] = [
   { id: 'pinout-designs', label: 'Firmware pinouts', kind: 'file', path: 'pinout-designs.json' },
   { id: 'custom-catalog', label: 'Custom board catalog', kind: 'file', path: 'custom-catalog.json' },
   { id: 'simx-identity', label: 'Primary SIM-X identity', kind: 'file', path: 'simx-primary-identity.json' },
+  { id: 'simx-enrollment', label: 'SIM-X hardware enrolment', kind: 'file', path: 'simx-enrollment.json' },
   { id: 'actions', label: 'Actions & keyboard mappings', kind: 'file', path: 'actions-bindings.json' },
   { id: 'expressions', label: 'Expressions', kind: 'file', path: 'expressions.json' },
   { id: 'output-routes', label: 'Output routing', kind: 'file', path: 'output-routes.json' },

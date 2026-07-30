@@ -20,6 +20,7 @@ import { registerModules, type RegisteredModules } from './modules'
 import { ProfileStore } from './profiles'
 import { SerialHub } from './serial/hub'
 import { SerialManager } from './serial-manager'
+import { enrollSimXFromPort } from './serial-devices/simx-enrollment-store'
 import { TelemetryHub } from './telemetry/hub'
 import { Phase02TapKernel } from './phase02/tap-kernel'
 import { isBenignSerialError, serialErrorMessage } from './serial/errors'
@@ -316,10 +317,45 @@ function buildModuleContext(): ModuleContext {
   }
 }
 
+// Record the USB identity of the board the user just connected by hand, so the
+// auto-start loop can recognise exactly that board later. Best-effort: a failure
+// here only means auto-connect stays quarantined, which is the safe direction.
+async function enrollConnectedSimX(path: string): Promise<void> {
+  try {
+    const port = (await serialManager.listPorts()).find((entry) => entry.path === path)
+    const enrollment = enrollSimXFromPort(app, port)
+    if (enrollment) {
+      logger.info('serial', 'SIM-X board enrolled from a manual connect', {
+        vendorId: enrollment.vendorId,
+        productId: enrollment.productId,
+        hasSerialNumber: Boolean(enrollment.serialNumber),
+        path
+      })
+    } else {
+      logger.warn('serial', 'SIM-X board exposes no USB vendor/product id — auto-connect stays quarantined', {
+        path
+      })
+    }
+  } catch (error) {
+    logger.warn('serial', 'SIM-X enrolment failed', {
+      path,
+      message: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
 function registerIpcHandlers(): void {
   // ─── Device protocol (new SIM-X / SimHub) ──────────────────────────────────
   ipcMain.handle('buttonbox:listPorts', () => serialManager.listPorts())
-  ipcMain.handle('buttonbox:connect', (_event, path: string) => serialManager.connect(path))
+  // The ONLY place a SIM-X board becomes enrolled. This handler is raised by the
+  // Connect button, so reaching it means a human deliberately chose this port;
+  // recording its USB identity here is what later authorises auto-connect
+  // (P0-09/P1-14). The auto-start loop must never write an enrolment itself.
+  ipcMain.handle('buttonbox:connect', async (_event, path: string) => {
+    const info = await serialManager.connect(path)
+    await enrollConnectedSimX(path)
+    return info
+  })
   ipcMain.handle('buttonbox:disconnect', () => serialManager.disconnect())
   ipcMain.handle('buttonbox:sendOled', (_event, line1: string, line2: string, line3: string) =>
     serialManager.sendOled(line1, line2, line3)
