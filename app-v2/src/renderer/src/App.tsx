@@ -23,6 +23,8 @@ import { UpdateBanner } from './components/UpdateBanner'
 import { ReportBugButton } from './components/ReportBugButton'
 import { CheckUpdatesButton } from './components/CheckUpdatesButton'
 import { AccessibilityCueLayer } from './components/AccessibilityCueLayer'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { ErrorRecoveryPanel } from './components/ErrorRecoveryPanel'
 import { OnboardingFlow } from './onboarding/OnboardingFlow'
 import { TutorialLauncherButton } from './onboarding/TutorialLauncherButton'
 import { TutorialOverlay } from './onboarding/TutorialOverlay'
@@ -45,6 +47,7 @@ import {
 } from './i18n'
 import './styles/navigation.css'
 import './styles/accessibility-cues.css'
+import './styles/error-recovery.css'
 import { APP_NAVIGATE_EVENT, type AppNavigateDetail } from './lib/app-navigation'
 
 type ToastTone = 'success' | 'error' | 'info'
@@ -568,16 +571,29 @@ function App(): ReactElement {
           </header>
 
           <div className="view-stage">
-            <Suspense fallback={(
-              <div className="nav-loading-state" role="status">
-                <div className="nav-loading-card">
-                  <div className="nav-loading-pulse" aria-hidden="true" />
-                  <strong>{t(language, 'loadingScreen')}</strong>
+            <ErrorBoundary
+              scope={activeId}
+              resetKey={activeId}
+              fallback={(fallbackProps) => (
+                <ErrorRecoveryPanel
+                  {...fallbackProps}
+                  variant="view"
+                  title={`${current.label} could not be displayed`}
+                  detail="The rest of the app is still running — pick another screen from the sidebar, or try this one again."
+                />
+              )}
+            >
+              <Suspense fallback={(
+                <div className="nav-loading-state" role="status">
+                  <div className="nav-loading-card">
+                    <div className="nav-loading-pulse" aria-hidden="true" />
+                    <strong>{t(language, 'loadingScreen')}</strong>
+                  </div>
                 </div>
-              </div>
-            )}>
-              <Active {...viewProps} />
-            </Suspense>
+              )}>
+                <Active {...viewProps} />
+              </Suspense>
+            </ErrorBoundary>
           </div>
         </section>
 
