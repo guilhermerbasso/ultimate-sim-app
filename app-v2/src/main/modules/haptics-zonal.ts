@@ -22,6 +22,7 @@ import type { ModuleContext } from '../module-context'
 import type { SerialDevice } from '../serial/device'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { formatBuzzer } from '../../shared/companion'
+import { silenceHapticActuator } from './haptics-output-safety'
 import { logger } from './logger'
 import {
   DEFAULT_HAPTICS_ZONAL_CONFIG,
@@ -43,9 +44,15 @@ const CONFIG_FILE = 'haptics-zonal.json'
 let config: HapticsZonalConfig = DEFAULT_HAPTICS_ZONAL_CONFIG
 let previousSnapshot: TelemetrySnapshot | null = null
 let lastBuzzAt = 0
+// P0-10: latched after the quit safe-off; a late snapshot must not re-energise.
+let outputsLatchedOff = false
+// One silence frame per telemetry outage, not one per dropped snapshot.
+let silencedForTelemetryLoss = false
 
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
+  outputsLatchedOff = false
+  silencedForTelemetryLoss = false
 
   void loadConfig(configPath).then((loaded) => {
     config = loaded
@@ -80,6 +87,31 @@ export function register(ctx: ModuleContext): void {
     if (device) sendBuzz(device, peakZone(frame), config.arduino.frequencyHz)
     return frame
   })
+
+  ctx.app.once('before-quit', () => {
+    void safeOff(ctx)
+  })
+}
+
+// ─── Safe-off (P0-10) ─────────────────────────────────────────────────────────
+
+/**
+ * Drive the zonal actuator to its off state and latch it there. Runs in the
+ * ordered quit teardown's bounded output-off stage, before the serial drain.
+ * Idempotent and never throws.
+ */
+export async function safeOff(ctx: ModuleContext): Promise<void> {
+  outputsLatchedOff = true
+  previousSnapshot = null
+  lastBuzzAt = 0
+  await silenceHapticActuator(resolveBuzzerDevice(ctx))
+}
+
+async function deEnergiseOnTelemetryLoss(ctx: ModuleContext): Promise<void> {
+  if (silencedForTelemetryLoss || outputsLatchedOff) return
+  silencedForTelemetryLoss = true
+  lastBuzzAt = 0
+  await silenceHapticActuator(resolveBuzzerDevice(ctx))
 }
 
 // ─── Telemetry → optional serial buzzer ───────────────────────────────────────
@@ -87,8 +119,11 @@ export function register(ctx: ModuleContext): void {
 function processSnapshot(ctx: ModuleContext, snapshot: TelemetrySnapshot | null): void {
   if (!snapshot) {
     previousSnapshot = null
+    void deEnergiseOnTelemetryLoss(ctx)
     return
   }
+  if (outputsLatchedOff) return
+  silencedForTelemetryLoss = false
   if (config.enabled && !config.muted && config.arduino.enabled) {
     const frame = computeZonalHaptics(snapshot, previousSnapshot, config)
     driveBuzzer(ctx, frame)

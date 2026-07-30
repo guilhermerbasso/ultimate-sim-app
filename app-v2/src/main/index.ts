@@ -224,6 +224,13 @@ async function gracefulTeardown(): Promise<void> {
         stage: 'revlights-off',
         timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
         task: () => registered?.revlightsEngine.dispose()
+      },
+      {
+        // P0-10: haptic actuators are physical motors/piezos. Silence them in the
+        // bounded output-off stage, BEFORE the serial drain closes the ports.
+        stage: 'haptics-off',
+        timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
+        task: () => registered?.hapticsSafeOff()
       }
     ],
     drain: [
