@@ -329,6 +329,41 @@ test("an element that escapes its zone or the frame fails closed", () => {
   assertRejects((m) => { m.values[0].rect = measured(rect(760, 60, 90, 96)) }, /speed hero value is not contained/)
 })
 
+// ── Action zone containment (Defect A regression guard) ──────────────────────────────────
+
+test("action zone vertical overflow fails closed (assertActionZoneContained)", () => {
+  // Scroll height exceeding layout height by more than 0.5px must fail.
+  assertRejects(
+    (m) => { m.zones[4].scrollHeight = m.zones[4].layoutHeight + 10 },
+    /rc04-action zone content is 10\.00px taller|zone action overflows/
+  )
+  // Scroll height exactly at layout height must pass.
+  assert.doesNotThrow(() => {
+    const m = nativeMetrics()
+    m.zones[4].scrollHeight = m.zones[4].layoutHeight
+    validateCaptureMetrics(m, nativeEntry())
+  })
+})
+
+test("alarm line escaping the action zone bottom fails closed (assertActionZoneContained)", () => {
+  // Push alarm line 5px below the action zone bottom.
+  assertRejects(
+    (m) => {
+      const zone = m.zones[4]
+      m.alarmLineRect = rect(zone.left + 4, zone.top + zone.height + 1, 120, 16)
+    },
+    /alarm line bottom.*is.*below the action zone bottom/,
+    "overspeed"
+  )
+  // Alarm line just touching the zone bottom (within 0.5px tolerance) must pass.
+  assert.doesNotThrow(() => {
+    const m = nativeMetrics("overspeed")
+    const zone = m.zones[4]
+    m.alarmLineRect = rect(zone.left + 4, zone.top + zone.height - 17, 120, 16)
+    validateCaptureMetrics(m, nativeEntry("overspeed"))
+  })
+})
+
 // ── Overflow leaf accounting ──────────────────────────────────────────────────────────────
 
 test("an unrecorded overflow fails and a recorded one within budget passes", () => {
@@ -352,7 +387,7 @@ test("an unrecorded overflow fails and a recorded one within budget passes", () 
     },
     /paints 2px wider than its 56px box/
   )
-  // rc04-action-text at 800×480 in silent state has no waiver (waiver is overspeed only) → fails.
+  // rc04-action-text at 800×480 in silent state has no waiver at any state → fails.
   assertRejects(
     (m) => {
       m.overflowLeaves = [
@@ -362,7 +397,7 @@ test("an unrecorded overflow fails and a recorded one within budget passes", () 
     },
     /paints 11px wider than its 379px box/
   )
-  // rc04-action-text at 800×480 in OVERSPEED exceeds budgetPx=11 → fails when over budget.
+  // rc04-action-text at 800×480 in OVERSPEED has no waiver — any overflow fails.
   assertRejects(
     (m) => {
       m.overflowLeaves = [
@@ -370,7 +405,7 @@ test("an unrecorded overflow fails and a recorded one within budget passes", () 
           clientWidth: 379, scrollWidth: 392, overflowX: 13, textLeft: 29, textRight: 421 }
       ]
     },
-    /past the 11px recorded for the known defect/,
+    /paints 13px wider than its 379px box/,
     "overspeed"
   )
 })

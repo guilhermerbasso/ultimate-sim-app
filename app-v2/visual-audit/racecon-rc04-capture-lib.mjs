@@ -166,40 +166,10 @@ export const RC04_SPEC = Object.freeze({
       sizes: ["393x759"],
       budgetPx: 2,
       note: "APPROACH label is 2px wider than its step tile at 393×759 compact-phone; clipped by parent."
-    }),
-    Object.freeze({
-      key: "rc04-action-text",
-      states: ["overspeed"],
-      sizes: ["800x480"],
-      budgetPx: 11,
-      note: "LIFT - PIT LIMIT action text 11px wider than .rc04-action at 800×480 native (overspeed)."
     })
   ]),
-  zoneOverflowDefects: Object.freeze([
-    Object.freeze({
-      zone: "action",
-      states: Object.freeze(["silent"]),
-      sizes: Object.freeze(["1024x600"]),
-      budgetPx: 6,
-      note: "CONFIRM RELEASE button is 4px taller than the .rc04-action clientHeight at 1024x600 (app layout)."
-    }),
-    Object.freeze({
-      zone: "action",
-      states: Object.freeze(["overspeed"]),
-      sizes: Object.freeze(["1024x600"]),
-      budgetPx: 46,
-      note: "the overspeed alarm line is a third flex child the .rc04-action zone has no height for at 1024x600: content is 42px taller than the zone, and the line itself is pushed below the clipping rect entirely."
-    })
-  ]),
-  containmentDefects: Object.freeze([
-    Object.freeze({
-      label: "alarm line",
-      states: Object.freeze(["overspeed"]),
-      sizes: Object.freeze(["1024x600"]),
-      budgetPx: 44,
-      note: "the overspeed alarm line is laid out 40.8px below the .rc04-action clipping rect at 1024x600; the zone clips it so it paints no pixels, but it is entirely outside the zone that owns it."
-    })
-  ])
+  zoneOverflowDefects: Object.freeze([]),
+  containmentDefects: Object.freeze([])
 })
 
 export const RC04_CAPTURE_MATRIX = Object.freeze(
@@ -244,48 +214,63 @@ function zoneOf(metrics, name) {
 
 // ── Per-domain assertions ──────────────────────────────────────────────────────────────────
 
-/**
- * Documented type-scale inversion: the governance evidence (packet 11.2) promises
- * `action line > limiter badge`, but at portrait-ish layouts the widget renders
- * `limiter badge > action line`. The inversion is structural — scaling math at these aspect ratios
- * produces a wider limiter-ON value than the narrower action zone allows for the action text.
- *
- * Affected sizes (from probe sweep):
- *   1024×600 (app):  action=29.696px  limiter=43.008px → inversion=13.312px
- *   393×759  (compact/phone): action=35.37px  limiter=39.3px → inversion=3.93px
- *   412×867  (compact/phone): action=37.08px  limiter=41.2px → inversion=4.12px
- *
- * At the three remaining sizes (800×480 native, 759×393 landscape, 867×412 landscape) the
- * governance order holds. The harness asserts the ACTUAL order at defective sizes so that any
- * growth of the inversion (e.g., action dropping below active step) still fails.
- *
- * Reported in the final message as a shipped widget defect requiring a CSS layout fix.
- */
-const RC04_TYPE_SCALE_INVERSION_SIZES = Object.freeze(["1024x600", "393x759", "412x867"])
-
-/** Packet 11.2 — type-scale hierarchy: pit-speed > action > limiter-badge > active-step. */
+/** Packet 11.2 — type-scale hierarchy: pit-speed > action > limiter-badge > active-step.
+ *  The order must hold strictly (no ties) at every governed viewport. */
 function assertTypeScale(metrics, entry) {
   const activeStepFs = finite(metrics.activeStepFontSize, "active step font size")
-  const sizeKey = `${entry.size.width}x${entry.size.height}`
-  const inverted = RC04_TYPE_SCALE_INVERSION_SIZES.includes(sizeKey)
-  // At portrait/app sizes the widget inverts the action/limiter pair. Assert the ACTUAL order so
-  // the defect's growth (e.g., action < step) is still caught. Governance-promised order is
-  // asserted at the three landscape/native sizes where the hierarchy holds.
-  return assertTypeScaleOrder(
-    inverted
-      ? [
-          { label: "speed hero",    fontSize: valueOf(metrics, "speed hero").fontSize },
-          { label: "limiter badge (INVERTED vs packet 11.2)", fontSize: valueOf(metrics, "limiter badge").fontSize },
-          { label: "action line (INVERTED vs packet 11.2)",   fontSize: valueOf(metrics, "action line").fontSize },
-          { label: "active step",   fontSize: activeStepFs }
-        ]
-      : [
-          { label: "speed hero",    fontSize: valueOf(metrics, "speed hero").fontSize },
-          { label: "action line",   fontSize: valueOf(metrics, "action line").fontSize },
-          { label: "limiter badge", fontSize: valueOf(metrics, "limiter badge").fontSize },
-          { label: "active step",   fontSize: activeStepFs }
-        ]
-  )
+  return assertTypeScaleOrder([
+    { label: "speed hero",    fontSize: valueOf(metrics, "speed hero").fontSize },
+    { label: "action line",   fontSize: valueOf(metrics, "action line").fontSize },
+    { label: "limiter badge", fontSize: valueOf(metrics, "limiter badge").fontSize },
+    { label: "active step",   fontSize: activeStepFs }
+  ])
+}
+
+/**
+ * Positive guard for Defect A: the .rc04-action zone must never overflow its layout box, and
+ * the alarm line (overspeed only) must be fully contained within the action zone rect.
+ * Measured with getBoundingClientRect — not scrollHeight alone.
+ */
+function assertActionZoneContained(metrics, entry) {
+  const zone = zoneOf(metrics, "action")
+  if (zone.display === "none") return
+  const overflowH = finite(zone.scrollHeight, "action scrollHeight") - finite(zone.layoutHeight, "action layoutHeight")
+  if (overflowH > 0.5) {
+    fail(
+      `the .rc04-action zone content is ${overflowH.toFixed(2)}px taller than its layout box ` +
+      `at ${entry.size.width}x${entry.size.height} (${entry.state}): ` +
+      `scrollHeight=${zone.scrollHeight} layoutHeight=${zone.layoutHeight}`
+    )
+  }
+  if (entry.state !== "overspeed" || !metrics.alarmLineRect) return
+  const alarm = metrics.alarmLineRect
+  const tolerance = 0.5
+  const zoneBottom = zone.top + zone.height
+  const alarmBottom = alarm.top + alarm.height
+  if (alarm.top < zone.top - tolerance) {
+    fail(
+      `the alarm line top (${alarm.top.toFixed(2)}) is above the action zone top (${zone.top.toFixed(2)}) ` +
+      `at ${entry.size.width}x${entry.size.height}`
+    )
+  }
+  if (alarmBottom > zoneBottom + tolerance) {
+    fail(
+      `the alarm line bottom (${alarmBottom.toFixed(2)}) is ${(alarmBottom - zoneBottom).toFixed(2)}px below ` +
+      `the action zone bottom (${zoneBottom.toFixed(2)}) at ${entry.size.width}x${entry.size.height}`
+    )
+  }
+  if (alarm.left < zone.left - tolerance) {
+    fail(
+      `the alarm line left (${alarm.left.toFixed(2)}) is left of the action zone left (${zone.left.toFixed(2)}) ` +
+      `at ${entry.size.width}x${entry.size.height}`
+    )
+  }
+  if (alarm.left + alarm.width > zone.left + zone.width + tolerance) {
+    fail(
+      `the alarm line right (${(alarm.left + alarm.width).toFixed(2)}) is right of the action zone right ` +
+      `(${(zone.left + zone.width).toFixed(2)}) at ${entry.size.width}x${entry.size.height}`
+    )
+  }
 }
 
 function assertPhaseAndModifiers(metrics, entry) {
@@ -450,6 +435,7 @@ export function validateCaptureMetrics(metrics, entry) {
   assertValues(metrics, entry)
   assertAlarmLine(metrics, entry)
   assertServiceAppVisibility(metrics, entry)
+  assertActionZoneContained(metrics, entry)
   return { ...common, typeScale: assertTypeScale(metrics, entry) }
 }
 

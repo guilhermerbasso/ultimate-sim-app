@@ -614,7 +614,9 @@ function rc08CompactZones(mode: Rc08CompactMode, regime: Rc08GripState | null): 
   return Object.freeze({
     banner: { left: 2, top: 1.5, width: 96, height: mode === 'landscape' ? 7 : 6 },
     aids: { left: 2, top, width: aidsW, height },
-    ribbon: { left: 2, top, width: aidsW, height: round1(height * 0.15) },
+    // Ribbon height 0.18 × column height ensures it exceeds the 7 cqw grip word at every
+    // landscape compact aspect ratio (AR ≤ 2.21 at 867×393): 0.18 × 86% × h ≥ 7 × w/100.
+    ribbon: { left: 2, top, width: aidsW, height: round1(height * 0.18) },
     pace: { left: paceLeft, top, width: paceW, height },
     tire: { left: tireLeft, top, width: tireW, height }
   })

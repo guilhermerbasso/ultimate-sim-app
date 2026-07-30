@@ -379,3 +379,119 @@ test('the LF corner overheat alert surfaces only inside the LF corner area', asy
     await context.close()
   }
 })
+
+// ── Regression guard: Part 1 — peripheral label/unit containment at 1024×600 ──────────────
+//
+// Every .rc05-label and .rc05-unit element inside the peripheral strip must paint inside its
+// own border box in both the silent and corner-overheat states. Measured via a DOM Range on
+// the element's text content: the Range's getBoundingClientRect().right must not exceed the
+// element's getBoundingClientRect().right (and equivalently for the left edge).
+// This asserts on the settled painted geometry, not on scrollWidth, so white-space:nowrap
+// cannot hide the overflow from the ancestor while falsely passing here.
+
+for (const state of ['silent', 'corner-overheat'] as const) {
+  test(`1024x600 ${state}: peripheral labels and units paint inside their own boxes`, async ({ browser }) => {
+    const size = viewports[1] as { width: 1024; height: 600; layout: 'app'; compactMode: null }
+    const { context, page } = await openCapture(browser, size, { layout: 'app', state })
+    try {
+      if (state === 'corner-overheat') {
+        await expect
+          .poll(
+            () => page.locator('[data-widget="raceconRc05Dash"]').getAttribute('data-rc05-alerts'),
+            { timeout: 90_000 }
+          )
+          .toBe('active')
+      }
+      type LeafOverflow = { label: string; text: string; elementRight: number; textRight: number; elementLeft: number; textLeft: number }
+      const overflows = await page.locator('#racecon-rc05-capture-root').evaluate((root): LeafOverflow[] => {
+        const results: LeafOverflow[] = []
+        const leaves = root.querySelectorAll<HTMLElement>(
+          '[data-testid="rc05-peripheral"] .rc05-label, [data-testid="rc05-peripheral"] .rc05-unit'
+        )
+        for (const leaf of leaves) {
+          const elRect  = leaf.getBoundingClientRect()
+          const range   = document.createRange()
+          range.selectNodeContents(leaf)
+          const textRect = range.getBoundingClientRect()
+          // Allow 0.5 px for sub-pixel rendering
+          if (textRect.right > elRect.right + 0.5 || textRect.left < elRect.left - 0.5) {
+            results.push({
+              label:       leaf.className,
+              text:        leaf.textContent?.trim() ?? '',
+              elementLeft: elRect.left,
+              elementRight:elRect.right,
+              textLeft:    textRect.left,
+              textRight:   textRect.right
+            })
+          }
+        }
+        return results
+      })
+      expect(
+        overflows,
+        `peripheral labels/units overflow at 1024×600 ${state}: ${JSON.stringify(overflows)}`
+      ).toHaveLength(0)
+    } finally {
+      await context.close()
+    }
+  })
+}
+
+// ── Regression guard: Part 2 — LF corner stays inside mandala after scale(1.06) ───────────
+//
+// In corner-overheat state the LF corner article has data-rc05-zoom="true" which applies
+// transform: scale(1.06). getBoundingClientRect() returns the post-transform (painted) rect.
+// The fix anchors transform-origin to the corner's outboard (top-left) edge so the scale
+// expands inward; the mandala must fully contain the LF corner within 0.5 px on all four edges.
+// Native 800×480 is excluded: the mandala fills the full viewport, so containment is trivially
+// guaranteed regardless of transform-origin.
+
+const nonNativeViewports = viewports.slice(1)  // indices 1–5: 1024×600, 393×759, 412×867, 759×393, 867×412
+
+for (const size of nonNativeViewports) {
+  const sizeKey = `${size.width}x${size.height}`
+
+  test(`${sizeKey} corner-overheat: LF corner is contained by the mandala zone after zoom`, async ({ browser }) => {
+    const { context, page } = await openCapture(browser, size, {
+      layout: size.layout,
+      compactMode: size.compactMode ?? undefined,
+      state: 'corner-overheat'
+    })
+    try {
+      await expect
+        .poll(
+          () => page.locator('[data-widget="raceconRc05Dash"]').getAttribute('data-rc05-alerts'),
+          { timeout: 90_000 }
+        )
+        .toBe('active')
+
+      type ContainmentGeo = { mandala: Rect; lfCorner: Rect; lfZoom: string | null }
+      const geo = await page.locator('#racecon-rc05-capture-root').evaluate((root): ContainmentGeo => {
+        const rootRect = root.getBoundingClientRect()
+        const relative = (element: Element): Rect => {
+          const r = element.getBoundingClientRect()
+          return {
+            left:   r.left   - rootRect.left,
+            top:    r.top    - rootRect.top,
+            width:  r.width,
+            height: r.height,
+            right:  r.right  - rootRect.left,
+            bottom: r.bottom - rootRect.top
+          }
+        }
+        const mandalaEl  = root.querySelector('[data-testid="rc05-mandala"]')!
+        const lfCornerEl = root.querySelector('article[data-rc05-corner="LF"]')!
+        return {
+          mandala:  relative(mandalaEl),
+          lfCorner: relative(lfCornerEl),
+          lfZoom:   lfCornerEl.getAttribute('data-rc05-zoom')
+        }
+      })
+
+      expect(geo.lfZoom, `LF corner must be in zoom state at ${sizeKey}`).toBe('true')
+      expectContained(geo.mandala, geo.lfCorner, 0.5)
+    } finally {
+      await context.close()
+    }
+  })
+}

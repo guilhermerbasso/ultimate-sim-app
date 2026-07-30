@@ -378,8 +378,9 @@ test("an element that escapes its zone or the frame fails closed", () => {
 })
 
 test("LF corner overheat zoom escape within budget passes; past budget fails closed", () => {
-  // The escape is recorded in RC05_SPEC.containmentDefects for every viewport EXCEPT the native
-  // canvas, where the mandala fills the frame and no escape is geometrically possible.
+  // The fix anchors transform-origin to the corner's outboard edge so the scaled rect stays
+  // inside the mandala zone. The new assertLfCornerInMandala helper enforces this directly:
+  // any positive escape in corner-overheat state fails with no waiver.
   const metrics = nativeMetrics("corner-overheat")
   const entry = nativeEntry("corner-overheat")
   validateCaptureMetrics(metrics, entry)
@@ -388,8 +389,19 @@ test("LF corner overheat zoom escape within budget passes; past budget fails clo
   )
   assert.throws(() => validateCaptureMetrics(metrics, entry), /LF corner escapes its zone on the left/u)
 
-  // At the recorded viewports the escape is audited against its measured budget rather than
-  // exempted: within budget it is reported, past budget it still fails.
+  // The assertZoneContainment helper is tested independently with a synthetic waiver that
+  // exercises the budget mechanism (simulating what the old defect ledger did). A synthetic
+  // waiver with budgetPx = RC05_LF_CORNER_ZOOM_ESCAPE_BUDGET_PX verifies the fail-closed
+  // guard remains: escape within budget is reported; escape past budget fails.
+  const syntheticContainmentDefects = [
+    Object.freeze({
+      label: "LF corner",
+      states: Object.freeze(["corner-overheat"]),
+      sizes: Object.freeze(["1024x600"]),
+      budgetPx: RC05_LF_CORNER_ZOOM_ESCAPE_BUDGET_PX,
+      note: "synthetic fixture: LF corner escape budget for harness behaviour verification"
+    })
+  ]
   const recorded = { size: { width: 1024, height: 600, layout: "app", compactMode: null }, state: "corner-overheat" }
   const owner = { left: 100, top: 100, width: 200, height: 200 }
   const escaped = (by) => [
@@ -400,17 +412,17 @@ test("LF corner overheat zoom escape within budget passes; past budget fails clo
       value: { left: owner.left - by, top: owner.top, width: owner.width, height: owner.height }
     }
   ]
-  const within = assertZoneContainment(escaped(5), 0.5, RC05_SPEC.containmentDefects, recorded)
+  const within = assertZoneContainment(escaped(5), 0.5, syntheticContainmentDefects, recorded)
   assert.equal(within.length, 1)
   assert.equal(within[0].escapePx, 5)
   assert.throws(
-    () => assertZoneContainment(escaped(RC05_LF_CORNER_ZOOM_ESCAPE_BUDGET_PX + 3), 0.5, RC05_SPEC.containmentDefects, recorded),
+    () => assertZoneContainment(escaped(RC05_LF_CORNER_ZOOM_ESCAPE_BUDGET_PX + 3), 0.5, syntheticContainmentDefects, recorded),
     /past the 9px recorded/u
   )
 })
 
 test("an unrecorded overflow fails; a recorded one is reported and its budget enforced", () => {
-  // An unrecorded overflow on any leaf fails closed
+  // An unrecorded overflow on any leaf fails closed (RC05_SPEC.knownDefects is empty after the fix)
   assertRejects(
     (metrics) => {
       metrics.overflowLeaves = [
@@ -419,11 +431,22 @@ test("an unrecorded overflow fails; a recorded one is reported and its budget en
     },
     /paints 30px wider than its 60px box/u
   )
-  // A recorded overflow within budget: auditOverflowLeaves returns the ledger entry
+  // auditOverflowLeaves with a synthetic waiver exercises the budget mechanism. A synthetic
+  // rc05-label waiver with budgetPx=20 simulates what the old ledger entry did so the
+  // fail-closed behaviour of the helper is still verified.
+  const syntheticKnownDefects = [
+    Object.freeze({
+      key: "rc05-label",
+      states: Object.freeze(["silent", "corner-overheat"]),
+      sizes: Object.freeze(["1024x600"]),
+      budgetPx: 20,
+      note: "synthetic fixture: peripheral label overflow budget for harness behaviour verification"
+    })
+  ]
   const appEntry = RC05_CAPTURE_MATRIX.find((e) => e.size.width === 1024 && e.state === "silent")
   const inBudgetLeaf = { key: "rc05-label", text: "SPEED", fontSize: 15, whiteSpace: "nowrap",
     clientWidth: 23, scrollWidth: 42, overflowX: 19, textLeft: 427.45, textRight: 470.69 }
-  const ledger = auditOverflowLeaves({ overflowLeaves: [inBudgetLeaf] }, appEntry, RC05_SPEC.knownDefects)
+  const ledger = auditOverflowLeaves({ overflowLeaves: [inBudgetLeaf] }, appEntry, syntheticKnownDefects)
   assert.equal(ledger.length, 1)
   assert.equal(ledger[0].key, "rc05-label")
   assert.equal(ledger[0].overflowX, 19)
@@ -431,7 +454,7 @@ test("an unrecorded overflow fails; a recorded one is reported and its budget en
   const overBudgetLeaf = { key: "rc05-label", text: "SPEED", fontSize: 15, whiteSpace: "nowrap",
     clientWidth: 23, scrollWidth: 44, overflowX: 21, textLeft: 427.45, textRight: 471.69 }
   assert.throws(
-    () => auditOverflowLeaves({ overflowLeaves: [overBudgetLeaf] }, appEntry, RC05_SPEC.knownDefects),
+    () => auditOverflowLeaves({ overflowLeaves: [overBudgetLeaf] }, appEntry, syntheticKnownDefects),
     /overflows by 21px, past the 20px recorded/u
   )
 })

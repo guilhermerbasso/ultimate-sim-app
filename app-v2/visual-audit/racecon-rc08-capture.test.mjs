@@ -357,7 +357,9 @@ test("an element that escapes its zone or the frame fails closed", () => {
 
 // ── Overflow ledger ────────────────────────────────────────────────────────────────────────
 
-test("an unrecorded overflow fails and a recorded one is reported with its measurement", () => {
+test("any unrecorded overflow fails closed (RC-08 has no waived overflow entries)", () => {
+  // RC-08's knownDefects ledger is intentionally empty after fixing all three measured defects.
+  // Any new overflow leaf is an unconditional hard failure — no waiver, no budget, no escape.
   assertRejects(
     (m) => {
       m.overflowLeaves = [
@@ -367,9 +369,42 @@ test("an unrecorded overflow fails and a recorded one is reported with its measu
     },
     /paints 30px wider than its 50px box/
   )
-  // If the defect IS in the knownDefects ledger (via spec), it is reported, not rejected.
-  // Here we test the path where no defect is registered (clean spec) and the overflow grows.
-  // For RC-08 we have no known defects, so any overflow is a hard failure.
+})
+
+test("rain row overflow fails closed (regression guard: UNAVAILABLE text must fit its column)", () => {
+  // Injects an rc08-rain leaf as would happen if the label-rung font fix were reverted.
+  // auditOverflowLeaves (shared) fires first; assertRainRowContained provides a named second guard.
+  assertRejects(
+    (m) => {
+      m.overflowLeaves = [
+        { key: "rc08-rain", text: "UNAVAILABLE", fontSize: 32, whiteSpace: "nowrap",
+          clientWidth: 142, scrollWidth: 156, overflowX: 14, textLeft: 0, textRight: 156 }
+      ]
+    },
+    /paints 14px wider than its 142px box/
+  )
+})
+
+test("aids zone vertical overflow fails closed (regression guard: rows must flex-fill)", () => {
+  // Inflates aids scrollHeight as would happen if fixed phone row heights were reintroduced.
+  // auditZoneOverflow (shared) fires first; assertAidsZoneFit provides a named second guard.
+  assertRejects(
+    (m) => { m.zones[1].scrollHeight = m.zones[1].layoutHeight + 20 },
+    /aids overflows its layout box/
+  )
+})
+
+test("grip chip escape fails closed (regression guard: grip word must fit the ribbon)", () => {
+  // Moves grip chip value above the ribbon boundary as would happen if the height factor
+  // in rc08CompactZones were reduced back to 0.15.
+  // assertZoneContainment (shared) fires first; assertGripChipFitsRibbon provides a named second guard.
+  assertRejects(
+    (m) => {
+      const grip = m.containment[5]  // "grip chip" entry — ribbon owns grip
+      grip.value = rect(grip.value.left, grip.owner.top - 4, grip.value.width, grip.value.height)
+    },
+    /grip chip escapes its zone/
+  )
 })
 
 // ── Packet omissions ───────────────────────────────────────────────────────────────────────

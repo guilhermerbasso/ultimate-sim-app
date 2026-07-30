@@ -85,6 +85,16 @@
   white-space: nowrap;
 }
 
+/*
+ * A unit annotates its numeral, so it is never the thing that gives way when the row is short:
+ * `flex-shrink` on the unit trades one glyph of the numeral for a clipped unit and yields a box
+ * narrower than its own nowrap text. The numeral carries `min-width: 0` and absorbs the pressure
+ * instead.
+ */
+.rc03-value-row > .rc03-unit {
+  flex: 0 0 auto;
+}
+
 .rc03-value-row {
   display: flex;
   min-width: 0;
@@ -497,12 +507,19 @@
   height: var(--rc03-phone-ribbon-height, 18px);
 }
 
+/*
+ * The reserved clock gutter is derived from the clock, not guessed. The stint clock below is
+ * `width: 32%` of the same containing block that this percentage padding resolves against, so
+ * `32% + 8px` clears the clock by a constant 8px at every phone width. The previous flat 36%
+ * over-reserved by ~17px at 393px and starved the delta cell, which is what made the delta
+ * numeral paint past its cell and into the speed cell.
+ */
 .rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-pace {
   left: var(--rc03-phone-inset, 12px);
   top: var(--rc03-phone-pace-top, 44px);
   width: calc(100% - 2 * var(--rc03-phone-inset, 12px));
   height: var(--rc03-phone-pace-height, 197px);
-  padding-right: 36%;
+  padding-right: calc(32% + 8px);
 }
 
 .rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-stint-clock {
@@ -532,9 +549,24 @@
    cascade — the reverse order silently flattens every hero to the secondary scale. */
 .rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-value { font-size: clamp(14px, 7cqw, 30px); }
 .rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-gear { font-size: clamp(30px, 16cqw, 72px); }
-.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-delta { font-size: clamp(20px, 11cqw, 48px); }
+/* `-0.112` is six glyphs: 11cqw sized it from the FULL container width and ignored the clock
+   gutter this band reserves, so the numeral needed 115px in a 110px cell. 9cqw is the widest
+   step that fits the cell it is actually laid out in, and it keeps gear > fuel laps > delta >
+   speed strictly ordered. */
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-delta { font-size: clamp(20px, 9cqw, 48px); }
 .rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-fuel-laps { font-size: clamp(26px, 14cqw, 60px); }
 .rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-vitals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* Portrait cell shares are budgeted from what each cell must actually paint: the gear glyph is
+   one character and needs the least, while speed carries the widest unit label (KM/H) and delta
+   the widest numeral. The 20/50/30 native split starved both. */
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-cell-gear { flex: 0 0 17%; }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-cell-delta { flex: 0 0 49%; }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-cell-speed { flex: 0 0 34%; }
+/* The fuel-laps hero is the widest readout in the fuel band and the stint lap is the narrowest,
+   so portrait moves two points of the row from the lap counter to the hero. */
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-cell-fuel-laps { flex: 0 0 30%; }
+.rc03-widget[data-rc03-layout='compact'][data-rc03-compact-mode='phone'] .rc03-cell-stint-lap { flex: 0 0 22%; }
 
 /* ---------------------------------------------------------------- compact landscape */
 
