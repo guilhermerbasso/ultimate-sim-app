@@ -1583,7 +1583,7 @@ function BrightnessEditor({
   const value = typeof effect.brightness === 'number' ? effect.brightness : RGB_MATRIX_FULL_BRIGHTNESS
   return (
     <div style={card}>
-      <Field caption="Brightness" hint="Brightness for this effect only (0?255). 255 = full. Scales the color before composing the frame.">
+      <Field caption="Brightness" hint="Brightness for this effect only (0–255). 255 = full. Scales the color before composing the frame.">
         <Slider
           value={value}
           min={0}

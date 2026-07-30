@@ -427,7 +427,7 @@ export default function AdaptiveDashboardView({ showToast, language }: AppViewPr
             {summaries.length === 0 && <option value="">{t('adaptive.noSavedDashboard')}</option>}
             {summaries.map((s) => (
               <option key={s.id} value={s.id}>
-                {isAdaptiveDashboard(s) ? '? ' : ''}
+                {isAdaptiveDashboard(s) ? '★ ' : ''}
                 {s.name}
               </option>
             ))}

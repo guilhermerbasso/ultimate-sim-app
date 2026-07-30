@@ -204,7 +204,7 @@ export function CustomOverlayWidget({ snapshot, config }: WidgetProps) {
     <div className="overlay-card custom-overlay">
       {(!def || def.elements.length === 0) && (
         <div className="custom-overlay-placeholder">
-          {def ? 'No elements ? edit in the Overlays menu' : 'loading?'}
+          {def ? 'No elements → edit in the Overlays menu' : 'loading?'}
         </div>
       )}
       {rendered.map(({ element, text, hasExpr }) => {

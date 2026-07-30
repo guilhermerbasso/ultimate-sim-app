@@ -1,4 +1,4 @@
-﻿// ─── Hi-fi ENDURANCE composition dashboards ───────────────────────────────────
+// ─── Hi-fi ENDURANCE composition dashboards ───────────────────────────────────
 // Clean v4 endurance pages: black stage, corner-to-corner rev strip where useful,
 // and title-less self-explanatory hi-fi widgets only.
 import { bg, comp, dashboard, hifiEl, revTop, type HifiCompPreset } from './dashboards-hifi-kit'

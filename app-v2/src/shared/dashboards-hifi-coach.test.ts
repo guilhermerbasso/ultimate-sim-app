@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { HIFI_WIDGETS_BY_ID } from '../renderer/src/hifi/widgets/registry'
 import { HIFI_COACH_PRESETS } from './dashboards-hifi-coach'

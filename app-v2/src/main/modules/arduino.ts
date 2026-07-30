@@ -390,7 +390,7 @@ class FleetManager {
   async removeDevice(id: string): Promise<void> {
     if (!id) return
     if (id === this.ctx.serialHub.getPrimaryId()) {
-      throw new Error('Use Devices ? Disconnect to remove the primary SIM-X.')
+      throw new Error('Use Devices → Disconnect to remove the primary SIM-X.')
     }
     const summary = this.ctx.serialHub.listDevices().find((entry) => entry.id === id)
     // Mirror disconnectDevice: a user-initiated removal is deliberate, so suppress the

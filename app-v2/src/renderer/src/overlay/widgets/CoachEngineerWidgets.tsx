@@ -191,7 +191,7 @@ export function CoachSectorGraphWidget({ config }: WidgetProps): ReactElement {
 
   return (
     <div className="overlay-card" style={cardStyle(config)}>
-      <Head accent={accent}>Sectors ? loss</Head>
+      <Head accent={accent}>Sectors · loss</Head>
       <StatusRail label="SECT" value={bars.length} active={bars.length > 0} color={bars.length > 0 ? WARM_AMBER : MUTED} />
       {bars.length === 0 ? (
         <Empty>No sectors yet</Empty>
@@ -240,7 +240,7 @@ export function EngineerFeedWidget({ config }: WidgetProps): ReactElement {
 
   return (
     <div className="overlay-card" style={cardStyle(config)}>
-      <Head accent={accent}>Engineer ? radio</Head>
+      <Head accent={accent}>Engineer · radio</Head>
       <StatusRail label="RADIO" value={feed.length} active={feed.length > 0} color={feed.length > 0 ? accent : MUTED} />
       {feed.length === 0 ? (
         <Empty>No messages yet</Empty>

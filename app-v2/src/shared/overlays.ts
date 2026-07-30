@@ -1134,7 +1134,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'carSilhouetteRadar',
     title: 'Silhouette radar (spotter)',
-    description: 'Top-down view of your car with red edges when cars are alongside ? Crew Chief-style spotter.',
+    description: 'Top-down view of your car with red edges when cars are alongside — Crew Chief-style spotter.',
     defaultPosition: { x: 870, y: 290, width: 220, height: 310 },
     requires: ['carLeftRight']
   },
@@ -1334,14 +1334,14 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'gapAhead',
     title: 'Gap ahead',
-    description: 'Large, readable gap to the car immediately ahead ? green when you are closing.',
+    description: 'Large, readable gap to the car immediately ahead — green when you are closing.',
     defaultPosition: { x: 1560, y: 40, width: 240, height: 150 },
     requires: ['relatives']
   },
   {
     id: 'gapBehind',
     title: 'Gap behind',
-    description: 'Large, readable gap to the car immediately behind ? green when you are pulling away.',
+    description: 'Large, readable gap to the car immediately behind — green when you are pulling away.',
     defaultPosition: { x: 1560, y: 210, width: 240, height: 150 },
     requires: ['relatives']
   },
@@ -1349,7 +1349,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'ersBattery',
     title: 'ERS Battery',
-    description: 'Hybrid battery/ERS in neon cells with charge ring ? green only with a full pack.',
+    description: 'Hybrid battery/ERS in neon cells with charge ring — green only with a full pack.',
     defaultPosition: { x: 60, y: 430, width: 240, height: 150 },
     requires: ['ersBatteryPct']
   },
@@ -1372,7 +1372,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'pitStatusHud',
     title: 'Pit Status HUD',
-    description: 'Pit lane HUD with headline and lamps for repair, box, and service ? green when pits are open.',
+    description: 'Pit lane HUD with headline and lamps for repair, box, and service — green when pits are open.',
     defaultPosition: { x: 700, y: 540, width: 380, height: 140 },
     requires: ['pit']
   },
@@ -1386,7 +1386,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'trackClock',
     title: 'Track Clock',
-    description: 'Session time with sun/moon arc ? amber by day, blue at night (SessionTimeOfDay).',
+    description: 'Session time with sun/moon arc — amber by day, blue at night (SessionTimeOfDay).',
     defaultPosition: { x: 1620, y: 760, width: 230, height: 170 },
     requires: ['sessionTimeOfDay']
   },
@@ -1422,42 +1422,42 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'ersBar',
     title: 'ERS Bar',
-    description: 'Thin ERS charge bar with percentage readout ? clean, monochrome with 1 accent.',
+    description: 'Thin ERS charge bar with percentage readout — clean, monochrome with 1 accent.',
     defaultPosition: { x: 60, y: 760, width: 240, height: 84 },
     requires: ['ersBatteryPct']
   },
   {
     id: 'pushToPassPips',
     title: 'Push-to-Pass Pips',
-    description: 'Remaining P2P uses as minimalist pips ? green while boost is available.',
+    description: 'Remaining P2P uses as minimalist pips — green while boost is available.',
     defaultPosition: { x: 840, y: 480, width: 220, height: 84 },
     requires: ['pushToPassCount']
   },
   {
     id: 'pitTicket',
     title: 'Pit Ticket',
-    description: 'Minimal pit card with status headline and accent dot ? green when pits are open.',
+    description: 'Minimal pit card with status headline and accent dot — green when pits are open.',
     defaultPosition: { x: 700, y: 700, width: 260, height: 96 },
     requires: ['pit']
   },
   {
     id: 'coldPressureCard',
     title: 'Cold Pressure Card',
-    description: 'Cold tire pressures in a 2?2 card (psi); highlights the coldest corner.',
+    description: 'Cold tire pressures in a 2×2 card (psi); highlights the coldest corner.',
     defaultPosition: { x: 60, y: 360, width: 250, height: 130 },
     requires: ['tireColdPressuresKpa']
   },
   {
     id: 'sessionClock',
     title: 'Session Clock',
-    description: 'Session clock HH:MM with sun/moon glyph and day phase ? blue only at night.',
+    description: 'Session clock HH:MM with sun/moon glyph and day phase — blue only at night.',
     defaultPosition: { x: 1640, y: 40, width: 200, height: 120 },
     requires: ['sessionTimeOfDay']
   },
   {
     id: 'wetTag',
     title: 'Wet Tag',
-    description: 'DRY/WET chip with wetness percentage ? green when dry, amber/red when wet.',
+    description: 'DRY/WET chip with wetness percentage — green when dry, amber/red when wet.',
     defaultPosition: { x: 1280, y: 960, width: 220, height: 100 },
     requires: ['trackWetnessPct'],
     tags: ['weather', 'wetness', 'trigger-only', 'release-a'],
@@ -1480,7 +1480,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'deltaBar',
     title: 'Delta Bar',
-    description: 'Delta bar centered on zero ? green to the left when faster, orange to the right when slower.',
+    description: 'Delta bar centered on zero — green to the left when faster, orange to the right when slower.',
     defaultPosition: { x: 700, y: 690, width: 360, height: 90 },
     requires: ['deltaToBestSec']
   },
@@ -1494,25 +1494,25 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   // ─── WS-H: predictor overlays ────────────────────────────────────────────────
   {
     id: 'predCatchAhead',
-    title: 'Predictor ? Time to catch',
+    title: 'Predictor · Time to catch',
     description: 'Estimated time and laps to catch the car ahead.',
     defaultPosition: { x: 60, y: 300, width: 300, height: 120 }
   },
   {
     id: 'predCaughtBehind',
-    title: 'Predictor ? Threat behind',
+    title: 'Predictor · Threat behind',
     description: 'Estimated time and laps until the car behind catches you.',
     defaultPosition: { x: 60, y: 430, width: 300, height: 120 }
   },
   {
     id: 'predFuelMargin',
-    title: 'Predictor ? Fuel to the end',
+    title: 'Predictor · Fuel to the end',
     description: 'Projected fuel margin to the end of the race.',
     defaultPosition: { x: 60, y: 560, width: 300, height: 120 }
   },
   {
     id: 'predTireWear',
-    title: 'Predictor ? Tire wear/cliff',
+    title: 'Predictor · Tire wear/cliff',
     description: 'Wear per lap and estimated laps until the grip cliff.',
     defaultPosition: { x: 60, y: 690, width: 320, height: 130 }
   },
@@ -1545,7 +1545,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   },
   {
     id: 'coachSectorGraph',
-    title: 'Coach ? chart by sector',
+    title: 'Coach · chart by sector',
     description: 'Bars by sector: green = on baseline, orange = time lost.',
     defaultPosition: { x: 1560, y: 430, width: 280, height: 150 }
   },
@@ -1568,7 +1568,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   { id: 'brakeTempCorners', title: 'Brake temperature (corners)', description: 'Disc temperature by corner (2×2) with cold/optimal/hot bands + peak.', defaultPosition: { x: 1500, y: 280, width: 300, height: 200 }, requires: ['brakeTempC'] },
   { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Lap margin, L/lap, laps to empty, and liters delta to target.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLapLiters'] },
   { id: 'shiftPointBar', title: 'Shift point', description: 'Large LED shift bar + RPM/gear, with redline flash.', defaultPosition: { x: 560, y: 40, width: 800, height: 90 }, requires: ['shiftIndicatorPct'] },
-  { id: 'engineVitalsDial', title: 'Engine vitals (dials)', description: 'Water/oil gauges (?C) and oil pressure (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
+  { id: 'engineVitalsDial', title: 'Engine vitals (dials)', description: 'Water/oil gauges (°C) and oil pressure (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
   { id: 'sessionInfoTile', title: 'Session info', description: 'Session type, time remaining, laps, position, and incidents.', defaultPosition: { x: 60, y: 60, width: 360, height: 150 }, requires: ['sessionType'] }
   ,
   // ─── B-widgets: overlays for the new iRacing telemetry signals ───────────────
@@ -1584,7 +1584,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'absCut',
     title: 'ABS cut',
-    description: 'ABS brake pressure cut bar (BrakeABSCutPct, 0?100%). Complements the ABS lamp.',
+    description: 'ABS brake pressure cut bar (BrakeABSCutPct, 0–100%). Complements the ABS lamp.',
     defaultPosition: { x: 60, y: 460, width: 300, height: 96 },
     requires: ['absCutPct'],
     tags: ['abs', 'intervention', 'trigger-only', 'release-a'],

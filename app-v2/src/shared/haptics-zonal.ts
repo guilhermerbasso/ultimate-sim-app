@@ -201,7 +201,7 @@ export const HAPTIC_EVENT_META: Record<HapticEventId, HapticEventMeta> = {
     id: 'kerb',
     label: 'Zebra / rumble',
     blurb: 'Pulsos drys ao pisar nas zebras.',
-    signal: 'lateral acceleration (heuristic ? ideal: vertical accel)',
+    signal: 'lateral acceleration (heuristic — ideal: vertical accel)',
     transient: false,
     heuristic: true
   },
