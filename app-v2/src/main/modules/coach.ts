@@ -43,6 +43,7 @@ import {
 import { buildCornerMap, trackLayoutKey, type CornerMapData, type CornerSample } from '../track-map/corner-map'
 import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
 import { recordLapEvents } from '../../shared/coach-baseline'
+import { CoachSessionKeyTracker } from '../../shared/coach-session-key'
 import { findingEventKeys } from '../../shared/coach-intent-gate'
 import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
 import type { SessionKind } from '../../shared/ai-engineer'
@@ -173,6 +174,9 @@ export interface LiveCoachDeps {
 
 export class LiveCoachEngine {
   private readonly liveGate = new LiveTelemetryGate()
+  // Canonical Coach session key: resets context on a track/config/car/condition/session
+  // change, which the replay boundary alone does not cover (§24-17).
+  private readonly sessionKeyTracker = new CoachSessionKeyTracker()
   private running = false
   private startedAt: number | undefined
   private sampleCount = 0
@@ -266,13 +270,39 @@ export class LiveCoachEngine {
     }
   }
 
+  /**
+   * Everything the engine has LEARNED for the current session. Exposed so a §24-17
+   * context reset is directly observable — "the corner map is gone" is the actual
+   * contract, and asserting it through the spoken output would be indirect.
+   */
+  learnedContext(): {
+    cornerMap: CoachCornerMap | null
+    reference: CoachReferenceLap | null
+    referenceLapTimeSec: number | undefined
+    findings: CoachFinding[]
+    sampleCount: number
+  } {
+    return {
+      cornerMap: this.cornerMap,
+      reference: this.reference,
+      referenceLapTimeSec: this.referenceLapTimeSec,
+      findings: this.findings,
+      sampleCount: this.sampleCount
+    }
+  }
+
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
     const live = this.liveGate.observe(snapshot)
     if (!live.live) {
       if (live.boundary) this.resetLiveSession()
       return
     }
-    if (live.boundary) this.resetLiveSession()
+    // §24-17: the replay boundary alone does not cover a car swap, a track/config change
+    // or the track going wet inside one session — iRacing's session identity carries no
+    // track, car or condition. Reset on the canonical Coach session key as well.
+    if (live.boundary || this.sessionKeyTracker.observe(snapshot, { sessionIdentity: live.context?.sessionIdentity })) {
+      this.resetLiveSession()
+    }
 
     if (!this.running) {
       // Auto-start on the first LIVE frame (connected + on-track) when enabled.
@@ -645,6 +675,9 @@ export interface LapCoachDeps {
 
 export class LapCoachAnalyzer {
   private readonly liveGate = new LiveTelemetryGate()
+  // Same canonical key as LiveCoachEngine so the two can never disagree about when the
+  // learned corner map / reference lap became stale (§24-17).
+  private readonly sessionKeyTracker = new CoachSessionKeyTracker()
   private liveContext: LiveTelemetryContext | null = null
   private explainAbort: AbortController | null = null
   private buffer: CoachLapSample[] = []
@@ -746,7 +779,11 @@ export class LapCoachAnalyzer {
       if (live.boundary) this.resetLiveSession()
       return
     }
-    if (live.boundary) this.resetLiveSession()
+    // §24-17: same canonical key as the Live Coach engine — a corner map and reference
+    // lap learned on another track, in another car, or in the dry must not survive.
+    if (live.boundary || this.sessionKeyTracker.observe(snapshot, { sessionIdentity: live.context?.sessionIdentity })) {
+      this.resetLiveSession()
+    }
     this.liveContext = live.context
     if (!snapshot) return
 
