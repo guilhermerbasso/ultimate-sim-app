@@ -149,7 +149,7 @@ async function provisionOverUsb(ctx: ModuleContext, request: ProvisionRequest): 
     await pushWifiCredentials(port, ssid, password)
     return {
       ok: true,
-      message: 'Wi?Fi credentials sent. Restart the ESP32 and use Discover to connect over the network.'
+      message: 'Wi-Fi credentials sent. Restart the ESP32 and use Discover to connect over the network.'
     }
   } catch (error) {
     return { ok: false, message: errMessage(error) }

@@ -1,4 +1,4 @@
-﻿import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   createKnownGoodCheck,
   defaultRigPreflightState,
