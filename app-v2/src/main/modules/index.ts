@@ -1,4 +1,4 @@
-﻿import type { ModuleContext } from '../module-context'
+import type { ModuleContext } from '../module-context'
 import { SimxAutostartController } from './simx-autostart'
 import { readSimXEnrollment } from '../serial-devices/simx-enrollment-store'
 import { GenericAutostartController } from './generic-autostart'
@@ -92,9 +92,9 @@ import { register as touchPanel } from '../touchpanel/manager'
 import { register as mqttTarget } from './mqtt-target'
 import { register as streamSources } from './stream-sources'
 
-// Registro central dos mÃ³dulos. A telemetria vem primeiro (todos dependem dela).
+// Registro central dos módulos. A telemetria vem primeiro (todos dependem dela).
 // expressionEngine e outputRouter ficam fora do loop porque o orquestrador
-// captura seus retornos para ligar o resolver de expressÃµes do router.
+// captura seus retornos para ligar o resolver de expressões do router.
 const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   telemetry,
   iracingProvider,
@@ -239,7 +239,7 @@ export function registerModules(ctx: ModuleContext): RegisteredModules {
   }
 }
 
-// P0-09/Â§24-15: auto-connect is authorised ONLY by the persisted enrolment, which is
+// P0-09/§24-15: auto-connect is authorised ONLY by the persisted enrolment, which is
 // written when a human presses Connect. The former `simx-autostart.json` last-COM-path
 // hint is deliberately gone â€” a COM number is not an identity, and opening the wrong
 // port resets the board behind it and writes commands to it.
