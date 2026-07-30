@@ -32,6 +32,10 @@ import type { DriverEntry, RadarCarEntry, TelemetrySnapshot } from '../../../sha
 import type { TrackMapData } from '../../../shared/track-map'
 import { TRACK_MAP_CHANNELS } from '../../../shared/track-map'
 import { EXPR_CHANNELS } from '../../../shared/expr'
+import {
+  IPC_SOURCED_OVERLAY_WIDGET_IDS,
+  isIpcSourcedElementType
+} from '../../../shared/dashboard-render-capability'
 import type { ExpressionDestinationPlacement } from '../../../shared/expression-studio'
 import { RADAR_THREAT_COLORS, radarSideThreat, radarThreatColor, radarThreatLevel } from '../../../shared/radar'
 import {
@@ -210,15 +214,10 @@ interface ElementProps {
   forceTriggerActive?: boolean
 }
 
-const INERT_OVERLAY_WIDGET_IDS = new Set<string>([
-  'coachHeatmap', 'coachTips', 'coachFindings', 'coachSectorGraph', 'engineerFeed',
-  'trackMap', 'trackMapNav3D', 'customValue', 'teamFuel', 'tireWear',
-  'predCatchAhead', 'predCaughtBehind', 'predFuelMargin', 'predTireWear', 'predPaceProjected'
-])
+const INERT_OVERLAY_WIDGET_IDS: ReadonlySet<string> = new Set<string>(IPC_SOURCED_OVERLAY_WIDGET_IDS)
 
 function needsInertFixture(type: string): boolean {
-  return type === 'map' || type === 'trackmap-clean' || type === 'trackmap-elaborate' ||
-    type === 'engineer-feed' || type.startsWith('coach-') || type.startsWith('pred-')
+  return isIpcSourcedElementType(type)
 }
 
 interface InertPredictionFixture { kind: string; label: string; value: string }

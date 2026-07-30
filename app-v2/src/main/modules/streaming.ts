@@ -29,6 +29,7 @@ import type {
   StreamingTouchRole
 } from '../../shared/streaming'
 import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../shared/streaming'
+import { dashboardStreamBlockReason } from '../../shared/dashboard-render-capability'
 import {
   RECEIVER_CAPABILITIES,
   RECEIVER_HEARTBEAT_MS,
@@ -367,7 +368,12 @@ async function resolveStreamTarget(
   if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null, presentationProfileId: null }
   if (!requested) throw new Error('Select a valid dashboard to stream.')
   const manager = getDashboardManager()
-  if (!manager?.getDashboard(requested)) throw new Error(`Dashboard not found: ${requested}`)
+  const dashboard = manager?.getDashboard(requested)
+  if (!dashboard) throw new Error(`Dashboard not found: ${requested}`)
+  // A stream target is served to a plain browser, which has no Electron IPC. Refuse a
+  // dashboard whose elements cannot render there at all rather than serving a broken page.
+  const blocked = dashboardStreamBlockReason(dashboard)
+  if (blocked) throw new Error(blocked)
   return { kind, id: requested, touchPanelId: null, presentationProfileId: null }
 }
 
