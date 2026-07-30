@@ -513,6 +513,7 @@ export class OverlayManager {
   private unbindEditorPreviewOwner: (() => void) | null = null
   private readonly configPath: string
   private config = createDefaultOverlaysConfig()
+  private loadPromise: Promise<void> | null = null
   private isDisposing = false
   // Latched once the user DELETES/RESETS the persisted overlays store: while set,
   // save() and scheduleSave() become no-ops so neither a display-event flush nor
@@ -543,7 +544,20 @@ export class OverlayManager {
     return null
   }
 
-  async load(): Promise<void> {
+  // One shared load pass. Read-only IPC handlers await this, so a renderer that asks
+  // before startup finishes gets the persisted store instead of factory defaults. A
+  // failed pass clears the promise so the next caller retries instead of caching it.
+  load(): Promise<void> {
+    if (!this.loadPromise) {
+      this.loadPromise = this.loadInternal().catch((error: unknown) => {
+        this.loadPromise = null
+        throw error
+      })
+    }
+    return this.loadPromise
+  }
+
+  private async loadInternal(): Promise<void> {
     this.registerScreenListeners()
 
     try {
@@ -563,8 +577,14 @@ export class OverlayManager {
   }
 
   registerIpc(): void {
-    this.ctx.ipcMain.handle('overlays:list', () => this.list())
-    this.ctx.ipcMain.handle('overlays:getConfig', () => this.config)
+    this.ctx.ipcMain.handle('overlays:list', async () => {
+      await this.load()
+      return this.list()
+    })
+    this.ctx.ipcMain.handle('overlays:getConfig', async () => {
+      await this.load()
+      return this.config
+    })
     this.ctx.ipcMain.handle('overlays:getDisplays', () => this.getDisplays())
     this.ctx.ipcMain.handle('overlays:setConfig', async (_event, patch: Partial<OverlaysConfig>) => this.setConfig(patch))
     this.ctx.ipcMain.handle('overlays:toggle', async (_event, id: OverlayWidgetId, enabled?: boolean) =>
@@ -642,7 +662,10 @@ export class OverlayManager {
       }
     )
     // ─── Custom overlays (designer) ────────────────────────────────────────────
-    this.ctx.ipcMain.handle('overlays:listCustom', () => this.listCustom())
+    this.ctx.ipcMain.handle('overlays:listCustom', async () => {
+      await this.load()
+      return this.listCustom()
+    })
     this.ctx.ipcMain.handle('overlays:getCustom', (_event, id: string) => this.getCustom(id))
     this.ctx.ipcMain.handle('overlays:addCustom', async (_event, input: unknown) => this.addCustom(input))
     this.ctx.ipcMain.handle('overlays:updateCustom', async (_event, id: string, patch: unknown) => this.updateCustom(id, patch))
