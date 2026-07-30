@@ -30,10 +30,11 @@ const appRoot = resolve(here, "..")
  *   nativeSize       — the data-rc19-native-size attribute from the dashboard root, used to verify
  *                      the native-canvas 800x480 badge.
  *
- *   nextStintRows    — every cell of every next-stint row with its layout box and its painted range
- *                      rect. The `FUEL PER LAP` label carries its `L` unit as an element CHILD, so
- *                      it is not a leaf and the shared leaf sweep is structurally blind to it
- *                      overflowing; only the range rect sees it.
+ *   nextStintValues  — every next-stint row's VALUE cell with its layout box and its painted range
+ *                      rect, so the FUEL PER LAP overrun is measured against the box it is laid
+ *                      out in rather than only against integer-rounded `scrollWidth`. Values only:
+ *                      the `.rc19-label` beside each carries its unit as an element child, so it
+ *                      is not a leaf and is outside what this harness undertakes to observe.
  *
  *   timelineSegments — data-rc19-timeline-segments from the timeline element, used to assert that
  *                      the app timeline renders zero segments (packet omission: stintPlanTimeline).
@@ -77,21 +78,17 @@ async function collectMetrics(page, spec, entry) {
       // Dashboard native-size badge (native canvas only).
       const nativeSize = root.querySelector(".rc19-dashboard")?.getAttribute("data-rc19-native-size") ?? null
 
-      // Every cell of every next-stint row, with its layout box AND its painted range rect.
-      // The `FUEL PER LAP` label carries its `L` unit as an ELEMENT CHILD, so it is not a leaf and
-      // the shared leaf sweep cannot see it overflow. Only the range rect can, which is why this
-      // is collected explicitly rather than left to the sweep.
-      const nextStintRows = Array.from(
-        root.querySelectorAll('[data-testid="rc19-next-stint"] .rc19-row')
-      ).flatMap((row) =>
-        Array.from(row.children).map((cell) => ({
-          row: row.getAttribute("data-rc19-row") ?? "",
-          kind: cell.classList.contains("rc19-label") ? "label" : "value",
-          text: (cell.textContent ?? "").trim(),
-          rect: relativeRect(cell),
-          textRect: helpers.textRect(cell)
-        }))
-      )
+      // Every next-stint row's VALUE cell, with its layout box and its painted range rect. Only
+      // the values: the `.rc19-label` beside each carries its unit as an element child, so it is
+      // not a leaf and is outside what this harness undertakes to observe.
+      const nextStintValues = Array.from(
+        root.querySelectorAll('[data-testid="rc19-next-stint"] .rc19-row > .rc19-value')
+      ).map((cell) => ({
+        row: cell.closest(".rc19-row")?.getAttribute("data-rc19-row") ?? "",
+        text: (cell.textContent ?? "").trim(),
+        rect: relativeRect(cell),
+        textRect: helpers.textRect(cell)
+      }))
 
       return {
         ...common,
@@ -110,7 +107,7 @@ async function collectMetrics(page, spec, entry) {
         })(),
         alertsClearance,
         alertScope,
-        nextStintRows,
+        nextStintValues,
         timelineSegments,
         nativeSize
       }

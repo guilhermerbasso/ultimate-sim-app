@@ -546,18 +546,23 @@
 
 /*
  * The next-stint column carries the longest row labels in the artifact, and it is the narrowest
- * usable row in the frame: at 800x480 the packet's 250px column leaves a 168px row after the
- * column inset, and `FUEL PER LAP` plus its `L` unit needs 110.45px of that at the shared 1.875cqw
- * label step, against a 30px `2.94` numeral needing 56.63px and a 9.6px gap — 176.68px of demand
- * in 168px. The flex algorithm split the deficit, so `white-space: nowrap` pushed the label 5.45px
- * past its 105px box and the numeral 3px past its 54px box in all three governed states, with
- * `scrollWidth === clientWidth` on every ancestor.
+ * usable row in the frame. At 800x480 the packet's 250px column leaves a 168px row, and at the
+ * shared 1.875cqw label step the `FUEL PER LAP` label plus its `L` unit needs 110.45px of it
+ * against a 30px `2.94` numeral needing 56.63px and a 9.6px gap — 176.68px of demand in 168px.
  *
- * These are ROW labels, the smallest rung of the ladder and not part of it — the ladder's
- * `row-label` rung is measured from the car-state `FUEL LAPS` row, which is unaffected. This
- * column therefore carries its own smaller step, derived from the longest label it must print:
- * 1.6cqw is 12.8px at 800x480, which needs 94.25px and leaves the numeral 64.15px for its 56.63px.
- * Both compact families keep their own steps, which already fit.
+ * The flex algorithm spreads that 8.68px deficit across both cells in proportion to their base
+ * sizes, and `white-space: nowrap` then sizes each cell's text to itself, so the numeral's 2.94px
+ * share painted past its 53.69px box in all three governed states with `scrollWidth ===
+ * clientWidth` on every ancestor. That is the measured defect, and its cause is the row's width
+ * budget rather than the numeral: nothing reaches the numeral without retiring the deficit, and
+ * forcing the numeral not to shrink would simply move the whole 8.68px onto the label.
+ *
+ * A numeral is the reading and a label is its annotation, so the annotation gives way — the same
+ * rule RC-03 states for units. These are ROW labels, the smallest rung and not part of the
+ * governed ladder, whose `row-label` rung is measured from the car-state `FUEL LAPS` row and is
+ * untouched. The column therefore carries its own smaller step, derived from the longest label it
+ * must print: 1.6cqw is 12.8px at 800x480, which needs 94.25px and leaves the numeral 64.15px for
+ * its 56.63px. Both compact families keep their own steps, which already fit.
  */
 .rc19-next-stint .rc19-label {
   font-size: clamp(7px, var(--rc19-type-next-stint-label, 1.6cqw), 16px);

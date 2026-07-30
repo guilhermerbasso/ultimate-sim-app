@@ -246,23 +246,27 @@ export const RC19_SPEC = Object.freeze({
    * It used to record the FUEL PER LAP value overflowing its native column in all three governed
    * states — `rc19-fuel-per-lap` "2.94" painting 3 px wider than its 54 px box at 800x480 — the
    * `white-space: nowrap` class the RaceCon harnesses exist to catch: overflow clipped visually,
-   * `scrollWidth === clientWidth` on the ancestors, and jsdom sees nothing.
+   * `scrollWidth === clientWidth` on the ancestors, and jsdom sees nothing. That leaf IS swept
+   * (`data-testid="rc19-fuel-per-lap"` has no element children), so it fired three times on the
+   * shipped build and an empty ledger is a real guard for it.
    *
-   * Beside it, and deliberately NOT recorded because this sweep structurally cannot observe it, a
-   * real-browser sweep measured a next-stint row LABEL standing 5.45 px wider than its 105 px
-   * column at 800x480. `.rc19-label` renders as
+   * The cause is the row's width budget, not the numeral: the packet's 250 px native column leaves
+   * a 168 px row, and at the shared 1.875cqw step the `FUEL PER LAP` label needs 110.45 px of it
+   * against a 56.63 px numeral and a 9.6 px gap — 176.68 px of demand in 168 px. The flex
+   * algorithm distributes that 8.68 px deficit across both cells in proportion to their base
+   * sizes, and the numeral's 2.94 px share is the overflow this ledger recorded. The column
+   * therefore carries its own smaller label step now (1.6cqw, 12.8 px at 800x480), derived from
+   * the longest label it must print, which retires the deficit at source. The ladder's `row-label`
+   * rung is measured from the car-state `FUEL LAPS` row and is untouched.
+   *
+   * A `.rc19-label` in the same row was separately observed standing 5.45 px wider than its 105 px
+   * box, and is deliberately NOT recorded and NOT guarded. `.rc19-label` renders as
    * `<span class="rc19-label">{label}<span class="rc19-unit">{unit}</span></span>` wherever a unit
-   * is present, so those instances carry a child element and the leaf sweep — which is
-   * `childElementCount === 0` by construction — never looks at them. That observability gap is now
-   * closed by `assertNextStintRowsPaintInsideTheirBoxes` below, which measures every next-stint
-   * cell's RANGE rect against its own layout box at every viewport in every state.
-   *
-   * Both had one cause: the packet's 250 px native column leaves a 168 px row, and the label
-   * needed 110.45 px of it at the shared 1.875cqw step against a 56.63 px numeral and a 9.6 px gap
-   * — 176.68 px of demand in 168 px, which the flex algorithm split between the two. The
-   * next-stint column now carries its own smaller label step (1.6cqw, 12.8 px at 800x480), derived
-   * from the longest label it must print; the ladder's `row-label` rung is measured from the
-   * car-state `FUEL LAPS` row and is untouched.
+   * exists, so those instances carry a child element and this leaf sweep —
+   * `childElementCount === 0` by construction — cannot see them; a budget for a defect the harness
+   * cannot observe would overstate the coverage. It clears as a side effect of retiring the row's
+   * deficit, because both cells were sharing one shortfall, but nothing here asserts that and its
+   * return is not treated as a regression.
    */
   knownDefects:       Object.freeze([]),
   zoneOverflowDefects: Object.freeze([]),
@@ -678,38 +682,41 @@ function assertAlertStripClearance(metrics, entry) {
   return results
 }
 
-// ─────────────────────────────────────────────────────────── next-stint row containment
+// ─────────────────────────────────────────────────────────── next-stint value containment
 
 export const RC19_ROW_TOLERANCE_PX = 1
 
 /**
- * The regression guard for the next-stint row overruns.
+ * The regression guard for the FUEL PER LAP overrun.
  *
- * Neither the leaf sweep nor `scrollWidth` is enough here, and for the label neither is even
- * possible. `white-space: nowrap` sizes a cell to its own text, so `scrollWidth === clientWidth`
- * reports that a 110.45px label "fits" the 105px box the flex algorithm squeezed it into; and the
- * `FUEL PER LAP` label carries its `L` unit as an element child, so it is not a leaf at all and
- * the sweep never looks at it. Only the RANGE rectangle against the cell's own layout box sees
- * both, which is what this does — at every viewport, in every state, with no budget.
+ * WHICH AUDITOR SEES THIS: this one, and the shared leaf sweep as well. `rc19-fuel-per-lap` is a
+ * true leaf, so `auditOverflowLeaves` covers it against the now-empty ledger; this assertion is
+ * the stronger second opinion, because `scrollWidth` is integer-rounded and `white-space: nowrap`
+ * sizes a cell to its own text — a numeral can be exactly as wide as its glyphs and report
+ * `scrollWidth === clientWidth` while the RANGE rect says otherwise.
+ *
+ * Scoped to the next-stint VALUE cells on purpose. The `.rc19-label` beside each of them carries
+ * its unit as an element child, so it is not a leaf and is outside what this harness undertakes to
+ * observe; it is documented in `knownDefects` above rather than asserted here.
  */
-function assertNextStintRowsPaintInsideTheirBoxes(metrics) {
-  const cells = metrics.nextStintRows ?? []
-  if (cells.length === 0) fail("capture collected no next-stint row cells")
+function assertNextStintValuesPaintInsideTheirBoxes(metrics) {
+  const cells = metrics.nextStintValues ?? []
+  if (cells.length === 0) fail("capture collected no next-stint value cells")
   for (const cell of cells) {
     if (!cell.rect || !cell.textRect) {
-      fail(`next-stint ${cell.kind} "${cell.text}" was measured without a rectangle`)
+      fail(`next-stint value "${cell.text}" was measured without a rectangle`)
     }
-    const boxRight = finite(cell.rect.left, `${cell.row} ${cell.kind} left`) + cell.rect.width
-    const inkRight = finite(cell.textRect.left, `${cell.row} ${cell.kind} text left`) + cell.textRect.width
+    const boxRight = finite(cell.rect.left, `${cell.row} value left`) + cell.rect.width
+    const inkRight = finite(cell.textRect.left, `${cell.row} value text left`) + cell.textRect.width
     if (inkRight - boxRight > RC19_ROW_TOLERANCE_PX) {
       fail(
-        `the next-stint ${cell.kind} "${cell.text}" paints ${(inkRight - boxRight).toFixed(2)}px past its own ` +
+        `the next-stint value "${cell.text}" paints ${(inkRight - boxRight).toFixed(2)}px past its own ` +
           `${cell.rect.width.toFixed(2)}px box (glyphs reach x=${inkRight.toFixed(2)}, box ends at ` +
           `x=${boxRight.toFixed(2)})`
       )
     }
     if (cell.rect.left - cell.textRect.left > RC19_ROW_TOLERANCE_PX) {
-      fail(`the next-stint ${cell.kind} "${cell.text}" paints past the left edge of its own box`)
+      fail(`the next-stint value "${cell.text}" paints past the left edge of its own box`)
     }
   }
 }
@@ -770,7 +777,7 @@ export function validateCaptureMetrics(metrics, entry) {
   assertPacketOmissions(metrics, entry)
   assertDashCount(metrics, entry)
   assertReferenceLiterals(metrics, entry)
-  assertNextStintRowsPaintInsideTheirBoxes(metrics)
+  assertNextStintValuesPaintInsideTheirBoxes(metrics)
 
   const alertClearance =
     entry.state === "handover" ? assertAlertStripClearance(metrics, entry) : {}
