@@ -40,6 +40,23 @@ npm run dist:win
 This fetches the local llama/whisper/sherpa/tts binaries, runs `electron-vite build`, then
 `electron-builder --win --publish never`. Output lands in `app-v2/dist-win/`.
 
+Every one of those downloads is pinned by **origin + version + hash** and verified before it is
+extracted or packaged, because each one puts an executable or a native addon inside the installer:
+
+| Asset | Pin |
+|---|---|
+| `cloudflared.exe` | version + SHA-256 in `scripts/fetch-win-cloudflared.sh`; re-verified at runtime before every spawn |
+| `whisper-bin-x64.zip` (`whisper-cli.exe` + ggml DLLs) | release version + SHA-256 in `scripts/fetch-win-whisper.sh`, checked before `unzip` |
+| `sherpa-onnx-win-x64` (`sherpa-onnx.node` + DLLs) | fetched with curl, so verified against the sha512 **committed in `package-lock.json`** for that exact version |
+| `vits-piper-*.tar.bz2` (espeak-ng-data) | SHA-256 in `scripts/fetch-win-sherpa.sh` — the upstream `tts-models` release tag is mutable |
+| `@node-llama-cpp/win-x64` | `npm pack` at the lockfile-resolved version, so npm's own registry integrity check applies |
+| `piper_windows_amd64.zip` (legacy) | version + SHA-256 in `scripts/fetch-piper-voices.sh`, checked before `unzip` |
+
+To refresh a pin, download the new asset, compute its SHA-256 and update the constant in the
+same commit as the version bump — never one without the other. Piper **voice models** from
+Hugging Face are still unpinned; they are data, are not executed, and are downloaded on demand
+at runtime rather than packaged.
+
 It also downloads the official Cloudflare Windows amd64 `cloudflared` asset pinned in
 `scripts/fetch-win-cloudflared.sh`. The script verifies the pinned SHA-256 before an atomic
 install and never executes the binary. An existing file is reused only when its hash matches.

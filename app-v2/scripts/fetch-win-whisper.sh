@@ -13,6 +13,11 @@ cd "$(dirname "$0")/.."
 
 WHISPER_VER="v1.9.1"
 ASSET="whisper-bin-x64.zip"
+# Pinned by origin + version + hash. whisper-cli.exe is EXECUTED by the app, so the
+# archive is verified before anything is extracted from it: a moved tag, a re-cut
+# release or a tampered CDN response must fail the build, not ship a binary.
+# sha256 of https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip
+ASSET_SHA256="7d8be46ecd31828e1eb7a2ecdd0d6b314feafd82163038ab6092594b0a063539"
 URL="https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VER}/${ASSET}"
 DEST="resources/whisper"
 BIN="whisper-cli.exe"
@@ -44,6 +49,22 @@ runtime_complete_at() {
   done
 }
 
+sha256_of() {
+  node -e 'const fs=require("node:fs"),crypto=require("node:crypto");console.log(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$1"
+}
+
+verify_sha256() {
+  local file="$1" expected="$2" actual
+  actual="$(sha256_of "$file")"
+  if [ "$actual" != "$expected" ]; then
+    echo "[fetch-win-whisper] ERROR: SHA-256 mismatch for $file" >&2
+    echo "[fetch-win-whisper] expected $expected" >&2
+    echo "[fetch-win-whisper] actual   $actual" >&2
+    return 1
+  fi
+  echo "[fetch-win-whisper] verified $ASSET ($WHISPER_VER, sha256:$actual)"
+}
+
 if runtime_complete_at "$DEST"; then
   echo "[fetch-win-whisper] complete Windows runtime already present — skipping"
   exit 0
@@ -60,7 +81,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-curl -fSL -o "$WORK/whisper.zip" "$URL"
+curl -fSL --proto '=https' --tlsv1.2 -o "$WORK/whisper.zip" "$URL"
+verify_sha256 "$WORK/whisper.zip" "$ASSET_SHA256"
 unzip -q -o "$WORK/whisper.zip" -d "$WORK/extracted"
 
 # The ZIP lays files under a Release/ folder. Copy ONLY the CPU runtime: the CLI binary,

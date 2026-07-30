@@ -39,14 +39,31 @@ DEST="${SCRIPT_DIR}/../resources/piper"
 VOICES_DIR="${DEST}/voices"
 PIPER_VERSION="2023.11.14-2"
 PIPER_ZIP_URL="https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_windows_amd64.zip"
+# piper.exe is an EXECUTABLE: pin it by origin + version + hash and verify before
+# anything is extracted. sha256 of piper_windows_amd64.zip @ 2023.11.14-2.
+PIPER_ZIP_SHA256="f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea"
 HF_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main"
+
+sha256_of() {
+  node -e 'const fs=require("node:fs"),crypto=require("node:crypto");process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$1"
+}
 
 mkdir -p "${VOICES_DIR}"
 
 echo "==> Downloading Piper engine (Windows x64)…"
 PIPER_ZIP="${DEST}/piper_windows_amd64.zip"
 if [ ! -f "${DEST}/piper.exe" ]; then
-  curl -fL --progress-bar -o "${PIPER_ZIP}" "${PIPER_ZIP_URL}"
+  curl -fL --progress-bar --proto '=https' --tlsv1.2 -o "${PIPER_ZIP}" "${PIPER_ZIP_URL}"
+
+  ACTUAL_SHA256="$(sha256_of "${PIPER_ZIP}")"
+  if [ "${ACTUAL_SHA256}" != "${PIPER_ZIP_SHA256}" ]; then
+    rm -f "${PIPER_ZIP}"
+    echo "  ERROR: SHA-256 mismatch for piper_windows_amd64.zip" >&2
+    echo "  expected ${PIPER_ZIP_SHA256}" >&2
+    echo "  actual   ${ACTUAL_SHA256}" >&2
+    exit 1
+  fi
+  echo "    verified piper_windows_amd64.zip (${PIPER_VERSION}, sha256:${ACTUAL_SHA256})"
 
   # 1. Flat-extract the binaries (piper.exe, onnxruntime.dll) — junk paths is fine here.
   unzip -jo "${PIPER_ZIP}" "piper/piper.exe" "piper/onnxruntime.dll" -d "${DEST}" 2>/dev/null || \
@@ -89,7 +106,7 @@ download_voice() {
   for ext in ".onnx" ".onnx.json"; do
     local file="${VOICES_DIR}/${voice_id}${ext}"
     if [ ! -f "${file}" ]; then
-      if ! curl -fL --progress-bar -o "${file}" "${base_url}${ext}"; then
+      if ! curl -fL --progress-bar --proto '=https' --tlsv1.2 -o "${file}" "${base_url}${ext}"; then
         rm -f "${file}"   # remove partial download
         echo "    ERROR: failed to download ${voice_id}${ext}"
         return 1
@@ -128,7 +145,7 @@ esac
 # ── Fetch LICENSE files ───────────────────────────────────────────────────────
 echo "==> Fetching Piper LICENSE…"
 if [ ! -f "${DEST}/LICENSE" ]; then
-  curl -fsSL -o "${DEST}/LICENSE" \
+  curl -fsSL --proto '=https' --tlsv1.2 -o "${DEST}/LICENSE" \
     "https://raw.githubusercontent.com/rhasspy/piper/master/LICENSE"
 fi
 
