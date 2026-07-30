@@ -68,9 +68,17 @@ const workerVerifierPath = join(appRoot, 'scripts', 'verify-passport-worker.mjs'
 const ciPath = join(repoRoot, '.github', 'workflows', 'ci.yml')
 const temporaryDirectories: string[] = []
 
+// This case shells out to a full nested Vitest discovery run, which has to
+// transform 15 large test files and their import graphs. That is a build, not
+// an assertion: its cost tracks host load, not the behaviour under test. The
+// budget is a hang watchdog sized for a heavily loaded machine, and the test
+// timeout sits above it so an over-budget subprocess is reported as such
+// rather than as an opaque Vitest timeout.
+const NESTED_DISCOVERY_BUDGET_MS = 240_000
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true })
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })
 
@@ -298,15 +306,23 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
       cwd: appRoot,
       encoding: 'utf8',
       windowsHide: true,
-      maxBuffer: 32 * 1024 * 1024
+      maxBuffer: 32 * 1024 * 1024,
+      timeout: NESTED_DISCOVERY_BUDGET_MS,
+      killSignal: 'SIGKILL'
     })
     const discovered = testCountFromVitestList(listed.stdout)
 
+    // A killed subprocess yields empty stdout, which would otherwise surface as
+    // a baffling zero-versus-expected count mismatch. Name the real cause.
+    expect.soft(
+      listed.error,
+      `nested Vitest discovery did not finish within ${NESTED_DISCOVERY_BUDGET_MS}ms`
+    ).toBeUndefined()
     expect.soft(listed.status, listed.stderr).toBe(0)
     expect.soft(selectors.length, 'the evidence must enumerate its selectors').toBeGreaterThan(0)
     expect.soft(discovered.tests).toBe(targeted.tests)
     expect.soft(discovered.files).toBe(targeted.files)
-  }, 30_000)
+  }, NESTED_DISCOVERY_BUDGET_MS + 30_000)
 
   it('[supported] CI independently runs the complete pinned acceptance command set on PR and main', () => {
     const workflow = parseYaml(readFileSync(ciPath, 'utf8')) as Workflow

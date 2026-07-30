@@ -11,6 +11,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { fork, type ChildProcess } from 'node:child_process'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -458,10 +459,21 @@ let workerFixture: PassportWorkerTestFixture
 let workerFaultPreloadDirectory = ''
 let workerFaultPreloadPath = ''
 
+// Long enough that the isolation case's in-window proof can never outrun the
+// blocked worker's patience, however loaded the host is.
+const ISOLATION_BUSY_TIMEOUT_MS = 120_000
+const ISOLATION_RPC_TIMEOUT_MS = 150_000
+
+// Cases here fork real worker processes and drive SQLite through them. Most of
+// this file already sizes its own watchdogs; these are the ones that were left
+// on Vitest's 5s default, which a loaded host can exceed on process startup
+// alone. Nothing here asserts on elapsed time.
+const REAL_WORKER_TIMEOUT_MS = 60_000
+
 class PersistenceProcess {
   readonly child: ChildProcess
 
-  constructor(fault?: PersistenceProcessFault) {
+  constructor(fault?: PersistenceProcessFault, busyTimeoutMs?: number) {
     const env = { ...process.env }
     const execArgv: string[] = []
     if (fault) {
@@ -469,6 +481,11 @@ class PersistenceProcess {
       execArgv.push('--require', workerFaultPreloadPath)
     } else {
       delete env[PASSPORT_WORKER_FAULT_ENV]
+    }
+    if (busyTimeoutMs !== undefined) {
+      env.ULTIMATE_SIM_PASSPORT_SQLITE_BUSY_TIMEOUT_MS = String(busyTimeoutMs)
+    } else {
+      delete env.ULTIMATE_SIM_PASSPORT_SQLITE_BUSY_TIMEOUT_MS
     }
     this.child = fork(workerFixture.entry, [], {
       env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
@@ -525,7 +542,7 @@ let requestId = 0
 beforeAll(async () => {
   workerFixture = await buildPassportWorkerTestFixture('process')
   workerFaultPreloadDirectory = mkdtempSync(
-    join(process.cwd(), '.passport-test-worker-fault-')
+    join(tmpdir(), 'passport-test-worker-fault-')
   )
   workerFaultPreloadPath = join(workerFaultPreloadDirectory, 'fault-preload.cjs')
   writeFileSync(workerFaultPreloadPath, PASSPORT_WORKER_FAULT_PRELOAD, 'utf8')
@@ -554,14 +571,18 @@ afterEach(async () => {
   }
 })
 
+// Scratch databases live under the OS temp directory rather than the checkout.
+// Every mkdtemp/write inside the repo goes through Vite's watcher, git and the
+// on-access virus scanner, and this suite performs that work inside a 200ms
+// SQLite busy window.
 function tempDatabase(name: string): string {
-  const directory = mkdtempSync(join(process.cwd(), `.passport-worker-${name}-`))
+  const directory = mkdtempSync(join(tmpdir(), `passport-worker-${name}-`))
   directories.push(directory)
   return join(directory, 'passport.db')
 }
 
-function spawnWorker(fault?: PersistenceProcessFault): PersistenceProcess {
-  const worker = new PersistenceProcess(fault)
+function spawnWorker(fault?: PersistenceProcessFault, busyTimeoutMs?: number): PersistenceProcess {
+  const worker = new PersistenceProcess(fault, busyTimeoutMs)
   workers.push(worker)
   return worker
 }
@@ -770,7 +791,7 @@ function restoreFiles(directory: string, files: Record<string, Buffer>): void {
 }
 
 function cloneDirectory(source: string, name: string): string {
-  const container = mkdtempSync(join(process.cwd(), `.passport-worker-${name}-`))
+  const container = mkdtempSync(join(tmpdir(), `passport-worker-${name}-`))
   directories.push(container)
   const snapshot = join(container, 'snapshot')
   cpSync(source, snapshot, { recursive: true })
@@ -1480,7 +1501,15 @@ function restoreDatabaseBundle(snapshotRoot: string, path: string): void {
 describe('packaged Passport persistence worker', () => {
   it('[supported] runs off the main thread while the parent and an independent worker make progress', async () => {
     const path = tempDatabase('isolation')
-    const blocked = spawnWorker()
+    // The blocked worker is given a long busy timeout so that "did the write
+    // survive contention?" is decided by the lock being released, not by how
+    // fast this machine could finish the surrounding proof. With the production
+    // default of 200ms the parent had to fork, migrate and round-trip an
+    // independent worker inside 200ms or the write failed closed, which made a
+    // loaded host look like a persistence regression. The worker still fails
+    // closed when the lock is genuinely never released - that is asserted by
+    // the lock-blocked cases in persistence-client.test.ts.
+    const blocked = spawnWorker(undefined, ISOLATION_BUSY_TIMEOUT_MS)
     const independent = spawnWorker()
     expect(blocked.pid).toBeGreaterThan(0)
     expect(blocked.pid).not.toBe(process.pid)
@@ -1489,22 +1518,25 @@ describe('packaged Passport persistence worker', () => {
     expect(independent.pid).not.toBe(blocked.pid)
     await expect(rpc(blocked, 'initialize', [path])).resolves.toMatchObject({ ok: true })
 
+    const independentPath = tempDatabase('independent')
+
     const blocker = new DatabaseSync(path)
     blocker.exec('PRAGMA busy_timeout = 0')
     blocker.exec('BEGIN IMMEDIATE')
     const pulse = heartbeat()
     let writeSettled = false
-    const pendingWrite = rpc(blocked, 'setPrivacy', [privacy(true)])
+    const pendingWrite = rpc(blocked, 'setPrivacy', [privacy(true)], ISOLATION_RPC_TIMEOUT_MS)
     pendingWrite.then(() => { writeSettled = true }, () => { writeSettled = true })
     try {
       await waitUntil(() => pulse.count() >= 20)
       expect(writeSettled).toBe(false)
-      await expect(rpc(independent, 'initialize', [tempDatabase('independent')]))
+      await expect(rpc(independent, 'initialize', [independentPath]))
         .resolves.toMatchObject({ ok: true })
       await expect(rpc(independent, 'getConfig')).resolves.toMatchObject({
         ok: true,
         result: expect.objectContaining({ requiredDeviceIds: ['simx'] })
       })
+      expect(writeSettled).toBe(false)
       expect(pulse.count()).toBeGreaterThanOrEqual(20)
     } finally {
       blocker.exec('ROLLBACK')
@@ -1515,7 +1547,7 @@ describe('packaged Passport persistence worker', () => {
       ok: true,
       result: expect.objectContaining({ identityPersistenceOptIn: true })
     })
-  })
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[supported] returns correlated errors for invalid dispatch without crashing the worker', async () => {
     const path = tempDatabase('dispatch-errors')
@@ -1545,7 +1577,7 @@ describe('packaged Passport persistence worker', () => {
       ok: true,
       result: expect.objectContaining({ identityPersistenceOptIn: false })
     })
-  })
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[supported] serializes locked requests and preserves their response IDs', async () => {
     const path = tempDatabase('serialization')
@@ -1572,7 +1604,7 @@ describe('packaged Passport persistence worker', () => {
     expect(responseOrder).toEqual([firstResponse.id, secondResponse.id])
     expect(secondResponse.id).toBe(firstResponse.id + 1)
     expect(secondResponse.result).toMatchObject({ identityPersistenceOptIn: true })
-  })
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[supported] exits with code 91 and reopens exactly the last acknowledged commit', async () => {
     const path = tempDatabase('crash-reopen')
@@ -1640,7 +1672,7 @@ describe('packaged Passport persistence worker', () => {
     }
     db.close()
     expect(counts).toEqual({ passports: 0, items: 0, events: 0 })
-  })
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[spec-gap] exposes deterministic WAL, post-commit, and pre-response crash checkpoints', async () => {
     const path = tempDatabase('crash-checkpoints')
@@ -1718,7 +1750,7 @@ describe('packaged Passport persistence worker', () => {
     }
     await expect(rpc(repairWorker, 'getPassport', ['worker-stint']))
       .resolves.toMatchObject({ ok: true, result: null })
-  })
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B13-a] rejects replay of a completed repair journal without touching a fresh database', async () => {
     const path = tempDatabase('repair-journal-replay')
@@ -3133,7 +3165,7 @@ function workerPathsEqual(left: string | undefined, right: string): boolean {
 function parentFsyncTracePath(label: string): string {
   const safeLabel = label.replace(/[^a-z0-9-]+/gi, '-').toLowerCase()
   const directory = mkdtempSync(
-    join(process.cwd(), `.passport-worker-parent-fsync-${safeLabel}-`)
+    join(tmpdir(), `passport-worker-parent-fsync-${safeLabel}-`)
   )
   directories.push(directory)
   return join(directory, 'trace.jsonl')

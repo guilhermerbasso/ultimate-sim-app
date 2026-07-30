@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs'
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -10,6 +11,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -30,19 +32,33 @@ import {
 
 const scratchDirs: string[] = []
 
+// Two cases here are bounded by real filesystem throughput rather than by the
+// code under test: one performs DEBRIEF_ARCHIVE_MAX_RECORDS + 3 durable
+// append cycles (each a temp write, fsync and rename), the other materialises
+// DEBRIEF_ARCHIVE_TEMP_SCAN_BATCH_SIZE * 2 + 17 real files to prove the temp
+// scanner continues across batches. Both file counts are dictated by
+// production constants, so the work cannot be reduced without weakening what
+// is being proven. Vitest's default 5s timeout is a hang guard, and on a busy
+// machine it was firing on honest I/O; this sizes the guard to the work.
+const FILESYSTEM_HEAVY_TIMEOUT_MS = 120_000
+
+// Scratch trees live under the OS temp directory rather than the checkout.
+// These cases write thousands of real files, and doing that inside the repo
+// puts every write behind Vite's watcher, git and the on-access virus scanner,
+// which is what pushed the heavier cases past the default 5s test timeout
+// whenever the suite ran in parallel. It also stops failed runs from leaving
+// scratch trees behind in the working tree.
 function scratch(name: string): string {
-  const directory = join(
-    process.cwd(),
-    `.stint-debrief-archive-${name}-${process.pid}-${Date.now()}-${scratchDirs.length}`
+  const directory = mkdtempSync(
+    join(tmpdir(), `stint-debrief-archive-${name}-${process.pid}-`)
   )
-  mkdirSync(directory, { recursive: true })
   scratchDirs.push(directory)
   return directory
 }
 
 afterEach(() => {
   for (const directory of scratchDirs.splice(0)) {
-    rmSync(directory, { recursive: true, force: true })
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })
 
@@ -150,7 +166,7 @@ describe('StintDebriefArchiveStore', () => {
     expect(summaries.at(-1)?.capturedAt).toBe(4)
     store.quiesce()
     await store.dispose()
-  })
+  }, FILESYSTEM_HEAVY_TIMEOUT_MS)
 
   it('fails closed on corrupt storage without overwriting it', async () => {
     const root = scratch('corrupt')
@@ -296,7 +312,7 @@ describe('StintDebriefArchiveStore', () => {
     await store.dispose()
     expect(existsSync(liveTemp)).toBe(false)
     expect(yielded).toBeGreaterThanOrEqual(4)
-  })
+  }, FILESYSTEM_HEAVY_TIMEOUT_MS)
 
   it('streams a large synthetic directory and yields before enumeration completes', async () => {
     const root = scratch('streaming-directory-probe')
