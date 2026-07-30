@@ -205,6 +205,14 @@ export interface ConfigImportSummary {
   unknown: string[]
   /** Per-section item/application counts when the section has a meaningful collection shape. */
   details?: Record<string, ConfigSectionImportDetail>
+  /**
+   * Non-fatal problems found AFTER the data was successfully persisted — e.g.
+   * imported iFlag profiles that no local RGB matrix target could be matched to.
+   * Audit §24-19: these MUST NOT be raised as a global import error, because the
+   * data is already on disk and will apply on the next launch; reporting them as
+   * a failure tells the user the opposite of what happened.
+   */
+  warnings?: string[]
 }
 
 export interface ConfigSectionImportDetail {
