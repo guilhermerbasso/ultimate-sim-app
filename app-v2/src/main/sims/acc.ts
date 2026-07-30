@@ -9,6 +9,13 @@ import {
   type SharedMemoryBufferHandle
 } from './shared-memory'
 import type { ReplayContext } from '../../shared/replay'
+import {
+  acpmfProviderClaims,
+  identifyAcpmf,
+  readAcpmfSmVersion,
+  type AcpmfIdentity,
+  type AcpmfSelectionMode
+} from './acpmf-identity'
 
 const INVALID_LAP_TIME_MS = 2_000_000_000
 const NOMINAL_STEER_LOCK_DEG = 450
@@ -527,9 +534,29 @@ export class ACCProvider implements TelemetryProvider {
   private graphics: SharedMemoryBufferHandle | null = null
   private staticInfo: SharedMemoryBufferHandle | null = null
   private readonly replayTracker = new ProviderReplayContextTracker()
+  // AC and ACC share `Local\acpmf_*`, so "the mapping opened" is not an identity.
+  // Auto-detection must not claim a page that does not positively identify as ACC.
+  private selectionMode: AcpmfSelectionMode = 'auto'
+
+  setSelectionMode(mode: AcpmfSelectionMode): void {
+    this.selectionMode = mode
+  }
+
+  /** What the shared static page says is publishing. Exposed for diagnostics. */
+  identity(): AcpmfIdentity {
+    return identifyAcpmf(readAcpmfSmVersion(this.staticInfo?.view ?? null))
+  }
+
+  /** All three mappings are open — which says nothing about WHICH simulator owns them. */
+  private isOpen(): boolean {
+    return Boolean(this.physics && this.graphics && this.staticInfo)
+  }
 
   start(): void {
-    if (this.isConnected() || process.platform !== 'win32') return
+    // Guard on "already mapped", not on isConnected(): with an ambiguous page ACC stays
+    // mapped-but-not-connected on purpose, so it can still report WHY it declined. The
+    // hub's reconnect sweep always stop()s first, so re-attaching still works.
+    if (this.isOpen() || process.platform !== 'win32') return
     this.stop()
     this.koffi = loadKoffi()
     if (!this.koffi) return
@@ -548,7 +575,9 @@ export class ACCProvider implements TelemetryProvider {
       'Local\\acpmf_static',
       ACC_STATIC_PAGE_SIZE
     )
-    if (!this.isConnected()) this.stop()
+    // Release a PARTIAL attach. A complete attach is kept even when the page turns out
+    // not to be ACC's, because that is exactly the state the user needs explained.
+    if (!this.isOpen()) this.stop()
   }
 
   stop(): void {
@@ -562,7 +591,11 @@ export class ACCProvider implements TelemetryProvider {
   }
 
   isConnected(): boolean {
-    return Boolean(this.physics && this.graphics && this.staticInfo)
+    if (!this.isOpen()) return false
+    // Positive identification, not mere presence: with Assetto Corsa running, all three
+    // mappings open just as they do for ACC. Claiming them here is what made ACC win the
+    // auto-detection race against AC and then publish nothing at all.
+    return acpmfProviderClaims('acc', this.identity(), this.selectionMode)
   }
 
   poll(): TelemetrySnapshot | null {

@@ -1,4 +1,4 @@
-﻿// Edge detection for physical controls bound to actions.
+// Edge detection for physical controls bound to actions.
 //
 // P1-10: the runtimes used `state.get(key) ?? false` as "previous", which makes
 // a control that is ALREADY HELD when the runtime mounts (app start, view
