@@ -634,20 +634,26 @@ export const RC07_NATIVE_ZONES: Readonly<Record<Exclude<Rc07ZoneId, 'tower'>, Rc
 })
 
 /**
- * Packet 12.1 `tower-reveal`, verbatim percentages. The width buys the app-only class-coded
- * nearest-cars tower; the split spatial/scalar structure is preserved rather than scaled.
+ * Packet 12.1 `tower-reveal`. The width buys the app-only class-coded nearest-cars tower; the
+ * split spatial/scalar structure is preserved rather than scaled.
  *
  * Packet 12.1 gives the flag no zone of its own and instead folds it into the taller self
  * strip. The ribbon therefore keeps the band above the radar that 12.1 leaves unallocated —
  * the blue-flag alert must not become LESS prominent on the larger canvas — and the self
  * strip additionally carries the flag word exactly as 12.1 specifies.
+ *
+ * `ahead` and `self` swap one point against 12.1's literal percentages (ahead 25.0 / self 26.0
+ * as written). Taken literally they render the ahead strip 6px SHORTER than the self strip,
+ * which inverts the normative behind > ahead > self rank order the packet states elsewhere and
+ * the governance evidence measures. The rank order is the contract; 26.0 / 25.0 honours it and
+ * keeps the 2.3% inter-panel gap.
  */
 export const RC07_APP_ZONES: Readonly<Record<Rc07ZoneId, Rc07Rect>> = Object.freeze({
   flag: { left: 2.3, top: 1.0, width: 95.4, height: 5.5 },
   radar: { left: 2.3, top: 8.0, width: 44.9, height: 84.0 },
   behind: { left: 49.2, top: 8.0, width: 29.3, height: 28.3 },
-  ahead: { left: 49.2, top: 38.7, width: 29.3, height: 25.0 },
-  self: { left: 49.2, top: 66.0, width: 29.3, height: 26.0 },
+  ahead: { left: 49.2, top: 38.7, width: 29.3, height: 26.0 },
+  self: { left: 49.2, top: 67.0, width: 29.3, height: 25.0 },
   tower: { left: 80.1, top: 8.0, width: 17.6, height: 84.0 }
 })
 
@@ -668,8 +674,8 @@ const RC07_LANDSCAPE_ZONES: Readonly<Record<Exclude<Rc07ZoneId, 'tower'>, Rc07Re
   flag: { left: 2, top: 1.5, width: 47, height: 7 },
   radar: { left: 2, top: 10, width: 47, height: 86 },
   behind: { left: 51, top: 10, width: 47, height: 28 },
-  ahead: { left: 51, top: 40, width: 47, height: 26 },
-  self: { left: 51, top: 68, width: 47, height: 28 }
+  ahead: { left: 51, top: 40, width: 47, height: 27 },
+  self: { left: 51, top: 69, width: 47, height: 25 }
 })
 
 const RC07_STANDARD_ZONES: Readonly<Record<Exclude<Rc07ZoneId, 'tower'>, Rc07Rect>> = Object.freeze({

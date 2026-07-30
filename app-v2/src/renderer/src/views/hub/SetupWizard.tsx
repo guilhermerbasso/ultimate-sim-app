@@ -8,6 +8,7 @@
 // the auto-created Hardware Hub profile) all happen in main; this component
 // only drives the SETUP_CHANNELS IPC contract and renders progress.
 
+import { useFocusTrap } from '../../lib/useFocusTrap'
 import { type CSSProperties, type ReactElement, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import {
   FLASH_BOARDS,
@@ -336,8 +337,10 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast, on
     return <OnboardingWizard device={onboardingDevice} onClose={onClose} onComplete={onComplete} showToast={showToast} language={language} />
   }
 
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onClose })
+
   return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label="Arduino setup">
+    <div style={overlay} ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-label="Arduino setup">
       <div style={modal}>
         {/* Header + stepper */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -453,8 +456,9 @@ function OnboardingWizard({ device, onClose, onComplete, showToast, language }: 
     } catch (error) { showToast(getErrorMessage(error), 'error') } finally { setSaving(false) }
   }
   async function finish(navigate = true): Promise<void> { if (!savedProfile) return; await onComplete(savedProfile.id, navigate ? componentType : undefined); onClose() }
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onClose })
   return (
-    <div style={overlay} role="dialog" aria-modal="true" aria-label={tt(language, 'arduinos.onboarding.title')}>
+    <div style={overlay} ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-label={tt(language, 'arduinos.onboarding.title')}>
       <div style={modal}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}><div><span style={label}>{tt(language, 'arduinos.onboarding.eyebrow')}</span><h2 style={{ margin: '6px 0 0', fontSize: 22 }}>{tt(language, 'arduinos.onboarding.title')}</h2><p style={{ ...helper, marginTop: 4 }}>{tt(language, 'arduinos.onboarding.subtitle')}</p></div><button style={buttonStyle('ghost')} onClick={onClose} type="button" aria-label="Close">x</button></div>
         <OnboardingStepper current={step} />

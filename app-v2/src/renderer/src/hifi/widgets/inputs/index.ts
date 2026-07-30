@@ -1,4 +1,4 @@
-﻿import type { HifiWidgetModule } from '../types'
+import type { HifiWidgetModule } from '../types'
 import { brakeWidget } from './brake'
 import { clutchWidget } from './clutch'
 import { inputsBrakeThrottleWidget } from './inputsBrakeThrottle'

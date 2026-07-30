@@ -37,7 +37,9 @@ import {
 import {
   PASSPORT_APP_PERSISTENCE_DEADLINE_MS,
   PASSPORT_CLIENT_CLOSE_DEADLINE_MS,
-  PASSPORT_PERSISTENCE_WORST_CASE_MS
+  PASSPORT_PERSISTENCE_WORST_CASE_MS,
+  PASSPORT_SQLITE_BUSY_TIMEOUT_MS,
+  resolvePassportSqliteBusyTimeoutMs
 } from './persistence-deadlines'
 import { StintPassportService } from './service'
 
@@ -1574,6 +1576,24 @@ describe('B4 – Teardown deadline fitness', () => {
       .toBeLessThan(PASSPORT_APP_PERSISTENCE_DEADLINE_MS)
     expect(PASSPORT_PERSISTENCE_WORST_CASE_MS)
       .toBeLessThan(PASSPORT_APP_PERSISTENCE_DEADLINE_MS)
+  })
+
+  it('[blocker-B4-a2] the SQLite busy timeout is overridable and rejects nonsense overrides', () => {
+    expect(resolvePassportSqliteBusyTimeoutMs({})).toBe(PASSPORT_SQLITE_BUSY_TIMEOUT_MS)
+    expect(resolvePassportSqliteBusyTimeoutMs({
+      ULTIMATE_SIM_PASSPORT_SQLITE_BUSY_TIMEOUT_MS: '5000'
+    })).toBe(5_000)
+    expect(resolvePassportSqliteBusyTimeoutMs({
+      ULTIMATE_SIM_PASSPORT_SQLITE_BUSY_TIMEOUT_MS: '0'
+    })).toBe(0)
+    for (const invalid of ['', 'soon', '-1', '1.5', 'Infinity']) {
+      expect(
+        resolvePassportSqliteBusyTimeoutMs({
+          ULTIMATE_SIM_PASSPORT_SQLITE_BUSY_TIMEOUT_MS: invalid
+        }),
+        invalid
+      ).toBe(PASSPORT_SQLITE_BUSY_TIMEOUT_MS)
+    }
   })
 
   it('[blocker-B4-b] a timed-out close drain terminates the worker and reports non-success', async () => {

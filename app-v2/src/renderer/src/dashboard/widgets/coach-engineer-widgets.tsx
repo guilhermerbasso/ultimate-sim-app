@@ -223,7 +223,7 @@ function CoachSectorGraph({ element }: NewWidgetProps): ReactElement {
   const bars = sectorDeltaBars(report)
   const layout = layoutOf(element)
   return (
-    <CoachShell element={element} layout={layout} header="Sectors ? loss">
+    <CoachShell element={element} layout={layout} header="Sectors · loss">
       {bars.length === 0 ? <EmptyNote layout={layout} text="No sectors yet" /> : <SectorBars bars={bars} layout={layout} />}
     </CoachShell>
   )
@@ -266,7 +266,7 @@ function EngineerFeed({ element }: NewWidgetProps): ReactElement {
   const scopeW = clampNum(layout.bodyW * 0.24, 44, 96)
   const clockW = clampNum(layout.bodyW * 0.16, 30, 60)
   return (
-    <CoachShell element={element} layout={layout} header="Engineer ? radio">
+    <CoachShell element={element} layout={layout} header="Engineer · radio">
       {feed.length === 0 ? (
         <EmptyNote layout={layout} text="No messages yet" />
       ) : (

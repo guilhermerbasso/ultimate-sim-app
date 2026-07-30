@@ -1,6 +1,7 @@
 // ── irTiming2 — iRacing optimal/session/driver timing deltas ─────────────────
 // Clean, transparent, title-less SVG readouts modelled after the generated timing
 // references: signed deltas over a centre-zero faster/slower bar, plus estimated lap.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps, TelemetryField } from '../types'
 import { BigNum, C, FONT_BIG, FONT_LABEL, FONT_NUM, Hairline, LEGIBLE, fixed, legibleStroke, num } from '../kit'
@@ -68,7 +69,7 @@ function DeltaReadout({ snapshot, width, height, field, tag }: HifiWidgetProps &
   const display = signedDelta(value)
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <text x={W - 28} y={34} textAnchor="end" fill={C.dim} fontFamily={FONT_LABEL} fontSize={21} fontWeight={800} letterSpacing={2.5} opacity={0.62} {...LEGIBLE}>
         {tag}
       </text>
@@ -92,7 +93,7 @@ function EstimatedLapReadout({ snapshot, width, height }: HifiWidgetProps): Reac
   const color = value == null ? C.dim : C.text
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <text
         x={W / 2}
         y={122}

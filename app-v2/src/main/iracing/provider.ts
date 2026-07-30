@@ -3,6 +3,22 @@ import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, drsStateFromRaw, 
 import { ReplayContextTracker } from '../../shared/replay'
 import { FuelLapEstimator } from '../../shared/fuel'
 import { inHgToKpa, mss2ToG } from '../../shared/units'
+import {
+  carIdxEstTime,
+  carIdxGear,
+  carIdxLapCount,
+  carIdxLapDistPct,
+  carIdxLapNum,
+  carIdxLapTime,
+  carIdxPaceLineOrRow,
+  carIdxPosition,
+  carIdxPushToPassCount,
+  carIdxRpm,
+  carIdxTrackSurface,
+  hasUsablePosition,
+  isNotInWorld,
+  playerCarIdxOf
+} from '../../shared/iracing-sentinels'
 import { FALLBACK_SHIFT_BLINK_PCT, redlineBandPct } from '../../shared/revlights'
 import { IRacingMemoryMap } from './irsdk-mmf'
 import { logger } from '../modules/logger'
@@ -422,8 +438,9 @@ function deriveCarVelocity(
 
 // True when lat/lon are finite AND not the (0,0) "car not placed yet" sentinel — mirrors
 // the learner's own hasValidLatLon so we don't demote real position to dead reckoning.
+// Delegates to the shared sentinel contract so UI, Coach and strategy agree on it.
 function hasUsableLatLon(lat: number | undefined, lon: number | undefined): boolean {
-  return lat !== undefined && lon !== undefined && Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0)
+  return hasUsablePosition(lat, lon)
 }
 
 // Canonical iRacing shift-light model. iRacing exposes four per-car RPMs:
@@ -516,22 +533,26 @@ function shortestCircularGapSec(rawGapSec: number, lapTimeSec: number): number {
   return ((((rawGapSec + lap / 2) % lap) + lap) % lap) - lap / 2
 }
 
-function playerRelativeGapSec(carIdx: number, playerCarIdx: number, values: AnyRecord, lapDist: number[], laps: number[]): number {
+function playerRelativeGapSec(carIdx: number, playerCarIdx: number, values: AnyRecord, lapDist: number[], laps: number[]): number | undefined {
   const estTimes = arr<number>(values.CarIdxEstTime)
   const lapTimeSec = positiveNum(values.LapLastNLapTime) ?? positiveNum(values.LapLastLapTime) ?? positiveNum(values.LapBestLapTime) ?? 90
-  const driverEst = optionalNum(estTimes[carIdx])
-  const playerEst = optionalNum(estTimes[playerCarIdx])
-  if (driverEst !== undefined && driverEst >= 0 && playerEst !== undefined && playerEst >= 0) return shortestCircularGapSec(driverEst - playerEst, lapTimeSec)
+  const driverEst = carIdxEstTime(estTimes[carIdx])
+  const playerEst = carIdxEstTime(estTimes[playerCarIdx])
+  if (driverEst !== undefined && playerEst !== undefined) return shortestCircularGapSec(driverEst - playerEst, lapTimeSec)
 
   const f2Times = arr<number>(values.CarIdxF2Time)
-  const driverF2 = optionalNum(f2Times[carIdx])
-  const playerF2 = optionalNum(f2Times[playerCarIdx])
-  if (driverF2 !== undefined && driverF2 >= 0 && playerF2 !== undefined && playerF2 >= 0) return playerF2 - driverF2
+  const driverF2 = carIdxEstTime(f2Times[carIdx])
+  const playerF2 = carIdxEstTime(f2Times[playerCarIdx])
+  if (driverF2 !== undefined && playerF2 !== undefined) return playerF2 - driverF2
 
+  // Last resort: lap distance. CarIdxLapDistPct is -1 for a car that is not in the
+  // world, so a missing distance means "unknown gap" — never a gap measured from the
+  // start/finish line, which is what clamping -1 to 0 used to fabricate.
+  const driverDist = carIdxLapDistPct(lapDist[carIdx])
+  const playerDist = carIdxLapDistPct(lapDist[playerCarIdx])
+  if (driverDist === undefined || playerDist === undefined) return undefined
   const driverLap = num(laps[carIdx], 0)
   const playerLap = num(laps[playerCarIdx], 0)
-  const driverDist = pct(lapDist[carIdx]) ?? 0
-  const playerDist = pct(lapDist[playerCarIdx]) ?? 0
   return shortestCircularGapSec((driverLap - playerLap + driverDist - playerDist) * lapTimeSec, lapTimeSec)
 }
 
@@ -562,34 +583,41 @@ function parseDrivers(sessionInfo: any, values: AnyRecord, staticDrivers: Driver
   return staticDrivers.map((driver): DriverEntry => {
     const { fallbackPosition, fallbackClassPosition, ...identity } = driver
     const carIdx = identity.carIdx
+    const notInWorld = isNotInWorld(trackLocations[carIdx])
     const driverLap = num(laps[carIdx], 0)
     const relativeLaps = driverLap - playerLap
-    const relativeTimeSec = playerRelativeGapSec(carIdx, playerCarIdx, values, lapDist, laps)
+    // irsdk_NotInWorld: the car is in the roster but has no live state. Every per-car
+    // LIVE channel becomes unavailable; the static identity and the YAML standings
+    // fallback stay, so the entry keeps its name/number/class in the standings table.
+    const relativeTimeSec = notInWorld ? undefined : playerRelativeGapSec(carIdx, playerCarIdx, values, lapDist, laps)
     return {
       ...identity,
-      position: Math.trunc(num(positions[carIdx], 0)) || fallbackPosition,
-      classPosition: Math.trunc(num(classPositions[carIdx], 0)) || fallbackClassPosition,
+      inWorld: !notInWorld,
+      position: (notInWorld ? undefined : carIdxPosition(positions[carIdx])) ?? fallbackPosition,
+      classPosition: (notInWorld ? undefined : carIdxPosition(classPositions[carIdx])) ?? fallbackClassPosition,
       gapToPlayerSec: relativeTimeSec,
-      lapDistPct: pct(lapDist[carIdx]),
-      lastLapTimeSec: optionalNum(lastLapTimes[carIdx]),
+      lapDistPct: notInWorld ? undefined : carIdxLapDistPct(lapDist[carIdx]),
+      lastLapTimeSec: carIdxLapTime(lastLapTimes[carIdx]),
       lapsBehind: relativeLaps < 0 ? Math.abs(relativeLaps) : undefined,
       isPlayer: carIdx === playerCarIdx,
-      inPits: optionalBool(pitRoad[carIdx]),
-      lap: optionalInt(laps[carIdx]),
-      completedLaps: optionalInt(completedLaps[carIdx]),
-      estimatedTimeSec: optionalNum(estimatedTimes[carIdx]),
+      inPits: notInWorld ? undefined : optionalBool(pitRoad[carIdx]),
+      lap: notInWorld ? undefined : carIdxLapCount(laps[carIdx]),
+      completedLaps: notInWorld ? undefined : carIdxLapCount(completedLaps[carIdx]),
+      estimatedTimeSec: notInWorld ? undefined : carIdxEstTime(estimatedTimes[carIdx]),
       relativeTimeSec,
-      gear: optionalInt(gears[carIdx]),
-      rpm: optionalNum(rpms[carIdx]),
-      trackLocation: optionalInt(trackLocations[carIdx]),
-      trackSurfaceMaterial: optionalInt(trackMaterials[carIdx]),
-      bestLapTimeSec: positiveNum(bestLapTimes[carIdx]),
-      bestLapNum: optionalInt(bestLapNums[carIdx]),
-      pushToPassActive: optionalBool(pushToPassStatus[carIdx]),
-      pushToPassCount: optionalInt(pushToPassCounts[carIdx]),
+      // -1 is REVERSE, not a sentinel: it must survive for a car that IS in the world.
+      gear: notInWorld ? undefined : carIdxGear(gears[carIdx]),
+      rpm: notInWorld ? undefined : carIdxRpm(rpms[carIdx]),
+      trackLocation: carIdxTrackSurface(trackLocations[carIdx]),
+      trackSurfaceMaterial: notInWorld ? undefined : optionalInt(trackMaterials[carIdx]),
+      bestLapTimeSec: carIdxLapTime(bestLapTimes[carIdx]),
+      bestLapNum: carIdxLapNum(bestLapNums[carIdx]),
+      pushToPassActive: notInWorld ? undefined : optionalBool(pushToPassStatus[carIdx]),
+      pushToPassCount: carIdxPushToPassCount(pushToPassCounts[carIdx]),
       paceFlags: paceFlagsList(optionalNum(carPaceFlags[carIdx])),
-      paceLine: optionalInt(paceLines[carIdx]),
-      paceRow: optionalInt(paceRows[carIdx])
+      // -1 means "not in a pace line/row" — not applicable, never a rendered number.
+      paceLine: carIdxPaceLineOrRow(paceLines[carIdx]),
+      paceRow: carIdxPaceLineOrRow(paceRows[carIdx])
     }
   })
 }
@@ -608,13 +636,20 @@ function relativeEntry(driver: DriverEntry | undefined): RelativeCarEntry | unde
   }
 }
 
+// Cars that are NOT in the world (irsdk_NotInWorld) have no live position and no gap:
+// they must never appear in relatives or on the radar, where they would otherwise be
+// drawn from a fabricated start/finish-line position.
+function isLiveOpponent(driver: DriverEntry): boolean {
+  return !driver.isPlayer && driver.inWorld !== false && typeof driver.gapToPlayerSec === 'number'
+}
+
 function relatives(drivers: DriverEntry[] | undefined): TelemetrySnapshot['relatives'] | undefined {
   if (!drivers) return undefined
   const ahead = drivers
-    .filter((d) => !d.isPlayer && typeof d.gapToPlayerSec === 'number' && d.gapToPlayerSec > 0)
+    .filter((d) => isLiveOpponent(d) && (d.gapToPlayerSec ?? 0) > 0)
     .sort((a, b) => (a.gapToPlayerSec ?? 999) - (b.gapToPlayerSec ?? 999))[0]
   const behind = drivers
-    .filter((d) => !d.isPlayer && typeof d.gapToPlayerSec === 'number' && d.gapToPlayerSec < 0)
+    .filter((d) => isLiveOpponent(d) && (d.gapToPlayerSec ?? 0) < 0)
     .sort((a, b) => (b.gapToPlayerSec ?? -999) - (a.gapToPlayerSec ?? -999))[0]
   const out = { ahead: relativeEntry(ahead), behind: relativeEntry(behind) }
   return out.ahead || out.behind ? out : undefined
@@ -641,7 +676,7 @@ function radarCars(values: AnyRecord, drivers: DriverEntry[] | undefined, speedK
   const sdkSides = carLeftRightSides(values.CarLeftRight)
   const speedMs = Math.max(8, speedKmh / 3.6)
   const rows = drivers
-    .filter((d) => !d.isPlayer && typeof d.gapToPlayerSec === 'number' && Math.abs(d.gapToPlayerSec) <= 4)
+    .filter((d) => isLiveOpponent(d) && Math.abs(d.gapToPlayerSec ?? 0) <= 4)
     .slice(0, 12)
     .map((d, index) => {
       const side = sdkSides.length ? sdkSides[index % sdkSides.length] : undefined
@@ -675,6 +710,7 @@ export const __iracingTelemetryTest = {
   playerCarName,
   playerCarPath,
   playerRelativeGapSec,
+  radarCars,
   relatives,
   revLights,
   shiftBand,
@@ -1100,7 +1136,9 @@ export class IRacingProvider implements TelemetryProvider {
       solarAltitudeRad: optionalNum(values.SolarAltitude),
       solarAzimuthRad: optionalNum(values.SolarAzimuth),
       skies: optionalInt(values.Skies),
-      playerCarIdx: Math.trunc(num(values.PlayerCarIdx ?? sessionValue(sessionInfo, ['DriverInfo', 'DriverCarIdx']), 0)),
+      // PlayerCarIdx is -1 when there is no player car (spectator/replay of another car).
+      // Coercing that to 0 would silently point every consumer at car index 0.
+      playerCarIdx: playerCarIdxOf(values.PlayerCarIdx ?? sessionValue(sessionInfo, ['DriverInfo', 'DriverCarIdx'])),
       drivers,
       relatives: relatives(drivers),
       radarCars: radarCars(values, drivers, speedKmh),

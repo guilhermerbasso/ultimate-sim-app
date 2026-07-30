@@ -86,7 +86,13 @@ function liveSnapshot(
 
 function harness(withDevice = false) {
   const listeners: Array<(snapshot: TelemetrySnapshot | null) => void> = []
-  const broadcast = vi.fn()
+  let signalConfigLoaded = (): void => undefined
+  const configLoaded = new Promise<void>((resolve) => {
+    signalConfigLoaded = resolve
+  })
+  const broadcast = vi.fn((channel: string, ..._payload: unknown[]) => {
+    if (channel === 'alerts:config') signalConfigLoaded()
+  })
   const handlers = new Map<string, (...args: any[]) => any>()
   const device = {
     id: 'simx',
@@ -123,6 +129,11 @@ function harness(withDevice = false) {
     ctx,
     broadcast,
     device,
+    // `register()` only starts serving telemetry once its persisted config has
+    // loaded, and it announces that transition by broadcasting `alerts:config`.
+    // Awaiting the broadcast is the actual readiness edge; a fixed sleep is a
+    // bet on how long an ENOENT `readFile` takes.
+    whenConfigLoaded: () => configLoaded,
     emit(snapshot: TelemetrySnapshot | null) {
       for (const listener of listeners) listener(snapshot)
     }
@@ -139,7 +150,7 @@ describe('accessibility cue startup readiness', () => {
     const testHarness = harness()
     const { register } = await import('./alerts')
     register(testHarness.ctx)
-    await new Promise<void>((resolve) => setTimeout(resolve, 30))
+    await testHarness.whenConfigLoaded()
 
     testHarness.emit(liveSnapshot(1000, 10))
     testHarness.emit(liveSnapshot(2000, 2))
@@ -170,7 +181,7 @@ describe('accessibility cue startup readiness', () => {
     const testHarness = harness(true)
     const { register } = await import('./alerts')
     register(testHarness.ctx)
-    await new Promise<void>((resolve) => setTimeout(resolve, 30))
+    await testHarness.whenConfigLoaded()
 
     testHarness.emit(liveSnapshot(1000, 10))
     testHarness.emit({
@@ -201,7 +212,7 @@ describe('accessibility cue startup readiness', () => {
     const testHarness = harness()
     const { register } = await import('./alerts')
     register(testHarness.ctx)
-    await new Promise<void>((resolve) => setTimeout(resolve, 30))
+    await testHarness.whenConfigLoaded()
 
     testHarness.emit(liveSnapshot(1000, 10))
     testHarness.emit(liveSnapshot(2000, 2))
@@ -214,7 +225,7 @@ describe('accessibility cue startup readiness', () => {
     })
     const route = testHarness.broadcast.mock.calls.find(
       ([channel]) => channel === 'accessibilityCues:routed'
-    )?.[1]
+    )?.[1] as { outputs: Array<{ modality: string }>; issues: unknown[] }
 
     expect(route.outputs.some((output: { modality: string }) => output.modality === 'audio')).toBe(false)
     expect(route.issues).toEqual(

@@ -44,6 +44,29 @@ export interface GamepadEmulationCommand {
   button: number | string
   value?: number
   mode: 'press' | 'hold' | 'toggle'
+  /**
+   * How long a `hold` keeps the virtual button down before it is released, in
+   * ms. Mirrors `KeyboardMacroCommand.releaseDelayMs`. The virtual pad ALWAYS
+   * releases: an indefinite hold with no falling edge would leave a stuck
+   * virtual button if the app or the sim went away mid-hold.
+   */
+  releaseDelayMs?: number
+}
+
+// Virtual-pad hold semantics (P1-10). `press` is a momentary tap; `hold` keeps
+// the button down for `releaseDelayMs`. The legacy 70 ms stays the default so
+// existing bindings behave identically until the user asks for a longer hold.
+// Bounded on both ends: a hold can never be shorter than a tap, nor long enough
+// to look stuck.
+export const GAMEPAD_TAP_MS = 70
+export const GAMEPAD_HOLD_MIN_MS = 70
+export const GAMEPAD_HOLD_MAX_MS = 10_000
+
+export function resolveGamepadHoldMs(command: GamepadEmulationCommand): number {
+  if (command.mode !== 'hold') return GAMEPAD_TAP_MS
+  const requested = command.releaseDelayMs
+  if (typeof requested !== 'number' || !Number.isFinite(requested)) return GAMEPAD_TAP_MS
+  return Math.min(GAMEPAD_HOLD_MAX_MS, Math.max(GAMEPAD_HOLD_MIN_MS, Math.round(requested)))
 }
 
 export interface EmulationCapability {

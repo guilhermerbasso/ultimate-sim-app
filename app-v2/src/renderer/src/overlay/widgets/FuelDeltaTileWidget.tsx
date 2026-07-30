@@ -93,7 +93,7 @@ export function FuelDeltaTileWidget({ snapshot, config }: WidgetProps): ReactEle
       width="100%"
       height="100%"
       data-widget="fuelDeltaTile"
-      role="img"
+      role="img" aria-label="Fuel delta"
       style={{ display: 'block' }}
     >
       <rect

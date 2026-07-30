@@ -82,8 +82,12 @@ export function TireWearWidget({ snapshot, config }: WidgetProps): ReactElement 
   const [strategy, setStrategy] = useState<TireStrategyState | null>(null)
 
   useEffect(() => {
-    const unsubscribe = window.ipc.subscribe<TireStrategyState>(TIRE_CHANNELS.update, setStrategy)
-    void window.ipc.invoke<TireStrategyState>(TIRE_CHANNELS.get).then(setStrategy).catch(() => undefined)
+    // Tyre strategy is computed in the main process and delivered over IPC. A browser
+    // source (streaming / OBS) has no `window.ipc`; fall back to snapshot-only wear.
+    const ipc = typeof window !== 'undefined' ? window.ipc : undefined
+    if (!ipc) return
+    const unsubscribe = ipc.subscribe<TireStrategyState>(TIRE_CHANNELS.update, setStrategy)
+    void ipc.invoke<TireStrategyState>(TIRE_CHANNELS.get).then(setStrategy).catch(() => undefined)
     return unsubscribe
   }, [])
 

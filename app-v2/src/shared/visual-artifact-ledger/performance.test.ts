@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseVisualArtifactLedger, VisualArtifactLedger } from './ledger'
 import { expectedArtifactIds } from './plan'
+import { sha256Hex } from './canonical'
 import {
   APPROVED_EXACT_ARTIFACT_COUNT,
   MAX_SERIALIZED_BYTES,
@@ -27,11 +28,58 @@ function elapsedCpuMs(start: CpuUsage): number {
   return (elapsed.user + elapsed.system) / 1_000
 }
 
+const CALIBRATION_HASHES = 20_000
+
+/**
+ * Cost of one unit of the work this ledger is actually made of: canonicalising
+ * and SHA-256 hashing a record-shaped object. Every phase budget below is
+ * expressed as a multiple of this instead of as absolute milliseconds.
+ *
+ * Absolute wall-clock and absolute CPU budgets both measure the host. A slow,
+ * loaded or thermally throttled machine inflates the measured phase and the
+ * calibration equally, so the ratio holds; an algorithmic regression inflates
+ * only the phase, so the ratio blows out. That keeps the gate sensitive to the
+ * thing it exists to catch while making it insensitive to who else is using
+ * the CPU.
+ */
+function calibrationCpuMs(): number {
+  const startedAt = process.cpuUsage()
+  let sink = ''
+  for (let index = 0; index < CALIBRATION_HASHES; index += 1) {
+    sink = sha256Hex({
+      type: 'artifact-revision-started',
+      occurredAt: 1_000_000 + index,
+      actorId: 'planner',
+      artifactId: `calibration-artifact-${index}`,
+      revision: 1,
+      specificationHash: index.toString(16).padStart(64, '0'),
+      planHash: sink
+    })
+  }
+  expect(sink).toHaveLength(64)
+  return Math.max(elapsedCpuMs(startedAt), 1)
+}
+
+// Multiples of the calibration cost. Headroom is ~2.5x over what the reference
+// machine actually spends, which still fails on any phase that gets 2.5x more
+// expensive and fails overwhelmingly on a complexity regression (turning the
+// 149,409-event replay super-linear costs far more than 2.5x), while absorbing
+// ordinary host variance. Observed ratios when these were set: plan 0.15,
+// stage 11.0, lifecycle 253.6, finalization 149.0, roundTrip 213.2.
+const PLAN_CREATION_BUDGET = 4
+const STAGE_UPDATE_BUDGET = 33
+const LIFECYCLE_BUDGET = 640
+const FINALIZATION_BUDGET = 380
+const ROUND_TRIP_BUDGET = 540
+
 describe('16,600-artifact exact contract performance', () => {
   it(
     'creates, accepts, finalizes, serializes, and replays the approved exact plan',
-    { timeout: 360_000 },
+    // Wall clock is logged but never asserted; this is only a hang guard, sized
+    // so a heavily loaded host cannot turn a correctness gate into a red build.
+    { timeout: 900_000 },
     () => {
+      const openingCalibrationCpuMs = calibrationCpuMs()
       const planCpuStartedAt = process.cpuUsage()
       const planStartedAt = performance.now()
       const plan = makePlan(45)
@@ -192,8 +240,16 @@ describe('16,600-artifact exact contract performance', () => {
       const roundTripMs = performance.now() - roundTripStartedAt
       const roundTripCpuMs = elapsedCpuMs(roundTripCpuStartedAt)
 
+      // Recalibrate at the end as well: this run takes minutes, and host load
+      // can change over that window. Averaging the two keeps the denominator
+      // representative of the conditions the phases were actually measured in.
+      const closingCalibrationCpuMs = calibrationCpuMs()
+      const referenceCpuMs = (openingCalibrationCpuMs + closingCalibrationCpuMs) / 2
+
       console.info(
         `VISUAL_ARTIFACT_LEDGER_PERF artifacts=${ids.length} ` +
+          `calibrationHashes=${CALIBRATION_HASHES} calibrationCpuMs=${referenceCpuMs.toFixed(2)} ` +
+          `calibrationOpenCpuMs=${openingCalibrationCpuMs.toFixed(2)} calibrationCloseCpuMs=${closingCalibrationCpuMs.toFixed(2)} ` +
           `planMs=${planCreationMs.toFixed(2)} planCpuMs=${planCreationCpuMs.toFixed(2)} ` +
           `stageEvents=${ids.length} stageMs=${stageUpdateMs.toFixed(2)} stageCpuMs=${stageUpdateCpuMs.toFixed(2)} ` +
           `lifecycleEvents=${preFinalizationEvents} lifecycleMs=${lifecycleMs.toFixed(2)} lifecycleCpuMs=${lifecycleCpuMs.toFixed(2)} ` +
@@ -223,11 +279,11 @@ describe('16,600-artifact exact contract performance', () => {
       )
       expect(serializedBytes).toBeLessThan(MAX_SERIALIZED_BYTES)
       expect(serialized.length).toBeLessThan(MAX_SERIALIZED_CHARACTERS)
-      expect(planCreationCpuMs).toBeLessThan(5_000)
-      expect(stageUpdateCpuMs).toBeLessThan(15_000)
-      expect(lifecycleCpuMs).toBeLessThan(120_000)
-      expect(finalizationCpuMs).toBeLessThan(90_000)
-      expect(roundTripCpuMs).toBeLessThan(120_000)
+      expect(planCreationCpuMs).toBeLessThan(PLAN_CREATION_BUDGET * referenceCpuMs)
+      expect(stageUpdateCpuMs).toBeLessThan(STAGE_UPDATE_BUDGET * referenceCpuMs)
+      expect(lifecycleCpuMs).toBeLessThan(LIFECYCLE_BUDGET * referenceCpuMs)
+      expect(finalizationCpuMs).toBeLessThan(FINALIZATION_BUDGET * referenceCpuMs)
+      expect(roundTripCpuMs).toBeLessThan(ROUND_TRIP_BUDGET * referenceCpuMs)
       expect([
         planCreationMs,
         stageUpdateMs,

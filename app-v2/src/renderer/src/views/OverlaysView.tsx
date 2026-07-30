@@ -1,3 +1,4 @@
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { Component, useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ErrorInfo, ReactElement } from 'react'
 import type { CustomOverlayDef, CustomOverlayElement, CustomOverlayElementAlign, CustomOverlayListItem, IracingGraphicsStatus, FixIracingFullscreenResult, OverlayListItem, OverlayPosition, OverlayWidgetId, OverlayWidgetStyle, OverlaysConfig } from '../../../shared/overlays'
@@ -788,6 +789,8 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
     setEditingId(null)
   }
 
+  const designerFocusTrap = useFocusTrap<HTMLDivElement>({ active: designerOpen, onEscape: closeDesigner })
+
   function updateDraft(patch: Partial<CustomOverlayDef>): void {
     setDraft((current) => (current ? { ...current, ...patch } : current))
   }
@@ -1458,7 +1461,14 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
 
 
       {designerOpen && draft && (
-        <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
+          <div
+            ref={designerFocusTrap.containerRef}
+            onKeyDown={designerFocusTrap.onKeyDown}
+            className="overlay-designer-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Custom overlay designer"
+          >
           <div className="overlay-designer">
             <div className="overlay-designer-head">
               <h4>{editingId ? tr('editCustomOverlay') : tr('newCustomOverlay')}</h4>

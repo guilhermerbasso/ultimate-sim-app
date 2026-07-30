@@ -4,6 +4,7 @@ import type {
   DashboardElementStyle,
   DashboardElementType
 } from '../dashboards'
+import { resolveDashboardScaleMode } from '../dashboards'
 import { dashboardElementConsumesBinding } from './render-capabilities'
 
 const NORMALIZED_PRECISION = 1_000_000
@@ -877,7 +878,7 @@ export function createDashboardFingerprint(dashboard: Dashboard): DashboardFinge
     canvas: {
       aspectRatio: roundNormalized(dashboard.width / dashboard.height),
       background: dashboard.bg.trim(),
-      scaleMode: dashboard.scaleMode ?? 'fit'
+      scaleMode: resolveDashboardScaleMode(dashboard)
     },
     elements: canonicalElements,
     paintOrder: canonicalPaintOrder(dashboard)

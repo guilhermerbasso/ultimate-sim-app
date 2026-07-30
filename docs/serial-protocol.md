@@ -1,5 +1,15 @@
 # ButtonBox Serial Protocol v1
 
+> [!CAUTION]
+> **QUARANTINED — this document describes firmware that must not be flashed.**
+> It specifies the **ButtonBox firmware v3** management protocol, and
+> `firmware/buttonbox_v3/DEPRECATED.md` says *"Do not flash this firmware"*.
+> The live protocols are the SIM-X / SimHub one-letter protocol
+> (`app-v2/src/main/protocol.ts` + `firmware/sim-x-reference/`) and companion v2
+> (`app-v2/src/shared/companion.ts` + `firmware/companion/PROTOCOL.md`).
+> See [`HARDWARE-QUARANTINE.md`](./HARDWARE-QUARANTINE.md) (Q2). Kept for
+> historical reference only.
+
 Bidirectional, line-based ASCII protocol between the **ButtonBox firmware v3**
 (Arduino Pro Micro, ATmega32U4) and the **ButtonBox Manager** desktop app
 (Electron, Windows).

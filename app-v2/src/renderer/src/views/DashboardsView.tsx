@@ -22,6 +22,7 @@ import type {
 import {
   BUILTIN_PRESETS,
   DASHBOARD_BINDINGS,
+  DEFAULT_DASHBOARD_SCALE_MODE as SHARED_DEFAULT_DASHBOARD_SCALE_MODE,
   DASHBOARD_DELTA_RANGE_SEC_MAX,
   DASHBOARD_DELTA_RANGE_SEC_MIN,
   DASHBOARD_FONT_OPTIONS,
@@ -93,7 +94,7 @@ const CYCLE_ACTION_NAME: Record<CycleDirection, AppActionName> = {
 
 const CYCLE_BINDING_LABEL: Record<CycleDirection, string> = {
   next: 'Dashboard · next (playlist)',
-  prev: 'Dashboard ?? previous (playlist)'
+  prev: 'Dashboard · previous (playlist)'
 }
 
 const CYCLE_FIELD_LABEL: Record<CycleDirection, string> = {
@@ -153,7 +154,7 @@ const ELEMENT_TYPES: Array<{ value: DashboardElementType; label: string }> = [
   { value: 'valuegauge', label: 'Value + gauge' }
 ]
 
-const DEFAULT_DASHBOARD_SCALE_MODE: DashboardScaleMode = 'stretch'
+const DEFAULT_DASHBOARD_SCALE_MODE: DashboardScaleMode = SHARED_DEFAULT_DASHBOARD_SCALE_MODE
 const SCALE_MODES: Array<{ value: DashboardScaleMode; label: string; hint: string }> = [
   { value: 'stretch', label: 'Stretch (default)', hint: 'Distorts X/Y to fill exactly. No gaps, no cropping.' },
   { value: 'fit', label: 'Fit (letterbox)', hint: 'Preserves proportion. May leave empty borders.' },
@@ -2654,8 +2655,8 @@ function ElementInspector({
             element.type === 'gauge' ||
             element.type === 'shiftlights') && (
             <>
-              <NumberField label="Warn from (0?1)" value={element.style.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
-              <NumberField label="Danger from (0?1)" value={element.style.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+              <NumberField label="Warn from (0–1)" value={element.style.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+              <NumberField label="Danger from (0–1)" value={element.style.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
             </>
           )}
           {element.type === 'shiftlights' && (

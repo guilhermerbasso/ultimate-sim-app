@@ -77,6 +77,7 @@ import { buildCornerMap, trackLayoutKey, type CornerMapData, type CornerSample }
 import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
 import { findingEventKeys, sensitivityToMinConfidence } from '../../shared/coach-intent-gate'
 import { recordLapEvents } from '../../shared/coach-baseline'
+import { coachSessionKey } from '../../shared/coach-session-key'
 import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
@@ -1404,17 +1405,14 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   }
 
   function analysisKey(snapshot: TelemetrySnapshot, sessionKey: string): string {
-    const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
-    return [
-      normalizedIdentityPart(identity.trackId === undefined ? undefined : String(identity.trackId)),
-      normalizedIdentityPart(identity.trackName),
-      normalizedIdentityPart(identity.trackConfigName),
-      normalizedIdentityPart(identity.carPath || identity.carName),
-      Number.isFinite(identity.carClassId) ? identity.carClassId : '',
-      conditionForSnapshot(snapshot),
-      sessionKindForSnapshot(snapshot),
-      sessionKey
-    ].join('::')
+    // Delegates to the shared Coach session key so the proactive Engineer and the Live
+    // Coach invalidate their context on exactly the same events (§24-17). The stabilised
+    // condition is passed in so the key does not flicker while the track is drying.
+    return coachSessionKey(snapshot, {
+      condition: conditionForSnapshot(snapshot),
+      previousTrackWetnessPct,
+      sessionIdentity: sessionKey
+    })
   }
 
   function ambientIsComparable(

@@ -5,6 +5,7 @@
 // signature palette, matching the themed cluster/rev signatures. Twelve
 // palette-parametrized renderers × six car families = 72 themed widgets, generated
 // from one source of truth so they stay consistent and NaN-safe.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps, TelemetryField } from '../types'
 import {
@@ -56,7 +57,7 @@ const CARS: ThemePal[] = [
 
 function Root({ width, height, children }: HifiWidgetProps & { children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

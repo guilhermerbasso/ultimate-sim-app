@@ -11,6 +11,7 @@ import type {
   IracingCommandName,
   KeyboardMacroCommand
 } from '../../../shared/actions'
+import { GAMEPAD_HOLD_MAX_MS, GAMEPAD_HOLD_MIN_MS, GAMEPAD_TAP_MS } from '../../../shared/actions'
 import type { AppViewProps } from '../App'
 import { setActionRuntimeSuppressed } from '../lib/action-runtime'
 import { SectionExportImport } from '../components/SectionExportImport'
@@ -78,6 +79,7 @@ interface DraftState {
   gamepadButton: string
   gamepadValue: number
   gamepadMode: GamepadMode
+  gamepadReleaseDelayMs: number
   iracingCommand: IracingCommandName
   fuelLiters: number
   appAction: AppActionName
@@ -120,6 +122,7 @@ const EMPTY_DRAFT: DraftState = {
   gamepadButton: '0',
   gamepadValue: 1,
   gamepadMode: 'press',
+  gamepadReleaseDelayMs: GAMEPAD_TAP_MS,
   iracingCommand: 'pit:fastRepair',
   fuelLiters: 10,
   appAction: 'dash:cycleNext',
@@ -239,7 +242,9 @@ function gamepadCommand(draft: DraftState): GamepadEmulationCommand {
   return {
     button: parseButton(draft.gamepadButton),
     value: draft.gamepadValue,
-    mode: draft.gamepadMode
+    mode: draft.gamepadMode,
+    // Only meaningful for `hold`; the engine clamps it and always releases.
+    releaseDelayMs: draft.gamepadMode === 'hold' ? Math.max(0, Math.round(draft.gamepadReleaseDelayMs || 0)) : undefined
   }
 }
 
@@ -334,7 +339,8 @@ function draftFromBinding(binding: ActionBinding): DraftState {
       ...base,
       gamepadButton: String(binding.action.command.button),
       gamepadValue: binding.action.command.value ?? 1,
-      gamepadMode: binding.action.command.mode
+      gamepadMode: binding.action.command.mode,
+      gamepadReleaseDelayMs: binding.action.command.releaseDelayMs ?? EMPTY_DRAFT.gamepadReleaseDelayMs
     }
   }
   if (binding.action.type === 'keyboard') {
@@ -957,9 +963,14 @@ function ControlsView({ showToast, language }: AppViewProps): ReactElement {
                 <select className="select-field" value={draft.gamepadMode} onChange={(event) => setDraft((current) => ({ ...current, gamepadMode: event.target.value as GamepadMode }))}>
                   <option value="press">Press and release</option>
                   <option value="hold">Timed hold</option>
-                  <option value="toggle">Toggle</option>
-                </select>
+                  <option value="toggle">Toggle</option>                </select>
               </label>
+              {draft.gamepadMode === 'hold' && (
+                <label>
+                  <span>Hold duration (ms)</span>
+                  <input className="text-field" min={GAMEPAD_HOLD_MIN_MS} max={GAMEPAD_HOLD_MAX_MS} step={10} type="number" value={draft.gamepadReleaseDelayMs} onChange={(event) => setDraft((current) => ({ ...current, gamepadReleaseDelayMs: Number(event.target.value) }))} />
+                </label>
+              )}
               <label>
                 <span>Value</span>
                 <input className="text-field" max={1} min={0} step={0.1} type="number" value={draft.gamepadValue} onChange={(event) => setDraft((current) => ({ ...current, gamepadValue: Number(event.target.value) }))} />

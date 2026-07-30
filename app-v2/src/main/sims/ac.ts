@@ -2,6 +2,13 @@ import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { sessionKindFromProvider } from '../../shared/telemetry'
 import type { TelemetryProvider } from '../telemetry/provider'
 import { firstString, loadKoffi, msToSeconds, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
+import {
+  acpmfProviderClaims,
+  identifyAcpmf,
+  normalizeSmVersion,
+  type AcpmfIdentity,
+  type AcpmfSelectionMode
+} from './acpmf-identity'
 
 const INVALID_LAP_TIME_MS = 2_000_000_000
 const NOMINAL_STEER_LOCK_DEG = 450
@@ -37,6 +44,19 @@ export class ACProvider implements TelemetryProvider {
   private graphics: SharedMemoryHandle | null = null
   private staticInfo: SharedMemoryHandle | null = null
   private structs: { physics: any; graphics: any; staticInfo: any } | null = null
+  // AC and ACC share `Local\acpmf_*`. AC must never decode a page that positively
+  // identifies as ACC: the static prefix is byte-identical, so the mismap would only
+  // show up later in the graphics page as plausible numbers in the wrong slots.
+  private selectionMode: AcpmfSelectionMode = 'auto'
+
+  setSelectionMode(mode: AcpmfSelectionMode): void {
+    this.selectionMode = mode
+  }
+
+  /** What the shared static page says is publishing. Exposed for diagnostics. */
+  identity(): AcpmfIdentity {
+    return identifyAcpmf(normalizeSmVersion(this.staticInfo?.view?.smVersion))
+  }
 
   start(): void {
     if (this.physics || process.platform !== 'win32') return
@@ -58,7 +78,10 @@ export class ACProvider implements TelemetryProvider {
   }
 
   isConnected(): boolean {
-    return Boolean(this.physics && this.graphics)
+    // The static page is now REQUIRED: without it there is no way to tell which of the
+    // two simulators owns the mapping, and guessing is what this guard exists to prevent.
+    if (!this.physics || !this.graphics || !this.staticInfo) return false
+    return acpmfProviderClaims('ac', this.identity(), this.selectionMode)
   }
 
   poll(): TelemetrySnapshot | null {
@@ -104,11 +127,25 @@ export class ACProvider implements TelemetryProvider {
 
 let cachedACStructs: { physics: any; graphics: any; staticInfo: any } | null = null
 
-function createACStructs(koffi: any): { physics: any; graphics: any; staticInfo: any } {
-  // Assetto Corsa shared memory must be validated on Windows against the active sim version.
+/**
+ * Assetto Corsa `SPageFile*` structs, `#pragma pack(4)`.
+ *
+ * VERIFIED against ACC_LAYOUT in ./acc.ts, which is pinned to the published Kunos SDK
+ * header (v1.8.12 — see ./fixtures/README.md). ACC's structs ARE Assetto Corsa's,
+ * extended, so every field the two simulators share must sit at the same byte offset.
+ * `acpmf-struct-layout.test.ts` asserts that parity with koffi.offsetof, so a future
+ * edit cannot silently shift a field again.
+ *
+ * Exported for that test: the layout is the contract, and it has to be measurable.
+ */
+export function createACStructs(koffi: any): { physics: any; graphics: any; staticInfo: any } {
   return {
     physics: koffi.struct('ACSPageFilePhysics', { packetId: 'int32', gas: 'float', brake: 'float', fuel: 'float', gear: 'int32', rpms: 'int32', steerAngle: 'float', speedKmh: 'float', velocity: koffi.array('float', 3), accG: koffi.array('float', 3), wheelSlip: koffi.array('float', 4), wheelLoad: koffi.array('float', 4), wheelsPressure: koffi.array('float', 4), wheelAngularSpeed: koffi.array('float', 4), tyreWear: koffi.array('float', 4), tyreDirtyLevel: koffi.array('float', 4), tyreCoreTemperature: koffi.array('float', 4), camberRAD: koffi.array('float', 4), suspensionTravel: koffi.array('float', 4), drs: 'float', tc: 'float', heading: 'float', pitch: 'float', roll: 'float', cgHeight: 'float', carDamage: koffi.array('float', 5), numberOfTyresOut: 'int32', pitLimiterOn: 'int32', abs: 'float', kersCharge: 'float', kersInput: 'float', autoShifterOn: 'int32', rideHeight: koffi.array('float', 2), turboBoost: 'float', ballast: 'float', airDensity: 'float', airTemp: 'float', roadTemp: 'float', localAngularVel: koffi.array('float', 3), finalFF: 'float', performanceMeter: 'float', engineBrake: 'int32', ersRecoveryLevel: 'int32', ersPowerLevel: 'int32', ersHeatCharging: 'int32', ersIsCharging: 'int32', kersCurrentKJ: 'float', drsAvailable: 'int32', drsEnabled: 'int32', brakeTemp: koffi.array('float', 4), clutch: 'float' }),
-    graphics: koffi.struct('ACSPageFileGraphic', { packetId: 'int32', status: 'int32', session: 'int32', currentTime: 'wchar[15]', lastTime: 'wchar[15]', bestTime: 'wchar[15]', split: 'wchar[15]', completedLaps: 'int32', position: 'int32', iCurrentTime: 'int32', iLastTime: 'int32', iBestTime: 'int32', sessionTimeLeft: 'float', distanceTraveled: 'float', isInPit: 'int32', currentSectorIndex: 'int32', lastSectorTime: 'int32', numberOfLaps: 'int32', tyreCompound: 'wchar[33]', normalizedCarPosition: 'float', activeCars: 'int32', carCoordinates: koffi.array('float', 60 * 3), carID: koffi.array('int32', 60), playerCarID: 'int32' }),
+    // `replayTimeMultiplier` sits between tyreCompound and normalizedCarPosition. It was
+    // missing, which shifted normalizedCarPosition to 244 instead of 248 and every later
+    // field with it — so `lapDistPct` was reading the replay speed multiplier (1.0 while
+    // driving), parking every AC car on the start/finish line for the whole session.
+    graphics: koffi.struct('ACSPageFileGraphic', { packetId: 'int32', status: 'int32', session: 'int32', currentTime: 'wchar[15]', lastTime: 'wchar[15]', bestTime: 'wchar[15]', split: 'wchar[15]', completedLaps: 'int32', position: 'int32', iCurrentTime: 'int32', iLastTime: 'int32', iBestTime: 'int32', sessionTimeLeft: 'float', distanceTraveled: 'float', isInPit: 'int32', currentSectorIndex: 'int32', lastSectorTime: 'int32', numberOfLaps: 'int32', tyreCompound: 'wchar[33]', replayTimeMultiplier: 'float', normalizedCarPosition: 'float', activeCars: 'int32', carCoordinates: koffi.array('float', 60 * 3), carID: koffi.array('int32', 60), playerCarID: 'int32' }),
     staticInfo: koffi.struct('ACSPageFileStatic', { smVersion: 'wchar[15]', acVersion: 'wchar[15]', numberOfSessions: 'int32', numCars: 'int32', carModel: 'wchar[33]', track: 'wchar[33]', playerName: 'wchar[33]', playerSurname: 'wchar[33]', playerNick: 'wchar[33]', sectorCount: 'int32', maxTorque: 'float', maxPower: 'float', maxRpm: 'int32', maxFuel: 'float' })
   }
 }

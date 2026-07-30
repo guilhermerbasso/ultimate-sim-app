@@ -228,9 +228,9 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     "tutorials.close": "Fechar tutorial",
     "tutorials.progressAria": "Progresso do tutorial {current} de {total}",
     "tutorials.stepCounter": "Passo {current} de {total}",
-    "tutorials.disableAutomatic": "N?o mostrar tutoriais automaticamente",
+    "tutorials.disableAutomatic": "Não mostrar tutoriais automaticamente",
     "tutorials.back": "Voltar",
-    "tutorials.next": "Avan?ar",
+    "tutorials.next": "Avançar",
     "tutorials.finish": "Concluir"
   },
   "es": {},

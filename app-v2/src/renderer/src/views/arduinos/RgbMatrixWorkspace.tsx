@@ -1,3 +1,4 @@
+import { useFocusTrap } from '../../lib/useFocusTrap'
 import { type CSSProperties, type ReactElement, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DEVICES_CHANNELS,
@@ -1583,7 +1584,7 @@ function BrightnessEditor({
   const value = typeof effect.brightness === 'number' ? effect.brightness : RGB_MATRIX_FULL_BRIGHTNESS
   return (
     <div style={card}>
-      <Field caption="Brightness" hint="Brightness for this effect only (0?255). 255 = full. Scales the color before composing the frame.">
+      <Field caption="Brightness" hint="Brightness for this effect only (0–255). 255 = full. Scales the color before composing the frame.">
         <Slider
           value={value}
           min={0}
@@ -2373,6 +2374,7 @@ function AddEffectDialog({
     ...RGB_MATRIX_SPECIAL_CATALOG
   ]
   const visible = allItems.filter((item) => `${item.label} ${item.description}`.toLowerCase().includes(query.toLowerCase()))
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onClose })
   return (
     <div
       role="presentation"
@@ -2381,7 +2383,7 @@ function AddEffectDialog({
       }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.58)', zIndex: 20, display: 'grid', placeItems: 'center' }}
     >
-      <div role="dialog" aria-modal="true" aria-label="Add effect or group" style={{ ...panel, width: 'min(760px, 92vw)', maxHeight: '82vh', overflow: 'auto' }}>
+      <div ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-label="Add effect or group" style={{ ...panel, width: 'min(760px, 92vw)', maxHeight: '82vh', overflow: 'auto' }}>
         <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
           <div>
             <span style={label}>Add effect / group</span>

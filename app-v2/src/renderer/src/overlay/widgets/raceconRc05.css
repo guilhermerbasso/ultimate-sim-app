@@ -131,6 +131,17 @@
   transform: scale(1.06);
 }
 
+/*
+ * A corner zooms toward the mandala centre, never away from it. With the default 50% 50% origin
+ * `scale(1.06)` grew each corner 3% outward on every side, so the LF corner's transformed rect
+ * left the mandala by up to 7.72px (measured at 867x412) — an escape the untransformed layout
+ * box cannot show. Anchoring each corner to its own outboard edge keeps the growth inboard.
+ */
+.rc05-corner[data-rc05-corner='LF'] { transform-origin: top left; }
+.rc05-corner[data-rc05-corner='RF'] { transform-origin: top right; }
+.rc05-corner[data-rc05-corner='LR'] { transform-origin: bottom left; }
+.rc05-corner[data-rc05-corner='RR'] { transform-origin: bottom right; }
+
 .rc05-corner-label {
   position: absolute;
   top: 0;
@@ -593,6 +604,22 @@
 }
 .rc05-widget[data-rc05-layout='app'] .rc05-gauge-readout[data-rc05-emphasis='pressure'] .rc05-pressure {
   font-size: clamp(20px, 4cqw, 48px);
+}
+
+/*
+ * At 1024x600 the app-layout peripheral strip is 384px wide and holds three readout rows plus a
+ * fixed soft key, leaving roughly 96px per row. At the shared 15px label/unit and 24px value
+ * clamps the label and the unit are flex-shrunk below their own nowrap text — SPEED painted 19px
+ * past its 23px box, KM/H 17px past its 20px box — while `scrollWidth` on the strip reported that
+ * everything fit. These readouts are peripheral context, not part of the governed
+ * temp > delta > pressure > corner-label type scale, so the strip carries its own smaller step.
+ */
+.rc05-widget[data-rc05-layout='app'] .rc05-peripheral .rc05-label,
+.rc05-widget[data-rc05-layout='app'] .rc05-peripheral .rc05-unit {
+  font-size: clamp(9px, 1.0cqw, 10px);
+}
+.rc05-widget[data-rc05-layout='app'] .rc05-peripheral .rc05-value {
+  font-size: clamp(10px, 1.2cqw, 12px);
 }
 
 /* ---------------------------------------------------------------- compact base */

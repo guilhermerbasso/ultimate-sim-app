@@ -197,7 +197,30 @@ async function readGeometry(page: Page) {
       flRect:     relative(root.querySelector('[data-testid="rc08-corner-FL"]')),
       // Cold corner for alert test
       flCold:        root.querySelector('[data-rc08-corner="FL"]')?.getAttribute('data-rc08-cold') ?? null,
-      flContainerRect: relative(root.querySelector('[data-rc08-corner="FL"]'))
+      flContainerRect: relative(root.querySelector('[data-rc08-corner="FL"]')),
+
+      // REGRESSION GUARD 1: rain row text right edge vs cell right (UNAVAILABLE must fit column)
+      // Use createRange to measure the actual painted text bounds — getBoundingClientRect only.
+      rainTextRight: (() => {
+        const rainEl = root.querySelector<HTMLElement>('[data-testid="rc08-rain"]')
+        const valueEl = rainEl?.querySelector<HTMLElement>('.rc08-value')
+        if (!valueEl || !valueEl.firstChild) return null
+        const range = document.createRange()
+        range.selectNodeContents(valueEl)
+        return range.getBoundingClientRect().right - rootRect.left
+      })(),
+      rainCellRight: (() => {
+        const rainEl = root.querySelector<HTMLElement>('[data-testid="rc08-rain"]')
+        return rainEl ? relative(rainEl)!.right : null
+      })(),
+
+      // REGRESSION GUARD 2: aids zone content height must not exceed layout height
+      aidsScrollHeight: root.querySelector<HTMLElement>('[data-testid="rc08-aids"]')?.scrollHeight ?? 0,
+      aidsClientHeight: root.querySelector<HTMLElement>('[data-testid="rc08-aids"]')?.clientHeight ?? 0,
+
+      // REGRESSION GUARD 3: grip chip rect must be inside ribbon rect
+      ribbonRect: relative(root.querySelector('[data-testid="rc08-ribbon"]')),
+      gripRect:   relative(root.querySelector('[data-testid="rc08-grip"]'))
     }
   })
 }
@@ -311,6 +334,36 @@ for (const size of viewports) {
       if (geometry.paceRect && geometry.deltaRect) expectContained(geometry.paceRect, geometry.deltaRect)
       if (geometry.paceRect && geometry.speedRect) expectContained(geometry.paceRect, geometry.speedRect)
       if (geometry.tireRect && geometry.flRect)    expectContained(geometry.tireRect, geometry.flRect)
+
+      // ── REGRESSION GUARD 1: rain row UNAVAILABLE text must fit its column ──────────────────
+      // At native (800×480) and compact-landscape (759×393, 867×412) the text was +11-14px too
+      // wide. Fixed by dropping to the label font rung for the is-unavailable state.
+      if ((isNative || size.compactMode === 'landscape') &&
+          geometry.rainTextRight !== null && geometry.rainCellRight !== null) {
+        expect(
+          geometry.rainTextRight,
+          `UNAVAILABLE text right (${geometry.rainTextRight.toFixed(2)}) must not exceed ` +
+          `rain cell right (${geometry.rainCellRight.toFixed(2)}) at ${sizeKey}`
+        ).toBeLessThanOrEqual(geometry.rainCellRight + 0.5)
+      }
+
+      // ── REGRESSION GUARD 2: aids zone rows must not overflow their container ──────────────
+      // At compact-phone (393×759, 412×867) rows overflowed by +16-21px. Fixed by removing the
+      // fixed phone row height and letting rows flex-fill the available space.
+      if (size.compactMode === 'phone') {
+        expect(
+          geometry.aidsScrollHeight,
+          `aids scrollHeight (${geometry.aidsScrollHeight}px) must not exceed clientHeight ` +
+          `(${geometry.aidsClientHeight}px) at ${sizeKey}`
+        ).toBeLessThanOrEqual(geometry.aidsClientHeight + 0.5)
+      }
+
+      // ── REGRESSION GUARD 3: grip chip must be contained by the ribbon ────────────────────
+      // At compact-landscape (759×393, 867×412) the 7 cqw grip word escaped by up to 3.78px.
+      // Fixed by increasing the ribbon height factor from 0.15 to 0.18 in rc08CompactZones.
+      if (size.compactMode === 'landscape' && geometry.ribbonRect && geometry.gripRect) {
+        expectContained(geometry.ribbonRect, geometry.gripRect)
+      }
 
       const capture = await page.locator('#racecon-rc08-capture-root').screenshot({ animations: 'disabled' })
       expect(capture.byteLength).toBeGreaterThan(5_000)

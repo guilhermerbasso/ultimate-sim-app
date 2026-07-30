@@ -1,3 +1,4 @@
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
 import type { CoachSeverity } from '../../../shared/coach'
@@ -427,7 +428,7 @@ export default function AdaptiveDashboardView({ showToast, language }: AppViewPr
             {summaries.length === 0 && <option value="">{t('adaptive.noSavedDashboard')}</option>}
             {summaries.map((s) => (
               <option key={s.id} value={s.id}>
-                {isAdaptiveDashboard(s) ? '? ' : ''}
+                {isAdaptiveDashboard(s) ? '★ ' : ''}
                 {s.name}
               </option>
             ))}
@@ -865,8 +866,10 @@ function FrameEditorModal({
     })
   }, [board, dash.bg, onSave])
 
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onCancel })
+
   return (
-    <div style={modalOverlay} role="dialog" aria-modal="true">
+    <div style={modalOverlay} ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true">
       <div style={modalCard}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>

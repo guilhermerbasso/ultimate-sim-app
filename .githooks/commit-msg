@@ -1,0 +1,10 @@
+#!/bin/sh
+#
+# A commit message that starts with a UTF-8 BOM is the fingerprint of a shell that writes
+# UTF-8 with a BOM -- the same shell corrupts source files. Enable with:
+#
+#   git config core.hooksPath .githooks
+#
+# See docs/ENCODING.md for why this exists.
+set -e
+exec node "$(git rev-parse --show-toplevel)/scripts/check-encoding.mjs" --message "$1"

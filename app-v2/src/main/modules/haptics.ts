@@ -22,6 +22,7 @@ import type { ModuleContext } from '../module-context'
 import type { SerialDevice } from '../serial/device'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { formatBuzzer } from '../../shared/companion'
+import { silenceHapticActuator } from './haptics-output-safety'
 import {
   isActuatingHapticIntensity,
   type CueHapticPattern
@@ -34,6 +35,7 @@ import {
   clamp,
   deriveHapticsFrame,
   effectLevel,
+  globalHapticsGain,
   type HapticsArduinoConfig,
   type HapticsConfig,
   type HapticsEffectConfig,
@@ -66,6 +68,11 @@ const lastBuzzAt: Partial<Record<HapticsEffectId, number>> = {}
 const accessibilityBuzzTimers = new Set<ReturnType<typeof setTimeout>>()
 let accessibilityBuzzPriority = -1
 let accessibilityBuzzGeneration = 0
+// P0-10: once the quit safe-off has run the outputs stay off. A late telemetry
+// frame arriving mid-teardown must not re-energise the motor after we silenced it.
+let outputsLatchedOff = false
+// One silence frame per telemetry outage, not one per dropped snapshot.
+let silencedForTelemetryLoss = false
 
 export function isAccessibilityHapticsEnabled(): boolean {
   return (
@@ -205,6 +212,8 @@ function cancelAccessibilityBuzz(): void {
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
   cancelAccessibilityBuzz()
+  outputsLatchedOff = false
+  silencedForTelemetryLoss = false
 
   void loadConfig(configPath).then((loaded) => {
     config = loaded
@@ -236,7 +245,42 @@ export function register(ctx: ModuleContext): void {
     })
     return true
   })
-  ctx.app.once('before-quit', cancelAccessibilityBuzz)
+  ctx.app.once('before-quit', () => {
+    void safeOff(ctx)
+  })
+}
+
+// ─── Safe-off (P0-10) ─────────────────────────────────────────────────────────
+
+/**
+ * Drive every haptic output to its off state and latch it there.
+ *
+ * Called from the ordered quit teardown's bounded output-off stage (so it runs
+ * BEFORE the serial ports are drained, while a write can still reach the board)
+ * and from `before-quit` for any exit path that bypasses the teardown plan.
+ * Idempotent and never throws.
+ */
+export async function safeOff(ctx: ModuleContext): Promise<void> {
+  outputsLatchedOff = true
+  cancelAccessibilityBuzz()
+  clearBuzzThrottle()
+  previousSnapshot = null
+  await silenceHapticActuator(resolveArduinoDevice(ctx))
+}
+
+// Telemetry stopped (sim closed, provider dropped, session ended). Silence the
+// actuator once so a buzz issued on the last frame can't outlive the data, but
+// stay re-armable: the next real snapshot resumes normal operation.
+async function deEnergiseOnTelemetryLoss(ctx: ModuleContext): Promise<void> {
+  if (silencedForTelemetryLoss || outputsLatchedOff) return
+  silencedForTelemetryLoss = true
+  cancelAccessibilityBuzz()
+  clearBuzzThrottle()
+  await silenceHapticActuator(resolveArduinoDevice(ctx))
+}
+
+function clearBuzzThrottle(): void {
+  for (const id of HAPTICS_EFFECT_IDS) delete lastBuzzAt[id]
 }
 
 // ─── Telemetry → optional Arduino buzzes ──────────────────────────────────────
@@ -244,8 +288,12 @@ export function register(ctx: ModuleContext): void {
 function processSnapshot(ctx: ModuleContext, snapshot: TelemetrySnapshot | null): void {
   if (!snapshot) {
     previousSnapshot = null
+    void deEnergiseOnTelemetryLoss(ctx)
     return
   }
+  // After the quit safe-off nothing re-energises the actuator.
+  if (outputsLatchedOff) return
+  silencedForTelemetryLoss = false
   if (config.arduino.enabled) {
     const frame = deriveHapticsFrame(snapshot, previousSnapshot)
     driveArduino(ctx, frame)
@@ -254,6 +302,11 @@ function processSnapshot(ctx: ModuleContext, snapshot: TelemetrySnapshot | null)
 }
 
 function driveArduino(ctx: ModuleContext, frame: HapticsFrame): void {
+  // P1-10: the serial path is a PHYSICAL motor. It must obey the same global
+  // enable/mute/master-gain contract the renderer bass-shaker and the zonal
+  // path already obey — "muted" that still buzzes the wheel is a lie.
+  const master = globalHapticsGain(config)
+  if (master <= 0) return
   const device = resolveArduinoDevice(ctx)
   if (!device) return
   const now = Date.now()
@@ -266,7 +319,7 @@ function driveArduino(ctx: ModuleContext, frame: HapticsFrame): void {
     if (id === 'abs') raw = frame.absActive ? 1 : 0
     else if (id === 'suspension') raw = frame.suspension
     else raw = frame.wheelLock
-    const level = effectLevel(raw, eff)
+    const level = effectLevel(raw, eff) * master
     if (level > 0 && canBuzz(id, now, minInterval)) sendBuzz(device, eff, level)
   }
 
@@ -279,7 +332,7 @@ function driveArduino(ctx: ModuleContext, frame: HapticsFrame): void {
     else if (id === 'tcCut') raw = frame.tcCut ? 1 : 0
     else if (id === 'gearGrind') raw = frame.gearGrind ? 1 : 0
     else raw = frame.impact
-    const level = effectLevel(raw, eff)
+    const level = effectLevel(raw, eff) * master
     if (level > 0 && canBuzz(id, now, minInterval)) sendBuzz(device, eff, level)
   }
 }

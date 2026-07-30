@@ -87,6 +87,11 @@ export interface OutputValueUpdate {
   raw?: ExpressionValue
   // Route-deletion tombstone. Consumers must remove cached values by route id/name.
   deleted?: true
+  // Source-invalidation marker (audit P0-13 / §24-13). The route still exists,
+  // but its source produced no valid value this tick. `value` is the empty
+  // string and `raw` is null; consumers MUST NOT keep rendering or driving the
+  // last good value, which would be indistinguishable from a live reading.
+  invalid?: true
 }
 
 // Batched payload broadcast on `outputs:value` (~10Hz).

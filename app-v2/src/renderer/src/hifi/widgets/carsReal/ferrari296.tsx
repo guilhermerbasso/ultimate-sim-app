@@ -1,4 +1,4 @@
-﻿import { type ReactElement } from 'react'
+import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, resolveRpmGaugePct, revFill, signed } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'

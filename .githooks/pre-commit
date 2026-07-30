@@ -1,0 +1,10 @@
+#!/bin/sh
+#
+# Refuses staged content that carries a UTF-8/UTF-16 BOM, is not valid UTF-8, or contains
+# mojibake. Enable with:
+#
+#   git config core.hooksPath .githooks
+#
+# See docs/ENCODING.md for why this exists.
+set -e
+exec node "$(git rev-parse --show-toplevel)/scripts/check-encoding.mjs" --staged
