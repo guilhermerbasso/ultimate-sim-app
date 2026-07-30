@@ -110,6 +110,12 @@ export class TelemetryHub extends EventEmitter {
     const applySource = async (): Promise<void> => {
       this.source = source
 
+      // Providers that share a transport with another simulator need to know whether the
+      // user picked them or whether they are competing in auto-detection.
+      for (const [id, provider] of this.providers) {
+        provider.setSelectionMode?.(source === id ? 'explicit' : 'auto')
+      }
+
       // Em 'auto' iniciamos todos os providers reais (não-mock) para detectar qual sim está aberto.
       if (source === 'off') {
         await this.stopAll()
