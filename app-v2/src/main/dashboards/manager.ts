@@ -944,6 +944,9 @@ export class DashboardManager {
       const fullscreen = step.next.fullscreen ?? currentDashOpen?.fullscreen ?? step.current?.fullscreen ?? true
 
       const opened = await this.openTarget(step.next, { displayId, fullscreen })
+      // A failed open must not cost the driver the cockpit: leave the current target up
+      // and the playlist index where it was, so the next cycle retries from here.
+      if (!opened) return null
       // Close the previous cockpit only when it isn't the same window we just
       // (re)opened. openTarget already closes the opposite-kind sibling, so this
       // only matters for dashboard→dashboard transitions.
@@ -987,14 +990,17 @@ export class DashboardManager {
     options: DashboardOpenOptions
   ): Promise<DashboardOpenState | null> {
     if (isTouchPanelPlaylistItem(item)) {
-      for (const open of this.listOpen()) await this.closeWindow(open.id)
       const panelId = touchPanelIdOf(item)
+      // Open before close. A failed open used to leave the driver with no cockpit at
+      // all, because every dashboard window had already been torn down by then.
       const res = this.touch()?.openWindow({
         panelId,
         displayId: options.displayId,
         fullscreen: options.fullscreen
       })
-      return res ? { id: panelId, displayId: res.displayId, fullscreen: res.fullscreen } : null
+      if (!res) return null
+      for (const open of this.listOpen()) await this.closeWindow(open.id)
+      return { id: panelId, displayId: res.displayId, fullscreen: res.fullscreen }
     }
     this.touch()?.closeWindow()
     return this.openWindow(item.dashboardId, options)
@@ -1040,15 +1046,17 @@ export class DashboardManager {
 
     if (routeTouch) {
       const panelId = playlistItem ? touchPanelIdOf(playlistItem) : id
-      // Close every dashboard window so only the button-box is visible.
-      for (const open of openStates) await this.closeWindow(open.id)
+      // Open before close, and only commit the playlist index once the panel is up.
+      // Closing first meant a panel that failed to open cost the driver the cockpit.
       const res = touch?.openWindow({
         panelId,
         displayId: playlistItem?.displayId ?? currentOpen?.displayId ?? screen.getPrimaryDisplay().id,
         fullscreen: playlistItem?.fullscreen ?? true
       })
-      this.currentPlaylistIndex = playlistIndex
       if (!res) throw new Error(`Touch panel not found: ${id}`)
+      // Close every dashboard window so only the button-box is visible.
+      for (const open of openStates) await this.closeWindow(open.id)
+      this.currentPlaylistIndex = playlistIndex
       return { id: panelId, displayId: res.displayId, fullscreen: res.fullscreen }
     }
 

@@ -1,5 +1,6 @@
 import type { ModuleContext } from '../module-context'
 import { DashboardManager } from '../dashboards/manager'
+import { logger } from './logger'
 
 let manager: DashboardManager | null = null
 
@@ -9,7 +10,9 @@ let manager: DashboardManager | null = null
 export function register(ctx: ModuleContext): void {
   manager = new DashboardManager(ctx)
   manager.registerIpc()
-  void manager.load()
+  void manager.load().catch((error: unknown) => {
+    logger.error('dashboards', 'initial load failed', { error: String(error) })
+  })
 
   ctx.app.once('before-quit', () => {
     void manager?.dispose()
