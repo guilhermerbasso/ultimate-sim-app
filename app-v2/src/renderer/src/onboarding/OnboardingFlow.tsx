@@ -1,3 +1,4 @@
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { useCallback, useMemo, useState, type ReactElement } from 'react'
 import { setTelemetrySource } from '../lib/telemetry'
 import '../styles/onboarding.css'
@@ -121,8 +122,10 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
     if (applied) setStepIndex(2)
   }, [selectTelemetry, telemetryBusy])
 
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: markCompleteAndClose })
+
   return (
-    <div className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div className="onboarding-backdrop" ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
       <div className="onboarding-panel">
         <header className="onboarding-header">
           <div>

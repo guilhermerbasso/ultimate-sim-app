@@ -1,3 +1,4 @@
+import { useFocusTrap } from '../../lib/useFocusTrap'
 import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
 import type { AlertsConfig } from '../../../../shared/alerts'
@@ -1118,8 +1119,10 @@ export function OverlayWidgetBuilder({
     onSave(next)
   }
 
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onCancel })
+
   return (
-    <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
+    <div className="overlay-designer-backdrop" ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true">
       <style>{OVERLAY_BUILDER_LAYOUT_CSS}</style>
       <div className="overlay-designer overlay-builder">
         <div className="overlay-designer-head">
