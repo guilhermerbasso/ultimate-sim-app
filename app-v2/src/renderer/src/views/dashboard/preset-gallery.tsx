@@ -1,11 +1,12 @@
 // Preset gallery: real thumbnails generated from the dashboard model.
 
-import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ReactElement, ReactNode, RefObject } from 'react'
+import { Component, Fragment, useEffect, useMemo, useState } from 'react'
+import type { CSSProperties, ReactElement, ReactNode } from 'react'
 import type { AlertsConfig } from '../../../../shared/alerts'
 import type { Dashboard, DashboardPreset } from '../../../../shared/dashboards'
 import { sortElementsByZ } from '../../../../shared/dashboards'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
+import { usePreviewVisible } from './use-preview-visible'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
 import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, type ResolvedLanguage } from '../../i18n'
@@ -42,24 +43,7 @@ class PresetThumbBoundary extends Component<{ children: ReactNode }, { failed: b
   }
 }
 
-function usePreviewVisible(): [RefObject<HTMLDivElement | null>, boolean] {
-  const ref = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined')
-  useEffect(() => {
-    if (visible || typeof IntersectionObserver === 'undefined') return
-    const node = ref.current
-    if (!node) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        setVisible(true)
-        observer.disconnect()
-      }
-    }, { rootMargin: '240px' })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [visible])
-  return [ref, visible]
-}
+// Shared with the widget catalog so both galleries defer thumbnails the same way.
 
 function PresetThumb({
   dash,

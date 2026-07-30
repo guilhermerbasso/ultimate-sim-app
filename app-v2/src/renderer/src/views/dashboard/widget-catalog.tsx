@@ -12,6 +12,7 @@ import { displayUnitLabel } from '../../dashboard/binding'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { useUnitSystem } from '../../lib/units'
+import { usePreviewVisible } from './use-preview-visible'
 import {
   ACCENT,
   ALL_VARIANTS,
@@ -191,19 +192,24 @@ export function WidgetMini({
   showTriggerOnlyActive?: boolean
   alertsConfig?: AlertsConfig
 }): ReactElement {
+  const [ref, visible] = usePreviewVisible()
   const element = { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }
-  const inertThumbnail = renderDashboardElement({
-    element,
-    snapshot: PREVIEW_SNAPSHOT,
-    preview: 'inert',
-    alertsConfig,
-    forceTriggerActive: showTriggerOnlyActive
-  })
+  // Off-screen cards keep their container but skip building the thumbnail tree; a card
+  // that has been seen once stays mounted (see usePreviewVisible).
+  const inertThumbnail = visible
+    ? renderDashboardElement({
+      element,
+      snapshot: PREVIEW_SNAPSHOT,
+      preview: 'inert',
+      alertsConfig,
+      forceTriggerActive: showTriggerOnlyActive
+    })
+    : null
   // Preserve legacy automation hooks while the renderer uses its explicit inert path.
   const legacyOverlayHook = variant.type === 'overlaywidget' ? 'overlaywidget' : undefined
   return (
-    <div data-widget-preview="true" style={{ position: 'relative', width: '100%', height: PREVIEW_H, background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
-      {inertThumbnail ? (
+    <div ref={ref} data-widget-preview="true" style={{ position: 'relative', width: '100%', height: PREVIEW_H, background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
+      {!visible ? null : inertThumbnail ? (
         <div
           data-widget-preview-live="true"
           data-widget-preview-fallback={legacyOverlayHook}
