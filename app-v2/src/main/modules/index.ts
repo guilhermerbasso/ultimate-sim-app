@@ -1,7 +1,6 @@
-import type { ModuleContext } from '../module-context'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+﻿import type { ModuleContext } from '../module-context'
 import { SimxAutostartController } from './simx-autostart'
+import { readSimXEnrollment } from '../serial-devices/simx-enrollment-store'
 import { GenericAutostartController } from './generic-autostart'
 import { getSerialDevicesStore } from '../serial-devices/store'
 import { settingsEvents } from '../settings/events'
@@ -91,9 +90,9 @@ import { register as touchPanel } from '../touchpanel/manager'
 import { register as mqttTarget } from './mqtt-target'
 import { register as streamSources } from './stream-sources'
 
-// Registro central dos módulos. A telemetria vem primeiro (todos dependem dela).
+// Registro central dos mÃ³dulos. A telemetria vem primeiro (todos dependem dela).
 // expressionEngine e outputRouter ficam fora do loop porque o orquestrador
-// captura seus retornos para ligar o resolver de expressões do router.
+// captura seus retornos para ligar o resolver de expressÃµes do router.
 const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   telemetry,
   iracingProvider,
@@ -179,7 +178,7 @@ export function registerModules(ctx: ModuleContext): RegisteredModules {
     try {
       register(ctx)
     } catch (error) {
-      // A single module failing to register must NEVER break the chain — the
+      // A single module failing to register must NEVER break the chain â€” the
       // rev-lights and iFlag (rgb-matrix) are registered AFTER this loop, so an
       // unguarded throw here would leave the LED outputs dead. Log and continue.
       logger.warn('main', 'module register failed (isolated)', {
@@ -225,30 +224,16 @@ export function registerModules(ctx: ModuleContext): RegisteredModules {
   return { settingsStore, revlightsEngine, rgbMatrix: rgbMatrixModule }
 }
 
+// P0-09/Â§24-15: auto-connect is authorised ONLY by the persisted enrolment, which is
+// written when a human presses Connect. The former `simx-autostart.json` last-COM-path
+// hint is deliberately gone â€” a COM number is not an identity, and opening the wrong
+// port resets the board behind it and writes commands to it.
 function wireSimxAutostart(ctx: ModuleContext, settingsStore: SettingsStore, revlightsEngine: RevlightsEngine): void {
-  const file = join(ctx.app.getPath('userData'), 'simx-autostart.json')
-  const loadLastPort = (): string | null => {
-    try {
-      const raw = JSON.parse(readFileSync(file, 'utf8')) as { lastPort?: unknown }
-      return typeof raw.lastPort === 'string' && raw.lastPort.length > 0 ? raw.lastPort : null
-    } catch {
-      return null
-    }
-  }
-  const saveLastPort = (path: string): void => {
-    try {
-      mkdirSync(ctx.app.getPath('userData'), { recursive: true })
-      writeFileSync(file, JSON.stringify({ lastPort: path }))
-    } catch {
-      // best effort — auto-start still works via isSimX detection next launch
-    }
-  }
   const controller = new SimxAutostartController({
     serial: ctx.serialManager,
     setRevlightsEnabled: (enabled) => revlightsEngine.setEnabled(enabled),
     isEnabled: () => settingsStore.getSettings().autoStartSimX,
-    loadLastPort,
-    saveLastPort,
+    loadEnrollment: () => readSimXEnrollment(ctx.app),
     logger
   })
   const unsubscribe = settingsEvents.onChanged(() => controller.onSettingsChanged())
