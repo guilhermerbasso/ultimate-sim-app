@@ -27,7 +27,12 @@ export interface SectionExportImportProps {
 }
 
 type Busy = false | 'export' | 'import'
-type Status = { text: string; tone: 'ok' | 'err' } | null
+type Status = { text: string; tone: 'ok' | 'warn' | 'err' } | null
+
+function statusColor(tone: 'ok' | 'warn' | 'err'): string {
+  if (tone === 'ok') return 'var(--accent)'
+  return tone === 'warn' ? 'var(--warning, #f5a524)' : 'var(--danger, #e5484d)'
+}
 
 async function relaunchApp(): Promise<void> {
   // Resolves to nothing: the main process exits the renderer as it relaunches.
@@ -95,23 +100,30 @@ export function SectionExportImport({
       const result = await window.ipc.invoke<ConfigImportResult>(CONFIG_IO_CHANNELS.importSection, sectionId)
       if (!result.canceled) {
         const applied = result.summary?.applied.length ?? 0
+        const warnings = result.summary?.warnings ?? []
         if (applied > 0) {
           if (hotReload) {
             const detail = result.summary?.details?.[sectionId]
             const count = detail?.itemCount ?? detail?.hotAppliedCount
-            setStatus({
-              text:
-                sectionId === 'rgb-matrix' && typeof count === 'number'
-                  ? tt(
-                      effectiveLanguage,
-                      count === 1
-                        ? 'shared.sectionExport.iflagImportedOne'
-                        : 'shared.sectionExport.iflagImportedMany',
-                      { count }
-                    )
-                  : tt(effectiveLanguage, 'shared.sectionExport.importedApplied'),
-              tone: 'ok'
-            })
+            const appliedText =
+              sectionId === 'rgb-matrix' && typeof count === 'number'
+                ? tt(
+                    effectiveLanguage,
+                    count === 1
+                      ? 'shared.sectionExport.iflagImportedOne'
+                      : 'shared.sectionExport.iflagImportedMany',
+                    { count }
+                  )
+                : tt(effectiveLanguage, 'shared.sectionExport.importedApplied')
+            // Audit §24-19: the data IS persisted. A hot-apply problem (no local
+            // iFlag target, unmatched profiles) is reported as a warning next to
+            // the success text — never as a failure that hides what happened.
+            if (warnings.length > 0) {
+              setNeedsRestart(true)
+              setStatus({ text: `${appliedText} ${warnings.join(' ')}`, tone: 'warn' })
+            } else {
+              setStatus({ text: appliedText, tone: 'ok' })
+            }
             onImported?.()
           } else {
             // Written to disk and protected from a quit-time clobber, but the live
@@ -172,7 +184,7 @@ export function SectionExportImport({
         </>
       )}
       {status && (
-        <small style={{ color: status.tone === 'ok' ? 'var(--accent)' : 'var(--danger, #e5484d)' }}>{status.text}</small>
+        <small style={{ color: statusColor(status.tone) }}>{status.text}</small>
       )}
     </div>
   )

@@ -883,6 +883,16 @@ export function register(ctx: ModuleContext): void {
       }
     })
 
+  // Audit §24-19: everything below runs AFTER `engine.importSection` already
+  // wrote the section to disk. A hot-apply problem is therefore a WARNING on the
+  // summary, never a thrown global error — throwing here made a successful,
+  // fully-persisted import look to the user like a failed one, when the profiles
+  // were on disk and would apply on the next launch.
+  const addWarning = (summary: ConfigImportSummary, message: string): void => {
+    summary.warnings ??= []
+    if (!summary.warnings.includes(message)) summary.warnings.push(message)
+  }
+
   const emitReload = async (summary: ConfigImportSummary): Promise<void> => {
     for (const sectionId of summary.applied) {
       if (sectionId === 'accessibility-cues') continue
@@ -890,7 +900,13 @@ export function register(ctx: ModuleContext): void {
         ctx.ipcMain.emit(CONFIG_SECTION_RELOAD_SIGNAL, { source: 'config-export' }, sectionId)
         continue
       }
-      const result = await reloadRgbMatrix()
+      let result: ConfigSectionReloadResult
+      try {
+        result = await reloadRgbMatrix()
+      } catch (error) {
+        addWarning(summary, error instanceof Error ? error.message : String(error))
+        continue
+      }
       summary.details ??= {}
       summary.details[sectionId] = {
         ...(summary.details[sectionId] ?? {}),
@@ -898,12 +914,14 @@ export function register(ctx: ModuleContext): void {
         unmatchedItemCount: result.unmatchedItemCount
       }
       if (result.unmatchedItemCount > 0) {
-        throw new Error(
+        addWarning(
+          summary,
           `Imported ${result.itemCount} iFlag profile(s), but ${result.unmatchedItemCount} could not be matched to this computer's RGB matrix targets.`
         )
       }
       if (result.itemCount > 0 && result.hotAppliedCount === 0) {
-        throw new Error(
+        addWarning(
+          summary,
           `Imported ${result.itemCount} iFlag profile(s), but no local RGB matrix target was available to apply them.`
         )
       }
