@@ -232,11 +232,23 @@ export const RC12_PACKET_TYPE_SCALE_PX = Object.freeze({
  */
 export const RC12_TYPE_SCALE_FACTOR = 0.5455
 
+/**
+ * `lastLap` is deliberately NOT `badge * 1`. Packet 11.2 puts the name badge and the last-lap time
+ * in the same tier-4 rung (30 px each), and rendering both from one `2 cqw` value made them
+ * byte-identical at every canvas width — badge 16 == lastLap 16 at 800x480, 20.48 == 20.48 at
+ * 1024x600, 7.86 == 7.86 at 393x759, 8.24 == 8.24 at 412x867, 15.18 == 15.18 at 759x393 and
+ * 17.34 == 17.34 at 867x412. Two readouts at the same size carry no rank at all, and the board's
+ * own reading order is badge (who) above last lap (when). The last-lap rung therefore steps down
+ * to 14 px — one half-step above the 12 px ribbon that closes the ladder — so the order
+ * position 22 > badge 16 > lastLap 14 > ribbon 12 holds with a STRICT inequality at every
+ * breakpoint. The normative override `lastLapInk` is untouched: last lap keeps the primary ink
+ * that marks it as packet 10's primary reading.
+ */
 export const RC12_TYPE_SCALE_PX = Object.freeze({
   position: 22,
   badge: 16,
   gap: 24,
-  lastLap: 16,
+  lastLap: 14,
   battleGap: 72,
   ribbon: 12,
   tag: 18
@@ -277,7 +289,9 @@ export const RC12_TYPE_CLAMP_PX = Object.freeze({
   position: Object.freeze({ min: 7, max: 44, cssVar: '--rc12-type-position' }),
   badge: Object.freeze({ min: 6, max: 32, cssVar: '--rc12-type-badge' }),
   gap: Object.freeze({ min: 7, max: 48, cssVar: '--rc12-type-gap' }),
-  lastLap: Object.freeze({ min: 6, max: 32, cssVar: '--rc12-type-last' }),
+  // The last-lap bounds are the badge bounds scaled by the same 14/16 the rung is, so the rank
+  // cannot collapse by clamping at either end of the range the way a shared bound would.
+  lastLap: Object.freeze({ min: 5, max: 28, cssVar: '--rc12-type-last' }),
   battleGap: Object.freeze({ min: 10, max: 96, cssVar: '--rc12-type-battle-gap' }),
   tag: Object.freeze({ min: 6, max: 34, cssVar: '--rc12-type-tag' })
 })
@@ -300,6 +314,43 @@ export const RC12_GLYPH_ADVANCE_RATIO = 0.55
 
 export function rc12GlyphAdvancePx(text: string, fontSizePx: number): number {
   return round3(text.length * RC12_GLYPH_ADVANCE_RATIO * fontSizePx)
+}
+
+/**
+ * The fastest-lap tag is a FIXED packet box — 200x40 at 800x480, 272x40 at 1024x600 — that has to
+ * carry three nowrap strings on one centred line: the editorial word, the position and the lap
+ * time. At the packet's 18 px rung the three of them need more width than the box has, and because
+ * they are bare flex children they were shrunk below their own text instead: measured
+ * scrollWidth − clientWidth of +20/+4/+16 px at 800x480 and +18/+4/+13 px at 1024x600. The four
+ * compact viewports give the tag the full content width and are clean.
+ *
+ * The remedy is the one this module already applies to every other rung: the packet rung is the
+ * CEILING, and the rung actually rendered is the packet rung capped by the arithmetic fit of the
+ * zone the packet itself publishes. Nothing is widened and no tolerance moves.
+ *
+ * `RC12_TAG_ADVANCE_EM` is the mean advance of the condensed uppercase face INCLUDING the 0.14 em
+ * tracking `.rc12-tag` sets: the three strings measure 228 px at an 18 px rung over 21 glyphs
+ * (0.603 em), and 0.62 em is that measurement rounded up so the cap stays conservative.
+ */
+export const RC12_TAG_ADVANCE_EM = 0.62
+export const RC12_TAG_GAP_CQW = 0.6
+export const RC12_TAG_BORDER_PX = 2
+/** "FASTEST LAP" + "P7" + "1:37.106": the tag's reference content, and the fit's minimum budget. */
+export const RC12_TAG_REFERENCE_GLYPHS = 21
+
+export function rc12TagFitCqw(zoneWidthPct: number, glyphCount: number, canvasWidthPx: number): number {
+  if (!finite(zoneWidthPct) || !finite(glyphCount) || !finite(canvasWidthPx)) return 0
+  if (glyphCount <= 0 || canvasWidthPx <= 0) return 0
+  const borderCqw = (RC12_TAG_BORDER_PX / canvasWidthPx) * 100
+  const usable = zoneWidthPct - 2 * RC12_TAG_GAP_CQW - borderCqw
+  return usable <= 0 ? 0 : round3(usable / (glyphCount * RC12_TAG_ADVANCE_EM))
+}
+
+/** The tag rung actually rendered: the packet rung, never exceeded, capped by its own zone. */
+export function rc12TagRungCqw(zoneWidthPct: number, glyphCount: number, canvasWidthPx: number): number {
+  return round3(
+    Math.min(rc12TypeScaleCqw(RC12_TYPE_SCALE_PX.tag), rc12TagFitCqw(zoneWidthPct, glyphCount, canvasWidthPx))
+  )
 }
 
 // ─────────────────────────────────────────────────────────── zones

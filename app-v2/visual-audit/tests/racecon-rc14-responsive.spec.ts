@@ -40,6 +40,30 @@ function expectContained(outer: Rect, inner: Rect, tolerance = 0.5): void {
   expect(inner.bottom).toBeLessThanOrEqual(outer.bottom + tolerance)
 }
 
+function expectVitalDecisionEqual(vitalPx: number, decisionPx: number, sizeKey: string): void {
+  expect(
+    Math.abs(vitalPx - decisionPx),
+    `RC-14/2 guard at ${sizeKey}: vital value (${vitalPx}px) must equal decision word (${decisionPx}px) within 0.5 px`
+  ).toBeLessThanOrEqual(0.5)
+}
+
+function expectFaultSystemNameContained(geometry: Awaited<ReturnType<typeof readGeometry>>, sizeKey: string): void {
+  for (const entry of geometry.faultSystemScrollOverflow) {
+    expect(entry.clientWidth, `RC-14/1 guard at ${sizeKey}: ${entry.text} must have a real box`).toBeGreaterThan(0)
+    expect(
+      entry.scrollWidth,
+      `RC-14/1 guard at ${sizeKey}: ${entry.text} painted text must fit its ${entry.clientWidth}px box`
+    ).toBeLessThanOrEqual(entry.clientWidth)
+    expect(entry.overflowPx, `RC-14/1 guard at ${sizeKey}: ${entry.text} must not overflow`).toBe(0)
+  }
+  if (geometry.engineEscapeFromRow !== null) {
+    expect(geometry.engineEscapeFromRow, `RC-14/1 guard at ${sizeKey}: ENGINE must not escape its row`).toBeLessThanOrEqual(0.5)
+  }
+  if (geometry.engineEscapeFromPanel !== null) {
+    expect(geometry.engineEscapeFromPanel, `RC-14/1 guard at ${sizeKey}: ENGINE must not escape its panel`).toBeLessThanOrEqual(0.5)
+  }
+}
+
 async function openCapture(
   browser: Browser,
   size: { width: number; height: number },
@@ -91,17 +115,9 @@ const viewports = [
 const UNMONITORED_SYSTEM_LABELS = ['GEARBOX', 'FRONT AERO', 'CORNER LF', 'CORNER RF', 'CORNER LR', 'CORNER RR']
 
 /**
- * DEFECT RC-14/2 — compact-landscape breaks vital-value == decision-word equality.
- * At 759x393 and 867x412 the decision word is LARGER than vital value (vital < decision).
- * At the other four viewports equality holds within 0.5 px tolerance.
+ * RC-14/1 and RC-14/2 are fixed; regression guards below assert fault-system containment and
+ * vital-value == decision-word equality at every governed viewport/state.
  */
-const VITAL_DECISION_DEFECT_SIZES = new Set(['759x393', '867x412'])
-
-/**
- * DEFECT RC-14/1 — ENGINE fault-system overflows in critical-fault at 800x480/1024x600. Budget 90 px.
- */
-const FAULT_SYSTEM_OVERFLOW_SIZES = new Set(['800x480', '1024x600'])
-const FAULT_SYSTEM_OVERFLOW_BUDGET_PX = 90
 
 async function readGeometry(page: Page) {
   return page.locator('#racecon-rc14-capture-root').evaluate((root) => {
@@ -149,7 +165,7 @@ async function readGeometry(page: Page) {
       .querySelector('[data-testid="rc14-vital"][data-rc14-vital="oilTemp"]')
       ?.getAttribute('data-rc14-vital-alerting') ?? null
 
-    // DEFECT RC-14/1 measurement
+    // RC-14/1 regression-guard measurement
     const critRow = root.querySelector('[data-testid="rc14-fault-row"][data-rc14-severity="critical"]')
     const critRowRect = relative(critRow)
     const critSys = critRow?.querySelector('.rc14-fault-system') ?? null
@@ -365,24 +381,10 @@ for (const size of viewports) {
       expect(decisionPx,  'decision word > fault chip').toBeGreaterThan(faultChipPx)
       expect(faultChipPx, 'fault chip > corner head').toBeGreaterThan(cornerHeadPx)
 
-      // DEFECT RC-14/2: vital-value == decision-word at four viewports, SMALLER at compact-landscape
-      if (isCompactLandscape) {
-        // DEFECT RC-14/2: decision word is LARGER than vital value at 759x393 and 867x412
-        expect(
-          vitalValuePx,
-          `DEFECT RC-14/2 at ${sizeKey}: vital (${vitalValuePx}px) must be SMALLER than decision (${decisionPx}px)`
-        ).toBeLessThan(decisionPx)
-        expect(
-          vitalValuePx,
-          `DEFECT RC-14/2 at ${sizeKey}: vital must still be > 0`
-        ).toBeGreaterThan(0)
-      } else {
-        // At the four non-landscape viewports the declared equality must hold (within 0.5 px tolerance)
-        expect(
-          Math.abs(vitalValuePx - decisionPx),
-          `vital value (${vitalValuePx}px) must equal decision word (${decisionPx}px) within 0.5 px at ${sizeKey}`
-        ).toBeLessThanOrEqual(0.5)
-      }
+      // RC-14/2 guard: declared vital-value == decision-word equality now holds at all six viewports.
+      expectVitalDecisionEqual(vitalValuePx, decisionPx, sizeKey)
+      if (isCompactLandscape) expect(vitalValuePx, `RC-14/2 fixed compact-landscape value at ${sizeKey}`).toBeGreaterThan(0)
+      expectFaultSystemNameContained(geometry, sizeKey)
 
       const capture = await page.locator('#racecon-rc14-capture-root').screenshot({ animations: 'disabled' })
       expect(capture.byteLength).toBeGreaterThan(5_000)
@@ -441,22 +443,11 @@ test('the critical-fault alert surfaces ENGINE fault and PIT decision (native 80
     const vitalValuePx = geometry.values.find((v) => v.label === 'vital value')?.fontSize ?? 0
     expect(decisionPx,  'decision > fault chip in critical-fault').toBeGreaterThan(faultChipPx)
     expect(faultChipPx, 'fault chip > corner head in critical-fault').toBeGreaterThan(cornerHeadPx)
-    // At native 800x480 vital == decision (equality holds here, DEFECT only at compact-landscape)
-    expect(Math.abs(vitalValuePx - decisionPx), 'vital == decision at native in critical-fault').toBeLessThanOrEqual(0.5)
+    // RC-14/2 guard: vital value equals decision word in critical-fault too.
+    expectVitalDecisionEqual(vitalValuePx, decisionPx, sizeKey)
 
-    // DEFECT RC-14/1 — ENGINE fault-system overflow at 800x480 in critical-fault state
-    // scrollWidth-based measure
-    const engineSysEntry = geometry.faultSystemScrollOverflow.find((e) => e.text === 'ENGINE')
-    if (engineSysEntry) {
-      expect(
-        engineSysEntry.overflowPx,
-        `DEFECT RC-14/1 at ${sizeKey}: ENGINE system-name must overflow (ACK button collapses column to 0)`
-      ).toBeGreaterThan(0)
-      expect(
-        engineSysEntry.overflowPx,
-        `DEFECT RC-14/1 at ${sizeKey}: ENGINE overflow must be within ${FAULT_SYSTEM_OVERFLOW_BUDGET_PX}px budget`
-      ).toBeLessThanOrEqual(FAULT_SYSTEM_OVERFLOW_BUDGET_PX)
-    }
+    // RC-14/1 guard: ENGINE fault-system has a real box and no text escape at 800x480.
+    expectFaultSystemNameContained(geometry, sizeKey)
 
     // No unmonitored system label in fault list in critical-fault state
     for (const forbidden of UNMONITORED_SYSTEM_LABELS) {
@@ -480,8 +471,8 @@ test('the critical-fault alert surfaces ENGINE fault and PIT decision (native 80
   }
 })
 
-test('DEFECT RC-14/2: compact-landscape critical-fault also shows vital smaller than decision', async ({ browser }) => {
-  // 759x393 critical-fault: vital 23.53 px vs decision 27.32 px (vital < decision)
+test('RC-14/2 regression guard: compact-landscape critical-fault keeps vital equal to decision', async ({ browser }) => {
+  // 759x393 critical-fault: vital 23.529 px == decision 23.529 px.
   const size = viewports[4]   // 759x393
   const sizeKey = '759x393'
   const { context, page } = await openCapture(browser, size, {
@@ -503,8 +494,9 @@ test('DEFECT RC-14/2: compact-landscape critical-fault also shows vital smaller 
     const decisionPx  = geometry.values.find((v) => v.label === 'decision word')?.fontSize ?? 0
     const vitalValuePx = geometry.values.find((v) => v.label === 'vital value')?.fontSize ?? 0
 
-    expect(vitalValuePx, `DEFECT RC-14/2 at ${sizeKey} critical-fault: vital must be < decision`).toBeLessThan(decisionPx)
+    expectVitalDecisionEqual(vitalValuePx, decisionPx, sizeKey)
     expect(vitalValuePx, 'vital value must be > 0').toBeGreaterThan(0)
+    expectFaultSystemNameContained(geometry, sizeKey)
 
     // Fault chips must not say MINOR/MAJOR on this fixture
     expect(geometry.rootText).not.toContain('MINOR')

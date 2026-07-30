@@ -184,31 +184,10 @@ export const RC14_SPEC = Object.freeze({
   ]),
 
   /**
-   * DEFECT RC-14/1 — fault-system name overflows in critical-fault state at 800x480 and 1024x600.
-   *
-   * `white-space: nowrap` lets the ENGINE system-name span escape its flex column when the ACK
-   * button joins the row. The flex item collapses to width 0 while the text still paints:
-   *
-   *   800x480    rc14-fault-system "ENGINE"  clientWidth=0   scrollWidth=73  overflowX=+73 px
-   *   1024x600   rc14-fault-system "ENGINE"  clientWidth=7   scrollWidth=93  overflowX=+86 px
-   *
-   * The four compact viewports are clean (smaller font + different flex sizing prevent collapse).
-   * The silent state is clean everywhere (no ACK button on any row).
-   * getBoundingClientRect escape distances from the fault-row and fault-list panel are recorded
-   * in the collected metrics at those two viewports and states.
+   * Both measured render defects have been corrected. These ledger arrays are intentionally empty
+   * so the harness fails closed on recurrence; explicit positive regression guards run below.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "rc14-fault-system",
-      states: Object.freeze(["critical-fault"]),
-      sizes: Object.freeze(["800x480", "1024x600"]),
-      budgetPx: 90,
-      note:
-        "white-space: nowrap + ACK button collapses fault-system flex item to clientWidth=0 while " +
-        "text still paints: 800x480 clientWidth=0 overflowX=+73px; 1024x600 clientWidth=7 overflowX=+86px. " +
-        "getBoundingClientRect escape from fault-row and fault-list panel recorded in custom metrics."
-    })
-  ]),
+  knownDefects: Object.freeze([]),
 
   zoneOverflowDefects: Object.freeze([]),
   containmentDefects: Object.freeze([])
@@ -235,36 +214,8 @@ export const RC14_CAPTURE_MATRIX = Object.freeze(
 // ── type scale ─────────────────────────────────────────────────────────────────────────────────
 
 /**
- * DEFECT RC-14/2 — compact-landscape breaks the declared vital-value == decision-word equality.
- *
- * The brief declares "vitals numerals = decision word" as ONE rank (RC14_TYPE_SCALE_PX declares
- * both at 40 px). At four of the six viewports this holds exactly:
- *
- *   800x480   vital 40.00    == decision 40.00
- *   1024x600  vital 51.20    == decision 51.20
- *   393x759   vital 19.65    == decision 19.65
- *   412x867   vital 20.60    == decision 20.60
- *
- * But at both compact-landscape viewports the decision word is LARGER:
- *
- *   759x393   vital 23.53 px   vs   decision-word 27.32 px   (+3.79 px)
- *   867x412   vital 26.88 px   vs   decision-word 31.21 px   (+4.33 px)
- *
- * The approved image-QA v2 explicitly flagged that attempt-004 "re-broke the hero-size relation".
- * Recorded, NOT suppressed. The vital must never EXCEED the decision word at any other viewport
- * (that would be an inversion), so the budget is the decision-word fontSize itself.
+ * The declared type-rank equality is fixed and guarded at every governed viewport/state.
  */
-const RC14_TYPE_RANK_DEFECTS = Object.freeze([
-  Object.freeze({
-    label: "vital value equal decision word",
-    states: Object.freeze(["silent", "critical-fault"]),
-    sizes: Object.freeze(["759x393", "867x412"]),
-    note:
-      "compact-landscape breaks the declared vital-value == decision-word equality: " +
-      "759x393 vital 23.53px vs decision 27.32px (+3.79px); " +
-      "867x412 vital 26.88px vs decision 31.21px (+4.33px)"
-  })
-])
 
 // ── helpers ────────────────────────────────────────────────────────────────────────────────────
 
@@ -590,6 +541,53 @@ function assertSpeedDeltaOmission(metrics) {
 }
 
 /**
+ * REGRESSION GUARD 1 - RC-14/1 fault-system name has a real box and stays inside it.
+ *
+ * Moving detail/no-zone content onto full-width rows fixes the ENGINE label collapse measured at
+ * 800x480 (clientWidth 0, +73 px nowrap text) and 1024x600 (clientWidth 7, +86 px) in the
+ * critical-fault state. This assertion re-raises if any fault-system overflow, zero-width box, or
+ * getBoundingClientRect escape returns at any viewport or state.
+ */
+function assertFaultSystemNameContained(metrics) {
+  const overflow = (metrics.overflowLeaves ?? []).find((leaf) => leaf.key === "rc14-fault-system")
+  if (overflow) {
+    fail(
+      `rc14-fault-system "${overflow.text}" overflows its box by ${overflow.overflowX}px - ` +
+      "fault-system names must have real, contained boxes at every viewport"
+    )
+  }
+
+  for (const [label, px] of [
+    ["fault row", metrics.engineTextEscapeFromRow],
+    ["fault-list panel", metrics.engineTextEscapeFromPanel]
+  ]) {
+    if (typeof px === "number" && px > 0.5) {
+      fail(`ENGINE fault-system text escapes the ${label} by ${px.toFixed(2)}px`)
+    }
+  }
+}
+
+/**
+ * REGRESSION GUARD 2 - RC-14/2 vital value equals decision word at every viewport/state.
+ *
+ * Sharing the 0.62 compact-height factor and 34 px clamp maximum fixes the compact-landscape
+ * divergence measured at 759x393 (23.53 vs 27.32 px) and 867x412 (26.88 vs 31.21 px). The
+ * declared RC14_TYPE_SCALE_PX equality now fails closed anywhere the difference exceeds 0.5 px.
+ */
+function assertVitalDecisionTypeEquality(metrics, entry) {
+  const decisionWordPx = valueOf(metrics, "decision word").fontSize
+  const vitalValuePx = valueOf(metrics, "vital value").fontSize
+  if (Math.abs(vitalValuePx - decisionWordPx) > 0.5) {
+    const sizeKey = `${entry.size.width}x${entry.size.height}`
+    fail(
+      `type-scale: vital value ${vitalValuePx}px must equal decision word ${decisionWordPx}px ` +
+      `(declared RC14_TYPE_SCALE_PX.vitalValue == RC14_TYPE_SCALE_PX.decisionWord; ` +
+      `difference ${Math.abs(vitalValuePx - decisionWordPx).toFixed(2)}px at ${sizeKey})`
+    )
+  }
+}
+
+/**
  * Layout-conditional zone presence. Handled outside the shared overlap sweep because a zone
  * that does not exist cannot be peer-compared.
  *
@@ -682,8 +680,8 @@ function assertLayoutConditionalZones(metrics, entry) {
  *     1024x600  51.20  > 24.32  > 15.36
  *     393x759   19.65  >  9.33  >  6.00
  *     412x867   20.60  >  9.79  >  6.18
- *     759x393   27.32  > 18.03  > 11.38
- *     867x412   31.21  > 20.59  > 13.01
+ *     759x393   23.53  > 18.03  > 11.38
+ *     867x412   26.88  > 20.59  > 13.01
  *
  *   EQUALITY: rc14-vital-value == rc14-decision-word (declared in RC14_TYPE_SCALE_PX)
  *
@@ -692,12 +690,10 @@ function assertLayoutConditionalZones(metrics, entry) {
  *     1024x600  51.20  == 51.20   ✓
  *     393x759   19.65  == 19.65   ✓
  *     412x867   20.60  == 20.60   ✓
- *     759x393   23.53  vs 27.32   DEFECT — decision > vital (+3.79px)
- *     867x412   26.88  vs 31.21   DEFECT — decision > vital (+4.33px)
+ *     759x393   23.53  == 23.53   OK
+ *     867x412   26.88  == 26.88   OK
  */
 function assertTypeScale(metrics, entry) {
-  const sizeKey = `${entry.size.width}x${entry.size.height}`
-
   const decisionWordPx = valueOf(metrics, "decision word").fontSize
   const faultChipPx    = valueOf(metrics, "fault chip").fontSize
   const cornerHeadPx   = valueOf(metrics, "corner head").fontSize
@@ -710,39 +706,9 @@ function assertTypeScale(metrics, entry) {
     { label: "corner head",   fontSize: cornerHeadPx   }
   ])
 
-  // Declared equality: vital value == decision word.
-  // A tolerance of 0.5 px accepts submillipixel rounding at scale factors.
-  const rankDefects = []
-  if (Math.abs(vitalValuePx - decisionWordPx) > 0.5) {
-    const waiver = RC14_TYPE_RANK_DEFECTS.find(
-      (candidate) => candidate.states.includes(entry.state) && candidate.sizes.includes(sizeKey)
-    )
-    if (!waiver) {
-      fail(
-        `type-scale: vital value ${vitalValuePx}px must equal decision word ${decisionWordPx}px ` +
-        `(declared RC14_TYPE_SCALE_PX.vitalValue == RC14_TYPE_SCALE_PX.decisionWord; ` +
-        `difference ${Math.abs(vitalValuePx - decisionWordPx).toFixed(2)}px at ${sizeKey})`
-      )
-    }
-    // A recorded divergence is never a licence for the vital to exceed the decision word —
-    // that would invert the brief's implicit hierarchy (vital <= decision is always required).
-    if (vitalValuePx > decisionWordPx) {
-      fail(
-        `vital value ${vitalValuePx}px exceeds decision word ${decisionWordPx}px at ${sizeKey} — ` +
-        `this inverts the rank even past the recorded defect: ${waiver.note}`
-      )
-    }
-    rankDefects.push({
-      label: waiver.label,
-      state: entry.state,
-      size: sizeKey,
-      vitalValuePx,
-      decisionWordPx,
-      note: waiver.note
-    })
-  }
+  assertVitalDecisionTypeEquality(metrics, entry)
 
-  return { steps: scale, rankDefects }
+  return { steps: scale, rankDefects: [] }
 }
 
 // ── exported validators ────────────────────────────────────────────────────────────────────────
@@ -759,6 +725,8 @@ export function validateCaptureMetrics(metrics, entry) {
   assertOperatingLamps(metrics)
   assertSpeedDeltaOmission(metrics)
   assertLayoutConditionalZones(metrics, entry)
+  assertFaultSystemNameContained(metrics)
+  assertVitalDecisionTypeEquality(metrics, entry)
 
   // Required text common to both states
   hasText(metrics, "NO ZONE")       // CHASSIS fault-row nozone notice

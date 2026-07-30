@@ -577,8 +577,14 @@ function rc10CompactZones(mode: Rc10CompactMode): Rc10ZoneMap {
     return Object.freeze({
       gear: Object.freeze({ left: 2, top: 3, width: 47.5, height: 44 }),
       speed: Object.freeze({ left: 51.5, top: 3, width: 46.5, height: 44 }),
-      delta: Object.freeze({ left: 2, top: 50, width: 63.8, height: 26 }),
-      fuel: Object.freeze({ left: 67.5, top: 50, width: 30.5, height: 26 }),
+      // The delta and fuel row carries the two tallest stacked readouts of the compact grammar —
+      // a caption, a hero numeral and, for fuel, the segment bar and the alert word — inside a
+      // tile whose height is a fraction of a canvas that is 2.1x as wide as it is tall. At 26 %
+      // the delta numeral's line box ran 5 px past the tile even after the line box was tightened
+      // to the gear rung's 0.75. The row takes those 2 points from the two inter-row gutters,
+      // which drop from 3 % to 2 %, so no other zone loses a pixel and none of them overlap.
+      delta: Object.freeze({ left: 2, top: 49, width: 63.8, height: 28 }),
+      fuel: Object.freeze({ left: 67.5, top: 49, width: 30.5, height: 28 }),
       status: Object.freeze({ left: 2, top: 79, width: 96, height: 18 })
     })
   }

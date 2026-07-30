@@ -308,7 +308,15 @@ function nativeMetrics(state = "silent") {
     faultChipWords,
     oilTempVitalAlerting:     "false",
     unmonitoredZoneRects:     unmonitRects,
-    redScopeRects:            redRects
+    redScopeRects:            redRects,
+    faultSystemScrollOverflow: faultSystemNames.map((text) => ({
+      text,
+      clientWidth: 90,
+      scrollWidth: 90,
+      overflowPx: 0
+    })),
+    engineTextEscapeFromRow:   cf ? 0 : null,
+    engineTextEscapeFromPanel: cf ? 0 : null
   }
 }
 
@@ -371,8 +379,7 @@ test("a faithful native silent fixture validates and reports its type scale", ()
 
 test("a faithful native critical-fault fixture validates with the alert and decision present", () => {
   const audit = validateCaptureMetrics(nativeMetrics("critical-fault"), nativeEntry("critical-fault"))
-  // The ENGINE system overflow is recorded at 800x480 in critical-fault
-  // (knownDefects is empty unless overflowLeaves has entries matching the ledger)
+  assert.deepEqual(audit.knownDefects, [])
   assert.deepEqual(audit.typeRankDefects, [])
   // alerts=silent in critical-fault state fails
   assertRejects(
@@ -549,7 +556,7 @@ test("vital-value == decision-word equality is enforced at 1024x600 (NOT in defe
   )
 })
 
-test("vital-value != decision-word divergence at compact-landscape is accepted (DEFECT RC-14/2)", () => {
+test("vital-value == decision-word equality is enforced at compact-landscape", () => {
   const entry759 = RC14_CAPTURE_MATRIX.find((e) => e.state === "silent" && e.size.width === 759)
   const m = nativeMetrics("silent")
   m.viewport  = { width: 759, height: 393, dpr: 1 }
@@ -570,9 +577,9 @@ test("vital-value != decision-word divergence at compact-landscape is accepted (
   m.counted[15].count = 1  // panel-cornerStatus (non-app)
   m.counted[16].count = 0  // timeline-empty (not app)
   m.counted[17].count = 0  // timeline-mark (not app)
-  // DEFECT RC-14/2: vital 23.53 vs decision 27.32 at 759x393
-  m.values[0].fontSize = 27.32  // decision word
-  m.values[1].fontSize = 23.53  // vital value — smaller than decision → waived at 759x393
+  // Fixed RC-14/2: vital value equals decision word at 759x393.
+  m.values[0].fontSize = 23.529  // decision word
+  m.values[1].fontSize = 23.529  // vital value
   m.values[2].fontSize = 18.03  // fault chip
   m.values[3].fontSize = 11.38  // corner head
   m.values[4].fontSize = 11.38
@@ -586,11 +593,10 @@ test("vital-value != decision-word divergence at compact-landscape is accepted (
     { name: "vitalsColumn", selector: '[data-testid="rc14-panel-vitalsColumn"]', present: true, display: "block", ...measured(clVC) }
   ]
   const audit = validateCaptureMetrics(m, entry759)
-  assert.equal(audit.typeRankDefects.length, 1)
-  assert.equal(audit.typeRankDefects[0].label, "vital value equal decision word")
+  assert.deepEqual(audit.typeRankDefects, [])
 })
 
-test("vital-value EXCEEDING decision-word at compact-landscape is rejected (inversion past recorded defect)", () => {
+test("vital-value != decision-word at compact-landscape is rejected", () => {
   const entry759 = RC14_CAPTURE_MATRIX.find((e) => e.state === "silent" && e.size.width === 759)
   const m = nativeMetrics("silent")
   m.viewport  = { width: 759, height: 393, dpr: 1 }
@@ -607,9 +613,9 @@ test("vital-value EXCEEDING decision-word at compact-landscape is rejected (inve
   m.compactMode = "landscape"
   m.counted[12].count = 0 ; m.counted[13].count = 0 ; m.counted[14].count = 1 ; m.counted[15].count = 1
   m.counted[16].count = 0 ; m.counted[17].count = 0
-  // INVERSION: vital > decision
-  m.values[0].fontSize = 23.53  // decision word (smaller)
-  m.values[1].fontSize = 27.32  // vital value > decision word → REJECTED
+  // Regressed RC-14/2: vital value diverges from decision word.
+  m.values[0].fontSize = 23.529  // decision word
+  m.values[1].fontSize = 26.877  // vital value
   m.values[2].fontSize = 18.03
   m.values[3].fontSize = 11.38
   m.values[4].fontSize = 11.38
@@ -626,7 +632,7 @@ test("vital-value EXCEEDING decision-word at compact-landscape is rejected (inve
     () => validateCaptureMetrics(m, entry759),
     (error) => {
       assert.ok(error instanceof CaptureSafetyError)
-      assert.match(error.message, /vital value .* exceeds decision word|inverts the rank/)
+      assert.match(error.message, /type-scale: vital value .* must equal decision word/)
       return true
     }
   )
@@ -663,7 +669,7 @@ test("a non-accepted buffer state fails closed", () => {
 
 // ── Overflow ledger ──────────────────────────────────────────────────────────────────────────
 
-test("unrecorded overflow fails and recorded ENGINE overflow within budget is accepted", () => {
+test("unrecorded overflow fails closed", () => {
   // Unrecorded overflow → rejected
   assertRejects(
     (m) => {
@@ -676,29 +682,45 @@ test("unrecorded overflow fails and recorded ENGINE overflow within budget is ac
   )
 })
 
-test("DEFECT RC-14/1: ENGINE fault-system overflow within budget is accepted at 800x480 critical-fault", () => {
-  const cfEntry = nativeEntry("critical-fault")
-  const m = nativeMetrics("critical-fault")
-  // +73 px overflow within budget (90 px)
-  m.overflowLeaves = [
-    { key: "rc14-fault-system", text: "ENGINE", fontSize: 16, whiteSpace: "nowrap",
-      clientWidth: 0, scrollWidth: 73, overflowX: 73, textLeft: 300, textRight: 373 }
-  ]
-  assert.doesNotThrow(() => validateCaptureMetrics(m, cfEntry))
-  // Overflow past budget → rejected
-  m.overflowLeaves[0].overflowX = 91
-  m.overflowLeaves[0].scrollWidth = 91
-  assert.throws(
-    () => validateCaptureMetrics(m, cfEntry),
-    (error) => {
-      assert.ok(error instanceof CaptureSafetyError)
-      assert.match(error.message, /overflows by 91px, past the 90px/)
-      return true
-    }
+test("RC-14/1 guard accepts clean fault-system geometry", () => {
+  assert.doesNotThrow(() => validateCaptureMetrics(nativeMetrics("critical-fault"), nativeEntry("critical-fault")))
+})
+
+test("RC-14/1 guard rejects fault-system overflow or missing box", () => {
+  assertRejects(
+    (m) => {
+      m.overflowLeaves = [
+        { key: "rc14-fault-system", text: "ENGINE", fontSize: 16, whiteSpace: "nowrap",
+          clientWidth: 0, scrollWidth: 73, overflowX: 73, textLeft: 300, textRight: 373 }
+      ]
+    },
+    /rc14-fault-system "ENGINE" paints 73px wider than its 0px box|rc14-fault-system "ENGINE" overflows its box/,
+    "critical-fault"
+  )
+  assertRejects(
+    (m) => { m.engineTextEscapeFromRow = 2 },
+    /ENGINE fault-system text escapes the fault row by 2\.00px/,
+    "critical-fault"
+  )
+  assertRejects(
+    (m) => { m.engineTextEscapeFromPanel = 3 },
+    /ENGINE fault-system text escapes the fault-list panel by 3\.00px/,
+    "critical-fault"
   )
 })
 
-// ── Pixel audit ──────────────────────────────────────────────────────────────────────────────
+test("RC-14/2 guard accepts clean vital-decision equality", () => {
+  assert.doesNotThrow(() => validateCaptureMetrics(nativeMetrics("silent"), nativeEntry("silent")))
+})
+
+test("RC-14/2 guard rejects synthetic vital-decision divergence", () => {
+  assertRejects(
+    (m) => { m.values[1].fontSize = 39.0 },
+    /type-scale: vital value .* must equal decision word/
+  )
+})
+
+// -- Pixel audit ──────────────────────────────────────────────────────────────────────────────
 
 function paintPng(size, background) {
   const image = new PNG({ width: size.width, height: size.height })

@@ -246,14 +246,38 @@
   overflow: hidden;
   background: #8a97a633;
   pointer-events: none;
+  /*
+   * The band carries the axis rung itself and declares itself a size container, so the label it
+   * owns can be capped by the BAND's height. An element's own `container-type` never applies to
+   * its own properties, so this `font-size` still resolves `1.75cqw` against the widget.
+   */
+  container-type: size;
+  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
 }
 
+/*
+ * The band is as wide as the dropout is long — ≈8.2 % of the shared plot span — and that width is
+ * the measurement, not a layout choice. A horizontal "DATA GAP" cannot fit it at any viewport:
+ * `white-space: nowrap` defeated the band's `overflow: hidden` and the label painted 13–30 px past
+ * its own clipping box at all six governed sizes. The label therefore reads DOWN the band, which
+ * is the axis the band actually owns, so the words survive at full rung and the band keeps stating
+ * the true span. `max-block-size` keeps the rotated line inside the band it belongs to.
+ */
 .rc11-gap-label {
+  overflow: hidden;
   color: var(--rc11-secondary);
-  font-size: clamp(6px, var(--rc11-type-axis, 1.75cqw), 22px);
+  /*
+   * The axis rung (`1em`, inherited from the band) capped by the band's own height. "DATA GAP" set
+   * solid and rotated measures 3.733 em along the band's axis, so 25 cqh leaves a margin at every
+   * viewport; the cap only binds in compact landscape, where the shortest plot is 50.5 px tall.
+   */
+  font-size: min(1em, 25cqh);
   font-weight: 700;
-  letter-spacing: 0.12em;
+  /* Tracking is horizontal typography: along the band's own axis it only makes the line longer
+     than the shortest plot, so the rotated label sets nearly solid. */
+  letter-spacing: 0.02em;
   white-space: nowrap;
+  writing-mode: vertical-rl;
 }
 
 /* ---------------------------------------------------------------- anomaly markers */

@@ -225,10 +225,12 @@
 }
 
 /* Normative override `lastLapInk`: packet 10 calls last lap time primary although 11.2 puts it in
-   the smallest tier, so it keeps the small size and takes the primary ink. */
+   the smallest tier, so it keeps the small size and takes the primary ink. The rung is one
+   half-step BELOW the badge — see RC12_TYPE_SCALE_PX — because two tier-4 columns rendered from a
+   single value tied at every viewport, and a tie carries no rank. */
 .rc12-cell-last {
   color: var(--rc12-primary);
-  font-size: clamp(6px, var(--rc12-type-last, 2cqw), 32px);
+  font-size: clamp(5px, var(--rc12-type-last, 1.75cqw), 28px);
   font-weight: 600;
 }
 
@@ -323,7 +325,7 @@
   align-items: baseline;
   gap: 0.4cqw;
   color: var(--rc12-primary);
-  font-size: clamp(6px, var(--rc12-type-last, 2cqw), 32px);
+  font-size: clamp(5px, var(--rc12-type-last, 1.75cqw), 28px);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;

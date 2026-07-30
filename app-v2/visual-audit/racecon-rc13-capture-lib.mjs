@@ -130,20 +130,9 @@ const RC13_EXPECTED = Object.freeze({
 })
 
 /**
- * DEFECT RC-13/1 — `rc13-restart-status` "RESTART IMMINENT" text overflows its layout box at
- * compact-phone viewports in the restart-imminent state.
- *
- * `scrollWidth − clientWidth` measured with the shared `auditOverflowLeaves` sweep:
- *   393x759  +3 px  (clientWidth 153)
- *   412x867  +3 px  (clientWidth 161)
- *
- * "SC DEPLOYED" (silent state) and all native, app and compact-landscape viewports are clean.
- * The CSS gives `.rc13-status-word { flex: 1 1 auto; overflow: hidden; white-space: nowrap }`,
- * so `overflow: hidden` clips the painted glyph but `scrollWidth` still reports the natural width,
- * which is where the +3 px originates.
- *
- * Recorded and NOT suppressed: the budget is the measured maximum so a defect that grows, spreads
- * to another breakpoint or appears on another element still fails closed.
+ * DEFECT RC-13/1 (`rc13-restart-status` compact-phone overflow) has been corrected. Its ledger
+ * entry is intentionally gone so the harness fails closed on recurrence; assertRestartStatusWordFitsHeader
+ * adds the explicit positive regression guard below.
  *
  * DEFECT RC-13/2 — `rc13-restart-status` font ascenders extend above the root top at 1024x600
  * (app layout) in BOTH states.
@@ -162,15 +151,6 @@ const RC13_EXPECTED = Object.freeze({
 export const RC13_GLYPH_OVERFLOW_BUDGET_PX = 4
 
 const RC13_OVERFLOW_DEFECTS = Object.freeze([
-  Object.freeze({
-    key: "rc13-restart-status",
-    states: Object.freeze(["restart-imminent"]),
-    sizes: Object.freeze(["393x759", "412x867"]),
-    budgetPx: 3,
-    note:
-      'restart-status "RESTART IMMINENT" overflows its layout box at compact-phone: ' +
-      "scrollWidth − clientWidth = +3 px at 393x759 (clientWidth 153) and +3 px at 412x867 (clientWidth 161)"
-  }),
   /**
    * DEFECT RC-13/2 — glyph ascent overflow above canvas top at app layout.
    * Not a scrollWidth overflow — not matched by auditOverflowLeaves. Documented for the record
@@ -784,9 +764,32 @@ function assertRestartStatusGlyphBound(metrics, entry) {
 }
 
 /**
- * Measures whether the painted `restart-status` text escapes the status header rect, using
- * the measured rectangles from `collectMetrics`. Reports the geometry regardless of whether it
- * escapes — the known defect ledger owns the accepted escape, not a suppressed assertion.
+ * REGRESSION GUARD - restart-status word fits its own box and header.
+ *
+ * DEFECT RC-13/1 was measured at compact-phone 393x759 and 412x867 in restart-imminent state:
+ * `rc13-restart-status` overflowed by +3 px because the alert chip added a fourth inline header
+ * item. The fix lets the compact-phone status header wrap, so the restart-status word must never
+ * appear in `metrics.overflowLeaves` at any viewport or state; when rects are collected, the word
+ * box must also remain inside the status header zone.
+ */
+function assertRestartStatusWordFitsHeader(metrics) {
+  const restartStatusLeaf = (metrics.overflowLeaves ?? []).find((leaf) => leaf.key === "rc13-restart-status")
+  if (restartStatusLeaf) {
+    fail(
+      `rc13-restart-status "${restartStatusLeaf.text}" overflows its own box by ` +
+        `${restartStatusLeaf.overflowX}px at ${metrics.viewport?.width}x${metrics.viewport?.height} - ` +
+        "the restart-status word must fit at every viewport and state"
+    )
+  }
+
+  if (metrics.restartStatusRect && metrics.statusHeaderRect) {
+    containsRect(metrics.statusHeaderRect, metrics.restartStatusRect, "restart-status word within status header", 0.5)
+  }
+}
+
+/**
+ * Measures whether the `restart-status` box escapes the status header rect, using the measured
+ * rectangles from `collectMetrics`. This reports positive fit geometry for the RC-13/1 guard.
  */
 function measureRestartStatusEscape(metrics) {
   if (!metrics.restartStatusRect || !metrics.statusHeaderRect) return null
@@ -808,11 +811,13 @@ function measureRestartStatusEscape(metrics) {
 /* ── Public validate functions ────────────────────────────────────────────────────────────── */
 
 /**
- * Every assertion that is true of any RC-13 capture regardless of state. Calls
- * `validateCommonMetrics` first (shared geometry, modifier, buffer-state, error-boundary, readout
- * and zone checks), then adds the RC-13-specific DOM contract.
+ * Every assertion that is true of any RC-13 capture regardless of state. Runs the RC-13/1
+ * restart-status overflow guard first so recurrence fails with its named message, then calls
+ * `validateCommonMetrics` (shared geometry, modifier, buffer-state, error-boundary, readout and
+ * zone checks) before adding the RC-13-specific DOM contract.
  */
 export function validateCaptureMetrics(metrics, entry, _unused) {
+  assertRestartStatusWordFitsHeader(metrics)
   const common = validateCommonMetrics(metrics, entry, RC13_SPEC)
 
   assertNativeSize(metrics, entry)
@@ -855,7 +860,7 @@ export function validateCaptureMetrics(metrics, entry, _unused) {
   // DEFECT RC-13/2: assert the glyph ascent overflow doesn't exceed the recorded budget
   assertRestartStatusGlyphBound(metrics, entry)
 
-  // Report text-escape geometry for the known defect
+  // Report restart-status fit geometry for the RC-13/1 regression guard
   const restartStatusEscape = measureRestartStatusEscape(metrics)
 
   return { ...common, barGeometry, typeScale: typeScale.map((s) => ({ label: s.label, fontSize: s.fontSize })), restartStatusEscape }

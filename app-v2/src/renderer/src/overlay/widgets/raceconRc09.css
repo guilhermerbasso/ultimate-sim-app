@@ -237,18 +237,53 @@
   padding: 0.35em 1.4cqw;
 }
 
-.rc09-split-row {
+/*
+ * The chip is a fixed two-line grammar in BOTH states: a caption line that carries the SPLIT label
+ * and, while the alert is latched, the SPLIT LOSS word beside it, then the numeral. Stacking the
+ * alert as a third line made the chip reflow when the alert latched, which is why the silent and
+ * engaged frames measured different escapes at the same viewport.
+ */
+.rc09-split-head {
   display: flex;
-  gap: 0.35em;
+  flex: 0 0 auto;
+  gap: 0.5em;
   align-items: baseline;
+  justify-content: space-between;
   min-width: 0;
 }
 
+.rc09-split-row {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 0.35em;
+  align-items: baseline;
+  min-height: 0;
+  min-width: 0;
+}
+
+/*
+ * `--rc09-split-box` is the chip's OWN height, published by the widget from the same zone rect it
+ * applies to the chip, so the numeral is sized from the box that has to hold it rather than from
+ * the canvas width alone. Without this cap the packet rung — a cqw value — outgrew the chip as the
+ * viewport aspect widened and the reading painted past the bottom edge of its own zone: +2.22 px
+ * at 1024x600, +4.86 px at 759x393 and +10.59 px at 867x412. The subtractions are the chip's own
+ * declared chrome: 0.7em of vertical padding, the 0.1em column gap and the caption line.
+ */
 .rc09-split-value {
   min-width: 0;
   overflow: hidden;
   color: var(--rc09-primary);
-  font-size: clamp(14px, var(--rc09-type-split, 8cqw), 84px);
+  font-size: clamp(
+    14px,
+    min(
+      var(--rc09-type-split, 8cqw),
+      calc(
+        var(--rc09-split-box, 100cqh) - 0.7em - 0.1em -
+          1.1 * clamp(8px, var(--rc09-type-label, 2.25cqw), 20px)
+      )
+    ),
+    84px
+  );
   font-weight: 700;
   letter-spacing: -0.015em;
   line-height: 1;
@@ -300,14 +335,15 @@
 }
 
 .rc09-split-alert {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   margin: 0;
   overflow: hidden;
   color: var(--rc09-caution);
   font-size: clamp(8px, var(--rc09-type-label, 2.25cqw), 18px);
   font-weight: 700;
   letter-spacing: 0.16em;
-  line-height: 1.2;
+  line-height: 1.1;
+  text-align: right;
   white-space: nowrap;
 }
 
@@ -575,9 +611,30 @@
   font-size: clamp(28px, 20cqw, 96px);
 }
 
-.rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-split-value,
+/*
+ * DEFECT RC-09/2, fixed. One rule used to size `.rc09-split-value` and `.rc09-note-value` together
+ * at compact-phone — `clamp(16px, 11cqw, 56px)` for both — so two distinct packet ranks rendered at
+ * exactly the same pixel size: 43.23 == 43.23 at 393x759 and 45.32 == 45.32 at 412x867. Packet 11.2
+ * ranks the split chip (64 px) above the note cue (40 px), a 0.625 ratio the other five viewports
+ * already honour, so the phone note rung is the phone split rung scaled by that same 0.625 and the
+ * rank holds with a strict inequality at every breakpoint.
+ */
+.rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-split-value {
+  font-size: clamp(
+    16px,
+    min(
+      11cqw,
+      calc(
+        var(--rc09-split-box, 100cqh) - 0.7em - 0.1em -
+          1.1 * clamp(8px, var(--rc09-type-label, 2.25cqw), 20px)
+      )
+    ),
+    56px
+  );
+}
+
 .rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-note-value {
-  font-size: clamp(16px, 11cqw, 56px);
+  font-size: clamp(11px, 6.875cqw, 35px);
 }
 
 .rc09-widget[data-rc09-layout='compact'][data-rc09-compact-mode='phone'] .rc09-led {

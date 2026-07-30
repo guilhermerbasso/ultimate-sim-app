@@ -196,72 +196,16 @@ export const RC10_SPEC = Object.freeze({
       "[data-rc10-shift-gear], [data-rc10-shift-scaled]"
     ])
   ]),
+  /**
+   * The measured delta/fuel zone overflow and value containment defects have been corrected.
+   * These ledger arrays are intentionally empty so the harness fails closed on recurrence - any
+   * new overflow, zone overflow, or containment escape is an unconditional hard failure. Explicit
+   * positive assertions are added to validateCaptureMetrics below.
+   */
   knownDefects: Object.freeze([]),
-  /**
-   * DEFECT RC-10/1 — the delta tile's content is taller than the tile.
-   *
-   * The delta value is sized from a container query while the tile height comes from the row
-   * grammar, and outside the app and compact-phone layouts the two disagree. Measured as
-   * scrollHeight - clientHeight, identical in both states:
-   *
-   *     800x480   native               delta tile +3 px   (content 119 px in a 116 px box)
-   *     759x393   compact/landscape    delta tile +12 px  (content 110 px in a 98 px box)
-   *     867x412   compact/landscape    delta tile +21 px  (content 124 px in a 103 px box)
-   *     867x412   compact/landscape    fuel tile  +4 px   (content 107 px in a 103 px box)
-   *
-   * 1024x600 and both compact-phone viewports are clean.
-   *
-   * The spread is the reason this is recorded as a MEASURED budget rather than a flat
-   * tolerance: at native the overrun is 3 px, which a small blanket allowance would have
-   * swallowed, while at 867x412 the same defect is seven times larger. The budget is the
-   * measured maximum plus a small font-metric allowance, so the defect still fails closed if
-   * it grows or spreads to another breakpoint.
-   */
-  zoneOverflowDefects: Object.freeze([
-    Object.freeze({
-      zone: "delta",
-      states: Object.freeze(["silent", "fuel-low"]),
-      sizes: Object.freeze(["800x480", "759x393", "867x412"]),
-      budgetPx: 24,
-      note:
-        "delta tile vertical overflow: the container-query type scale sizes the delta value taller than the tile " +
-        "the row grammar allocates (native +3 px, 759x393 +12 px, 867x412 +21 px)"
-    }),
-    Object.freeze({
-      zone: "fuel",
-      states: Object.freeze(["silent", "fuel-low"]),
-      sizes: Object.freeze(["867x412"]),
-      budgetPx: 7,
-      note: "fuel tile vertical overflow at 867x412 compact-landscape: content 107 px in a 103 px box (+4 px)"
-    })
-  ]),
-  /**
-   * DEFECT RC-10/1, seen from the other side: the delta value's own box escapes the bottom
-   * edge of the tile that owns it, measured with getBoundingClientRect rather than scrollHeight.
-   *
-   *     800x480   delta value escapes bottom by  0.94 px
-   *     759x393   delta value escapes bottom by  9.91 px
-   *     867x412   delta value escapes bottom by 18.44 px
-   *     867x412   fuel value  escapes bottom by  1.48 px  (silent only)
-   */
-  containmentDefects: Object.freeze([
-    Object.freeze({
-      label: "delta value",
-      states: Object.freeze(["silent", "fuel-low"]),
-      sizes: Object.freeze(["800x480", "759x393", "867x412"]),
-      budgetPx: 21,
-      note:
-        "the delta value's box escapes the bottom edge of the delta tile " +
-        "(800x480 ≈0.94 px, 759x393 ≈9.91 px, 867x412 ≈18.44 px)"
-    }),
-    Object.freeze({
-      label: "fuel value",
-      states: Object.freeze(["silent", "fuel-low"]),
-      sizes: Object.freeze(["867x412"]),
-      budgetPx: 4,
-      note: "the fuel value's box escapes the bottom edge of the fuel tile at 867x412 by ≈1.48 px"
-    })
-  ])
+  zoneOverflowDefects: Object.freeze([]),
+  containmentDefects: Object.freeze([])
+
 })
 
 export const RC10_CAPTURE_MATRIX = Object.freeze(
@@ -309,6 +253,48 @@ function valueOf(metrics, label) {
   const value = (metrics.values ?? []).find((candidate) => candidate.label === label)
   if (!value || !value.present) fail(`capture is missing the ${label} readout`)
   return value
+}
+
+function zoneOf(metrics, name) {
+  const zone = (metrics.zones ?? []).find((candidate) => candidate.name === name)
+  if (!zone || !zone.present) fail(`capture is missing the ${name} zone`)
+  return zone
+}
+
+function containmentOf(metrics, label) {
+  const item = (metrics.containment ?? []).find((candidate) => candidate.label === label)
+  if (!item) fail(`containment measurement for ${label} is missing`)
+  if (!item.owner || !item.value) fail(`${label} has no measurable owner or value rect`)
+  return item
+}
+
+function assertContainedRect(label, owner, value) {
+  const escape = {
+    left:   finite(owner.left, `${label} owner left`) - finite(value.left, `${label} value left`),
+    right:  finite(value.left, `${label} value left`) + finite(value.width, `${label} value width`) -
+            (finite(owner.left, `${label} owner left`) + finite(owner.width, `${label} owner width`)),
+    top:    finite(owner.top, `${label} owner top`) - finite(value.top, `${label} value top`),
+    bottom: finite(value.top, `${label} value top`) + finite(value.height, `${label} value height`) -
+            (finite(owner.top, `${label} owner top`) + finite(owner.height, `${label} owner height`))
+  }
+  const worst = Math.max(...Object.values(escape))
+  if (worst > 0.5) {
+    const edge = Object.entries(escape).find(([, px]) => px === worst)[0]
+    fail(`${label} escapes its tile on the ${edge} by ${worst.toFixed(2)}px - the value rect must stay inside its tile at every viewport and state`)
+  }
+}
+
+function assertTileContentFits(metrics, zoneName, valueLabel) {
+  const zone = zoneOf(metrics, zoneName)
+  const overflow = finite(zone.scrollHeight, `${zoneName} scrollHeight`) - finite(zone.layoutHeight, `${zoneName} layoutHeight`)
+  if (overflow > 0.5) {
+    fail(
+      `${zoneName} tile content height (${zone.scrollHeight.toFixed(2)}px) exceeds layout height ` +
+        `(${zone.layoutHeight.toFixed(2)}px) by ${overflow.toFixed(2)}px - the tile must not overflow at any viewport or state`
+    )
+  }
+  const item = containmentOf(metrics, valueLabel)
+  assertContainedRect(valueLabel, item.owner, item.value)
 }
 
 function assertReadings(metrics, entry) {
@@ -473,6 +459,30 @@ function assertTypeScale(metrics) {
   ])
 }
 
+/**
+ * REGRESSION GUARD - delta tile content and value rect must fit the delta tile.
+ *
+ * Fixed DEFECT RC-10/1: delta zone overflow at 800x480 (+3 px), 759x393 (+12 px) and
+ * 867x412 (+21 px), with value bottom escape of 0.94 px, 9.91 px and 18.44 px. The fix tightens
+ * `.rc10-delta-value` to the gear rung's 0.75 line-height and moves the compact-landscape
+ * delta/fuel row to top 49 / height 28. This assertion runs at every viewport and state.
+ */
+function assertDeltaTileContentContained(metrics) {
+  assertTileContentFits(metrics, "delta", "delta value")
+}
+
+/**
+ * REGRESSION GUARD - fuel tile content and value rect must fit the fuel tile.
+ *
+ * Fixed DEFECT RC-10/1: fuel zone overflow at 867x412 (+4 px) and fuel value bottom escape of
+ * 1.48 px in the silent state. The fix tightens `.rc10-fuel-value` to the gear rung's 0.75
+ * line-height and moves the compact-landscape delta/fuel row to top 49 / height 28. This
+ * assertion runs at every viewport and state.
+ */
+function assertFuelTileContentContained(metrics) {
+  assertTileContentFits(metrics, "fuel", "fuel value")
+}
+
 const RC10_REQUIRED_TEXT_COMMON = Object.freeze(["GEAR", "SPEED", "KM/H", "DELTA", "FUEL", "LAPS", "POS", "WATER", "TC"])
 
 /**
@@ -499,9 +509,8 @@ export function validateCaptureMetrics(metrics, entry, _unused) {
   assertStatusCarrier(metrics, entry)
   assertAlert(metrics, entry)
 
-  // Tile containment is asserted through `spec.containment`, which runs the ledger-aware
-  // `assertZoneContainment` sweep: a second, unbudgeted `containsRect` here would report the
-  // recorded delta and fuel escapes as fresh failures and hide the measured budget.
+  assertDeltaTileContentContained(metrics)
+  assertFuelTileContentContained(metrics)
 
   return { ...common, typeScale: assertTypeScale(metrics) }
 }

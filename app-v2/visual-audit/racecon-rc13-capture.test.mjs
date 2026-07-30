@@ -452,35 +452,44 @@ test("a shift-LED element present fails closed (omission: shiftLedZone)", () => 
   )
 })
 
-// ── DEFECT RC-13/1 — restart-status overflow at compact-phone ───────────────────────────────
+// -- REGRESSION GUARD RC-13/1 - restart-status compact-phone overflow fixed -------------------
 
-test("restart-status overflow within budget at compact-phone is accepted (DEFECT RC-13/1)", () => {
-  const compactPhoneEntry393 = RC13_CAPTURE_MATRIX.find(
-    (e) => e.state === "restart-imminent" && e.size.width === 393
-  )
+function compactPhoneRestartMetrics(width = 393, height = 759) {
   const m = nativeMetrics("restart-imminent")
-  m.viewport  = { width: 393, height: 759, dpr: 1 }
-  m.page      = { scrollWidth: 393, clientWidth: 393 }
-  m.root      = rect(0, 0, 393, 759)
-  m.shell     = measured(rect(0, 0, 393, 759))
-  m.canvas    = { ...measured(rect(0, 0, 393, 759)), transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 } }
-  m.dashboardElement = measured(rect(0, 0, 393, 759))
-  m.widget    = measured(rect(0, 0, 393, 759))
-  m.dashboard = measured(rect(0, 0, 393, 759))
-  m.contentWidth  = "393"
-  m.contentHeight = "759"
+  m.viewport  = { width, height, dpr: 1 }
+  m.page      = { scrollWidth: width, clientWidth: width }
+  m.root      = rect(0, 0, width, height)
+  m.shell     = measured(rect(0, 0, width, height))
+  m.canvas    = { ...measured(rect(0, 0, width, height)), transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 } }
+  m.dashboardElement = measured(rect(0, 0, width, height))
+  m.widget    = measured(rect(0, 0, width, height))
+  m.dashboard = measured(rect(0, 0, width, height))
+  m.contentWidth  = String(width)
+  m.contentHeight = String(height)
   m.layout    = "compact"
   m.compactMode = "phone"
   m.nativeSize  = null
-  // Rebuild zones to fit within the 393px-wide frame (assertInsideFrame rejects 800px-wide zones)
+
+  const statusBox = rect(0, 0, width, 80)
+  const restartStBox = rect(4, 20, Math.min(180, width - 8), 40)
   m.zones = [
-    zone("status",  rect(0,   0, 393,  80)),
-    zone("window",  rect(0,  80, 393,  80)),
-    zone("queue",   rect(0, 160, 393,  60)),
-    zone("restart", rect(0, 220, 393,  80)),
-    zone("pace",    rect(0, 300, 393, 180))
+    zone("status",  statusBox),
+    zone("window",  rect(0,  80, width,  80)),
+    zone("queue",   rect(0, 160, width,  60)),
+    zone("restart", rect(0, 220, width,  80)),
+    zone("pace",    rect(0, 300, width, 180))
   ]
-  // +3 px overflow within budget (budgetPx=3)
+  m.restartStatusRect = measured(restartStBox)
+  m.statusHeaderRect = measured(statusBox)
+  m.containment[0] = owned("restart-status", statusBox, restartStBox)
+  return m
+}
+
+test("restart-status overflow fails closed after compact-phone fix (REGRESSION GUARD RC-13/1)", () => {
+  const compactPhoneEntry393 = RC13_CAPTURE_MATRIX.find(
+    (e) => e.state === "restart-imminent" && e.size.width === 393
+  )
+  const m = compactPhoneRestartMetrics(393, 759)
   m.overflowLeaves = [
     {
       key: "rc13-restart-status",
@@ -494,7 +503,21 @@ test("restart-status overflow within budget at compact-phone is accepted (DEFECT
       textRight: 161
     }
   ]
-  assert.doesNotThrow(() => validateCaptureMetrics(m, compactPhoneEntry393))
+  assert.throws(
+    () => validateCaptureMetrics(m, compactPhoneEntry393),
+    (error) => {
+      assert.ok(error instanceof CaptureSafetyError)
+      assert.match(error.message, /rc13-restart-status .* overflows its own box by 3px/)
+      return true
+    }
+  )
+})
+
+test("clean compact-phone restart-status metrics pass after RC-13/1 fix", () => {
+  const compactPhoneEntry412 = RC13_CAPTURE_MATRIX.find(
+    (e) => e.state === "restart-imminent" && e.size.width === 412
+  )
+  assert.doesNotThrow(() => validateCaptureMetrics(compactPhoneRestartMetrics(412, 867), compactPhoneEntry412))
 })
 
 // ── DEFECT RC-13/2 — glyph ascent overflow at app layout ────────────────────────────────────

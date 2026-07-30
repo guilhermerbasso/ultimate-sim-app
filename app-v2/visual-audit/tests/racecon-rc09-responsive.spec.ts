@@ -92,14 +92,6 @@ const viewports = [
   { width: 867,  height: 412, layout: 'compact', compactMode: 'landscape' }
 ] as const
 
-/**
- * Viewports where the split chip overflows (DEFECT RC-09/1).
- * The Playwright spec asserts the MEASURED value rather than pretending the widget is clean.
- * Budget: 13 px.
- */
-const SPLIT_OVERFLOW_SIZES = new Set(['1024x600', '759x393', '867x412'])
-const SPLIT_OVERFLOW_BUDGET_PX = 13
-
 async function readGeometry(page: Page) {
   return page.locator('#racecon-rc09-capture-root').evaluate((root) => {
     const rootRect = root.getBoundingClientRect()
@@ -148,6 +140,7 @@ async function readGeometry(page: Page) {
         name,
         rect,
         display:      getComputedStyle(element!).display,
+        layoutHeight: rect.height,
         scrollHeight: element?.scrollHeight ?? 0,
         clientHeight: element?.clientHeight ?? 0
       }
@@ -197,7 +190,7 @@ async function readGeometry(page: Page) {
         measure('note distance',      '[data-testid="rc09-note-distance"]'),
         measure('distance to finish', '[data-testid="rc09-distance-to-finish"]')
       ].filter((e): e is NonNullable<typeof e> => e !== null),
-      // Split zone for overflow check (DEFECT RC-09/1)
+      // Split containment guard: getBoundingClientRect-only geometry.
       splitZoneRect: relative(root.querySelector('[data-testid="rc09-split"]')),
       splitValueRect: relative(root.querySelector('[data-testid="rc09-split-value"]'))
     }
@@ -210,7 +203,6 @@ for (const size of viewports) {
   const isNative = size.layout === 'native'
   const isApp    = size.layout === 'app'
   const isCompact = size.layout === 'compact'
-  const hasDefect = SPLIT_OVERFLOW_SIZES.has(sizeKey)
 
   test(`${sizeKey} keeps the ${label} RC-09 composition contained (silent)`, async ({ browser }) => {
     const { context, page } = await openCapture(browser, size, {
@@ -287,22 +279,24 @@ for (const size of viewports) {
         }
       }
 
-      // DEFECT RC-09/1: split chip vertical overflow.
-      // At defect viewports the split value IS expected to escape the zone bottom — the measured
-      // escape must be > 0 and within the 13 px budget. At clean viewports, there must be no escape.
+      // ── REGRESSION GUARD 1: split value and split zone must fit ───────────────────────────
+      // DEFECT RC-09/1 escaped at 1024x600, 759x393 and 867x412. The fixed two-line chip
+      // grammar plus --rc09-split-box cap must contain the split value and avoid split-zone
+      // scroll overflow at every viewport and state.
       if (geometry.splitZoneRect && geometry.splitValueRect) {
-        const escape = geometry.splitValueRect.bottom - geometry.splitZoneRect.bottom
-        if (hasDefect) {
-          expect(escape, `${sizeKey} split value should escape its zone (recorded defect RC-09/1)`).toBeGreaterThan(0)
-          expect(escape, `${sizeKey} split escape must stay within ${SPLIT_OVERFLOW_BUDGET_PX} px budget`).toBeLessThanOrEqual(SPLIT_OVERFLOW_BUDGET_PX)
-        } else {
-          expect(escape, `${sizeKey} split value must not escape its zone`).toBeLessThanOrEqual(0.5)
-        }
+        expectContained(geometry.splitZoneRect, geometry.splitValueRect)
+      }
+      const splitZone = geometry.zones.find((zone) => zone.name === 'split')
+      if (splitZone) {
+        expect(
+          splitZone.scrollHeight,
+          `split scrollHeight (${splitZone.scrollHeight}px) must not exceed layoutHeight ` +
+          `(${splitZone.layoutHeight}px) at ${sizeKey}`
+        ).toBeLessThanOrEqual(splitZone.layoutHeight + 0.5)
       }
 
-      // Type-scale hierarchy: stage timer > split value > note distance > distance to finish
-      // Note value is checked separately: note value < split value (DEFECT RC-09/2 waives the tie at
-      // 393x759 and 412x867 compact-phone only)
+      // Type-scale hierarchy: stage timer > split value > note distance > distance to finish.
+      // Note value is checked separately by REGRESSION GUARD 2: note value < split value.
       const scale = ['stage timer', 'split value', 'note distance', 'distance to finish'].map(
         (name) => geometry.values.find((v) => v.label === name)!
       ).filter(Boolean)
@@ -312,16 +306,13 @@ for (const size of viewports) {
           `${scale[index - 1].label} must be strictly larger than ${scale[index].label}`
         ).toBeGreaterThan(scale[index].fontSize)
       }
-      // note value vs split value: tie is a recorded defect at compact-phone only
+      // ── REGRESSION GUARD 2: split font must outrank note font ─────────────────────────────
+      // DEFECT RC-09/2 tied split and note at compact-phone (393x759 and 412x867). The phone
+      // note rung is now the split rung's 0.625 packet ratio, so the inequality is unconditional.
       const noteValue  = geometry.values.find((v) => v.label === 'note value')
       const splitValue = geometry.values.find((v) => v.label === 'split value')
       if (noteValue && splitValue) {
-        if (sizeKey === '393x759' || sizeKey === '412x867') {
-          // DEFECT RC-09/2: compact-phone collapses split and note into the same font size.
-          expect(noteValue.fontSize, `${sizeKey} compact-phone split/note tie (recorded defect RC-09/2)`).toBe(splitValue.fontSize)
-        } else {
-          expect(splitValue.fontSize, `split must be strictly larger than note at ${sizeKey}`).toBeGreaterThan(noteValue.fontSize)
-        }
+        expect(splitValue.fontSize, `split must be strictly larger than note at ${sizeKey}`).toBeGreaterThan(noteValue.fontSize)
       }
 
       const capture = await page.locator('#racecon-rc09-capture-root').screenshot({ animations: 'disabled' })

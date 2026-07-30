@@ -323,99 +323,47 @@ test("a zone out of frame fails closed", () => {
   assertRejects((m) => { m.zones[3].top = 450 }, /fuel is out of frame/)
 })
 
-// ── Overflow ledger (RC-14-style zone/containment discipline) ──────────────────────────────
+// -- Overflow ledger (RC-14-style zone/containment discipline) ------------------------------
 
-test("delta tile overflow at native (800x480) is within the recorded budget and is reported", () => {
-  // DEFECT RC-10/1: delta tile overflows +3 px at native; budget = 24 px
-  const entry = nativeEntry("silent")
-  const metrics = nativeMetrics("silent")
-  // Inject a 3 px vertical overflow on the delta zone
-  metrics.zones[2].scrollHeight = metrics.zones[2].layoutHeight + 3
-  // Also inject the matching containment defect: delta value escapes 0.94 px
-  metrics.containment[3].value = { ...metrics.containment[3].value,
-    top: metrics.containment[3].owner.top + metrics.containment[3].owner.height - metrics.containment[3].value.height - 0.9,
-    height: metrics.containment[3].value.height + 1.5
-  }
-  const audit = validateCaptureMetrics(metrics, entry)
-  assert.ok(audit.zoneDefects.some((d) => d.zone === "delta"),
-    "the delta zone overflow must be reported as a recorded defect")
-  assert.ok(audit.containmentDefects.some((d) => d.label === "delta value"),
-    "the delta value containment defect must be reported")
+test("RC-10 defect ledgers are empty after the delta/fuel fixes", () => {
+  assert.deepEqual(RC10_SPEC.knownDefects, [])
+  assert.deepEqual(RC10_SPEC.zoneOverflowDefects, [])
+  assert.deepEqual(RC10_SPEC.containmentDefects, [])
 })
 
-test("a delta tile overflow LARGER than the budget fails closed at a recorded viewport", () => {
-  const entry = nativeEntry("silent")
-  const metrics = nativeMetrics("silent")
-  metrics.zones[2].scrollHeight = metrics.zones[2].layoutHeight + 25  // > budgetPx (24)
-  assert.throws(
-    () => validateCaptureMetrics(metrics, entry),
-    (error) => {
-      assert.ok(error instanceof CaptureSafetyError)
-      assert.match(error.message, /overflows by.*past the 24px recorded/)
-      return true
-    }
+test("delta tile regression guard accepts a clean metric", () => {
+  validateCaptureMetrics(nativeMetrics("silent"), nativeEntry("silent"))
+})
+
+test("delta tile content overflow fails closed", () => {
+  assertRejects(
+    (m) => { m.zones[2].scrollHeight = m.zones[2].layoutHeight + 1 },
+    /zone delta overflows its layout box by/
   )
 })
 
-test("an overflow at a viewport NOT in the defect ledger fails closed", () => {
-  // 1024x600 is NOT in delta/fuel zoneOverflowDefects for RC-10, so any overflow fails
-  const entry = RC10_CAPTURE_MATRIX.find((e) => e.state === "silent" && e.size.width === 1024)
-  assert.ok(entry)
-  // Use nativeMetrics as a starting base, then adjust for 1024x600
-  const m = nativeMetrics("silent")
-  m.viewport.width = 1024; m.viewport.height = 600
-  m.root = rect(0, 0, 1024, 600)
-  m.shell = measured(rect(0, 0, 1024, 600))
-  m.canvas = { ...measured(rect(0, 0, 1024, 600)), transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 } }
-  m.dashboardElement = measured(rect(0, 0, 1024, 600))
-  m.widget = measured(rect(0, 0, 1024, 600))
-  m.dashboard = measured(rect(0, 0, 1024, 600))
-  m.layout = "app"; m.compactMode = null
-  m.contentWidth = "1024"; m.contentHeight = "600"
-  m.nativeSize = null
-  // Re-zone for 1024x600 and inject overflow on delta
-  const gZ = rect(0, 0, 1024, 150); const sZ = rect(0, 150, 1024, 150)
-  const dZ = rect(0, 300, 1024, 150); const fZ = rect(0, 450, 1024, 150)
-  m.zones = [
-    { name: "gear",  selector: '[data-testid="rc10-gear"]',  present: true, display: "block", ...measured(gZ) },
-    { name: "speed", selector: '[data-testid="rc10-speed"]', present: true, display: "block", ...measured(sZ) },
-    { name: "delta", selector: '[data-testid="rc10-delta"]', present: true, display: "block",
-      ...measured(dZ), scrollHeight: dZ.height + 5  // 5px overflow — NOT budgeted for 1024x600
-    },
-    { name: "fuel",  selector: '[data-testid="rc10-fuel"]',  present: true, display: "block", ...measured(fZ) }
-  ]
-  m.values = [
-    value("gear",     '[data-testid="rc10-gear-value"]',  "4",    rect(10, 10, 120, 130), 240),
-    value("speed",    '[data-testid="rc10-speed-value"]', "187",  rect(10, 160, 200, 120), 180),
-    value("delta",    '[data-testid="rc10-delta-value"]', "-0.284", rect(10, 310, 240, 130), 102.19),
-    value("fuel",     '[data-testid="rc10-fuel-value"]',  "8.4",  rect(10, 460, 120, 80), 88),
-    value("position", '[data-testid="rc10-position"]',   "7",    rect(10, 560, 80, 44),  56),
-    value("water",    '[data-testid="rc10-water"]',       "92",   rect(100, 560, 80, 44), 56),
-    value("tc",       '[data-testid="rc10-tc"]',          "3",    rect(190, 560, 80, 44), 56)
-  ]
-  m.containment = [
-    owned("gear value",    gZ, rect(10, 10, 120, 130)),
-    owned("shift bar",     gZ, rect(140, 10, 600, 80)),
-    owned("speed value",   sZ, rect(10, 160, 200, 120)),
-    owned("delta value",   dZ, rect(10, 310, 240, 130)),
-    owned("delta pattern", dZ, rect(260, 310, 300, 100)),
-    owned("fuel value",    fZ, rect(10, 460, 120, 80)),
-    owned("fuel bar",      fZ, rect(140, 460, 500, 80))
-  ]
-  m.counted[4].count = 0  // status row absent at app
-  m.counted[5].count = 1  // plain line present
-  m.counted[6].count = 1  // plain headline present
-  m.plainCarried = "position,water,tc"
-  m.plainHeadline = "FUEL OK - PUSH"
-  m.fuelScope = [{ left: 0, top: 450, width: 1024, height: 150 }]
+test("delta value containment escape fails closed", () => {
+  assertRejects(
+    (m) => { m.containment[3].value = { ...m.containment[3].value, top: m.containment[3].owner.top - 1 } },
+    /delta value escapes its zone/
+  )
+})
 
-  assert.throws(
-    () => validateCaptureMetrics(m, entry),
-    (error) => {
-      assert.ok(error instanceof CaptureSafetyError)
-      assert.match(error.message, /zone delta overflows its layout box by/)
-      return true
-    }
+test("fuel tile regression guard accepts a clean metric", () => {
+  validateCaptureMetrics(nativeMetrics("fuel-low"), nativeEntry("fuel-low"))
+})
+
+test("fuel tile content overflow fails closed", () => {
+  assertRejects(
+    (m) => { m.zones[3].scrollHeight = m.zones[3].layoutHeight + 1 },
+    /zone fuel overflows its layout box by/
+  )
+})
+
+test("fuel value containment escape fails closed", () => {
+  assertRejects(
+    (m) => { m.containment[5].value = { ...m.containment[5].value, top: m.containment[5].owner.top - 1 } },
+    /fuel value escapes its zone/
   )
 })
 

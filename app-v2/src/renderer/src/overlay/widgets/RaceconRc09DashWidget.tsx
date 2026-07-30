@@ -318,6 +318,9 @@ export function RaceconRc09DashWidget({
     '--rc09-type-note': `${rc09RungCqw(RC09_TYPE_SCALE_PX.note, noteWidth, Math.max(9, model.note.text.length + 3))}cqw`,
     '--rc09-type-support': `${rc09RungCqw(RC09_TYPE_SCALE_PX.support, supportWidth, 4)}cqw`,
     '--rc09-type-label': `${rc09TypeScaleCqw(RC09_TYPE_SCALE_PX.label)}cqw`,
+    // The split chip's own height, in the container's height unit, so the numeral can be capped by
+    // the box that has to hold it and not by the canvas width alone.
+    '--rc09-split-box': `${zones.split?.height ?? 18.8}cqh`,
     ...(phoneGeometry
       ? {
           '--rc09-phone-inset': `${phoneGeometry.inset}px`,
@@ -460,7 +463,14 @@ export function RaceconRc09DashWidget({
           style={zoneStyle(zones.split)}
           aria-label="Rolling split against the reference run"
         >
-          <span className="rc09-label">SPLIT</span>
+          <div className="rc09-split-head">
+            <span className="rc09-label">SPLIT</span>
+            {model.alerts.splitLoss ? (
+              <p className="rc09-split-alert" data-testid="rc09-split-loss" role="alert">
+                SPLIT LOSS
+              </p>
+            ) : null}
+          </div>
           <div className="rc09-split-row">
             <span
               className="rc09-split-arrow"
@@ -478,11 +488,6 @@ export function RaceconRc09DashWidget({
             </output>
             <span className="rc09-unit">S</span>
           </div>
-          {model.alerts.splitLoss ? (
-            <p className="rc09-split-alert" data-testid="rc09-split-loss" role="alert">
-              SPLIT LOSS
-            </p>
-          ) : null}
         </section>
 
         {/*

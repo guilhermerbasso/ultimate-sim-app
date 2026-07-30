@@ -13,6 +13,7 @@ import {
   RC12_ROW_COLUMNS,
   RC12_SAFE_FRAME_PX,
   RC12_TIMING_DELAY_LABEL,
+  RC12_TAG_REFERENCE_GLYPHS,
   RC12_TYPE_SCALE_PX,
   type Rc12BattleCar,
   type Rc12DashboardModel,
@@ -34,6 +35,7 @@ import {
   rc12RowDescription,
   rc12SilentObservation,
   rc12TimingEntries,
+  rc12TagRungCqw,
   rc12TypeScaleCqw,
   rc12ZoneStyle,
   rc12ZonesForLayout,
@@ -278,7 +280,16 @@ export function RaceconRc12DashWidget({
     '--rc12-type-badge': `${rc12TypeScaleCqw(RC12_TYPE_SCALE_PX.badge)}cqw`,
     '--rc12-type-last': `${rc12TypeScaleCqw(RC12_TYPE_SCALE_PX.lastLap)}cqw`,
     '--rc12-type-ribbon': `${rc12TypeScaleCqw(RC12_TYPE_SCALE_PX.ribbon)}cqw`,
-    '--rc12-type-tag': `${rc12TypeScaleCqw(RC12_TYPE_SCALE_PX.tag)}cqw`,
+    // The packet's tag box is fixed while the three strings inside it are not, so the tag rung is
+    // the packet rung capped by the arithmetic fit of the zone the packet publishes.
+    '--rc12-type-tag': `${rc12TagRungCqw(
+      zones.fastestLapTag?.width ?? 25,
+      Math.max(
+        RC12_TAG_REFERENCE_GLYPHS,
+        model.tag.label.length + model.tag.position.length + model.tag.lapTime.length
+      ),
+      box.width
+    )}cqw`,
     // Normative override `fastestLapTagOverlap`: the row columns stop short of the packet's tag box.
     '--rc12-row-inset-right': `${rc12RowColumnInsetCqw(layout)}cqw`,
     ...(phoneGeometry

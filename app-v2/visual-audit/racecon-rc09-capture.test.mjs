@@ -229,10 +229,9 @@ function nativeMetrics(state = "silent") {
 }
 
 /**
- * Compact-phone metrics at either 393×759 or 412×867.
+ * Compact-phone metrics at either 393x759 or 412x867.
  * Both viewports use the same zone layout (scaled proportionally by width/height).
- * The fontSize values are chosen so that split.fontSize == note.fontSize (the recorded
- * compact-phone tie), which is what the RC09_TYPE_RANK_DEFECTS waiver covers.
+ * The fontSize values model the fixed packet order: split remains strictly above note.
  */
 function compactPhoneMetrics(width, height, state = "silent") {
   const isLoss = state === "split-loss"
@@ -254,9 +253,8 @@ function compactPhoneMetrics(width, height, state = "silent") {
   const gearBox             = rect(290, 518, 50, 40)
   const waterBox            = rect(345, 518, 40, 40)
 
-  // DEFECT RC-09/2: split and note have identical font size on compact-phone
   const SPLIT_FS = 35
-  const NOTE_FS  = 35  // tie — waived at these viewports
+  const NOTE_FS  = 22
 
   return {
     viewport: { width, height, dpr: 1 },
@@ -437,47 +435,49 @@ test("a faithful native split-loss fixture validates with the alert surfaces pre
   assertRejects((m) => { m.counted[6].count = 0 }, /must render exactly one SPLIT LOSS line/, "split-loss")
 })
 
-// ── Compact-phone rank collapse ─────────────────────────────────────────────────────────────
+// ── Compact-phone rank guard ───────────────────────────────────────────────────────────────
 
-test("compact-phone split/note tie is accepted at 393x759 and 412x867 (recorded defect waiver)", () => {
-  // Both fonts equal — covered by RC09_TYPE_RANK_DEFECTS waiver
+test("compact-phone split/note rank is clean at 393x759 and 412x867", () => {
   for (const [w, h] of [[393, 759], [412, 867]]) {
     const metrics = compactPhoneMetrics(w, h, "silent")
     const entry   = compactPhoneEntry(w, "silent")
-    assert.doesNotThrow(
-      () => validateCaptureMetrics(metrics, entry),
-      `compact-phone tie at ${w}x${h} must be accepted`
-    )
     const audit = validateCaptureMetrics(metrics, entry)
-    assert.equal(audit.typeRankDefects.length, 1,
-      `the rank defect must be recorded at ${w}x${h}`)
-    assert.equal(audit.typeRankDefects[0].label, "split value over note value")
+    assert.deepEqual(audit.typeRankDefects, [])
+    assert.ok(
+      metrics.values[1].fontSize > metrics.values[2].fontSize,
+      `split font must be larger than note font at ${w}x${h}`
+    )
   }
 })
 
-test("compact-phone split/note tie is REJECTED at 800x480 — must not spread to native", () => {
-  // Tie is NOT in the waiver for native; must fail
-  assertRejects(
-    (m) => {
-      m.values[1].fontSize = 38  // split = note = 38 px
-    },
-    /type-scale hierarchy does not hold/
-  )
-})
-
-test("a note cue LARGER than the split chip is rejected even at a recorded compact-phone viewport", () => {
-  // Inversion (note > split) is never allowed, even where a tie is waived
+test("compact-phone split/note tie is rejected at 393x759 and 412x867", () => {
   for (const [w, h] of [[393, 759], [412, 867]]) {
     const metrics = compactPhoneMetrics(w, h, "silent")
     const entry   = compactPhoneEntry(w, "silent")
-    // Make note larger than split
-    metrics.values[2].fontSize = 40  // note value
-    metrics.values[1].fontSize = 35  // split value  (40 > 35 → inversion)
+    metrics.values[2].fontSize = metrics.values[1].fontSize
     assert.throws(
       () => validateCaptureMetrics(metrics, entry),
       (error) => {
         assert.ok(error instanceof CaptureSafetyError)
-        assert.match(error.message, /is LARGER than the split chip/)
+        assert.match(error.message, /split value font-size .* must be strictly greater than note value/)
+        return true
+      },
+      `compact-phone tie at ${w}x${h} must be rejected`
+    )
+  }
+})
+
+test("a note cue LARGER than the split chip is rejected at compact-phone viewports", () => {
+  for (const [w, h] of [[393, 759], [412, 867]]) {
+    const metrics = compactPhoneMetrics(w, h, "silent")
+    const entry   = compactPhoneEntry(w, "silent")
+    metrics.values[2].fontSize = 40
+    metrics.values[1].fontSize = 35
+    assert.throws(
+      () => validateCaptureMetrics(metrics, entry),
+      (error) => {
+        assert.ok(error instanceof CaptureSafetyError)
+        assert.match(error.message, /split value font-size .* must be strictly greater than note value/)
         return true
       },
       `note larger than split must be rejected at ${w}x${h}`
@@ -490,8 +490,8 @@ test("a note cue LARGER than the split chip is rejected even at a recorded compa
 test("a tie anywhere in the strict type-scale ladder is a failure", () => {
   // stage timer = split value (tie at top)
   assertRejects((m) => { m.values[0].fontSize = 48 }, /type-scale hierarchy does not hold/)
-  // split value = support value (tie at step 2)
-  assertRejects((m) => { m.values[1].fontSize = 28 }, /type-scale hierarchy does not hold/)
+  // split value = support value (tie at step 2); keep note below split so the rank guard does not fire first.
+  assertRejects((m) => { m.values[1].fontSize = 28; m.values[2].fontSize = 20 }, /type-scale hierarchy does not hold/)
   // support value = note distance (tie at step 3)
   assertRejects((m) => { m.values[5].fontSize = 22 }, /type-scale hierarchy does not hold/)
 })
@@ -528,108 +528,39 @@ test("an unrecorded overflow fails; no overflow defects are registered for RC-09
   )
 })
 
-// ── Zone-overflow ledger (RC-14-style) ─────────────────────────────────────────────────────
+// ── Split containment and zone-overflow guards ─────────────────────────────────────────────
 
-test("zone overflow ledger: an overflow LARGER than the split-chip budget is rejected", () => {
-  // The split-chip overflow defect covers 1024x600/759x393/867x412.
-  // Injecting a 14 px overflow at native (not a recorded viewport) must fail.
+test("RC-09 defect ledgers are empty so recurrence fails closed", () => {
+  assert.deepEqual(RC09_SPEC.knownDefects, [])
+  assert.deepEqual(RC09_SPEC.zoneOverflowDefects, [])
+  assert.deepEqual(RC09_SPEC.containmentDefects, [])
+})
+
+test("split value containment and split zone fit pass for a clean metric", () => {
+  assert.doesNotThrow(() => validateCaptureMetrics(nativeMetrics(), nativeEntry()))
+})
+
+test("split value containment and split zone overflow fail closed", () => {
   assertRejects(
-    (m) => {
-      m.zones[2].scrollHeight = m.zones[2].layoutHeight + 14
-    },
+    (m) => { m.containment[1].value = rect(310, 90, 100, 222) },
+    /split value escapes its zone/
+  )
+  assertRejects(
+    (m) => { m.zones[2].scrollHeight = m.zones[2].layoutHeight + 2 },
     /zone split overflows its layout box by/
   )
 })
 
-test("zone overflow ledger: a split overflow within budget at a recorded viewport is accepted", () => {
-  // Use 1024x600 — a recorded viewport for this defect (budgetPx = 13)
-  const entry = RC09_CAPTURE_MATRIX.find((e) => e.state === "silent" && e.size.width === 1024)
-  assert.ok(entry, "1024x600 entry must exist")
+test("split/note rank guard passes for a clean metric", () => {
+  const audit = validateCaptureMetrics(nativeMetrics(), nativeEntry())
+  assert.deepEqual(audit.typeRankDefects, [])
+})
 
-  // Build minimal 1024x600 metrics with a 10 px split overflow (inside 13 px budget)
-  const w = 1024, h = 600
-  const splitZone1024 = { name: "split", selector: '[data-testid="rc09-split"]', present: true, display: "block",
-    left: 300, top: 80, width: 200, height: 220, layoutWidth: 200, layoutHeight: 220,
-    scrollWidth: 200, scrollHeight: 230  // 10 px overflow — within 13 px budget
-  }
-  const metrics = {
-    viewport: { width: w, height: h, dpr: 1 },
-    page: { scrollWidth: w, clientWidth: w },
-    root: rect(0, 0, w, h),
-    shell: measured(rect(0, 0, w, h)),
-    canvas: { ...measured(rect(0, 0, w, h)), transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 } },
-    dashboardElement: measured(rect(0, 0, w, h)),
-    widget: measured(rect(0, 0, w, h)),
-    dashboard: measured(rect(0, 0, w, h)),
-    presetId: RC09_SPEC.presetId, expectedWidgetId: RC09_SPEC.widgetId, renderedWidgetId: RC09_SPEC.widgetId,
-    dashboardWidth: "1024", dashboardHeight: "600",
-    sourceKind: "live-telemetry", sourceIdentity: RC09_SPEC.sourceIdentity,
-    captureState: "silent", captureSequence: "200",
-    layout: "app", compactMode: null,
-    bufferState: "accepted", contentWidth: "1024", contentHeight: "600",
-    stateAttributes: { alerts: "silent", "alert-keys": "", roadbook: "loaded", "stage-source": "unavailable", "split-state": "normal" },
-    zones: [
-      zone("timeline", rect(0, 0, w, 80),    "rc09-timeline"),
-      zone("clock",    rect(0, 80, 300, 220), "rc09-clock"),
-      splitZone1024,
-      zone("note",     rect(600, 80, 200, 220), "rc09-note"),
-      zone("support",  rect(0, 300, w, 120),    "rc09-support")
-    ],
-    values: [
-      value("stage timer",        '[data-testid="rc09-stage-timer"]',        "02:34.8", rect(10, 90, 120, 60), 81.92),
-      value("split value",        '[data-testid="rc09-split-value"]',        "+0.4",    rect(310, 90, 100, 230), 51.2),
-      value("note value",         '[data-testid="rc09-note-value"]',         RC09_NOTE_TEXT, rect(610, 90, 100, 50), 38.4),
-      value("note distance",      '[data-testid="rc09-note-distance"]',      RC09_NOTE_DISTANCE_TEXT, rect(610, 150, 80, 25), 30),
-      value("distance to finish", '[data-testid="rc09-distance-to-finish"]', RC09_DISTANCE_TO_FINISH_TEXT, rect(10, 5, 250, 50), 18),
-      value("speed",              '[data-testid="rc09-speed"]',             "112", rect(420, 310, 80, 40), 32),
-      value("gear",               '[data-testid="rc09-gear"]',              "4",   rect(510, 310, 60, 40), 32),
-      value("water",              '[data-testid="rc09-water"]',             "88",  rect(580, 310, 80, 40), 32)
-    ],
-    containment: [
-      owned("stage timer",        rect(0, 80, 350, 220),    rect(10, 90, 120, 60)),
-      owned("split value",        rect(300, 80, 200, 220),  rect(310, 90, 100, 222)),  // 12px overflow ≤ 13px budget ✓
-      owned("split arrow",        rect(300, 80, 200, 220),  rect(310, 160, 40, 30)),
-      owned("note value",         rect(600, 80, 200, 220),  rect(610, 90, 100, 50)),
-      owned("note distance",      rect(600, 80, 200, 220),  rect(610, 150, 80, 25)),
-      owned("distance to finish", rect(0, 0, w, 80),        rect(10, 5, 250, 50)),
-      owned("stage empty line",   rect(0, 0, w, 80),        rect(10, 35, 300, 30)),
-      owned("shift arc",          rect(0, 300, w, 120),     rect(10, 310, 400, 80)),
-      owned("speed",              rect(0, 300, w, 120),     rect(420, 310, 80, 40)),
-      owned("water",              rect(0, 300, w, 120),     rect(580, 310, 80, 40))
-    ],
-    forbidden: RC09_SPEC.forbidden.map(([label, selector]) => ({ label, selector, count: 0 })),
-    counted: [
-      counted("led", '[data-testid="rc09-led"]', RC09_LED_COUNT),
-      counted("mini", '[data-testid="rc09-mini"]', RC09_MINI_COUNT),
-      counted("timeline fill", '[data-testid="rc09-timeline-fill"]', 0),
-      counted("timeline marker", '[data-testid="rc09-timeline-marker"]', 0),
-      counted("timeline empty", '[data-testid="rc09-timeline-empty"]', 1),
-      counted("note glyph", '[data-testid="rc09-note-glyph"]', 1),
-      counted("split loss", '[data-testid="rc09-split-loss"]', 0),
-      counted("caution waypoint", '[data-testid="rc09-caution-waypoint"]', 0),
-      counted("mechanical", '[data-testid="rc09-mechanical"]', 0),
-      counted("mini fault line", '[data-testid^="rc09-mini-line"]', 0),
-      counted("profile", '[data-testid="rc09-profile"]', 1),
-      counted("profile bar", '[data-testid="rc09-profile-bar"]', 1),
-      counted("profile empty", '[data-testid="rc09-profile-empty"]', 0)
-    ],
-    textOutputs: ["02:34.8", "+0.4", RC09_NOTE_TEXT, RC09_NOTE_DISTANCE_TEXT, RC09_DISTANCE_TO_FINISH_TEXT, "112", "4", "88"],
-    leafTexts: ["02:34.8", "+0.4", RC09_NOTE_TEXT, RC09_NOTE_DISTANCE_TEXT, RC09_DISTANCE_TO_FINISH_TEXT, "112", "4", "88", RC09_STAGE_EMPTY_TEXT],
-    overflowLeaves: [],
-    rootText: `02:34.8+0.4${RC09_NOTE_TEXT}${RC09_NOTE_DISTANCE_TEXT}${RC09_DISTANCE_TO_FINISH_TEXT}112488${RC09_STAGE_EMPTY_TEXT}`,
-    errorBoundaryCount: 0, unknownWidgetCount: 0,
-    failures: [], pageErrors: [], consoleErrors: [],
-    nativeSize: null, stageEmptyText: RC09_STAGE_EMPTY_TEXT,
-    noteState: "loaded", noteGlyph: RC09_NOTE_GLYPH, cautionState: "false",
-    splitLoss: "false", mechanicalState: "false",
-    arcLit: "3", ledTones: Array(RC09_LED_COUNT).fill("normal"),
-    profileBars: "1",
-    splitScope: [{ left: 300, top: 80, width: 200, height: 220 }]
-  }
-  const audit = validateCaptureMetrics(metrics, entry)
-  // The recorded defect must appear in the audit report
-  assert.ok(audit.zoneDefects.some((d) => d.zone === "split"),
-    "the split zone overflow must be reported as a recorded defect")
+test("split/note rank guard fails closed on a synthetic tie", () => {
+  assertRejects(
+    (m) => { m.values[1].fontSize = m.values[2].fontSize },
+    /split value font-size .* must be strictly greater than note value/
+  )
 })
 
 // ── Packet omissions ───────────────────────────────────────────────────────────────────────
