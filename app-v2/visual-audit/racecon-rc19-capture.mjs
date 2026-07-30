@@ -30,6 +30,12 @@ const appRoot = resolve(here, "..")
  *   nativeSize       — the data-rc19-native-size attribute from the dashboard root, used to verify
  *                      the native-canvas 800x480 badge.
  *
+ *   nextStintValues  — every next-stint row's VALUE cell with its layout box and its painted range
+ *                      rect, so the FUEL PER LAP overrun is measured against the box it is laid
+ *                      out in rather than only against integer-rounded `scrollWidth`. Values only:
+ *                      the `.rc19-label` beside each carries its unit as an element child, so it
+ *                      is not a leaf and is outside what this harness undertakes to observe.
+ *
  *   timelineSegments — data-rc19-timeline-segments from the timeline element, used to assert that
  *                      the app timeline renders zero segments (packet omission: stintPlanTimeline).
  */
@@ -72,6 +78,18 @@ async function collectMetrics(page, spec, entry) {
       // Dashboard native-size badge (native canvas only).
       const nativeSize = root.querySelector(".rc19-dashboard")?.getAttribute("data-rc19-native-size") ?? null
 
+      // Every next-stint row's VALUE cell, with its layout box and its painted range rect. Only
+      // the values: the `.rc19-label` beside each carries its unit as an element child, so it is
+      // not a leaf and is outside what this harness undertakes to observe.
+      const nextStintValues = Array.from(
+        root.querySelectorAll('[data-testid="rc19-next-stint"] .rc19-row > .rc19-value')
+      ).map((cell) => ({
+        row: cell.closest(".rc19-row")?.getAttribute("data-rc19-row") ?? "",
+        text: (cell.textContent ?? "").trim(),
+        rect: relativeRect(cell),
+        textRect: helpers.textRect(cell)
+      }))
+
       return {
         ...common,
         // The readiness word is measured bespoke, outside the shared value sweep, so its line-box
@@ -89,6 +107,7 @@ async function collectMetrics(page, spec, entry) {
         })(),
         alertsClearance,
         alertScope,
+        nextStintValues,
         timelineSegments,
         nativeSize
       }

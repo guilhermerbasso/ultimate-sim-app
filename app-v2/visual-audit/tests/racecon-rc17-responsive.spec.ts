@@ -238,6 +238,25 @@ async function readGeometry(page: Page, captureState: string) {
         paceRect:       relative(root.querySelector('[data-testid="rc17-pace"]')),
         speedRect:      relative(root.querySelector('[data-testid="rc17-speed"]')),
         tertiaryRect:   relative(root.querySelector('[data-testid="rc17-tertiary"]')),
+        // The governed tertiary strip's own overflow, with each cell's height. The +1 px overrun
+        // the ledger recorded at 759x393 was not a height problem: `.rc17-unit` is an inline-block
+        // with `overflow: hidden`, which CSS gives the BOTTOM MARGIN EDGE as its baseline, so the
+        // `DEG C` box sat entirely above the strip's baseline and made the WATER cell 2.29 px
+        // taller than the GEAR and RPM cells beside it.
+        tertiaryOverflow: tertEl
+          ? {
+              clientHeight: tertEl.clientHeight,
+              scrollHeight: tertEl.scrollHeight,
+              clientWidth: tertEl.clientWidth,
+              scrollWidth: tertEl.scrollWidth
+            }
+          : null,
+        tertiaryCellHeights: Array.from(
+          root.querySelectorAll<HTMLElement>('[data-testid="rc17-tertiary"] .rc17-cell')
+        ).map((cell) => ({
+          key: cell.getAttribute('data-rc17-cell') ?? '',
+          height: cell.getBoundingClientRect().height
+        })),
         waterUnitRect:  relative(root.querySelector('.rc17-cell[data-rc17-cell="water"] .rc17-unit')),
         speedCellRect:  relative(root.querySelector('.rc17-cell[data-rc17-cell="speed"]')),
         flagsRect:      relative(root.querySelector('[data-testid="rc17-flags"]')),
@@ -402,6 +421,30 @@ for (const size of viewports) {
               inflated(geometry.flagTextRect),
               'flag text inside flags zone (the 200×30 band truncation was fixed)'
             )
+          }
+
+          // GUARD (defect 4) — the governed tertiary strip's own content must fit its layout box,
+          // and no cell in it may be taller than the cells beside it. The recorded +1 px overrun
+          // at 759x393 in both states came from the WATER cell alone: `.rc17-unit` is an
+          // inline-block whose `overflow: hidden` moves its baseline to its bottom margin edge, so
+          // the `DEG C` annotation stood the WATER label's line box 2.29 px taller than GEAR's and
+          // RPM's and made the cell 33.98 px in a 33 px content box. The unit is a plain inline box
+          // inside the strip now, so this runs at every viewport with no budget.
+          if (geometry.tertiaryOverflow) {
+            expect(
+              geometry.tertiaryOverflow.scrollHeight - geometry.tertiaryOverflow.clientHeight,
+              `tertiary strip overruns its ${geometry.tertiaryOverflow.clientHeight}px box`
+            ).toBeLessThanOrEqual(0.5)
+            expect(
+              geometry.tertiaryOverflow.scrollWidth - geometry.tertiaryOverflow.clientWidth
+            ).toBeLessThanOrEqual(0.5)
+          }
+          if (geometry.tertiaryCellHeights.length > 1) {
+            const heights = geometry.tertiaryCellHeights.map((cell) => cell.height)
+            expect(
+              Math.max(...heights) - Math.min(...heights),
+              `tertiary cells disagree on height: ${JSON.stringify(geometry.tertiaryCellHeights)}`
+            ).toBeLessThanOrEqual(0.5)
           }
 
           // General value containment:

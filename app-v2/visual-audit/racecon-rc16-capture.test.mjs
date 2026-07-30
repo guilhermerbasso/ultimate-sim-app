@@ -846,47 +846,64 @@ test("a smoothness meter whose fill disagrees with its numeral fails closed", ()
   )
 })
 
-/* ── Fail-closed: known defect budget ────────────────────────────────────────────────── */
+/* ── Fail-closed: the lastLap defect is fixed and the ledger is empty ─────────────────── */
 
-test("the known lastLap defect is scoped: an overflow at a viewport not in the list still fails closed", () => {
-  // Native 800x480 is NOT in [1024x600, 759x393, 867x412]; any overflow at native is unrecorded
-  assertRejects(
-    (metrics) => ({
-      ...metrics,
-      overflowLeaves: [{
-        key: "rc16-summary-lastLap",
-        text: "1:42.318",
-        fontSize: 28,
-        whiteSpace: "nowrap",
-        clientWidth: 200,
-        scrollWidth: 217,
-        overflowX: 17,
-        textLeft: 60,
-        textRight: 277
-      }]
-    }),
-    /rc16-summary-lastLap "1:42\.318" paints 17px wider/u
-  )
-})
-
-test("the known lastLap defect has a hard budget: overflowing past 25 px fails closed", () => {
-  // 1024x600 IS in the defect list — but only up to budgetPx=25; 26 px still fails
-  const metrics = appMetrics("silent", {
-    overflowLeaves: [{
-      key: "rc16-summary-lastLap",
-      text: "1:42.318",
-      fontSize: 28,
-      whiteSpace: "nowrap",
-      clientWidth: 124,
-      scrollWidth: 150,
-      overflowX: 26,
-      textLeft: 60,
-      textRight: 210
-    }]
+test("the lastLap overflow now fails closed at all three viewports it was measured at", () => {
+  assert.deepEqual(RC16_SPEC.knownDefects, [])
+  const leaf = (clientWidth, overflowX) => ({
+    key: "rc16-summary-lastLap",
+    text: "1:42.318",
+    fontSize: 28,
+    whiteSpace: "nowrap",
+    clientWidth,
+    scrollWidth: clientWidth + overflowX,
+    overflowX,
+    textLeft: 60,
+    textRight: 60 + clientWidth + overflowX
   })
+  // The exact measurements the shipped build produced. The ledger is empty, so the size list no
+  // longer matters — every one of these fails wherever it appears. The compact-landscape pair is
+  // measured in a real browser by racecon-rc16-responsive.spec.ts at 759x393 and 867x412.
+  for (const state of ["silent", "over-rev"]) {
+    assert.throws(
+      () =>
+        validateCaptureMetrics(
+          appMetrics(state, { overflowLeaves: [leaf(124, 17)] }),
+          entryFor(state, 1),
+          RC16_SPEC
+        ),
+      (error) =>
+        error instanceof CaptureSafetyError &&
+        /paints 17px wider than its 124px box/u.test(error.message)
+    )
+  }
+  for (const [clientWidth, overflowX] of [[87, 19], [99, 22]]) {
+    assert.throws(
+      () =>
+        validateCaptureMetrics(
+          appMetrics("silent", { overflowLeaves: [leaf(clientWidth, overflowX)] }),
+          entryFor("silent", 1),
+          RC16_SPEC
+        ),
+      (error) =>
+        error instanceof CaptureSafetyError &&
+        new RegExp(`paints ${overflowX}px wider than its ${clientWidth}px box`, "u").test(error.message)
+    )
+  }
+  // A single pixel is enough: there is no budget left to grow into.
   assert.throws(
-    () => validateCaptureMetrics(metrics, entryFor("silent", 1), RC16_SPEC),
-    (error) => error instanceof CaptureSafetyError && /past the 25px recorded/u.test(error.message)
+    () =>
+      validateCaptureMetrics(
+        appMetrics("silent", { overflowLeaves: [leaf(124, 1)] }),
+        entryFor("silent", 1),
+        RC16_SPEC
+      ),
+    (error) => error instanceof CaptureSafetyError && /paints 1px wider/u.test(error.message)
+  )
+  // And an overflow at a viewport that never had one still fails, exactly as before.
+  assertRejects(
+    (metrics) => ({ ...metrics, overflowLeaves: [leaf(200, 17)] }),
+    /rc16-summary-lastLap "1:42\.318" paints 17px wider/u
   )
 })
 

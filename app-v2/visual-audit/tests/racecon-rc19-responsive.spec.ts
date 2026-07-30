@@ -223,7 +223,26 @@ async function readGeometry(page: Page) {
       nextStintRect:relative(root.querySelector('[data-testid="rc19-next-stint"]')),
       readinessRect:relative(root.querySelector('[data-testid="rc19-readiness"]')),
       fuelLapsRect: relative(root.querySelector('[data-testid="rc19-fuel-laps"]')),
-      confirmLabelRectInner: relative(root.querySelector('[data-testid="rc19-confirm-label"]'))
+      confirmLabelRectInner: relative(root.querySelector('[data-testid="rc19-confirm-label"]')),
+
+      // Every next-stint row's VALUE cell with its layout box AND its painted range rect. Values
+      // only: the `.rc19-label` beside each carries its unit as an element child, so it is not a
+      // leaf and is outside what these harnesses undertake to observe.
+      nextStintValues: Array.from(
+        root.querySelectorAll<HTMLElement>('[data-testid="rc19-next-stint"] .rc19-row > .rc19-value')
+      ).map((cell) => {
+        const range = document.createRange()
+        range.selectNodeContents(cell)
+        const ink = range.getBoundingClientRect()
+        const box = cell.getBoundingClientRect()
+        return {
+          text: (cell.textContent ?? '').trim(),
+          boxWidth: box.width,
+          inkWidth: ink.width,
+          boxRight: box.right - rootRect.left,
+          inkRight: ink.right - rootRect.left
+        }
+      })
     }
   })
 }
@@ -338,6 +357,35 @@ for (const size of viewports) {
       if (g.carStateRect && g.fuelLapsRect) expectContained(g.carStateRect, g.fuelLapsRect, 'fuel-laps in carState')
       if (g.checklistRect && g.confirmBodyRect) expectContained(g.checklistRect, g.confirmBodyRect, 'confirm in checklist')
       if (g.confirmBodyRect && g.confirmLabelRectInner) expectContained(g.confirmBodyRect, g.confirmLabelRectInner, 'confirm-label in confirm')
+
+      // GUARD (defect 5) — no next-stint VALUE may paint past its own box.
+      //
+      // WHICH AUDITOR SEES THIS: this one, and the capture's shared leaf sweep as well —
+      // `rc19-fuel-per-lap` is a true leaf, so an empty `knownDefects` ledger already covers it.
+      // This is the stronger second opinion, because `scrollWidth` is integer-rounded and
+      // `white-space: nowrap` sizes a cell to its own glyphs.
+      //
+      // At 800x480 the packet's 250 px column leaves a 168 px row, and at the shared 1.875cqw step
+      // the `FUEL PER LAP` label needs 110.45 px of it against a 30 px `2.94` numeral needing
+      // 56.63 px and a 9.6 px gap — 176.68 px of demand in 168 px. The flex algorithm spread that
+      // 8.68 px deficit across both cells, and the numeral's 2.94 px share is the recorded
+      // overflow. The column carries its own 1.6cqw label step now, which retires the deficit at
+      // source. The `.rc19-label` beside each value is deliberately NOT asserted: it carries its
+      // unit as an element child, so it is not a leaf and is outside what these harnesses
+      // undertake to observe.
+      expect(g.nextStintValues.length).toBeGreaterThan(0)
+      for (const cell of g.nextStintValues) {
+        expect(
+          cell.inkRight - cell.boxRight,
+          `next-stint value "${cell.text}" paints ` +
+            `${(cell.inkRight - cell.boxRight).toFixed(2)}px past its ${cell.boxWidth.toFixed(2)}px box`
+        ).toBeLessThanOrEqual(1)
+        expect(
+          cell.inkWidth - cell.boxWidth,
+          `next-stint value "${cell.text}" needs ${cell.inkWidth.toFixed(2)}px ` +
+            `in a ${cell.boxWidth.toFixed(2)}px box`
+        ).toBeLessThanOrEqual(1)
+      }
 
       // Screenshot sanity check
       const capture = await page.locator('#racecon-rc19-capture-root').screenshot({ animations: 'disabled' })
@@ -466,25 +514,22 @@ test(
         clearance.faults.clearancePx,
         `alert strip occludes FAULTS row — reservation failed`
       ).toBeGreaterThanOrEqual(-CLEARANCE_TOLERANCE_PX)
-      // RECORDED DEFECT — the alert strip overlaps the CONFIRM READY control by 3.47 px on the
-      // native canvas while an alert is up.
+      // GUARD (defect 6) — the reserved alert floor band now covers the native canvas too, so the
+      // CONFIRM READY control gets the same 2 px sub-pixel tolerance as FAULTS and the label. No
+      // budget remains.
       //
-      // RC19_COMPACT_ALERT_FLOOR_PCT = 9 reserves the floor band by shortening the COMPACT content
-      // area, and it works: all four compact viewports and the app canvas keep the strip clear of
-      // both FAULTS and CONFIRM READY. The native canvas has no equivalent reservation — its
-      // `confirm` zone is declared at top 85.417 % / height 10.416 % of the full 480 px frame, so
-      // it ends at ~460 px while the strip is `position: absolute; bottom: 0` and starts at
-      // ~456.5 px. FAULTS stays clear (+2.70 px) and the CONFIRM READY LABEL stays clear
-      // (+9.41 px); the control's own box does not.
-      //
-      // Recorded at the measurement plus a small allowance, never capped: a deeper overlap, an
-      // overlap of FAULTS or of the label, or an overlap at any other viewport still fails.
-      const CONFIRM_OCCLUSION_BUDGET_PX = 5
+      // The strip used to overlap the control by 3.47 px here. RC19_COMPACT_ALERT_FLOOR_PCT = 9
+      // reserved the band by shortening the COMPACT content area and worked at all four compact
+      // viewports, and the app canvas is covered by the 36 px packet 12.1 leaves below its columns;
+      // only the native canvas was unprotected — its `confirm` zone ran to ~460 px of a 480 px
+      // frame while the 24.50 px strip is anchored to `bottom: 0` and started at ~455.50 px.
+      // FAULTS cleared by 2.70 px and the CONFIRM READY LABEL by 9.41 px; the control's own box
+      // did not. RC19_NATIVE_ALERT_FLOOR_PX = 30 now reserves the band in pixels.
       expect(
         clearance.confirm.clearancePx,
-        `alert strip occludes the CONFIRM READY button past the 5px recorded defect ` +
+        `alert strip occludes the CONFIRM READY control ` +
           `(measured ${clearance.confirm.clearancePx?.toFixed(2)}px clearance)`
-      ).toBeGreaterThanOrEqual(-CONFIRM_OCCLUSION_BUDGET_PX)
+      ).toBeGreaterThanOrEqual(-CLEARANCE_TOLERANCE_PX)
       expect(
         clearance.confirmLabel.clearancePx,
         `alert strip occludes CONFIRM READY label — reservation failed`

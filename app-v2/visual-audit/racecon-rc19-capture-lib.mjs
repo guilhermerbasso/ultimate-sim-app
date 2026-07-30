@@ -241,33 +241,34 @@ export const RC19_SPEC = Object.freeze({
   ]),
 
   /**
-   * DEFECT 1 — the FUEL PER LAP value overflows its native column, in all three governed states:
-   *   rc19-fuel-per-lap  "2.94" paints 3 px wider than its 54 px box at 800x480
-   * This is the `white-space: nowrap` class the RaceCon harnesses exist to catch: the overflow is
-   * clipped visually, `scrollWidth === clientWidth` on the ancestors, and jsdom sees nothing. The
-   * app and both compact families are clear, so it is specific to the 800x480 column widths.
+   * The defect ledger is EMPTY, so every measured overflow now fails closed.
    *
-   * Recorded at the measured maximum plus a font-metric allowance — a budget, not a cap. Growth,
-   * a spread to another viewport, or an appearance on another element still fails closed.
+   * It used to record the FUEL PER LAP value overflowing its native column in all three governed
+   * states — `rc19-fuel-per-lap` "2.94" painting 3 px wider than its 54 px box at 800x480 — the
+   * `white-space: nowrap` class the RaceCon harnesses exist to catch: overflow clipped visually,
+   * `scrollWidth === clientWidth` on the ancestors, and jsdom sees nothing. That leaf IS swept
+   * (`data-testid="rc19-fuel-per-lap"` has no element children), so it fired three times on the
+   * shipped build and an empty ledger is a real guard for it.
    *
-   * NOT recorded, and deliberately so: a real-browser sweep also measured a next-stint row LABEL
-   * standing 5 px wider than its 105 px column at 800x480. `.rc19-label` renders as
+   * The cause is the row's width budget, not the numeral: the packet's 250 px native column leaves
+   * a 168 px row, and at the shared 1.875cqw step the `FUEL PER LAP` label needs 110.45 px of it
+   * against a 56.63 px numeral and a 9.6 px gap — 176.68 px of demand in 168 px. The flex
+   * algorithm distributes that 8.68 px deficit across both cells in proportion to their base
+   * sizes, and the numeral's 2.94 px share is the overflow this ledger recorded. The column
+   * therefore carries its own smaller label step now (1.6cqw, 12.8 px at 800x480), derived from
+   * the longest label it must print, which retires the deficit at source. The ladder's `row-label`
+   * rung is measured from the car-state `FUEL LAPS` row and is untouched.
+   *
+   * A `.rc19-label` in the same row was separately observed standing 5.45 px wider than its 105 px
+   * box, and is deliberately NOT recorded and NOT guarded. `.rc19-label` renders as
    * `<span class="rc19-label">{label}<span class="rc19-unit">{unit}</span></span>` wherever a unit
-   * is present, so those instances carry a child element and the shared leaf sweep — which is
-   * `childElementCount === 0` by construction — cannot see them. Recording a budget for a defect
-   * this harness structurally cannot observe would be a phantom entry that overstates the
-   * coverage, so the boundary is documented here instead. Leaf-form labels ARE swept, and an
-   * overflow on one of those still fails closed.
+   * exists, so those instances carry a child element and this leaf sweep —
+   * `childElementCount === 0` by construction — cannot see them; a budget for a defect the harness
+   * cannot observe would overstate the coverage. It clears as a side effect of retiring the row's
+   * deficit, because both cells were sharing one shortfall, but nothing here asserts that and its
+   * return is not treated as a regression.
    */
-  knownDefects:       Object.freeze([
-    Object.freeze({
-      key: "rc19-fuel-per-lap",
-      states: Object.freeze(["ready", "handover", "cold-mount"]),
-      sizes: Object.freeze(["800x480"]),
-      budgetPx: 6,
-      note: "the FUEL PER LAP value overflows its 54px native column by 3px; the app and both compact families are clear"
-    })
-  ]),
+  knownDefects:       Object.freeze([]),
   zoneOverflowDefects: Object.freeze([]),
   containmentDefects:  Object.freeze([])
 })
@@ -622,30 +623,21 @@ function assertReferenceLiterals(metrics, entry) {
 const CLEARANCE_TOLERANCE_PX = 2
 
 /**
- * DEFECT — the alert strip overlaps the CONFIRM READY control by 3.47 px on the 800x480 native
- * canvas while an alert is up.
+ * The alert strip used to overlap the CONFIRM READY control by 3.47 px on the 800x480 native
+ * canvas while an alert was up, and that overlap was recorded here as a waived defect.
  *
- * `RC19_COMPACT_ALERT_FLOOR_PCT = 9` reserves the floor band by shortening the COMPACT content
- * area (`const height = 100 - RC19_COMPACT_ALERT_FLOOR_PCT - top`), and it does its job: all four
- * compact viewports and the app canvas keep the strip clear of both FAULTS and CONFIRM READY. The
- * native canvas has no equivalent reservation — its `confirm` zone is declared at
- * `top 85.417 %, height 10.416 %` of the full 480 px frame, so it ends at ~460 px, while the
- * strip is `position: absolute; bottom: 0` and starts at ~456.5 px. FAULTS stays clear (+2.70 px)
- * and the CONFIRM READY *label* stays clear (+9.41 px); the control's own box does not.
+ * `RC19_COMPACT_ALERT_FLOOR_PCT = 9` reserved the floor band by shortening the COMPACT content
+ * area (`const height = 100 - RC19_COMPACT_ALERT_FLOOR_PCT - top`) and did its job at all four
+ * compact viewports; the app canvas is protected by the 36 px 12.1 leaves below its columns. Only
+ * the native canvas had no reservation — its `confirm` zone ran to ~460 px of a 480 px frame while
+ * the 24.50 px strip is anchored to `bottom: 0` and started at ~455.50 px. FAULTS cleared by
+ * 2.70 px and the CONFIRM READY *label* by 9.41 px; the control's own box did not.
  *
- * Recorded at the measured 3.47 px plus a 1.5 px allowance — a budget, not a cap. A larger
- * overlap, an overlap of FAULTS or the label, an overlap at another viewport, or an overlap in
- * another state still fails closed.
+ * `RC19_NATIVE_ALERT_FLOOR_PX = 30` now reserves the same band in pixels on the native canvas, so
+ * the ledger is EMPTY: every occlusion, on every target, at every viewport, in every state, fails
+ * closed against the 2 px sub-pixel tolerance alone.
  */
-const RC19_ALERT_FLOOR_DEFECTS = Object.freeze([
-  Object.freeze({
-    target: "confirm",
-    states: Object.freeze(["handover"]),
-    sizes: Object.freeze(["800x480"]),
-    budgetPx: 5,
-    note: "the alert strip overlaps the CONFIRM READY control by 3.47px on the native canvas; RC19_COMPACT_ALERT_FLOOR_PCT reserves the floor on the compact canvases only, and the native confirm zone runs to ~460px of a 480px frame while the strip is anchored to bottom:0"
-  })
-])
+const RC19_ALERT_FLOOR_DEFECTS = Object.freeze([])
 
 function findAlertFloorDefect(name, entry) {
   const sizeKey = `${entry.size.width}x${entry.size.height}`
@@ -688,6 +680,45 @@ function assertAlertStripClearance(metrics, entry) {
     }
   }
   return results
+}
+
+// ─────────────────────────────────────────────────────────── next-stint value containment
+
+export const RC19_ROW_TOLERANCE_PX = 1
+
+/**
+ * The regression guard for the FUEL PER LAP overrun.
+ *
+ * WHICH AUDITOR SEES THIS: this one, and the shared leaf sweep as well. `rc19-fuel-per-lap` is a
+ * true leaf, so `auditOverflowLeaves` covers it against the now-empty ledger; this assertion is
+ * the stronger second opinion, because `scrollWidth` is integer-rounded and `white-space: nowrap`
+ * sizes a cell to its own text — a numeral can be exactly as wide as its glyphs and report
+ * `scrollWidth === clientWidth` while the RANGE rect says otherwise.
+ *
+ * Scoped to the next-stint VALUE cells on purpose. The `.rc19-label` beside each of them carries
+ * its unit as an element child, so it is not a leaf and is outside what this harness undertakes to
+ * observe; it is documented in `knownDefects` above rather than asserted here.
+ */
+function assertNextStintValuesPaintInsideTheirBoxes(metrics) {
+  const cells = metrics.nextStintValues ?? []
+  if (cells.length === 0) fail("capture collected no next-stint value cells")
+  for (const cell of cells) {
+    if (!cell.rect || !cell.textRect) {
+      fail(`next-stint value "${cell.text}" was measured without a rectangle`)
+    }
+    const boxRight = finite(cell.rect.left, `${cell.row} value left`) + cell.rect.width
+    const inkRight = finite(cell.textRect.left, `${cell.row} value text left`) + cell.textRect.width
+    if (inkRight - boxRight > RC19_ROW_TOLERANCE_PX) {
+      fail(
+        `the next-stint value "${cell.text}" paints ${(inkRight - boxRight).toFixed(2)}px past its own ` +
+          `${cell.rect.width.toFixed(2)}px box (glyphs reach x=${inkRight.toFixed(2)}, box ends at ` +
+          `x=${boxRight.toFixed(2)})`
+      )
+    }
+    if (cell.rect.left - cell.textRect.left > RC19_ROW_TOLERANCE_PX) {
+      fail(`the next-stint value "${cell.text}" paints past the left edge of its own box`)
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────── required text
@@ -746,6 +777,7 @@ export function validateCaptureMetrics(metrics, entry) {
   assertPacketOmissions(metrics, entry)
   assertDashCount(metrics, entry)
   assertReferenceLiterals(metrics, entry)
+  assertNextStintValuesPaintInsideTheirBoxes(metrics)
 
   const alertClearance =
     entry.state === "handover" ? assertAlertStripClearance(metrics, entry) : {}

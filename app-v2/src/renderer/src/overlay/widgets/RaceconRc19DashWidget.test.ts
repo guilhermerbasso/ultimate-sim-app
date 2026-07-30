@@ -26,6 +26,7 @@ import {
   RC19_FAULTS_NO_SOURCE,
   RC19_FAULT_WARNINGS,
   RC19_KPA_PER_BAR,
+  RC19_NATIVE_ALERT_FLOOR_PX,
   RC19_NATIVE_HEIGHT_PX,
   RC19_NATIVE_WIDTH_PX,
   RC19_NATIVE_ZONES,
@@ -302,14 +303,23 @@ describe('RC-19 packet omissions are a declared contract', () => {
 // ─────────────────────────────────────────────────────────── zone geometry
 
 describe('RC-19 zone geometry is packet 11.1 and 12.1 arithmetic', () => {
-  it('converts every packet 11.1 native rectangle exactly', () => {
+  it('converts every packet 11.1 native rectangle exactly, over the reserved alert floor', () => {
     expect(RC19_NATIVE_ZONES.header).toEqual({ left: 2, top: 2.5, width: 96, height: 9.167 })
-    expect(RC19_NATIVE_ZONES.carState).toEqual({ left: 2, top: 13.75, width: 31.25, height: 82.083 })
-    expect(RC19_NATIVE_ZONES.checklist).toEqual({ left: 35.25, top: 13.75, width: 29.5, height: 82.083 })
-    expect(RC19_NATIVE_ZONES.nextStint).toEqual({ left: 66.75, top: 13.75, width: 31.25, height: 82.083 })
-    expect(RC19_NATIVE_ZONES.confirm).toEqual({ left: 35.25, top: 85.417, width: 29.5, height: 10.416 })
+    // OV-15: the columns stop 30px above the frame floor so the 24.50px alert strip has a band of
+    // its own. Packet 11.1 ran them to y=460 and the strip overlapped the confirm control by
+    // 3.47px whenever an alert was up.
+    expect(RC19_NATIVE_ALERT_FLOOR_PX).toBe(30)
+    expect(RC19_NATIVE_ZONES.carState).toEqual({ left: 2, top: 13.75, width: 31.25, height: 80 })
+    expect(RC19_NATIVE_ZONES.checklist).toEqual({ left: 35.25, top: 13.75, width: 29.5, height: 80 })
+    expect(RC19_NATIVE_ZONES.nextStint).toEqual({ left: 66.75, top: 13.75, width: 31.25, height: 80 })
+    expect(RC19_NATIVE_ZONES.confirm).toEqual({ left: 35.25, top: 83.333, width: 29.5, height: 10.417 })
     // OV-2: the checklist list area is the governed sub-zone above the nested control.
-    expect(RC19_NATIVE_ZONES.checklistList).toEqual({ left: 35.25, top: 13.75, width: 29.5, height: 70 })
+    expect(RC19_NATIVE_ZONES.checklistList).toEqual({ left: 35.25, top: 13.75, width: 29.5, height: 69.583 })
+    // Every column floor lands on the reserved band, never inside it.
+    for (const id of ['carState', 'checklist', 'nextStint', 'confirm'] as const) {
+      const rect = requireRect(RC19_NATIVE_ZONES, id)
+      expect(bottom(rect)).toBeCloseTo(100 - (RC19_NATIVE_ALERT_FLOOR_PX / 480) * 100, 3)
+    }
   })
 
   it('converts every packet 12.1 app rectangle exactly, plus the two governed additions', () => {
@@ -408,10 +418,12 @@ describe('RC-19 zone geometry is packet 11.1 and 12.1 arithmetic', () => {
     expect(zones.timeline).toBeUndefined()
   })
 
-  it('reserves an alert floor band on the compact canvases the packet never specifies', () => {
+  it('reserves an alert floor band on every canvas, not only the compact ones', () => {
     // A real-browser audit measured the engaged alert strip covering the FAULTS row and the
-    // CONFIRM READY label at 812x375 and 640x520: the packet's own canvases leave 20 px and
-    // 36 px of bare bg below the columns and a compact canvas does not, so it is reserved.
+    // CONFIRM READY label at 812x375 and 640x520, and later overlapping the CONFIRM READY control
+    // by 3.47 px at 800x480: the packet's own canvases leave 20 px and 36 px of bare bg below the
+    // columns, the 24.50 px native strip did not fit in 20 px, and a compact canvas has no band at
+    // all. Every canvas now reserves one.
     expect(RC19_COMPACT_ALERT_FLOOR_PCT).toBeGreaterThanOrEqual(5)
     for (const mode of ['standard', 'landscape'] as const) {
       const zones = rc19ZonesForLayout('compact', mode)
@@ -421,8 +433,10 @@ describe('RC-19 zone geometry is packet 11.1 and 12.1 arithmetic', () => {
     }
     const phone = rc19ZonesForLayout('compact', 'phone')
     expect(bottom(requireRect(phone, 'nextStint'))).toBeLessThanOrEqual(96)
-    // The packet canvases keep their published geometry and their own bare floor.
-    expect(bottom(requireRect(RC19_NATIVE_ZONES, 'carState'))).toBeCloseTo(95.833, 3)
+    // OV-15: the native band is reserved in pixels and must clear the measured strip height.
+    expect(RC19_NATIVE_ALERT_FLOOR_PX).toBeGreaterThan(24.5)
+    expect(bottom(requireRect(RC19_NATIVE_ZONES, 'carState'))).toBeCloseTo(93.75, 3)
+    // The app canvas already leaves 36 px below its columns for a 27.48 px strip.
     expect(bottom(requireRect(RC19_APP_ZONES, 'carState'))).toBeCloseTo(94, 3)
   })
 

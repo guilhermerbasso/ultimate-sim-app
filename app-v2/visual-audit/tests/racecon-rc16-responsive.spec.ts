@@ -225,7 +225,29 @@ async function readGeometry(page: Page) {
       deltaZoneRect:     relative(root.querySelector('[data-testid="rc16-delta-panel"]')),
       deltaValRect:      relative(root.querySelector('[data-testid="rc16-delta"]')),
       summaryZoneRect:   relative(root.querySelector('[data-testid="rc16-summary-panel"]')),
-      lastLapRect:       relative(root.querySelector('[data-testid="rc16-summary-lastLap"]'))
+      lastLapRect:       relative(root.querySelector('[data-testid="rc16-summary-lastLap"]')),
+      // Every summary readout with the cell it is laid out in and the row that holds both.
+      // `.rc16-summary-value` used to carry `flex-shrink: 1`, so a full m:ss.mmm lap time was
+      // squeezed below its own nowrap width and painted past the cell while `scrollWidth ===
+      // clientWidth` on every ancestor. Only the range rect can see that.
+      summaryReadouts: Array.from(root.querySelectorAll<HTMLElement>('.rc16-summary-value')).map((node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        const ink = range.getBoundingClientRect()
+        const box = node.getBoundingClientRect()
+        const row = node.closest<HTMLElement>('.rc16-summary-row')
+        const rowRect = row?.getBoundingClientRect() ?? null
+        return {
+          testid: node.getAttribute('data-testid') ?? '',
+          text: (node.textContent ?? '').trim(),
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth,
+          inkWidth: ink.width,
+          boxRight: box.right - rootRect.left,
+          inkRight: ink.right - rootRect.left,
+          rowRight: rowRect ? rowRect.right - rootRect.left : null
+        }
+      })
     }
   })
 }
@@ -348,6 +370,32 @@ for (const size of viewports) {
       }
       if (geometry.summaryZoneRect && geometry.lastLapRect) {
         expectContained(geometry.summaryZoneRect, geometry.lastLapRect)
+      }
+
+      // GUARD (defect 3) — no summary readout may be squeezed below its own nowrap text.
+      //
+      // `LAST LAP` "1:42.318" painted 17px past a 124px cell at 1024x600, 19px past 87px at
+      // 759x393 and 22px past 99px at 867x412, in both governed states, while `scrollWidth ===
+      // clientWidth` reported that everything fitted. The numeral is the reading and the label is
+      // its annotation, so `.rc16-summary-value` is now `flex: 1 0 auto` and the label gives way.
+      // This runs at all six viewports, which includes all three the defect was measured at.
+      expect(geometry.summaryReadouts.length).toBeGreaterThan(0)
+      for (const readout of geometry.summaryReadouts) {
+        expect(
+          readout.scrollWidth - readout.clientWidth,
+          `${readout.testid} "${readout.text}" overflows its ${readout.clientWidth}px cell`
+        ).toBeLessThanOrEqual(0)
+        expect(
+          readout.inkWidth - readout.clientWidth,
+          `${readout.testid} "${readout.text}" needs ${readout.inkWidth.toFixed(2)}px in a ` +
+            `${readout.clientWidth}px cell`
+        ).toBeLessThanOrEqual(1)
+        if (readout.rowRight !== null) {
+          expect(
+            readout.inkRight,
+            `${readout.testid} "${readout.text}" paints past the summary row that holds it`
+          ).toBeLessThanOrEqual(readout.rowRight + 1)
+        }
       }
 
       const capture = await page.locator('#racecon-rc16-capture-root').screenshot({ animations: 'disabled' })
