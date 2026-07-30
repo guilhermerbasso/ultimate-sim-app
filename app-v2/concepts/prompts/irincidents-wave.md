@@ -1,4 +1,4 @@
-﻿# irIncidents reference prompt
+# irIncidents reference prompt
 
 Create transparent-background, hi-fi motorsport telemetry widgets for iRacing incident and fast-repair damage counters. Style: clean Bosch DDU/MoTeC-inspired SVG readouts, no panel, no border, no title, highly legible over cockpit video. Undefined states use an em dash and no fake data.
 

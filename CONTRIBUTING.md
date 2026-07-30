@@ -32,6 +32,15 @@ npm run build
 
 - Prefer small, clear changes over broad rewrites.
 - Keep Electron security defaults intact.
+- **Every tracked text file is UTF-8 without a byte-order mark.** Windows PowerShell 5.1 writes a
+  BOM for `Set-Content -Encoding UTF8` / `Out-File -Encoding utf8` and reads with the ANSI code
+  page, which silently corrupts accented characters. Read **and** write with an explicit UTF-8
+  encoding — see **[docs/ENCODING.md](docs/ENCODING.md)**. Enable the local guards once per clone:
+
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+
 - Do not commit generated folders such as `node_modules/`, `out/`, or `dist-win/`.
 - Do not commit credentials, tokens, private keys, or local `.env` files.
 - Keep hardware, firmware, and app documentation in sync when protocol behavior changes.

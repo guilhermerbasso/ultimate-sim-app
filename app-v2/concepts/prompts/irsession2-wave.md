@@ -1,4 +1,4 @@
-﻿# irSession2 wave
+# irSession2 wave
 
 Reference-driven hi-fi iRacing session widgets: transparent, title-less SVG readouts using the app hi-fi kit fonts and legibility strokes.
 

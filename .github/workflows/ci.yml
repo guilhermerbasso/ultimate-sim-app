@@ -12,6 +12,39 @@ permissions:
   contents: read
 
 jobs:
+  encoding:
+    name: Encoding integrity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Byte scan over every tracked text file. Windows PowerShell 5.1 writes a UTF-8 BOM for
+      # `Set-Content -Encoding UTF8` / `Out-File -Encoding utf8`, and its `Get-Content` decodes
+      # UTF-8 through the ANSI code page, so a single round-trip both prepends EF BB BF and
+      # turns every accented character into mojibake. This job refuses such content on any
+      # path, including the many outside `app-v2/src` that i18n-encoding.test.ts never sees.
+      - name: Scan tracked files for BOMs, invalid UTF-8 and mojibake
+        env:
+          ENCODING_COMMIT_RANGE: >-
+            ${{ github.event_name == 'pull_request'
+              && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha)
+              || '' }}
+        run: |
+          if [ -n "$ENCODING_COMMIT_RANGE" ]; then
+            node scripts/check-encoding.mjs --commits "$ENCODING_COMMIT_RANGE"
+          else
+            node scripts/check-encoding.mjs
+          fi
+
   contracts:
     name: Contract checks
     runs-on: ubuntu-latest

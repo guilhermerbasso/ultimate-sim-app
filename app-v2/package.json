@@ -17,6 +17,7 @@
     "test:unit": "vitest run --exclude src/shared/visual-artifact-ledger/performance.test.ts",
     "test:ledger-performance": "vitest run src/shared/visual-artifact-ledger/performance.test.ts --maxWorkers=1 --no-file-parallelism",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
+    "check:encoding": "node ../scripts/check-encoding.mjs",
     "dashboard:identity-catalog": "node scripts/generate-dashboard-identity-catalog.mjs",
     "palette": "node scripts/extract-palette.mjs",
     "assets:instruments": "bash scripts/gen-instrument-assets.sh",

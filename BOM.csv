@@ -1,4 +1,4 @@
-﻿# QUARANTINED - NOT AN ASSEMBLY SOURCE. This file conflicts with firmware/sim-x-reference/pinout.h and assigns CD74HC4067 physical pins 6/7/8/16 twice. Do not wire or order from it. See docs/HARDWARE-QUARANTINE.md (Q1). Requires a qualified electrical review against https://www.ti.com/lit/ds/symlink/cd74hc4067.pdf
+# QUARANTINED - NOT AN ASSEMBLY SOURCE. This file conflicts with firmware/sim-x-reference/pinout.h and assigns CD74HC4067 physical pins 6/7/8/16 twice. Do not wire or order from it. See docs/HARDWARE-QUARANTINE.md (Q1). Requires a qualified electrical review against https://www.ti.com/lit/ds/symlink/cd74hc4067.pdf
 Item,Componente,Descrição,Quantidade,Unidade,Preço Unit (R$),Total (R$),Link Sugerido,Observações
 1,Encoder EC11 com botão,Encoder rotativo 20 pulsos/volta com push-button integrado,6,un,8.00,48.00,AliExpress / Shopee,Eixo 6mm; confirmar altura 30mm
 2,Display OLED 0.96" SSD1306 I2C,Display OLED monocromático 128x64px I2C,1,un,25.00,25.00,AliExpress / Shopee,Endereço I2C 0x3C
