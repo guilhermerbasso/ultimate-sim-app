@@ -405,6 +405,21 @@ export default function PinoutDesignerView({ showToast }: AppViewProps): ReactEl
         </div>
       </header>
 
+      {/* P0-08/§24-14: generated wiring is a starting point, never a certified
+          netlist. The repository's own WIRING.csv/BOM.csv are quarantined for
+          conflicting with the reference firmware and duplicating physical mux
+          pins, so the UI must say plainly that nothing here has been reviewed. */}
+      <section style={{ ...panelStyle, borderColor: '#f59e0b', background: 'rgba(245, 158, 11, 0.08)' }} role="note">
+        <strong style={{ color: '#fbbf24' }}>⚠ Not a certified wiring source — electrical review required</strong>
+        <p style={{ ...hintStyle, marginBottom: 0 }}>
+          Diagrams, BOMs and firmware generated here are unreviewed drafts. Before you wire, power or flash anything,
+          check every pin against the manufacturer datasheet with someone qualified. The repository&apos;s
+          <code> WIRING.csv</code>, <code>BOM.csv</code> and the legacy protocol docs are currently quarantined —
+          they conflict with the reference firmware pinout and assign CD74HC4067 physical pins 6, 7, 8 and 16 twice.
+          See <code>docs/HARDWARE-QUARANTINE.md</code>.
+        </p>
+      </section>
+
       <Stepper step={step} setStep={setStep} canAssign={selectedComponents > 0} canGenerate={requiredRoles > 0 && assignedRoles > 0} />
 
       {step === 'recommend' && <RecommendPanel catalog={merged} onApply={applyRecommendation} showToast={showToast} />}
