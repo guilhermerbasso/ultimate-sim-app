@@ -2,6 +2,13 @@ import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { sessionKindFromProvider } from '../../shared/telemetry'
 import type { TelemetryProvider } from '../telemetry/provider'
 import { firstString, loadKoffi, msToSeconds, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
+import {
+  acpmfProviderClaims,
+  identifyAcpmf,
+  normalizeSmVersion,
+  type AcpmfIdentity,
+  type AcpmfSelectionMode
+} from './acpmf-identity'
 
 const INVALID_LAP_TIME_MS = 2_000_000_000
 const NOMINAL_STEER_LOCK_DEG = 450
@@ -37,6 +44,19 @@ export class ACProvider implements TelemetryProvider {
   private graphics: SharedMemoryHandle | null = null
   private staticInfo: SharedMemoryHandle | null = null
   private structs: { physics: any; graphics: any; staticInfo: any } | null = null
+  // AC and ACC share `Local\acpmf_*`. AC must never decode a page that positively
+  // identifies as ACC: the static prefix is byte-identical, so the mismap would only
+  // show up later in the graphics page as plausible numbers in the wrong slots.
+  private selectionMode: AcpmfSelectionMode = 'auto'
+
+  setSelectionMode(mode: AcpmfSelectionMode): void {
+    this.selectionMode = mode
+  }
+
+  /** What the shared static page says is publishing. Exposed for diagnostics. */
+  identity(): AcpmfIdentity {
+    return identifyAcpmf(normalizeSmVersion(this.staticInfo?.view?.smVersion))
+  }
 
   start(): void {
     if (this.physics || process.platform !== 'win32') return
@@ -58,7 +78,10 @@ export class ACProvider implements TelemetryProvider {
   }
 
   isConnected(): boolean {
-    return Boolean(this.physics && this.graphics)
+    // The static page is now REQUIRED: without it there is no way to tell which of the
+    // two simulators owns the mapping, and guessing is what this guard exists to prevent.
+    if (!this.physics || !this.graphics || !this.staticInfo) return false
+    return acpmfProviderClaims('ac', this.identity(), this.selectionMode)
   }
 
   poll(): TelemetrySnapshot | null {
