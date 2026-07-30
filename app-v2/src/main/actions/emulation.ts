@@ -5,6 +5,7 @@ import type {
   GamepadEmulationCommand,
   KeyboardMacroCommand
 } from '../../shared/actions'
+import { resolveGamepadHoldMs } from '../../shared/actions'
 
 const nativeRequire = createRequire(import.meta.url)
 
@@ -426,9 +427,12 @@ export class EmulationEngine {
 
       await this.setPadButton(command.button, pressValue)
       if (command.mode === 'press' || command.mode === 'hold') {
-        // Momentary tap. (True press-and-hold needs a falling-edge release from
-        // the action runtime; auto-releasing here avoids a stuck virtual button.)
-        await delay(70)
+        // `press` is a momentary tap. `hold` keeps the virtual button down for
+        // the configured duration (P1-10: a "hold" that always lasted 70 ms was
+        // just a tap with a different name). It ALWAYS releases — an indefinite
+        // hold with no falling edge would leave a stuck virtual button if the
+        // app or the sim went away mid-hold.
+        await delay(resolveGamepadHoldMs(command))
         await this.setPadButton(command.button, 0)
       }
 
