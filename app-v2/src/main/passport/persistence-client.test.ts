@@ -409,6 +409,7 @@ describe('PassportPersistenceClient failure domain', () => {
 })
 
 import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fork, type ChildProcess } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
@@ -489,7 +490,7 @@ afterEach(async () => {
 })
 
 function phase3Database(name: string): string {
-  const directory = mkdtempSync(join(process.cwd(), `.passport-client-${name}-`))
+  const directory = mkdtempSync(join(tmpdir(), `passport-client-${name}-`))
   phase3Directories.push(directory)
   return join(directory, 'passport.db')
 }
@@ -518,6 +519,8 @@ function configurePhase3Crash(
   })
 }
 
+// Retained for the one predicate that waits for work to *start* rather than
+// finish; readiness and quiescence are awaited through `client.whenIdle()`.
 async function waitForPhase3(predicate: () => boolean, timeoutMs = 4_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!predicate()) {
@@ -642,7 +645,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
       workerFactory: () => phase3Worker() as any
     })
     clients.push(client)
-    await waitForPhase3(() => !client.status().inFlight)
+    await client.whenIdle()
 
     for (let index = 0; index < 4; index += 1) {
       await expect(client.verifyImportPackage({ invalid: index })).rejects.toThrow(/import|bounded|trusted/i)
@@ -669,7 +672,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
       }
     })
     clients.push(client)
-    await waitForPhase3(() => !client.status().inFlight)
+    await client.whenIdle()
     await client.setPrivacy({
       ...DEFAULT_PASSPORT_PRIVACY,
       identityPersistenceOptIn: true,
@@ -693,7 +696,8 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     await termination
     await expect(unacknowledged).rejects.toThrow(/exited/i)
 
-    await waitForPhase3(() => realWorkers.length >= 2 && !client.status().inFlight)
+    await client.whenIdle()
+    expect(realWorkers.length).toBeGreaterThanOrEqual(2)
     expect(client.status().restarts).toBe(1)
     await expect(client.getPassport('client-stint')).resolves.toMatchObject({
       revision: 1,
@@ -717,7 +721,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
       }
     })
     clients.push(client)
-    await waitForPhase3(() => !client.status().inFlight)
+    await client.whenIdle()
     await client.setPrivacy({
       ...DEFAULT_PASSPORT_PRIVACY,
       identityPersistenceOptIn: true,
@@ -733,7 +737,8 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     await configurePhase3Crash(client, 'saveRoster', 'after-commit-before-response')
 
     await expect(client.saveRoster(roster, 0, operationId)).rejects.toThrow(/exited/i)
-    await waitForPhase3(() => realWorkers.length >= 2 && !client.status().inFlight)
+    await client.whenIdle()
+    expect(realWorkers.length).toBeGreaterThanOrEqual(2)
     const authoritative = await client.getAuthoritativeState(operationId)
     expect(authoritative).toMatchObject({
       roster,
@@ -761,7 +766,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
       }
     })
     clients.push(client)
-    await waitForPhase3(() => !client.status().inFlight)
+    await client.whenIdle()
     await client.setPrivacy({
       ...DEFAULT_PASSPORT_PRIVACY,
       identityPersistenceOptIn: true,
@@ -783,7 +788,8 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     await configurePhase3Crash(client, 'setPrivacy', 'after-commit-before-response')
 
     await expect(client.setPrivacy(optOut, 1, operationId)).rejects.toThrow(/exited/i)
-    await waitForPhase3(() => realWorkers.length >= 2 && !client.status().inFlight)
+    await client.whenIdle()
+    expect(realWorkers.length).toBeGreaterThanOrEqual(2)
     const authoritative = await client.getAuthoritativeState(operationId)
     expect(authoritative).toMatchObject({
       privacy: { identityPersistenceOptIn: false },
@@ -815,7 +821,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
       }
     })
     clients.push(client)
-    await waitForPhase3(() => !client.status().inFlight)
+    await client.whenIdle()
     await client.setPrivacy({
       identityPersistenceOptIn: true,
       retentionDays: { D1: 1, D2: 1, D3: 1 },
@@ -828,7 +834,8 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
 
     await expect(client.purgeRetention(retainedAt, operationId, 1))
       .rejects.toThrow(/exited/i)
-    await waitForPhase3(() => realWorkers.length >= 2 && !client.status().inFlight)
+    await client.whenIdle()
+    expect(realWorkers.length).toBeGreaterThanOrEqual(2)
     const authoritative = await client.getAuthoritativeState(operationId)
     expect(authoritative).toMatchObject({
       privacyMutationGeneration: 1,

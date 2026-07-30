@@ -162,6 +162,7 @@ export class PassportPersistenceClient {
   private restartTimer: ReturnType<typeof setTimeout> | null = null
   private readonly pendingTerminations = new Set<Promise<void>>()
   private readonly terminationErrors: unknown[] = []
+  private readonly idleWaiters: Array<() => void> = []
   private lastError: string | undefined
   private readonly now: () => number
   private readonly restartDelayMs: number
@@ -192,6 +193,42 @@ export class PassportPersistenceClient {
       restarts: this.restarts,
       lastError: this.lastError
     }
+  }
+
+  /**
+   * Resolves once the client has completed its startup handshake with a worker
+   * and has nothing in flight — i.e. the next request will be dispatched
+   * immediately rather than queued behind `initialize`.
+   *
+   * Startup is asynchronous (fork, open the database, run migrations), and
+   * until now the client had no way to announce that it had finished: callers
+   * were left polling `status().inFlight` against a wall clock, which turns
+   * host load into a false failure. If a worker crashes and is restarted, this
+   * resolves once the replacement has finished its own handshake.
+   *
+   * Never rejects: startup failures surface through the per-request promises
+   * and `status()`, and are retried by the restart budget. Callers that need a
+   * bound should race this against their own deadline.
+   */
+  whenIdle(): Promise<void> {
+    if (this.isIdle()) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      this.idleWaiters.push(resolve)
+    })
+  }
+
+  private isIdle(): boolean {
+    return (
+      this.worker !== null &&
+      this.initialized &&
+      this.inFlight === null &&
+      this.queue.length === 0
+    )
+  }
+
+  private settleIdleWaiters(): void {
+    if (this.idleWaiters.length === 0 || !this.isIdle()) return
+    for (const resolve of this.idleWaiters.splice(0)) resolve()
   }
 
   setKillSwitch(enabled: boolean): void {
@@ -254,6 +291,7 @@ export class PassportPersistenceClient {
         drainError = error
       }
       this.closed = true
+      for (const resolve of this.idleWaiters.splice(0)) resolve()
       if (this.restartTimer) clearTimeout(this.restartTimer)
       this.restartTimer = null
       if (this.inFlightTimer) clearTimeout(this.inFlightTimer)
@@ -529,13 +567,19 @@ export class PassportPersistenceClient {
   }
 
   private pump(): void {
-    if (!this.worker || this.inFlight || this.closed) return
+    if (!this.worker || this.inFlight || this.closed) {
+      this.settleIdleWaiters()
+      return
+    }
     const index = this.queue.findIndex((entry) =>
       (!this.killed || entry.bypassKill) &&
       (!this.circuitOpen || entry.bypassCircuit) &&
       (this.initialized || entry.request.method === 'initialize')
     )
-    if (index < 0) return
+    if (index < 0) {
+      this.settleIdleWaiters()
+      return
+    }
     const [entry] = this.queue.splice(index, 1)
     this.queuedBytes -= entry.bytes
     this.clearQueueTimer(entry)

@@ -44,7 +44,7 @@ import {
   raceOpsEventToProtoJson,
   stintPassportProtoJson
 } from '../phase02/raceops-codec'
-import { PASSPORT_SQLITE_BUSY_TIMEOUT_MS } from './persistence-deadlines'
+import { resolvePassportSqliteBusyTimeoutMs } from './persistence-deadlines'
 import { persistenceDomainError } from './persistence-errors'
 
 export const PASSPORT_PERSISTENCE_SCHEMA_VERSION = 5
@@ -663,7 +663,7 @@ export class PassportPersistenceEngine {
     if (options.path !== ':memory:') mkdirSync(dirname(options.path), { recursive: true })
     this.db = new DatabaseSync(options.path)
     this.db.exec('PRAGMA foreign_keys = ON')
-    this.db.exec(`PRAGMA busy_timeout = ${PASSPORT_SQLITE_BUSY_TIMEOUT_MS}`)
+    this.db.exec(`PRAGMA busy_timeout = ${resolvePassportSqliteBusyTimeoutMs()}`)
     this.db.exec('PRAGMA secure_delete = ON')
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA synchronous = FULL')
