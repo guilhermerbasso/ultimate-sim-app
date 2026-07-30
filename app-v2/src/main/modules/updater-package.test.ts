@@ -63,15 +63,20 @@ describe('Windows updater package safety', () => {
     expect(bridge).toContain("runtimeRequire('serialport')")
   })
 
-  it('keeps package and lockfile versions aligned at 2.56.0', () => {
+  it('keeps package.json and both lockfile version fields aligned', () => {
     const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string }
     const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as {
       version: string
       packages: Record<string, { version?: string }>
     }
 
-    expect(packageJson.version).toBe('2.56.0')
-    expect(packageLock.version).toBe('2.56.0')
-    expect(packageLock.packages['']?.version).toBe('2.56.0')
+    // electron-updater derives every asset name and the whole of latest.yml from this version, so a
+    // drift between the three declarations ships a release whose latest.yml points at files that do
+    // not exist. Alignment is the safety property; the specific number is not. Pinning the literal
+    // would force a mechanical edit on every release and decay into noise. The release workflow
+    // re-checks these same three against the git tag and refuses to build on a mismatch.
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(packageLock.version).toBe(packageJson.version)
+    expect(packageLock.packages['']?.version).toBe(packageJson.version)
   })
 })
