@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import type {
+  CustomOverlayDef,
   OverlayGestureState,
   OverlayListItem,
   OverlayPosition,
@@ -11,6 +12,7 @@ import type {
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs, resolveOverlayTrigger, shouldRenderOverlayRuntime } from './hifi-overlays'
 import { resolveWidgetComponent } from './widgets'
+import { CustomOverlayWidget } from './widgets/CustomOverlayWidget'
 import { useOverlayTriggerController } from './useOverlayTriggerController'
 import { useAlertsConfig } from '../lib/alerts-config'
 import './overlay-runtime.css'
@@ -90,7 +92,9 @@ export function CompositorRoot() {
   const display = useMemo(displayFromUrl, [])
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfigWithHifi())
+  const [customOverlays, setCustomOverlays] = useState<CustomOverlayDef[]>([])
   const configRef = useRef(config)
+  const customRef = useRef(customOverlays)
   const lastHitRef = useRef<boolean | null>(null)
   const hitHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const alertsConfig = useAlertsConfig()
@@ -100,21 +104,37 @@ export function CompositorRoot() {
     configRef.current = config
   }, [config])
 
+  useEffect(() => {
+    customRef.current = customOverlays
+  }, [customOverlays])
+
   const enabledLayers = useMemo(() => {
-    return ALL_OVERLAY_WIDGETS
+    const builtIn = ALL_OVERLAY_WIDGETS
       .map((definition) => {
         const widgetConfig = config.widgets[definition.id]
         // Skip user-hidden overlays (moved to the "Hidden" section) entirely.
-        return widgetConfig?.enabled && !widgetConfig.hidden ? { definition, config: widgetConfig } : null
+        return widgetConfig?.enabled && !widgetConfig.hidden
+          ? { definition, config: widgetConfig, custom: false }
+          : null
       })
       .filter((layer): layer is NonNullable<typeof layer> => Boolean(layer))
-      .filter((layer) => overlapsDisplay(layer.config.position, display))
-  }, [config.widgets, display])
+    // Custom (designer-authored) overlays live outside the widget registry. The
+    // compositor hides their legacy windows, so it has to draw them itself or they
+    // vanish the moment the compositor is switched on.
+    const custom = customOverlays
+      .filter((overlay) => overlay.enabled && !overlay.hidden)
+      .map((overlay) => ({
+        definition: undefined,
+        config: overlay as unknown as OverlayWidgetConfig,
+        custom: true
+      }))
+    return [...builtIn, ...custom].filter((layer) => overlapsDisplay(layer.config.position, display))
+  }, [config.widgets, customOverlays, display])
 
   const runtimeLayers = enabledLayers
     .map((layer) => {
       const trigger = resolveOverlayTrigger(layer.definition, layer.config)
-      const visibility = triggerController.evaluate(layer.definition.id, trigger)
+      const visibility = triggerController.evaluate(layer.config.id, trigger)
       return shouldRenderOverlayRuntime(layer.definition, layer.config, visibility)
         ? { ...layer, visibility }
         : null
@@ -143,7 +163,7 @@ export function CompositorRoot() {
   }, [display.id])
 
   const runtimeHitKey = runtimeLayers
-    .map((layer) => `${layer.definition.id}:${layer.config.locked ? 'locked' : 'editable'}`)
+    .map((layer) => `${layer.config.id}:${layer.config.locked ? 'locked' : 'editable'}`)
     .join('|')
 
   useEffect(() => {
@@ -165,13 +185,20 @@ export function CompositorRoot() {
 
   const beginGesture = useCallback(
     (event: ReactMouseEvent, id: OverlayWidgetId, mode: 'move' | 'resize', dir: string): void => {
-      const widgetConfig = configRef.current.widgets[id]
+      const custom = customRef.current.find((overlay) => overlay.id === id)
+      const widgetConfig = custom ?? configRef.current.widgets[id]
       if (!widgetConfig || widgetConfig.locked || event.button !== 0) return
       event.preventDefault()
       let started = false
       let active = true
       let raf = 0
       const applyPosition = (position: OverlayPosition): void => {
+        if (custom) {
+          setCustomOverlays((current) =>
+            current.map((overlay) => (overlay.id === id ? { ...overlay, position } : overlay))
+          )
+          return
+        }
         setConfig((current) => ({
           ...current,
           widgets: {
@@ -229,9 +256,18 @@ export function CompositorRoot() {
     })
     const offRefresh = window.ipc.subscribe<null>('overlays:compositorRefresh', () => {
       void window.ipc.invoke<OverlaysConfig>('overlays:getConfig').then((next) => setConfig(mergeHifiOverlayConfigs(next))).catch(() => undefined)
+      void window.ipc.invoke<CustomOverlayDef[]>('overlays:listCustom').then((items) => {
+        if (Array.isArray(items)) setCustomOverlays(items)
+      }).catch(() => undefined)
+    })
+    const offCustom = window.ipc.subscribe<CustomOverlayDef[]>('overlays:customState', (items) => {
+      if (Array.isArray(items)) setCustomOverlays(items)
     })
     void window.ipc.invoke<TelemetrySnapshot | null>('telemetry:getLatest').then(setSnapshot).catch(() => setSnapshot(null))
     void window.ipc.invoke<OverlaysConfig>('overlays:getConfig').then((next) => setConfig(mergeHifiOverlayConfigs(next))).catch(() => undefined)
+    void window.ipc.invoke<CustomOverlayDef[]>('overlays:listCustom').then((items) => {
+      if (Array.isArray(items)) setCustomOverlays(items)
+    }).catch(() => undefined)
     return () => {
       reportHit(false)
       if (hitHeartbeatRef.current) {
@@ -241,6 +277,7 @@ export function CompositorRoot() {
       offTelemetry()
       offState()
       offRefresh()
+      offCustom()
     }
   }, [reportHit])
 
@@ -250,8 +287,9 @@ export function CompositorRoot() {
       onMouseMove={(event) => reportHit(hitTest(event.clientX, event.clientY))}
       onMouseLeave={() => reportHit(false)}
     >
-      {runtimeLayers.map(({ definition, config: widgetConfig, visibility }) => {
-        const Widget = resolveWidgetComponent(definition.id)
+      {runtimeLayers.map(({ definition, config: widgetConfig, visibility, custom }) => {
+        const layerId = widgetConfig.id as string
+        const Widget = custom ? CustomOverlayWidget : resolveWidgetComponent(layerId as OverlayWidgetId)
         if (!Widget) return null
         const layerStyle: CSSProperties = {
           position: 'absolute',
@@ -264,9 +302,11 @@ export function CompositorRoot() {
         }
         return (
           <section
-            key={definition.id}
+            key={layerId}
+            data-compositor-layer={layerId}
+            data-compositor-layer-kind={custom ? 'custom' : 'widget'}
             style={layerStyle}
-            onMouseDown={(event) => beginGesture(event, definition.id, 'move', '')}
+            onMouseDown={(event) => beginGesture(event, layerId as OverlayWidgetId, 'move', '')}
           >
             <div
               className={`overlay-shell${widgetConfig.locked ? '' : ' draggable'}`}
@@ -274,7 +314,7 @@ export function CompositorRoot() {
             >
               {!widgetConfig.locked && (
                 <div className="overlay-drag-handle">
-                  {definition.title} · compositor · drag to move
+                  {definition?.title ?? (widgetConfig as { title?: string }).title ?? layerId} · compositor · drag to move
                 </div>
               )}
               <Widget
@@ -290,7 +330,7 @@ export function CompositorRoot() {
                     className={`overlay-resize ${dir}`}
                     onMouseDown={(event) => {
                       event.stopPropagation()
-                      beginGesture(event, definition.id, 'resize', dir)
+                      beginGesture(event, layerId as OverlayWidgetId, 'resize', dir)
                     }}
                   />
                 ))}
