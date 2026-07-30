@@ -27,7 +27,7 @@
 //   • career:getRecent   → CareerRecentResult (the recent-races table).
 //   • career:refresh     → force a full network refresh; broadcasts career:updated.
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -301,6 +301,16 @@ class CareerModule {
       const info = await this.api.getMemberInfo()
       const custId = info.cust_id
 
+      // Audit P1-12: never let one member's cached data survive into another
+      // member's snapshot. A different cust_id means everything held from the
+      // previous identity (charts, enrichment, the on-disk cache) is dropped
+      // BEFORE the new snapshot is assembled.
+      if (this.snapshot && this.snapshot.custId !== custId) {
+        await this.clearIdentityData()
+      }
+      if (this.enrichment && this.enrichment.custId !== custId) {
+        this.enrichment = null
+      }
       // Sequential, individually-typed (NOT array-destructured — that would
       // widen each binding to the union of all three result types). These are
       // optional: any one failing degrades to its fallback without aborting.
@@ -507,6 +517,12 @@ class CareerModule {
     } else if (snapshot.auth === 'needs-login' || snapshot.auth === 'unconfigured') {
       this.authState = 'needs-login'
       this.lastMessage = snapshot.lastErrorMessage
+      // Audit P1-12: logout must WIPE the cached identity, not just mark the
+      // session as gone. The cache was previously left in memory and on disk, so
+      // the next person to sign in on this machine saw the previous driver's
+      // name, licences, iRating charts and race history until (and if) a network
+      // refresh replaced it.
+      await this.clearIdentityData()
     } else if (snapshot.auth === 'rate-limited') {
       this.authState = 'rate-limited'
       this.lastMessage = snapshot.lastErrorMessage
@@ -515,6 +531,19 @@ class CareerModule {
       this.lastMessage = snapshot.lastErrorMessage
     }
     this.broadcast()
+  }
+
+  // Drops every cached artefact tied to a signed-in member, in memory AND on
+  // disk. Car names are deliberately kept: the catalog is public reference data
+  // with no link to an identity.
+  async clearIdentityData(): Promise<void> {
+    this.snapshot = null
+    this.enrichment = null
+    this.freshThisSession = false
+    this.lastBgAttemptAt = 0
+    await Promise.all(
+      [this.cacheFile, this.enrichmentFile].map((file) => rm(file, { force: true }).catch(() => undefined))
+    )
   }
 
   // ─── Disk persistence ──────────────────────────────────────────────────────
@@ -662,7 +691,14 @@ class CareerModule {
   }
 
   private buildEnrichmentResult(): CareerEnrichmentResult {
-    const e = this.enrichment
+    // Audit P1-12: only serve enrichment that belongs to the member the current
+    // snapshot describes. Without this guard a stale file on disk could hand the
+    // previous driver's leagues, division and yearly stats to whoever is signed
+    // in now.
+    const e =
+      this.enrichment && this.snapshot && this.enrichment.custId === this.snapshot.custId
+        ? this.enrichment
+        : null
     const primaryCategoryId = this.snapshot?.primaryCategoryId ?? null
     const division =
       primaryCategoryId !== null
@@ -992,3 +1028,8 @@ export function register(ctx: ModuleContext): void {
   module.registerIpc()
   void module.bootstrap()
 }
+
+// Exported for the identity-partitioning regression test, which drives the real
+// bootstrap/refresh/logout paths against a temp userData directory and a fake
+// shared auth service.
+export { CareerModule }
