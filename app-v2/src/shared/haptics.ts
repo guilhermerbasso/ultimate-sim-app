@@ -241,6 +241,16 @@ export function effectLevel(raw: number, cfg: HapticsEffectConfig): number {
   return clamp01(cfg.intensity) * t
 }
 
+// The GLOBAL gate every haptic output path must apply before it energises
+// anything: the master enable, the mute, and the master gain. `effectLevel`
+// only knows about a single effect's own enable/intensity, so a path that uses
+// it alone will happily drive a physical motor while the user believes haptics
+// are muted (P1-10). Returns 0 when nothing may be driven.
+export function globalHapticsGain(cfg: HapticsConfig): number {
+  if (!cfg.enabled || cfg.muted) return 0
+  return clamp01(cfg.masterGain)
+}
+
 // Carrier frequency for an effect, sweeping with the engine RPM fraction when the
 // effect defines an upper bound; fixed otherwise.
 export function engineCarrierHz(cfg: HapticsEffectConfig, rpmFrac: number): number {

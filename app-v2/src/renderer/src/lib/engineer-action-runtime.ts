@@ -9,6 +9,7 @@ import {
   listEngineerActions
 } from '../../../shared/engineer-ipc'
 import { readButtonPressed } from './gamepad'
+import { observeBindingEdge } from '../../../shared/binding-edge'
 import { isActionRuntimeSuppressed, type ActionRuntimeToast } from './action-runtime'
 import { stopTts } from './tts-runtime'
 
@@ -214,9 +215,11 @@ export function useEngineerActionRuntime(showToast?: ActionRuntimeToast): void {
           pressedState.set(key, true)
         }
         const pressed = readButtonPressed(binding.gamepadIndex, binding.buttonIndex, binding.gamepadId)
-        const wasPressed = pressedState.get(key) ?? false
-        pressedState.set(key, pressed)
-        if (pressed && !wasPressed && !suppressed) fire(action.id)
+        // P1-10: the FIRST sample of a control only arms the detector, so an
+        // action bound to a switch already held at mount never auto-fires.
+        const edge = observeBindingEdge(pressedState.get(key), pressed)
+        pressedState.set(key, edge.pressed)
+        if (edge.rising && !suppressed) fire(action.id)
       }
       frame = window.requestAnimationFrame(tick)
     }

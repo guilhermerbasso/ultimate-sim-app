@@ -45,6 +45,7 @@ import {
   trackMapStrokeWidth
 } from '../lib/track-map'
 import { readButtonPressed } from '../lib/gamepad'
+import { observeBindingEdge } from '../../../shared/binding-edge'
 import { useAlertsConfig } from '../lib/alerts-config'
 import { useUnitSystem } from '../lib/units'
 import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } from './binding'
@@ -2004,9 +2005,11 @@ export function DashboardRoot() {
         if (!control) continue
         const key = cycleControlKey(direction, control)
         const pressed = readButtonPressed(control.gamepadIndex, control.buttonIndex, control.gamepadId)
-        const wasPressed = pressedState.get(key) ?? false
-        pressedState.set(key, pressed)
-        if (pressed && !wasPressed) {
+        // P1-10: the FIRST sample only arms the detector, so a cycle button held
+        // when the dashboard mounts does not immediately switch dashboards.
+        const edge = observeBindingEdge(pressedState.get(key), pressed)
+        pressedState.set(key, edge.pressed)
+        if (edge.rising) {
           void window.ipc.invoke('app:dash:cycle', direction).catch(() => undefined)
         }
       }

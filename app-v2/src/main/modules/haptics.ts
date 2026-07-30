@@ -35,6 +35,7 @@ import {
   clamp,
   deriveHapticsFrame,
   effectLevel,
+  globalHapticsGain,
   type HapticsArduinoConfig,
   type HapticsConfig,
   type HapticsEffectConfig,
@@ -301,6 +302,11 @@ function processSnapshot(ctx: ModuleContext, snapshot: TelemetrySnapshot | null)
 }
 
 function driveArduino(ctx: ModuleContext, frame: HapticsFrame): void {
+  // P1-10: the serial path is a PHYSICAL motor. It must obey the same global
+  // enable/mute/master-gain contract the renderer bass-shaker and the zonal
+  // path already obey — "muted" that still buzzes the wheel is a lie.
+  const master = globalHapticsGain(config)
+  if (master <= 0) return
   const device = resolveArduinoDevice(ctx)
   if (!device) return
   const now = Date.now()
@@ -313,7 +319,7 @@ function driveArduino(ctx: ModuleContext, frame: HapticsFrame): void {
     if (id === 'abs') raw = frame.absActive ? 1 : 0
     else if (id === 'suspension') raw = frame.suspension
     else raw = frame.wheelLock
-    const level = effectLevel(raw, eff)
+    const level = effectLevel(raw, eff) * master
     if (level > 0 && canBuzz(id, now, minInterval)) sendBuzz(device, eff, level)
   }
 
@@ -326,7 +332,7 @@ function driveArduino(ctx: ModuleContext, frame: HapticsFrame): void {
     else if (id === 'tcCut') raw = frame.tcCut ? 1 : 0
     else if (id === 'gearGrind') raw = frame.gearGrind ? 1 : 0
     else raw = frame.impact
-    const level = effectLevel(raw, eff)
+    const level = effectLevel(raw, eff) * master
     if (level > 0 && canBuzz(id, now, minInterval)) sendBuzz(device, eff, level)
   }
 }
