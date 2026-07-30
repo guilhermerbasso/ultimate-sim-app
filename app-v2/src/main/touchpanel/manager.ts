@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from 'electron'
+import { devRendererUrl } from '../dev-renderer'
 import { join } from 'node:path'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import type { ModuleContext } from '../module-context'
@@ -324,7 +325,7 @@ export class TouchPanelManager {
     // navigation would otherwise retain that preload). Only the local dev-server
     // renderer URL or the packaged file:// document are allowed.
     win.webContents.on('will-navigate', (event, url) => {
-      const allowed = process.env.ELECTRON_RENDERER_URL ?? 'file://'
+      const allowed = devRendererUrl() ?? 'file://'
       if (!url.startsWith(allowed)) event.preventDefault()
     })
     win.on('closed', () => {
@@ -344,8 +345,9 @@ export class TouchPanelManager {
   private loadPanel(win: BrowserWindow, panelId: string): void {
     void releaseTouchActionsForWebContents(win.webContents.id)
     const query = { panel: panelId }
-    if (process.env.ELECTRON_RENDERER_URL) {
-      const url = new URL('touchpanel.html', process.env.ELECTRON_RENDERER_URL)
+    const devUrl = devRendererUrl()
+    if (devUrl) {
+      const url = new URL('touchpanel.html', devUrl)
       url.searchParams.set('panel', panelId)
       void win.loadURL(url.toString())
     } else {
@@ -380,3 +382,4 @@ export function register(ctx: ModuleContext): void {
   void manager.load()
   liveManager = manager
 }
+

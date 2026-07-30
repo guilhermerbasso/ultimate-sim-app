@@ -8,6 +8,7 @@ import {
   type FlipCoverState
 } from '../../../shared/flip-cover'
 import { readButtonPressed } from './gamepad'
+import { observeBindingEdge } from '../../../shared/binding-edge'
 import { getTelemetryStoreSnapshot, subscribeTelemetryStore } from './telemetry'
 
 interface DashboardActivateRequest {
@@ -144,24 +145,26 @@ export function useGlobalActionRuntime(showToast?: ActionRuntimeToast): void {
         const control = binding.control
         const key = `${binding.id}:${control.gamepadIndex ?? 'any'}:${control.buttonIndex}`
         const pressed = readButtonPressed(control.gamepadIndex, control.buttonIndex, control.gamepadId)
-        const wasPressed = state.get(key) ?? false
-        state.set(key, pressed)
+        // P1-10: the FIRST sample of a control only arms the detector. A switch
+        // left in the ON position when the app starts must not look like a press.
+        const edge = observeBindingEdge(state.get(key), pressed)
+        state.set(key, edge.pressed)
 
         const switchType = control.switchType ?? 'momentary'
 
         if (switchType === 'flip-cover') {
-          if (!suppressed) handleFlipCover(binding, key, pressed)
+          if (!suppressed && !edge.armed) handleFlipCover(binding, key, pressed)
           continue
         }
 
         if (switchType === 'pulse-both-edges') {
           // Fire one pulse on every position change (rising AND falling edge).
-          if (pressed !== wasPressed && !suppressed && passesDetent(key, control)) fireBinding(binding)
+          if (edge.changed && !suppressed && passesDetent(key, control)) fireBinding(binding)
           continue
         }
 
         // 'momentary' / 'toggle': fire on the rising edge only.
-        if (pressed && !wasPressed && !suppressed && passesDetent(key, control)) fireBinding(binding)
+        if (edge.rising && !suppressed && passesDetent(key, control)) fireBinding(binding)
       }
       frame = window.requestAnimationFrame(tick)
     }

@@ -1,4 +1,4 @@
-﻿import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 // @ts-ignore three is shipped JS-only in this app (no @types/three dependency).
 import * as THREE from 'three'

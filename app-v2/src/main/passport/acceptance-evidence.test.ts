@@ -363,11 +363,11 @@ describe('Stint Passport independently verifiable acceptance evidence', () => {
       'node scripts/generate-passport-v2-run-manifest.mjs'
     )
     expect(step(acceptance, 'Upload acceptance evidence')).toMatchObject({
-      uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
+      uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
       if: '${{ always() }}'
     })
     expect(step(acceptance, 'Attest runtime evidence')).toMatchObject({
-      uses: 'actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661',
+      uses: 'actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a',
       if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     })
     expect(packageJson.scripts.build).toContain('node scripts/verify-passport-worker.mjs')

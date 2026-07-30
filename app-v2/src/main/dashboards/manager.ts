@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { BrowserWindow, dialog, screen, shell, type Display, type Rectangle } from 'electron'
+import { devRendererOrigin, devRendererUrl } from '../dev-renderer'
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -126,8 +127,9 @@ function openExternalUrl(url: string): void {
 function isAllowedAppNavigation(url: string): boolean {
   try {
     const parsed = new URL(url)
-    if (process.env.ELECTRON_RENDERER_URL) {
-      return parsed.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    const devOrigin = devRendererOrigin()
+    if (devOrigin) {
+      return parsed.origin === devOrigin
     }
     const appHtml = pathToFileURL(join(__dirname, '../renderer/dashboard.html'))
     return parsed.protocol === 'file:' && parsed.pathname === appHtml.pathname
@@ -944,6 +946,9 @@ export class DashboardManager {
       const fullscreen = step.next.fullscreen ?? currentDashOpen?.fullscreen ?? step.current?.fullscreen ?? true
 
       const opened = await this.openTarget(step.next, { displayId, fullscreen })
+      // A failed open must not cost the driver the cockpit: leave the current target up
+      // and the playlist index where it was, so the next cycle retries from here.
+      if (!opened) return null
       // Close the previous cockpit only when it isn't the same window we just
       // (re)opened. openTarget already closes the opposite-kind sibling, so this
       // only matters for dashboard→dashboard transitions.
@@ -987,14 +992,17 @@ export class DashboardManager {
     options: DashboardOpenOptions
   ): Promise<DashboardOpenState | null> {
     if (isTouchPanelPlaylistItem(item)) {
-      for (const open of this.listOpen()) await this.closeWindow(open.id)
       const panelId = touchPanelIdOf(item)
+      // Open before close. A failed open used to leave the driver with no cockpit at
+      // all, because every dashboard window had already been torn down by then.
       const res = this.touch()?.openWindow({
         panelId,
         displayId: options.displayId,
         fullscreen: options.fullscreen
       })
-      return res ? { id: panelId, displayId: res.displayId, fullscreen: res.fullscreen } : null
+      if (!res) return null
+      for (const open of this.listOpen()) await this.closeWindow(open.id)
+      return { id: panelId, displayId: res.displayId, fullscreen: res.fullscreen }
     }
     this.touch()?.closeWindow()
     return this.openWindow(item.dashboardId, options)
@@ -1040,15 +1048,17 @@ export class DashboardManager {
 
     if (routeTouch) {
       const panelId = playlistItem ? touchPanelIdOf(playlistItem) : id
-      // Close every dashboard window so only the button-box is visible.
-      for (const open of openStates) await this.closeWindow(open.id)
+      // Open before close, and only commit the playlist index once the panel is up.
+      // Closing first meant a panel that failed to open cost the driver the cockpit.
       const res = touch?.openWindow({
         panelId,
         displayId: playlistItem?.displayId ?? currentOpen?.displayId ?? screen.getPrimaryDisplay().id,
         fullscreen: playlistItem?.fullscreen ?? true
       })
-      this.currentPlaylistIndex = playlistIndex
       if (!res) throw new Error(`Touch panel not found: ${id}`)
+      // Close every dashboard window so only the button-box is visible.
+      for (const open of openStates) await this.closeWindow(open.id)
+      this.currentPlaylistIndex = playlistIndex
       return { id: panelId, displayId: res.displayId, fullscreen: res.fullscreen }
     }
 
@@ -1326,9 +1336,10 @@ export class DashboardManager {
       }
     })
 
-    const load = process.env.ELECTRON_RENDERER_URL
+    const devUrl = devRendererUrl()
+    const load = devUrl
       ? (): Promise<void> => {
-          const url = applyDashboardQuery(new URL('dashboard.html', process.env.ELECTRON_RENDERER_URL), id, options.kiosk)
+          const url = applyDashboardQuery(new URL('dashboard.html', devUrl), id, options.kiosk)
           return win.loadURL(url.toString())
         }
       : (): Promise<void> => win.loadFile(
@@ -1759,3 +1770,4 @@ export class DashboardManager {
     return result.filePath
   }
 }
+

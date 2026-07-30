@@ -1,4 +1,4 @@
-﻿import { type ReactElement, type ReactNode } from 'react'
+import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, LEGIBLE, fixed, legibleStroke, num } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'

@@ -148,7 +148,7 @@ export const HAPTICS_EFFECT_META: Record<HapticsEffectId, HapticsEffectMeta> = {
   gearShift: { id: 'gearShift', label: 'Gear shift', blurb: 'Short pulse on every gear change.', signal: 'gear change', freqMin: 40, freqMax: 90, transient: true, sweep: false, heuristic: false },
   abs: { id: 'abs', label: 'ABS', blurb: 'Fast on/off pulse while ABS is active.', signal: 'absActive + brake', freqMin: 40, freqMax: 80, transient: false, sweep: false, heuristic: false },
   wheelLock: { id: 'wheelLock', label: 'Lockup / slide', blurb: 'Irregular vibration when locking a wheel under braking or losing traction.', signal: 'brake + deceleration / tcActive (heuristic)', freqMin: 60, freqMax: 110, transient: false, sweep: false, heuristic: true },
-  kerb: { id: 'kerb', label: 'Kerbs / rumble', blurb: 'Dry pulses when riding kerbs.', signal: 'lateral acceleration (heuristic ? ideal: vertical accel)', freqMin: 45, freqMax: 80, transient: true, sweep: false, heuristic: true },
+  kerb: { id: 'kerb', label: 'Kerbs / rumble', blurb: 'Dry pulses when riding kerbs.', signal: 'lateral acceleration (heuristic — ideal: vertical accel)', freqMin: 45, freqMax: 80, transient: true, sweep: false, heuristic: true },
   roadTexture: { id: 'roadTexture', label: 'Road texture', blurb: 'Continuous low-amplitude rumble based on speed.', signal: 'speedKmh', freqMin: 35, freqMax: 70, transient: false, sweep: false, heuristic: false },
   impact: { id: 'impact', label: 'Impacts / collision', blurb: 'Strong burst on crashes and sudden speed drops.', signal: 'long./lat. acceleration peak (derived)', freqMin: 45, freqMax: 90, transient: true, sweep: false, heuristic: true },
   tcCut: { id: 'tcCut', label: 'TC Cut', blurb: 'Fast pulse when traction control cuts power.', signal: 'tcActive + throttle > 25%', freqMin: 40, freqMax: 80, transient: true, sweep: false, heuristic: false },
@@ -239,6 +239,16 @@ export function effectLevel(raw: number, cfg: HapticsEffectConfig): number {
   if (raw <= cfg.minThreshold) return 0
   const t = normalizeRange(raw, cfg.minThreshold, cfg.maxThreshold)
   return clamp01(cfg.intensity) * t
+}
+
+// The GLOBAL gate every haptic output path must apply before it energises
+// anything: the master enable, the mute, and the master gain. `effectLevel`
+// only knows about a single effect's own enable/intensity, so a path that uses
+// it alone will happily drive a physical motor while the user believes haptics
+// are muted (P1-10). Returns 0 when nothing may be driven.
+export function globalHapticsGain(cfg: HapticsConfig): number {
+  if (!cfg.enabled || cfg.muted) return 0
+  return clamp01(cfg.masterGain)
 }
 
 // Carrier frequency for an effect, sweeping with the engine RPM fraction when the

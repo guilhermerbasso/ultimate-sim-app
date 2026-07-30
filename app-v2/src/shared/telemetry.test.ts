@@ -328,7 +328,7 @@ describe('tcOptionsForSensitivity (TC sensitivity level → thresholds)', () => 
     expect(at('low', { throttle: 0.95, longAccelG: -0.25 })).toBe(true) // exactly on the longG boundary
   })
 
-  it('medium (Average) fires at longG ? -0.10 AND throttle ? 0.85', () => {
+  it('medium (Average) fires at longG ≤ -0.10 AND throttle ≥ 0.85', () => {
     expect(at('medium', { throttle: 0.9, longAccelG: -0.2 })).toBe(true)
     expect(at('medium', { throttle: 0.9, longAccelG: -0.1 })).toBe(true) // on the boundary
     expect(at('medium', { throttle: 0.9, longAccelG: -0.05 })).toBe(false) // not negative enough

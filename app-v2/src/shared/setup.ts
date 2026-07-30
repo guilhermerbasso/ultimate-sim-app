@@ -111,7 +111,7 @@ export const FLASH_BOARDS: FlashBoardSpec[] = [
     baudOptions: [{ id: 'caterina', label: 'Caterina avr109 (57600)', baud: 57600 }],
     defaultBaudId: 'caterina',
     profileBoard: 'pro-micro',
-    hint: 'The board restarts into bootloader mode and the COM port changes for ~2s during flashing ? this is normal. If it fails, tap RESET twice quickly and flash right away.'
+    hint: 'The board restarts into bootloader mode and the COM port changes for ~2s during flashing — this is normal. If it fails, tap RESET twice quickly and flash right away.'
   },
   {
     id: 'esp32',
@@ -143,7 +143,7 @@ export const FLASH_BOARDS: FlashBoardSpec[] = [
     baudOptions: [{ id: 'usb-cdc', label: 'USB CDC nativo (arduino-cli)', baud: 921600 }],
     defaultBaudId: 'usb-cdc',
     profileBoard: 'esp32s3',
-    hint: 'Ideal for ESP32-S3-WROOM-1 44-pin Type?C. Can run over USB serial or Wi?Fi after provisioning.'
+    hint: 'Ideal for ESP32-S3-WROOM-1 44-pin Type-C. Can run over USB serial or Wi-Fi after provisioning.'
   }
 ]
 
@@ -225,7 +225,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     family: 'avr32u4',
     confidence: 'high',
     label: 'Arduino Leonardo/Micro (ATmega32U4)',
-    reason: 'Arduino 32U4 PID ? Caterina bootloader: flash with avr109 + 1200bps reset (stk500 does not sync).'
+    reason: 'Arduino 32U4 PID — Caterina bootloader: flash with avr109 + 1200bps reset (stk500 does not sync).'
   },
   {
     vendorId: '2a03',
@@ -269,7 +269,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     family: 'avr32u4',
     confidence: 'low',
     label: 'Adafruit USB nativo (talvez 32U4)',
-    reason: 'VID 239a (Adafruit). If it is 32U4 use avr109 + 1200bps; it may also be SAMD/ESP ? confirm the model.'
+    reason: 'VID 239a (Adafruit). If it is 32U4 use avr109 + 1200bps; it may also be SAMD/ESP — confirm the model.'
   },
   // Espressif native USB (ESP32-S3 / C3) — flashed via arduino-cli/esptool.
   {
@@ -669,7 +669,7 @@ export const SETUP_MODULES: SetupModule[] = [
       'Rede Wi‑Fi 2.4 GHz no mesmo LAN do PC'
     ],
     wiring: [
-      { signal: 'USB', pin: 'Type?C/Micro?USB', detail: 'Flashing, serial, and Wi?Fi provisioning' },
+      { signal: 'USB', pin: 'Type-C/Micro-USB', detail: 'Flashing, serial, and Wi-Fi provisioning' },
       { signal: 'GPIO', pin: 'Configurable GPIO', detail: 'Buttons/LEDs based on the companion sketch' },
       { signal: 'GND', pin: 'GND', detail: 'Common ground with external modules' }
     ],

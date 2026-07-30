@@ -202,7 +202,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'segmented-gtr',
     name: 'GT3 / GTR',
-    description: 'Green, amber, orange, red ? calibrated for GT/Touring.',
+    description: 'Green, amber, orange, red — calibrated for GT/Touring.',
     baseConfig: {
       preset: 'segmented-gtr',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,
@@ -214,7 +214,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'segmented-formula',
     name: 'Formula / LMP',
-    description: 'Blue, green, yellow, and red ? high revs, very high shift point.',
+    description: 'Blue, green, yellow, and red — high revs, very high shift point.',
     baseConfig: {
       preset: 'segmented-formula',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,
@@ -226,7 +226,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'f1',
     name: 'Modo F1',
-    description: 'Lights only in the final 10% of RPM: green ? amber ? red, with shift blink.',
+    description: 'Lights only in the final 10% of RPM: green → amber → red, with shift blink.',
     baseConfig: {
       preset: 'f1',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,
@@ -252,7 +252,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'shift-only',
     name: 'Shift only',
-    description: 'Only flashes blue at the shift point ? no progressive colors.',
+    description: 'Only flashes blue at the shift point — no progressive colors.',
     baseConfig: {
       preset: 'shift-only',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,

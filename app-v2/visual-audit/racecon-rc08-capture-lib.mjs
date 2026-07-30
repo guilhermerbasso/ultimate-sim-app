@@ -163,67 +163,15 @@ export const RC08_SPEC = Object.freeze({
     ])
   ]),
   /**
-   * Measured render defects in the shipped RC-08 build, recorded rather than suppressed.
-   *
-   * DEFECT 1 — rain row "UNAVAILABLE" label overflow at native and compact-landscape viewports.
-   * The `[data-testid="rc08-rain"]` cell is sized by the responsive column grid, but the word
-   * "UNAVAILABLE" at 32–34 px / nowrap is too wide for the allocated column at native (148 px)
-   * and compact-landscape widths (142–161 px). The overflow is clipped visually but creates a
-   * 11–14 px scrollWidth overhang. App layout and compact-phone sizes render the column wider
-   * and are not affected.
-   *
-   * DEFECT 2 — `.rc08-sr` screen-reader announcement text overflow at all cold-tyre viewports.
-   * The `.rc08-sr` element is a CSS clip-trick SR-only element (width:1px, overflow:hidden,
-   * white-space:nowrap). Its visible size is 1 px but the text "FL cold in the wet" spans
-   * 108 px of scrollWidth. The 107 px overhang is intentional by the accessibility pattern
-   * and the text is visually invisible, but `scrollWidth > clientWidth` is unconditionally
-   * true and the shared harness's overflow sweep catches it.
-   *
-   * Both budgets are the measured maximum plus a small allowance (2–3 px) for font-metric
-   * variation. A defect that grows past its budget, spreads to another viewport, or appears
-   * on another element still fails.
+   * All three measured render defects (rain row overflow, aids vertical overflow, grip chip
+   * containment escape) have been corrected. These ledger arrays are intentionally empty so the
+   * harness fails closed on recurrence — any new overflow, zone overflow, or containment escape
+   * is an unconditional hard failure. Explicit positive assertions are added to
+   * validateCaptureMetrics below.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "rc08-rain",
-      states: Object.freeze(["silent", "cold-tyre"]),
-      sizes: Object.freeze(["800x480", "759x393", "867x412"]),
-      budgetPx: 16,
-      note: "rain rate 'UNAVAILABLE' label overflows its responsive column at native and compact-landscape viewports (32–34 px / nowrap too wide for 142–148 px column)"
-    })
-  ]),
-  /**
-   * DEFECT 3 — aids zone vertical overflow at compact-phone viewports.
-   * The phone layout stacks the aids column vertically (ribbon 76 px + 4 rows × 53 px = 288 px),
-   * but the container height is smaller: 272 px at 393×759, 310 px at 412×867. The content
-   * overflows vertically by 16 px and 21 px respectively. Landscape compact and other layouts
-   * are not affected. Budget 24 px covers the 21 px maximum plus 3 px font-metric allowance.
-   */
-  zoneOverflowDefects: Object.freeze([
-    Object.freeze({
-      zone: "aids",
-      states: Object.freeze(["silent", "cold-tyre"]),
-      sizes: Object.freeze(["393x759", "412x867"]),
-      budgetPx: 24,
-      note: "aids column vertical overflow at compact-phone: ribbon (76–87 px) + 4 rows (4×53–61 px) exceeds the container height (272 px / 310 px) by 16–21 px"
-    })
-  ]),
-  /**
-   * DEFECT 4 — grip chip containment escape at compact-landscape viewports.
-   * In compact-landscape layout the grip chip (`rc08-grip`) is sized by cqw on the aids column
-   * width. At 759×393 and 867×412 the resulting clientHeight (53 and 61 px) exceeds the ribbon
-   * clientHeight (51 and 53 px). The grip element escapes the ribbon boundary on the top (and
-   * bottom) by up to 3.5 px. Budget 5 px covers the observed maximum plus allowance.
-   */
-  containmentDefects: Object.freeze([
-    Object.freeze({
-      label: "grip chip",
-      states: Object.freeze(["silent", "cold-tyre"]),
-      sizes: Object.freeze(["759x393", "867x412"]),
-      budgetPx: 5,
-      note: "grip word height exceeds ribbon height in compact-landscape: cqw type scale sizes the grip larger than the ribbon container, causing escape on the top (759x393 ≈1.2 px, 867x412 ≈3.5 px)"
-    })
-  ])
+  knownDefects: Object.freeze([]),
+  zoneOverflowDefects: Object.freeze([]),
+  containmentDefects: Object.freeze([])
 })
 
 export const RC08_CAPTURE_MATRIX = Object.freeze(
@@ -524,6 +472,70 @@ const RC08_FORBIDDEN_LEAF_TEXT = Object.freeze([
   Object.freeze(["80", "would reintroduce the omitted wet-window upper bound (RC08_PACKET_OMISSIONS.wetWindowReadout)"])
 ])
 
+/**
+ * REGRESSION GUARD 1 — rain row fits its column.
+ *
+ * Drop from the secondary rung to the label rung for the UNAVAILABLE state fixes the +11–14 px
+ * overflow at native and compact-landscape viewports. This assertion re-raises immediately if
+ * the rain cell reappears in overflowLeaves at any viewport or state.
+ */
+function assertRainRowContained(metrics) {
+  const rainLeaf = (metrics.overflowLeaves ?? []).find((leaf) => leaf.key === "rc08-rain")
+  if (rainLeaf) {
+    fail(
+      `rc08-rain "${rainLeaf.text}" overflows its column by ${rainLeaf.overflowX}px ` +
+      `(text spans ${rainLeaf.textLeft.toFixed(2)}..${rainLeaf.textRight.toFixed(2)}) — ` +
+      `UNAVAILABLE must fit the responsive column at all viewports`
+    )
+  }
+}
+
+/**
+ * REGRESSION GUARD 2 — aids zone rows flex-fill without overflowing.
+ *
+ * Removing the fixed phone row height allows rows to distribute the available space evenly.
+ * This assertion re-raises immediately if the aids zone's scroll height exceeds its layout
+ * height at any viewport or state.
+ */
+function assertAidsZoneFit(metrics) {
+  const aids = zoneOf(metrics, "aids")
+  const overflow = finite(aids.scrollHeight, "aids scrollHeight") - finite(aids.layoutHeight, "aids layoutHeight")
+  if (overflow > 0.5) {
+    fail(
+      `aids zone content height (${aids.scrollHeight.toFixed(2)}px) exceeds layout height ` +
+      `(${aids.layoutHeight.toFixed(2)}px) by ${overflow.toFixed(2)}px — ` +
+      `all rows must flex-fill without overflowing at any viewport`
+    )
+  }
+}
+
+/**
+ * REGRESSION GUARD 3 — grip chip fits inside its ribbon at all viewports.
+ *
+ * Increasing the ribbon height factor from 0.15 to 0.18 in rc08CompactZones ensures the 7 cqw
+ * grip word fits at every compact-landscape aspect ratio. This assertion re-raises if the grip
+ * chip exceeds the ribbon boundary at any viewport or state.
+ */
+function assertGripChipFitsRibbon(metrics) {
+  const item = (metrics.containment ?? []).find((c) => c.label === "grip chip")
+  if (!item) fail("containment measurement for grip chip is missing")
+  if (!item.owner || !item.value) fail("grip chip has no measurable owner (ribbon) or value rect")
+  const escape = {
+    left:   item.owner.left - item.value.left,
+    right:  item.value.left + item.value.width - (item.owner.left + item.owner.width),
+    top:    item.owner.top  - item.value.top,
+    bottom: item.value.top  + item.value.height - (item.owner.top + item.owner.height)
+  }
+  const worst = Math.max(...Object.values(escape))
+  if (worst > 0.5) {
+    const edge = Object.entries(escape).find(([, px]) => px === worst)[0]
+    fail(
+      `grip chip escapes its ribbon on the ${edge} by ${worst.toFixed(2)}px — ` +
+      `the 7 cqw grip word must fit the compact-landscape ribbon at all viewports`
+    )
+  }
+}
+
 export function validateCaptureMetrics(metrics, entry, _unused) {
   const common = validateCommonMetrics(metrics, entry, RC08_SPEC)
 
@@ -536,6 +548,9 @@ export function validateCaptureMetrics(metrics, entry, _unused) {
   assertBanner(metrics)
   assertGripChip(metrics)
   assertRainRow(metrics)
+  assertRainRowContained(metrics)
+  assertAidsZoneFit(metrics)
+  assertGripChipFitsRibbon(metrics)
   assertPaceValues(metrics)
   assertAidValues(metrics)
   assertCornerValues(metrics, entry)

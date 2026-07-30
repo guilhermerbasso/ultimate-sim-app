@@ -2,6 +2,7 @@ import type { ModuleContext } from '../module-context'
 import { CONFIG_SECTION_RELOAD_SIGNAL, CONFIG_SECTION_RESET_SIGNAL } from '../../shared/config-io'
 import { OverlayCompositorManager } from '../overlays/compositor'
 import { OverlayManager } from '../overlays/manager'
+import { logger } from './logger'
 
 let manager: OverlayManager | null = null
 let compositor: OverlayCompositorManager | null = null
@@ -45,7 +46,11 @@ export function register(ctx: ModuleContext): void {
   // in modules/telemetry.ts; no per-manager re-emit is needed (and the previous
   // double-emit caused duplicate React renders for every tick).
 
-  void manager.load().then(() => compositor?.load())
+  void manager.load()
+    .then(() => compositor?.load())
+    .catch((error: unknown) => {
+      logger.error('overlays', 'initial load failed', { error: String(error) })
+    })
 
   // When the user deletes/resets the persisted `overlays` store, drop the live
   // manager's in-memory copy so its before-quit flush can't resurrect the file.

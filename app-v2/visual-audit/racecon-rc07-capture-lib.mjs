@@ -142,75 +142,16 @@ export const RC07_SPEC = Object.freeze({
     ])
   ]),
   /**
-   * Known render defects in the shipped RC-07 widget. Each entry carries exact measurements;
-   * a defect that GROWS (delta exceeds budget), SPREADS to another breakpoint, or appears on
-   * another element still fails.
+   * The defect ledger is EMPTY, so every measured defect now fails closed.
+   *
+   * It used to record five: the class badge tied or exceeded the self value at five of the six
+   * governed viewports (1024x600 +1.376px, 393x759 and 412x867 an exact tie, 759x393 +3.795px,
+   * 867x412 +2px), and the ahead strip rendered shorter than the self strip on the app canvas
+   * (self-ahead 6px) and in compact landscape (7.86px and 8.25px). Both are rank orders, so a
+   * tie was never a pass. The badge now steps down from the self value at every breakpoint and
+   * the app and landscape zone tables give ahead its normative place between behind and self.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      id: "app-ahead-shorter-than-self",
-      description:
-        "In the app layout (1024×600) the ahead strip is shorter than the self strip " +
-        "(measured ahead≈150px, self≈156px). The tower zone redistributes height in a way " +
-        "that compresses ahead below self, violating the normative behind>ahead>self ordering. " +
-        "Affects: app layout only. Budget: self−ahead ≤ 8 px. Diagnosis: app layout adds the " +
-        "tower zone to the right column; the proportional allocation used for native/compact " +
-        "does not account for the tower's reserved rows, causing ahead to lose ≈56 px relative " +
-        "to its normative 205 px while self is only compressed to ≈156 px.",
-      affectedBreakpoints: Object.freeze(["1024x600"]),
-      budget: Object.freeze({ selfMinusAheadMaxPx: 8 })
-    }),
-    Object.freeze({
-      id: "compact-landscape-ahead-shorter-than-self",
-      description:
-        "In compact/landscape layouts (759×393: ahead≈102px, self≈110px, delta≈7.86px; " +
-        "867×412: ahead≈107px, self≈115px, delta≈8.25px) the ahead strip is shorter than " +
-        "the self strip, violating the normative behind>ahead>self ordering. Budget: " +
-        "self−ahead ≤ 9 px. Diagnosis: in landscape compact the gap panels and self strip are " +
-        "arranged vertically on the right side of the radar; the CSS flex allocation gives self " +
-        "the same height percentage as behind (both use flex:1) while ahead uses a smaller flex " +
-        "weight, causing self to equal behind in height and exceed ahead.",
-      affectedBreakpoints: Object.freeze(["759x393", "867x412"]),
-      budget: Object.freeze({ selfMinusAheadMaxPx: 9 })
-    }),
-    Object.freeze({
-      id: "app-type-scale-badge-exceeds-self",
-      description:
-        "In the app layout (1024×600) the class-badge font-size (measured ≈28px) exceeds " +
-        "the self-value font-size (measured ≈26.624px), inverting the normative " +
-        "self-value > class-badge ordering by ≈1.4px. Budget: badge−selfValue ≤ 2.0px. " +
-        "Diagnosis: at 1024×600 the dashboard's scale function allocates class-badge a fixed " +
-        "28px while the self-value output uses a viewport-relative unit that resolves to a " +
-        "slightly smaller size, producing the inversion.",
-      affectedBreakpoints: Object.freeze(["1024x600"]),
-      budget: Object.freeze({ badgeMinusSelfMaxPx: 2.0 })
-    }),
-    Object.freeze({
-      id: "compact-phone-type-scale-self-badge-tie",
-      description:
-        "In compact/phone layouts (393×759 and 412×867) the self-value (position/gear output) " +
-        "and class-badge font-sizes are exactly equal (17.685px and 18.54px respectively), " +
-        "producing a TIE that violates the normative self-value > class-badge ordering. " +
-        "Budget: badge−selfValue ≤ 0.5px (only the tie is tolerated; any positive inversion " +
-        "fails). Diagnosis: in the phone compact layout both self-value and class-badge use " +
-        "clamp() units whose resolved values happen to coincide at the phone viewport width.",
-      affectedBreakpoints: Object.freeze(["393x759", "412x867"]),
-      budget: Object.freeze({ badgeMinusSelfMaxPx: 0.5 })
-    }),
-    Object.freeze({
-      id: "compact-landscape-type-scale-badge-exceeds-self",
-      description:
-        "In compact/landscape layouts (759×393: badge≈26.57px, selfValue≈22.77px, delta≈3.8px; " +
-        "867×412: badge=28px, selfValue=26px, delta=2px) the class-badge font-size exceeds the " +
-        "self-value font-size, inverting the normative self-value > class-badge ordering. " +
-        "Budget: badge−selfValue ≤ 4.0px. Diagnosis: the compact landscape scale function " +
-        "resolves class-badge through the same CSS clamp as app/native breakpoints (giving it " +
-        "a larger size) while self-value uses a tighter clamp that produces a smaller resolved " +
-        "size at landscape compact dimensions.",
-      affectedBreakpoints: Object.freeze(["759x393", "867x412"]),
-      budget: Object.freeze({ badgeMinusSelfMaxPx: 4.0 })
-    })
-  ])
+  knownDefects: Object.freeze([])
 })
 
 export const RC07_CAPTURE_MATRIX = Object.freeze(
@@ -274,22 +215,17 @@ function zoneOf(metrics, name) {
 
 /**
  * The governance evidence gives the zone height ordering: gap-behind is tallest, gap-ahead
- * second, self strip shortest (37.5% > 34.3% > 19.8%). This ordering must hold across all
- * six governed viewports WITH these documented exceptions:
+ * second, self strip shortest (37.5% > 34.3% > 19.8%). The normative ordering is:
+ *   behind > ahead > self
  *
- *  compact/phone — behind and ahead are rendered SIDE-BY-SIDE (not stacked) using a shared
- *    `--rc07-phone-gap-height` CSS variable; their heights are intentionally equal. The
- *    `behind > ahead` check is skipped for this layout. The `ahead > self` check still runs.
- *
- *  app + compact/landscape — the `ahead > self` ordering is violated (see knownDefects). The
- *    violation is tolerated within the recorded budget; a growing delta still fails.
+ * The single layout exception is compact/phone, where behind and ahead are rendered
+ * SIDE-BY-SIDE (not stacked) using a shared `--rc07-phone-gap-height` CSS variable;
+ * their heights are intentionally equal. The `behind > ahead` check is skipped for
+ * this layout. The `ahead > self` check still runs.
  */
 function assertZoneHeightOrdering(metrics, entry) {
-  const { width, height } = entry.size
   const isCompact = entry.size.layout === "compact"
-  const isCompactPhone = isCompact && height > width
-  const isCompactLandscape = isCompact && width > height
-  const isApp = entry.size.layout === "app"
+  const isCompactPhone = isCompact && entry.size.height > entry.size.width
 
   const behind = zoneOf(metrics, "behind")
   const ahead = zoneOf(metrics, "ahead")
@@ -305,25 +241,12 @@ function assertZoneHeightOrdering(metrics, entry) {
     }
   }
 
+  // The self strip is the shortest of the three: ahead must be strictly taller than self.
   if (ahead.height <= self.height) {
-    const delta = self.height - ahead.height
-    const defectId = isApp
-      ? "app-ahead-shorter-than-self"
-      : isCompactLandscape
-        ? "compact-landscape-ahead-shorter-than-self"
-        : null
-    const defect = defectId ? RC07_SPEC.knownDefects.find((d) => d.id === defectId) : null
-    const budget = defect?.budget?.selfMinusAheadMaxPx ?? 0
-    const exempt = defect && delta <= budget
-    if (!exempt) {
-      fail(
-        `zone height ordering does not hold: ahead ${ahead.height.toFixed(2)}px must be ` +
-          `strictly taller than self ${self.height.toFixed(2)}px` +
-          (defect && delta > budget
-            ? ` (known defect budget is ${budget} px but delta grew to ${delta.toFixed(2)} px)`
-            : "")
-      )
-    }
+    fail(
+      `zone height ordering does not hold: ahead ${ahead.height.toFixed(2)}px must be ` +
+        `strictly taller than self ${self.height.toFixed(2)}px`
+    )
   }
 }
 
@@ -541,71 +464,17 @@ function assertAppOnlyCells(metrics, entry) {
 
 /**
  * Type-scale hierarchy: gap-value > self-value > class-badge > label.
- * A tie anywhere is a failure, not a pass.
- *
- * Known defects across layouts (all recorded in RC07_SPEC.knownDefects):
- *  app (1024×600)                — badge slightly exceeds self-value (≈+1.4px), budget 2px
- *  compact/phone (393×759,412×867) — badge exactly ties self-value (delta=0), budget 0.5px
- *  compact/landscape (759×393,867×412) — badge exceeds self-value (≈+2–3.8px), budget 4px
- *
- * For non-affected layouts the shared assertTypeScaleOrder enforces strict ordering.
+ * A tie anywhere is a failure, not a pass. Every step must be at least 1 px.
+ * Enforced uniformly at all six governed viewports and both states.
  */
 function assertTypeScale(metrics, entry) {
-  const { width, height, layout } = entry.size
-  const isCompact = layout === "compact"
-  const isApp = layout === "app"
-  const isCompactPhone = isCompact && height > width
-  const isCompactLandscape = isCompact && width > height
-
   const gap   = { label: "gap value",   fontSize: finite(metrics.gapValueFontSize,   "gap value font size") }
   const selfV = { label: "self value",  fontSize: finite(metrics.selfValueFontSize,  "self value font size") }
   const badge = { label: "class badge", fontSize: finite(metrics.classBadgeFontSize, "class badge font size") }
   const label = { label: "label",       fontSize: finite(metrics.labelFontSize,      "label font size") }
 
-  // Native layout: strict ordering on all pairs.
-  if (!isApp && !isCompact) return assertTypeScaleOrder([gap, selfV, badge, label])
-
-  // All other layouts: check gap > selfV strictly, then apply per-layout budget for selfV vs badge.
-  if (gap.fontSize <= selfV.fontSize) {
-    fail(
-      `type-scale hierarchy does not hold: gap value ${gap.fontSize}px must be strictly ` +
-        `larger than self value ${selfV.fontSize}px`
-    )
-  }
-
-  const selfBadgeDelta = badge.fontSize - selfV.fontSize  // positive → badge exceeds selfV
-  const defectId = isApp
-    ? "app-type-scale-badge-exceeds-self"
-    : isCompactPhone
-      ? "compact-phone-type-scale-self-badge-tie"
-      : isCompactLandscape
-        ? "compact-landscape-type-scale-badge-exceeds-self"
-        : null
-
-  if (selfV.fontSize <= badge.fontSize) {
-    // selfV <= badge: either tie (delta=0) or inversion (delta>0).
-    const defect = defectId ? RC07_SPEC.knownDefects.find((d) => d.id === defectId) : null
-    const budget = defect?.budget?.badgeMinusSelfMaxPx ?? 0
-    // Exempt only a strict inversion (not a tie) within budget for the phone-tie defect;
-    // for other defect IDs, the budget covers both tie and inversion.
-    const exempt = defect && selfBadgeDelta <= budget && (defectId !== "compact-phone-type-scale-self-badge-tie" || selfBadgeDelta >= 0)
-    if (!exempt) {
-      fail(
-        `type-scale hierarchy does not hold: self value ${selfV.fontSize}px must be strictly ` +
-          `larger than class badge ${badge.fontSize}px` +
-          (defect && selfBadgeDelta > budget
-            ? ` (known defect budget is ${budget}px but delta grew to ${selfBadgeDelta.toFixed(3)}px)`
-            : "")
-      )
-    }
-  }
-
-  if (badge.fontSize <= label.fontSize) {
-    fail(
-      `type-scale hierarchy does not hold: class badge ${badge.fontSize}px must be strictly ` +
-        `larger than label ${label.fontSize}px`
-    )
-  }
+  // Strict ordering with a minimum 1px step between each tier (a tie is a failure).
+  assertTypeScaleOrder([gap, selfV, badge, label])
 
   return [gap, selfV, badge, label]
 }

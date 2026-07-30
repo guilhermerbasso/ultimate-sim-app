@@ -1,4 +1,4 @@
-﻿import type { HifiWidgetModule } from '../types'
+import type { HifiWidgetModule } from '../types'
 import {
   clusterAmg,
   clusterCorvette,

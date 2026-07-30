@@ -3,7 +3,8 @@ import { dialog, shell, type OpenDialogOptions } from 'electron'
 import { lookup } from 'node:dns/promises'
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns'
 import { createWriteStream, watch, type FSWatcher } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import { request as httpsRequest, type RequestOptions } from 'node:https'
 import { basename, dirname, extname, join, normalize, sep } from 'node:path'
@@ -388,7 +389,7 @@ async function installSetup(ctx: ModuleContext, configPath: string, args: Instal
     const info = await stat(file.localPath)
     if (!info.isFile()) return { ok: false, message: 'Invalid local source.' }
     if (info.size > MAX_STO_BYTES) return { ok: false, message: '.sto file is too large.' }
-    await copyFile(file.localPath, targetPath)
+    await writeSetupFileAtomically(targetPath, (stagingPath) => copyFile(file.localPath as string, stagingPath))
   } else if (file.url) {
     await downloadSto(file.url, targetPath)
   } else {
@@ -415,15 +416,57 @@ async function downloadSto(url: string, targetPath: string): Promise<void> {
     stream.destroy()
     throw new Error('.sto file is too large.')
   }
+  await writeDownloadedSto(stream, targetPath)
+}
+
+// Wraps the .sto response body write in the staging+rename transaction. Exported
+// so the regression test can inject a mid-stream failure against the REAL path.
+export function writeDownloadedSto(stream: Readable, targetPath: string): Promise<void> {
+  return writeSetupFileAtomically(targetPath, (stagingPath) =>
+    pipeline(stream, sizeCapStream(MAX_STO_BYTES), createWriteStream(stagingPath))
+  )
+}
+
+// Writes a setup through a sibling staging file and only then renames it over the
+// destination. `createWriteStream`/`copyFile` open the destination with O_TRUNC,
+// so writing straight to `targetPath` destroys an existing setup the instant the
+// transfer starts — a dropped connection or an oversized body then left the user
+// with nothing (audit §24-12). Staging + rename means a failure can only ever
+// leave the PREVIOUS file in place, byte-identical.
+export async function writeSetupFileAtomically(
+  targetPath: string,
+  write: (stagingPath: string) => Promise<void>
+): Promise<void> {
+  // `.part` (not `.sto`) so the setups watcher never picks a staging file up.
+  const stagingPath = `${targetPath}.${randomUUID()}.part`
   try {
-    await pipeline(stream, sizeCapStream(MAX_STO_BYTES), createWriteStream(targetPath))
+    await write(stagingPath)
   } catch (error) {
-    await unlink(targetPath).catch(() => undefined)
+    await rm(stagingPath, { force: true }).catch(() => undefined)
     throw error
+  }
+  try {
+    await rename(stagingPath, targetPath)
+  } catch (error) {
+    // Windows refuses rename-over-existing while a handle is open (EPERM/EEXIST).
+    // Retry once by removing the destination first; anything else propagates so a
+    // real failure is never swallowed.
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'EPERM' && code !== 'EEXIST' && code !== 'EACCES') {
+      await rm(stagingPath, { force: true }).catch(() => undefined)
+      throw error
+    }
+    try {
+      await unlink(targetPath)
+      await rename(stagingPath, targetPath)
+    } catch (retryError) {
+      await rm(stagingPath, { force: true }).catch(() => undefined)
+      throw retryError
+    }
   }
 }
 
-// Transform that fails the pipeline (and thus deletes the partial file) once the
+// Transform that fails the pipeline (and thus discards the staging file) once the
 // downloaded size exceeds `maxBytes`, preventing a disk-fill DoS.
 function sizeCapStream(maxBytes: number): Transform {
   let total = 0

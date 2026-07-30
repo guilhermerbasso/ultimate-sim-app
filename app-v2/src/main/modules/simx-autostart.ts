@@ -1,5 +1,9 @@
 import type { PortInfo } from '../../shared/ipc'
-import { resolveSimXPort } from '../../shared/simx-autostart'
+import {
+  resolveSimXAutoConnect,
+  type SimXAutoConnectBlocked,
+  type SimXEnrollment
+} from '../../shared/simx-enrollment'
 
 // Minimal serial surface the coordinator needs — kept structural so tests can pass a
 // fake without the whole SerialManager.
@@ -13,6 +17,7 @@ export interface AutostartSerial {
 export interface AutostartLogger {
   info(area: string, message: string, detail?: unknown): void
   verbose(area: string, message: string, detail?: unknown): void
+  warn?(area: string, message: string, detail?: unknown): void
 }
 
 export interface SimxAutostartDeps {
@@ -21,8 +26,10 @@ export interface SimxAutostartDeps {
   setRevlightsEnabled: (enabled: boolean) => Promise<unknown>
   // Reads the live AppSettings flag (shared store, so toggles are seen immediately).
   isEnabled: () => boolean
-  loadLastPort: () => string | null
-  saveLastPort: (path: string) => void
+  // Reads the persisted hardware enrolment. Auto-connect is only ever allowed for
+  // the exact board recorded here, and that record is only written when a HUMAN
+  // connects the board manually. Returns null while nothing is enrolled.
+  loadEnrollment: () => SimXEnrollment | null
   retryMs?: number
   logger?: AutostartLogger
 }
@@ -32,6 +39,14 @@ const DEFAULT_RETRY_MS = 3000
 // Coordinates: auto-connect the SIM-X on launch, enable the rev-lights once it's up,
 // keep retrying in the background until it appears, and reconnect if it drops. All
 // best-effort — it never throws and never overrides a connection the user made.
+//
+// SAFETY (P0-09 / P1-14 / §24-15): opening the port asserts DTR/RTS (which resets an
+// auto-reset AVR board) and SerialManager.connect() then WRITES a rev-light/OLED
+// self-test. So a port is only ever opened when `resolveSimXAutoConnect` proves it is
+// the ENROLLED board by USB identity. Every other situation — nothing enrolled, board
+// absent, two boards sharing an identity, an enrolment with no USB ids — is
+// quarantined and reported. There is no COM-path fallback and no vendor-wide
+// heuristic fallback: `isSimX` is a UI badge, never an authorisation.
 export class SimxAutostartController {
   private connected = false
   private connecting = false
@@ -43,6 +58,10 @@ export class SimxAutostartController {
   // 'disconnect' is NOT auto-reconnected (e.g. unplugging to flash firmware).
   private userDisconnectPending = false
   private retryTimer: ReturnType<typeof setTimeout> | null = null
+  // Latest blocked decision, exposed for diagnostics and de-duplicated logging (the
+  // retry loop re-evaluates every few seconds and must not spam the log).
+  private quarantine: SimXAutoConnectBlocked | null = null
+  private loggedQuarantineReason: string | null = null
   private readonly retryMs: number
   private readonly onConnect = (info: unknown): void => this.handleConnect(info)
   private readonly onDisconnect = (): void => this.handleDisconnect()
@@ -93,6 +112,13 @@ export class SimxAutostartController {
     return this.retryTimer !== null
   }
 
+  // Why auto-connect is currently refusing to open a port, or null when it is not
+  // refusing. Surfaced so the Hardware area can explain the quarantine instead of
+  // silently doing nothing.
+  getQuarantine(): SimXAutoConnectBlocked | null {
+    return this.quarantine
+  }
+
   private async attemptConnect(): Promise<void> {
     if (this.disposed || this.connected || this.connecting || !this.deps.isEnabled()) return
     this.connecting = true
@@ -101,15 +127,20 @@ export class SimxAutostartController {
       // State can change while listPorts() awaits (a manual connect landed, or we're
       // disposing on quit) — re-check before opening a port.
       if (this.disposed || this.connected || !this.deps.isEnabled()) return
-      const path = resolveSimXPort(ports, this.deps.loadLastPort())
-      if (!path) {
-        this.deps.logger?.verbose('serial', 'auto-start: no candidate port yet', { kind: 'sim-x' })
+      const decision = resolveSimXAutoConnect(ports, this.readEnrollment())
+      if (!decision.allowed) {
+        this.recordQuarantine(decision)
         this.scheduleRetry()
         return
       }
-      this.deps.logger?.info('serial', 'auto-start: connecting', { path, kind: 'sim-x' })
-      await this.deps.serial.connect(path)
-      // Success is finalized by the 'connect' event handler (persist + rev-lights).
+      this.clearQuarantine()
+      this.deps.logger?.info('serial', 'auto-start: connecting', {
+        path: decision.path,
+        kind: 'sim-x',
+        reason: 'enrolled-identity-match'
+      })
+      await this.deps.serial.connect(decision.path)
+      // Success is finalized by the 'connect' event handler (rev-lights).
     } catch (error) {
       this.deps.logger?.verbose('serial', 'auto-start: connect attempt failed', {
         kind: 'sim-x',
@@ -121,11 +152,44 @@ export class SimxAutostartController {
     }
   }
 
+  // A malformed/unreadable enrolment must behave exactly like "nothing enrolled":
+  // quarantine, never a fallback that opens a port.
+  private readEnrollment(): SimXEnrollment | null {
+    try {
+      return this.deps.loadEnrollment() ?? null
+    } catch (error) {
+      this.deps.logger?.verbose('serial', 'auto-start: enrolment unreadable', {
+        kind: 'sim-x',
+        message: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
+  private recordQuarantine(decision: SimXAutoConnectBlocked): void {
+    this.quarantine = decision
+    if (this.loggedQuarantineReason === decision.reason) return
+    this.loggedQuarantineReason = decision.reason
+    const detail = {
+      kind: 'sim-x',
+      reason: decision.reason,
+      candidates: decision.candidatePaths
+    }
+    if (this.deps.logger?.warn) this.deps.logger.warn('serial', decision.message, detail)
+    else this.deps.logger?.info('serial', decision.message, detail)
+  }
+
+  private clearQuarantine(): void {
+    this.quarantine = null
+    this.loggedQuarantineReason = null
+  }
+
   private handleConnect(info: unknown): void {
     if (this.disposed) return
     this.connected = true
     // A real connection clears any pending user-disconnect suppression.
     this.userDisconnectPending = false
+    this.clearQuarantine()
     this.clearRetry()
     const path = readPath(info)
     // Symmetric success log with the generic controller ("device auto-connected"),
@@ -135,13 +199,6 @@ export class SimxAutostartController {
       path: path ?? undefined,
       kind: 'sim-x'
     })
-    if (path) {
-      try {
-        this.deps.saveLastPort(path)
-      } catch {
-        // best effort
-      }
-    }
     // Activate rev-lights ONCE per session (first connect only). On reconnects the
     // engine re-asserts its own enabled state via the connect self-test 'resync', so
     // we must NOT force them again — that would revert a user's mid-session "off".

@@ -56,8 +56,12 @@ function formatValue(value: ExpressionValue, decimals: number | null, suffix: st
   return suffix ? `${text}${suffix}` : text
 }
 
-export function CustomOverlayWidget({ snapshot }: WidgetProps) {
-  const overlayId = useMemo(customOverlayIdFromUrl, [])
+export function CustomOverlayWidget({ snapshot, config }: WidgetProps) {
+  // In the per-overlay window the id comes from the URL. The compositor hosts every
+  // overlay in one window, so it identifies the layer through the config instead.
+  const configId = typeof config?.id === 'string' && isCustomOverlayId(config.id) ? config.id : null
+  const urlId = useMemo(customOverlayIdFromUrl, [])
+  const overlayId = configId ?? urlId
   const [def, setDef] = useState<CustomOverlayDef | null>(null)
   const [expressions, setExpressions] = useState<Record<string, ExpressionDef>>({})
   const [enabledVars, setEnabledVars] = useState<EnabledIracingVars>([])
@@ -200,7 +204,7 @@ export function CustomOverlayWidget({ snapshot }: WidgetProps) {
     <div className="overlay-card custom-overlay">
       {(!def || def.elements.length === 0) && (
         <div className="custom-overlay-placeholder">
-          {def ? 'No elements ? edit in the Overlays menu' : 'loading?'}
+          {def ? 'No elements → edit in the Overlays menu' : 'loading?'}
         </div>
       )}
       {rendered.map(({ element, text, hasExpr }) => {

@@ -121,6 +121,7 @@ export const CONFIG_SECTIONS: readonly ConfigSectionDescriptor[] = [
   { id: 'pinout-designs', label: 'Firmware pinouts', kind: 'file', path: 'pinout-designs.json' },
   { id: 'custom-catalog', label: 'Custom board catalog', kind: 'file', path: 'custom-catalog.json' },
   { id: 'simx-identity', label: 'Primary SIM-X identity', kind: 'file', path: 'simx-primary-identity.json' },
+  { id: 'simx-enrollment', label: 'SIM-X hardware enrolment', kind: 'file', path: 'simx-enrollment.json' },
   { id: 'actions', label: 'Actions & keyboard mappings', kind: 'file', path: 'actions-bindings.json' },
   { id: 'expressions', label: 'Expressions', kind: 'file', path: 'expressions.json' },
   { id: 'output-routes', label: 'Output routing', kind: 'file', path: 'output-routes.json' },
@@ -205,6 +206,14 @@ export interface ConfigImportSummary {
   unknown: string[]
   /** Per-section item/application counts when the section has a meaningful collection shape. */
   details?: Record<string, ConfigSectionImportDetail>
+  /**
+   * Non-fatal problems found AFTER the data was successfully persisted — e.g.
+   * imported iFlag profiles that no local RGB matrix target could be matched to.
+   * Audit §24-19: these MUST NOT be raised as a global import error, because the
+   * data is already on disk and will apply on the next launch; reporting them as
+   * a failure tells the user the opposite of what happened.
+   */
+  warnings?: string[]
 }
 
 export interface ConfigSectionImportDetail {

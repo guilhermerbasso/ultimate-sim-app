@@ -1,5 +1,14 @@
 # SimHub — Custom Serial Device — Button Box V2 OLED
 
+> [!CAUTION]
+> **QUARANTINED — superseded SimHub mapping.** This configures SimHub for
+> `firmware/buttonbox_v2/buttonbox_v2.ino`, whose serial mapping does not match
+> the canonical SIM-X protocol in `app-v2/src/main/protocol.ts`. Following it
+> while the app is also connected puts two writers on one COM port, and the
+> wiring it assumes comes from the quarantined `WIRING.csv`.
+> See [`../docs/HARDWARE-QUARANTINE.md`](../docs/HARDWARE-QUARANTINE.md) (Q3).
+> Kept for historical reference only.
+
 ## Objetivo
 
 Enviar dados de telemetria do iRacing para o Pro Micro via USB Serial, para que o firmware `buttonbox_v2.ino` exiba os valores no display OLED em tempo real.

@@ -21,6 +21,11 @@ export interface ExpressionResultEntry {
   // Deletion tombstone. Consumers must evict both id and name caches instead of
   // retaining the last value for a deleted expression.
   deleted?: true
+  // Evaluation-failure marker (audit P0-13 / §24-13). The expression still
+  // exists, but this tick produced no valid value. `value` is null and consumers
+  // MUST NOT keep displaying or driving the last good value — an output that
+  // silently latches a stale number is indistinguishable from a live one.
+  error?: true
 }
 
 // Batched payload broadcast on `expr:results` (~10Hz). Keyed by `ExpressionDef.id`.
