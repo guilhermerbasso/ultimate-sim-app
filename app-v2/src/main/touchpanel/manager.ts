@@ -1,6 +1,7 @@
 import { BrowserWindow, screen } from 'electron'
-import { devRendererUrl } from '../dev-renderer'
+import { devRendererOrigin, devRendererUrl } from '../dev-renderer'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import type { ModuleContext } from '../module-context'
 import { releaseTouchActionsForWebContents } from '../actions/touch-owner'
@@ -27,8 +28,42 @@ const SUBDIR = 'touch-panels'
 // (path traversal). Sanitize exactly like `DashboardManager.fileNameOf`: keep a
 // conservative whitelist and collapse everything else (path separators, `..`,
 // NUL, etc.) to `_`. Exported for unit testing.
-export function panelFileName(id: string): string {
-  const safe = String(id).replace(/[^A-Za-z0-9._-]/g, '_')
+// Navigation guard for the touch-panel window.
+//
+// The touch-panel window carries a PRIVILEGED preload (`touchpanel.mjs` exposes
+// `window.ipc` over the touch-action channel allowlist), and a preload survives
+// same-window navigation. Anything this predicate lets through therefore gets
+// that bridge.
+//
+// It previously matched with `url.startsWith(devRendererUrl() ?? 'file://')`.
+// A `file://` PREFIX test is not an origin check: in a packaged build it admitted
+// EVERY `file:` URL on the machine — a downloaded page in the user's Downloads
+// folder, any HTML on any mounted volume — and on Windows `file://host/share`
+// resolves to a UNC path, so it admitted REMOTE documents too.
+//
+// This now mirrors `isAllowedAppNavigation` in overlays/manager.ts and
+// dashboards/manager.ts exactly: compare the dev-server ORIGIN in dev, otherwise
+// require `file:` with the exact pathname of our own bundled document. Comparing
+// pathname (not href) keeps in-page navigation between panels working, since
+// `loadFile(..., { query })` differs only in the query string.
+//
+// The dev origin comes from `devRendererOrigin()` (audit P0-11, #177), never from
+// the raw environment variable: a packaged build must not trust it at all.
+export function isAllowedTouchPanelNavigation(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    const devOrigin = devRendererOrigin()
+    if (devOrigin) {
+      return parsed.origin === devOrigin
+    }
+    const appHtml = pathToFileURL(join(__dirname, '../renderer/touchpanel.html'))
+    return parsed.protocol === 'file:' && parsed.pathname === appHtml.pathname
+  } catch {
+    return false
+  }
+}
+
+export function panelFileName(id: string): string {  const safe = String(id).replace(/[^A-Za-z0-9._-]/g, '_')
   // Defense-in-depth: neutralize any `..` traversal token that survives the
   // whitelist (dots are allowed so real names like `my.panel` keep working).
   const collapsed = safe.replace(/\.\.+/g, '_')
@@ -325,8 +360,7 @@ export class TouchPanelManager {
     // navigation would otherwise retain that preload). Only the local dev-server
     // renderer URL or the packaged file:// document are allowed.
     win.webContents.on('will-navigate', (event, url) => {
-      const allowed = devRendererUrl() ?? 'file://'
-      if (!url.startsWith(allowed)) event.preventDefault()
+      if (!isAllowedTouchPanelNavigation(url)) event.preventDefault()
     })
     win.on('closed', () => {
       if (this.window === win) {
