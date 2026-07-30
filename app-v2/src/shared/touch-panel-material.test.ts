@@ -63,14 +63,15 @@ describe('key material + icon model', () => {
     const panel = createButtonBoxPanel({
       columns: 2,
       rows: 1,
-      tags: ['touch', 'Ferrari', 'touch'],
+      // Tags are stored lowercase so `Ferrari` and `ferrari` cannot become two tags.
+      tags: ['touch', 'Ferrari', 'touch', 'ferrari'],
       buttons: [
         { label: 'TC-', material: 'rocker', icon: 'settings' },
         { label: 'RADIO', material: 'led_ring', icon: 'radio' }
       ]
     })
     const parsed = parseButtonBoxPanel(serializeButtonBoxPanel(panel))
-    expect(parsed?.tags).toEqual(['touch', 'Ferrari'])
+    expect(parsed?.tags).toEqual(['touch', 'ferrari'])
     expect(parsed?.buttons.map((button) => button.material)).toEqual(['rocker', 'led_ring'])
   })
 

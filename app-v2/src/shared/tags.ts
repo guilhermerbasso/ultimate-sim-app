@@ -20,6 +20,15 @@ export function simTagsFor(
   return widgetSupportedSims(requires, alternativeRequires).map((s) => simLabel(s))
 }
 
+/**
+ * Comparison key for a tag. Tags arrive from hand-authored catalogs, user input
+ * and imported panel JSON, so `Rain`, `rain` and `RAIN` all denote one tag and
+ * must dedupe and match as one. The original spelling is kept for display.
+ */
+export function normalizeTagKey(tag: string): string {
+  return tag.trim().toLowerCase()
+}
+
 /** Manual tags + optional category + auto sim tags, de-duplicated, stable order. */
 export function mergeTags(
   manual: readonly string[] | undefined,
@@ -32,8 +41,10 @@ export function mergeTags(
   const add = (t: string | undefined): void => {
     if (!t) return
     const v = t.trim()
-    if (!v || seen.has(v)) return
-    seen.add(v)
+    if (!v) return
+    const key = normalizeTagKey(v)
+    if (seen.has(key)) return
+    seen.add(key)
     out.push(v)
   }
   if (category) add(category)
