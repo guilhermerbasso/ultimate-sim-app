@@ -252,6 +252,11 @@ export function createFileStorage(baseDir: string): ConfigStorage {
       for (const name of names) {
         if (!name.endsWith('.json')) continue
         try {
+          // lstat (NOT stat) so a planted symlink is skipped instead of followed:
+          // `statDir` already refuses them for size/count, and following one here
+          // would copy an arbitrary file's contents into an exported bundle.
+          const info = await lstat(join(dir, name))
+          if (info.isSymbolicLink() || !info.isFile()) continue
           out[name] = JSON.parse(await readFile(join(dir, name), 'utf8')) as unknown
         } catch {
           // Ignore corrupt/unreadable entries — a partial export is fine.
@@ -782,7 +787,41 @@ function importDialogOpts(): OpenDialogOptions {
   return { title: 'Import configuration', properties: ['openFile'], filters: JSON_FILTER }
 }
 
+// Hard ceiling for a configuration file the user selects for import. Every
+// section this app persists is a small settings document; the largest realistic
+// bundle is a few hundred KiB. Without a cap, `readFile` buffers whatever the
+// selected path resolves to (a multi-GB file, a device, a growing log) into main
+// process memory before a single validation runs.
+export const MAX_IMPORT_BYTES = 8 * 1024 * 1024
+
+// Reads a user-selected configuration file for import.
+//
+// Audit §24-11 / P0-12: the import source must reject symlinks and enforce a size
+// cap. `lstat` (never `stat`) is used so a symlink reports its OWN metadata and is
+// refused instead of silently following the link — the file dialog is not the only
+// caller-controlled path here, and a planted symlink in a shared/synced folder
+// would otherwise let an import read an arbitrary file (including the app's own
+// credential stores) and, on the export side, hand its contents back to the user.
+// The size check runs on the same lstat result, i.e. BEFORE any bytes are read.
 export async function readImportPayload(filePath: string): Promise<unknown> {
+  let info: Awaited<ReturnType<typeof lstat>>
+  try {
+    info = await lstat(filePath)
+  } catch {
+    throw new Error('Invalid configuration file: the selected file could not be read.')
+  }
+  if (info.isSymbolicLink()) {
+    throw new Error('Invalid configuration file: symbolic links are not accepted for import.')
+  }
+  if (!info.isFile()) {
+    throw new Error('Invalid configuration file: the selected path is not a regular file.')
+  }
+  if (info.size > MAX_IMPORT_BYTES) {
+    throw new Error(
+      `Invalid configuration file: the file is too large (limit ${Math.floor(MAX_IMPORT_BYTES / (1024 * 1024))} MB).`
+    )
+  }
+
   const text = await readFile(filePath, 'utf8')
   if (!text.trim()) throw new Error('Invalid configuration file: the selected JSON file is empty.')
   try {
