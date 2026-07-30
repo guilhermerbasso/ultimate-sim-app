@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { ViewIcon } from '../views/icons'
 import type { ViewDef } from '../views/registry'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { t, type ResolvedLanguage } from '../i18n'
 
 interface CommandPaletteProps {
@@ -18,8 +19,7 @@ function optionId(id: string): string {
   return `cmdk-option-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 }
 
-// Ctrl/Cmd+K palette: fuzzy-free substring search over every registered view
-// (label, group, eyebrow, description, shortcut) so the user can jump anywhere
+// Ctrl/Cmd+K palette: fuzzy-free substring search over every registered view// (label, group, eyebrow, description, shortcut) so the user can jump anywhere
 // without hunting the sidebar. Additive — does not touch the view components.
 export function CommandPalette({ open, activeId, views, language, onClose, onSelect }: CommandPaletteProps): ReactElement | null {
   const [query, setQuery] = useState('')
@@ -35,12 +35,16 @@ export function CommandPalette({ open, activeId, views, language, onClose, onSel
     )
   }, [query, views])
 
+  const focusTrap = useFocusTrap<HTMLDivElement>({
+    active: open,
+    onEscape: onClose,
+    initialFocusRef: inputRef
+  })
+
   useEffect(() => {
     if (!open) return
     setQuery('')
     setHighlight(0)
-    const timer = window.setTimeout(() => inputRef.current?.focus(), 0)
-    return () => window.clearTimeout(timer)
   }, [open])
 
   useEffect(() => {
@@ -51,24 +55,7 @@ export function CommandPalette({ open, activeId, views, language, onClose, onSel
 
   const activeOptionId = results[highlight] ? optionId(results[highlight].id) : undefined
 
-  const trapTab = (event: KeyboardEvent<HTMLDivElement>): void => {
-    const panel = panelRef.current
-    if (!panel) return
-
-    const focusable = Array.from(
-      panel.querySelectorAll<HTMLElement>('input, button, [href], [tabindex]:not([tabindex="-1"])')
-    ).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true')
-
-    if (focusable.length === 0) return
-
-    const currentIndex = focusable.indexOf(document.activeElement as HTMLElement)
-    const nextIndex = event.shiftKey
-      ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
-      : (currentIndex === focusable.length - 1 ? 0 : currentIndex + 1)
-
-    event.preventDefault()
-    focusable[nextIndex]?.focus()
-  }
+  const trapTab = focusTrap.onKeyDown
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'ArrowDown') {
@@ -81,17 +68,22 @@ export function CommandPalette({ open, activeId, views, language, onClose, onSel
       event.preventDefault()
       const target = results[highlight]
       if (target) onSelect(target.id)
-    } else if (event.key === 'Escape') {
-      event.preventDefault()
-      onClose()
-    } else if (event.key === 'Tab') {
+    } else if (event.key === 'Escape' || event.key === 'Tab') {
       trapTab(event)
     }
   }
 
   return (
-    <div className="cmdk-backdrop" role="dialog" aria-modal="true" aria-label={t(language, 'searchScreens')} onMouseDown={onClose}>
-      <div ref={panelRef} className="cmdk-panel" onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
+    <div
+      ref={focusTrap.containerRef}
+      onKeyDown={handleKeyDown}
+      className="cmdk-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t(language, 'searchScreens')}
+      onMouseDown={onClose}
+    >
+      <div className="cmdk-panel" onMouseDown={(event) => event.stopPropagation()}>
         <div className="cmdk-input-row">
           <span className="cmdk-input-icon" aria-hidden="true">⌕</span>
           <input
