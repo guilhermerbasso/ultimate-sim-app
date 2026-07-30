@@ -199,41 +199,10 @@ export const RC11_SPEC = Object.freeze({
     ])
   ]),
   /**
-   * DEFECT RC-11/1 — `.rc11-gap-label` ("DATA GAP") overflows its clipping box at every viewport
-   * in the data-gap state.
-   *
-   * `white-space: nowrap` defeats `overflow: hidden` on the label span: the text "DATA GAP" is
-   * wider than the narrow gap band container at every viewport, so the label escapes its clip. The
-   * gap band width is proportional to the fraction of the trace that is missing
-   * (GAP_FRAMES / READY_SEQUENCE ≈ 8.2 %), which yields a very narrow box that the seven-character
-   * "DATA GAP" string cannot fit in at any viewport.
-   *
-   * Measured overflowX (scrollWidth − clientWidth) across all six viewports, data-gap state,
-   * three elements per frame (one per gap band), all three equal at a given viewport:
-   *
-   *   800x480  (native)               overflowX  +27 px
-   *   1024x600 (app)                  overflowX  +30 px
-   *   393x759  (compact/phone)        overflowX  +13 px
-   *   412x867  (compact/phone)        overflowX  +14 px
-   *   759x393  (compact/landscape)    overflowX  +25 px
-   *   867x412  (compact/landscape)    overflowX  +29 px
-   *
-   * Maximum observed: +30 px (1024x600). Budget = 30 + 6 = 36 px (font-metric allowance).
-   * Every overflow leaf has key "rc11-gap-label" (no data-testid; class attribute is used).
+   * The measured DATA GAP label overflow has been corrected. This ledger is intentionally empty so
+   * the harness fails closed on recurrence - any new overflow leaf is an unconditional hard failure.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "rc11-gap-label",
-      states: Object.freeze(["data-gap"]),
-      sizes: Object.freeze(["800x480", "1024x600", "393x759", "412x867", "759x393", "867x412"]),
-      budgetPx: 36,
-      note:
-        "DATA GAP label overflows its gap-band clipping box at every viewport: white-space:nowrap " +
-        "defeats overflow:hidden on the narrow band (≈8.2 % of the shared plot span). " +
-        "Measured +27 px (800×480 native), +30 px (1024×600 app), +13 px (393×759), " +
-        "+14 px (412×867), +25 px (759×393), +29 px (867×412). Maximum +30 px."
-    })
-  ]),
+  knownDefects: Object.freeze([]),
   zoneOverflowDefects: Object.freeze([]),
   containmentDefects: Object.freeze([])
 })
@@ -613,9 +582,31 @@ function assertTypeScale(metrics) {
   ])
 }
 
+/**
+ * REGRESSION GUARD RC-11/1 - DATA GAP label stays inside its measured band.
+ *
+ * The label overflowed the band that owns it at all six governed viewports (800x480, 1024x600,
+ * 393x759, 412x867, 759x393, 867x412) in the data-gap state. The fix makes the label read down
+ * the band (`writing-mode: vertical-rl`, `max-block-size: 100%`), so `.rc11-gap-label` must never
+ * appear in `metrics.overflowLeaves` at any viewport or state. If a capture exposes direct
+ * gap-label geometry, the label rect must also be contained by the owning band rect.
+ */
+function assertGapLabelContained(metrics) {
+  const gapLabelLeaf = (metrics.overflowLeaves ?? []).find((leaf) => leaf.key === "rc11-gap-label")
+  if (gapLabelLeaf) {
+    fail(
+      `REGRESSION GUARD RC-11/1: rc11-gap-label "${gapLabelLeaf.text ?? "DATA GAP"}" ` +
+      `overflows its DATA GAP band by ${finite(gapLabelLeaf.overflowX, "rc11-gap-label overflowX")}px - ` +
+      "the vertical DATA GAP label must fit the band that owns it at every viewport and state"
+    )
+  }
+}
+
 /* ── Export: validateCaptureMetrics ──────────────────────────────────────────────────────── */
 
 export function validateCaptureMetrics(metrics, entry) {
+  assertGapLabelContained(metrics)
+
   const common = validateCommonMetrics(metrics, entry, RC11_SPEC)
 
   assertNativeSize(metrics, entry)

@@ -91,12 +91,6 @@ const viewports = [
   { width: 867,  height: 412, layout: 'compact', compactMode: 'landscape' }
 ] as const
 
-/**
- * DEFECT RC-11/1 — DATA GAP label overflow at every viewport in the data-gap state.
- * Budget = 36 px (max measured +30 px + 6 px font-metric allowance).
- */
-const GAP_LABEL_OVERFLOW_BUDGET_PX = 36
-
 async function readGeometry(page: Page) {
   return page.locator('#racecon-rc11-capture-root').evaluate((root) => {
     const rootRect = root.getBoundingClientRect()
@@ -165,13 +159,18 @@ async function readGeometry(page: Page) {
     const distanceTicks = Array.from(root.querySelectorAll<HTMLElement>('[data-testid="rc11-distance-tick"]'))
     const distanceTickTexts = distanceTicks.map(el => el.textContent?.trim() ?? '')
 
-    // Gap label overflow (DEFECT RC-11/1)
+    // Gap label containment (fixed DEFECT RC-11/1)
     const gapLabelElements = Array.from(root.querySelectorAll<HTMLElement>('.rc11-gap-label'))
-    const gapLabelOverflows = gapLabelElements.map(el => ({
-      clientWidth: el.clientWidth,
-      scrollWidth: el.scrollWidth,
-      overflowX: el.scrollWidth - el.clientWidth
-    }))
+    const gapLabelOverflows = gapLabelElements.map(el => {
+      const band = el.closest<HTMLElement>('[data-testid="rc11-gap"]')
+      return {
+        clientWidth: el.clientWidth,
+        scrollWidth: el.scrollWidth,
+        overflowX: el.scrollWidth - el.clientWidth,
+        labelRect: relative(el),
+        bandRect: relative(band)
+      }
+    })
 
     return {
       viewport:     { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
@@ -205,7 +204,7 @@ async function readGeometry(page: Page) {
       // Shared plot axis rects
       plotRects,
       cursorRects,
-      // Gap label overflow (DEFECT RC-11/1)
+      // Gap label containment (fixed DEFECT RC-11/1)
       gapLabelOverflows,
       // Zone rects
       zones,
@@ -359,64 +358,49 @@ for (const size of viewports) {
       await context.close()
     }
   })
-}
-
-test('the data-gap band is present and its label overflows within budget', async ({ browser }) => {
-  // Use the native viewport for the engaged-state test
-  const size = viewports[0]  // 800x480 native
-  const { context, page } = await openCapture(browser, size, { layout: 'native', state: 'data-gap' })
-  try {
-    await expect
-      .poll(
-        async () => page.locator('[data-widget="raceconRc11Dash"]').getAttribute('data-rc11-alerts'),
-        { timeout: 150_000 }
-      )
-      .toBe('active')
-
-    const alarm = await page.locator('#racecon-rc11-capture-root').evaluate((root) => {
-      const widget = root.querySelector<HTMLElement>('[data-widget="raceconRc11Dash"]')!
-      const gapLabelElements = Array.from(root.querySelectorAll<HTMLElement>('.rc11-gap-label'))
-      return {
-        alerts:      widget?.dataset.rc11Alerts,
-        gapBandCount: root.querySelectorAll('[data-testid="rc11-gap"]').length,
-        gapLabelOverflows: gapLabelElements.map(el => ({
-          clientWidth: el.clientWidth,
-          scrollWidth: el.scrollWidth,
-          overflowX: el.scrollWidth - el.clientWidth
-        })),
-        // Packet omissions still hold in data-gap state
-        distanceTickTexts: Array.from(root.querySelectorAll('[data-testid="rc11-distance-tick"]')).map(el => el.textContent?.trim() ?? ''),
-        lockupCount:   root.querySelectorAll('[data-testid="rc11-marker"][data-rc11-marker="lockUp"]').length,
-        rpmCount:      root.querySelectorAll('[data-rc11-series="rpm"], [data-testid="rc11-panel-rpm"]').length,
-        sectorRowCount: root.querySelectorAll('[data-testid="rc11-sector-row"]').length
-      }
+  test(`${sizeKey} keeps the ${label} DATA GAP labels contained (data-gap)`, async ({ browser }) => {
+    const { context, page } = await openCapture(browser, size, {
+      layout: size.layout,
+      compactMode: size.compactMode ?? undefined,
+      state: 'data-gap'
     })
+    try {
+      await expect
+        .poll(
+          async () => page.locator('[data-widget="raceconRc11Dash"]').getAttribute('data-rc11-alerts'),
+          { timeout: 150_000 }
+        )
+        .toBe('active')
 
-    // Alert must be active
-    expect(alarm.alerts).toBe('active')
+      const geometry = await readGeometry(page)
 
-    // Gap bands must be present
-    expect(alarm.gapBandCount).toBeGreaterThanOrEqual(1)
+      expect(geometry.alerts).toBe('active')
+      expect(geometry.gapBandCount).toBeGreaterThanOrEqual(1)
 
-    // DEFECT RC-11/1: the gap-label must overflow, but within the 36 px budget.
-    // Every gap label we find must overflow > 0 and ≤ 36 px.
-    expect(alarm.gapLabelOverflows.length, 'at least one gap label must exist in data-gap state').toBeGreaterThanOrEqual(1)
-    for (const { overflowX } of alarm.gapLabelOverflows) {
-      expect(overflowX, 'gap label overflow must be > 0 (DEFECT RC-11/1)').toBeGreaterThan(0)
-      expect(overflowX, `gap label overflow must stay within ${GAP_LABEL_OVERFLOW_BUDGET_PX} px budget`).toBeLessThanOrEqual(GAP_LABEL_OVERFLOW_BUDGET_PX)
+      // REGRESSION GUARD RC-11/1: the DATA GAP label used to overflow every governed viewport
+      // (800x480, 1024x600, 393x759, 412x867, 759x393, 867x412). It now reads down the band;
+      // scrollWidth must fit clientWidth and the measured label rect must stay inside its band.
+      expect(geometry.gapLabelOverflows.length, 'at least one gap label must exist in data-gap state').toBeGreaterThanOrEqual(1)
+      for (const { clientWidth, scrollWidth, overflowX, labelRect, bandRect } of geometry.gapLabelOverflows) {
+        expect(overflowX, `gap label must not overflow its band at ${sizeKey}`).toBeLessThanOrEqual(0)
+        expect(scrollWidth, `gap label scrollWidth must fit clientWidth at ${sizeKey}`).toBeLessThanOrEqual(clientWidth)
+        expect(labelRect, `gap label must expose a measured rect at ${sizeKey}`).not.toBeNull()
+        expect(bandRect, `gap label must have an owning measured gap band at ${sizeKey}`).not.toBeNull()
+        if (labelRect && bandRect) expectContained(bandRect, labelRect)
+      }
+
+      for (const text of geometry.distanceTickTexts) {
+        expect(text).toBe('--')
+      }
+      expect(geometry.lockupCount).toBe(0)
+      expect(geometry.rpmForbiddenCount).toBe(0)
+      expect(geometry.sectorRowCount).toBe(0)
+
+      const capture = await page.locator('#racecon-rc11-capture-root').screenshot({ animations: 'disabled' })
+      expect(capture.byteLength).toBeGreaterThan(5_000)
+    } finally {
+      await context.close()
     }
+  })
 
-    // Packet omissions still hold under data-gap
-    for (const text of alarm.distanceTickTexts) {
-      expect(text).toBe('--')
-    }
-    expect(alarm.lockupCount).toBe(0)
-    expect(alarm.rpmCount).toBe(0)
-    expect(alarm.sectorRowCount).toBe(0)
-
-    const capture = await page.locator('#racecon-rc11-capture-root').screenshot({ animations: 'disabled' })
-    expect(capture.byteLength).toBeGreaterThan(5_000)
-  } finally {
-    await context.close()
-  }
-})
+}

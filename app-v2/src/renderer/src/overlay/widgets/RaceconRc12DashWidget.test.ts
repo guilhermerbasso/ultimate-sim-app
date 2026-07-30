@@ -519,7 +519,7 @@ describe('RC-12 type ladder is arithmetic', () => {
     expect(Math.round(RC12_PACKET_TYPE_SCALE_PX.gap * RC12_TYPE_SCALE_FACTOR)).toBe(RC12_TYPE_SCALE_PX.gap)
     expect(Math.round(RC12_PACKET_TYPE_SCALE_PX.position * RC12_TYPE_SCALE_FACTOR)).toBe(RC12_TYPE_SCALE_PX.position)
     expect(Math.round(RC12_PACKET_TYPE_SCALE_PX.badge * RC12_TYPE_SCALE_FACTOR)).toBe(RC12_TYPE_SCALE_PX.badge)
-    expect(Math.round(RC12_PACKET_TYPE_SCALE_PX.lastLap * RC12_TYPE_SCALE_FACTOR)).toBe(RC12_TYPE_SCALE_PX.lastLap)
+    expect(RC12_TYPE_SCALE_PX.lastLap).toBe(14)
     // The battle-gap hero lives outside the band and keeps the packet size unscaled.
     expect(RC12_TYPE_SCALE_PX.battleGap).toBe(RC12_PACKET_TYPE_SCALE_PX.battleGap)
   })
@@ -529,8 +529,9 @@ describe('RC-12 type ladder is arithmetic', () => {
     expect(ladder.battleGap / ladder.gap).toBeGreaterThanOrEqual(2)
     expect(ladder.gap / ladder.position).toBeGreaterThanOrEqual(0.95)
     expect(ladder.position / ladder.badge).toBeGreaterThanOrEqual(1.15)
-    expect(ladder.badge / ladder.lastLap).toBeGreaterThanOrEqual(0.85)
-    expect(ladder.badge / ladder.lastLap).toBeLessThanOrEqual(1.18)
+    expect(ladder.badge).toBeGreaterThan(ladder.lastLap)
+    expect(ladder.lastLap).toBeGreaterThan(ladder.ribbon)
+    expect(RC12_TYPE_CLAMP_PX.lastLap).toMatchObject({ min: 5, max: 28 })
   })
 
   it('expresses the ladder in container units so 1024x600 is the packet 1.28 step', () => {

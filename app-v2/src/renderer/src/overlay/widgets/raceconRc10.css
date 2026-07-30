@@ -371,7 +371,15 @@
   font-size: clamp(14px, var(--rc10-type-delta, 10.75cqw), 104px);
   font-weight: 700;
   letter-spacing: -0.015em;
-  line-height: 1;
+  /*
+   * Gap G5 again, on the delta rung. Packet 11.2's 86 px delta is the NOMINAL type size, so a
+   * 1.0 line box spent 29 % of its height on leading the digits never use and the reading painted
+   * past the bottom of a tile the row grammar sizes from the canvas HEIGHT while the rung comes
+   * from its WIDTH. The same 0.75 line box the gear digit uses keeps the em box above the 0.71
+   * cap-height ratio, so no ink is lost, and the numeral stays inside its tile as the viewport
+   * aspect widens.
+   */
+  line-height: 0.75;
   white-space: nowrap;
 }
 
@@ -399,7 +407,8 @@
   color: var(--rc10-primary);
   font-size: clamp(14px, var(--rc10-type-fuel, 9cqw), 88px);
   font-weight: 700;
-  line-height: 1;
+  /* Same reading as the gear and delta rungs: the packet size is nominal, the line box is not. */
+  line-height: 0.75;
   white-space: nowrap;
 }
 

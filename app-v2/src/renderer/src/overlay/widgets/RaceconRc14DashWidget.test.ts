@@ -512,6 +512,11 @@ describe('RC-14 packet zone geometry', () => {
     expect(rc14FaultRowPitchPx(380, 0)).toBe(0)
     // The stylesheet lays the list out as uniform 1fr tracks, so the pitch cannot drift row to row.
     expect(CSS_DECLARATIONS).toMatch(/\.rc14-fault-list\s*\{[^}]*grid-auto-rows:\s*minmax\(0,\s*1fr\)/u)
+    // RC-14/1 fixed grid: detail/no-zone occupy full-width rows and cannot size the system line.
+    expect(CSS_DECLARATIONS).toContain("'chip chip'")
+    expect(CSS_DECLARATIONS).toContain("'nozone nozone'")
+    expect(CSS_DECLARATIONS).toContain("'detail detail'")
+    expect(CSS_DECLARATIONS).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 30%)')
   })
 
   it('reproduces the reference rectangle percentages from raw pixels', () => {
@@ -607,10 +612,24 @@ describe('RC-14 type ladder is arithmetic', () => {
     expect(CSS_DECLARATIONS).toContain('container-type: size')
   })
 
-  it('never reduces the packet ladder at the two specified canvases', () => {
+  it('keeps the compact-landscape hero rungs equal with the shared 0.62 factor', () => {
     expect(RC14_COMPACT_TYPE_MAX_HEIGHT_PX).toBeLessThan(RC14_NATIVE_HEIGHT_PX)
     expect(RC14_COMPACT_TYPE_MAX_HEIGHT_PX).toBeLessThan(RC14_APP_HEIGHT_PX)
     expect(CSS_DECLARATIONS).toContain(`@container (max-height: ${RC14_COMPACT_TYPE_MAX_HEIGHT_PX}px)`)
+    expect(CSS_DECLARATIONS).toContain('calc(var(--rc14-type-vital, 5cqw) * 0.62), 34px')
+    expect(CSS_DECLARATIONS).toContain('calc(var(--rc14-type-decision, 5cqw) * 0.62), 34px')
+
+    const compactHeightTypePx = (rung: number, width: number): number => Math.min(rc14TypeScalePxForWidth(rung, width) * 0.62, 34)
+    for (const { width, expected } of [
+      { width: 759, expected: 23.529 },
+      { width: 867, expected: 26.877 }
+    ]) {
+      const vitalPx = compactHeightTypePx(RC14_TYPE_SCALE_PX.vitalValue, width)
+      const decisionPx = compactHeightTypePx(RC14_TYPE_SCALE_PX.decisionWord, width)
+      expect(vitalPx).toBeCloseTo(expected, 3)
+      expect(decisionPx).toBeCloseTo(expected, 3)
+      expect(vitalPx).toBeCloseTo(decisionPx, 3)
+    }
   })
 })
 

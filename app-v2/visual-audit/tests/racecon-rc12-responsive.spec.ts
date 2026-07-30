@@ -84,9 +84,7 @@ const viewports = [
   { width: 867,  height: 412, layout: 'compact', compactMode: 'landscape', rowCount: 6,  populated: 6 }
 ] as const
 
-/** Viewports where the fastest-lap tag spans overflow (DEFECT RC-12/B). Budget: 20 px. */
-const TAG_OVERFLOW_SIZES = new Set(['800x480', '1024x600'])
-const TAG_OVERFLOW_BUDGET_PX = 20
+const FASTEST_LAP_TAG_TEXTS = ['FASTEST LAP', 'P7', '1:37.106'] as const
 
 async function readGeometry(page: Page) {
   return page.locator('#racecon-rc12-capture-root').evaluate((root) => {
@@ -306,9 +304,8 @@ for (const size of viewports) {
       expect(badgePx,   'badge < cell position').toBeLessThan(cellPosPx)
       expect(ribbonPx,  'ribbon < badge').toBeLessThan(badgePx)
 
-      // DEFECT RC-12/A — badge == lastLap at ALL 6 viewports / both states.
-      // The tie is RECORDED; assert the MEASURED value (equal), not pretending it is clean.
-      expect(badgePx, `DEFECT RC-12/A at ${sizeKey}: badge must equal lastLap (tie, both use 2cqw)`).toBe(lastLapPx)
+      // RC-12/A regression guard: badge must strictly outrank lastLap at every viewport and state.
+      expect(badgePx, `RC-12/A fixed at ${sizeKey}: badge must be greater than lastLap`).toBeGreaterThan(lastLapPx)
 
       const capture = await page.locator('#racecon-rc12-capture-root').screenshot({ animations: 'disabled' })
       expect(capture.byteLength).toBeGreaterThan(5_000)
@@ -317,6 +314,26 @@ for (const size of viewports) {
     }
   })
 }
+
+test('fastest-lap tag child spans do not overflow at native and app packet widths', async ({ browser }) => {
+  for (const size of [viewports[0], viewports[1]]) {
+    const sizeKey = `${size.width}x${size.height}`
+    const { context, page } = await openCapture(browser, size, { layout: size.layout, state: 'fastest-lap' })
+    try {
+      await expect
+        .poll(async () => page.locator('[data-widget="raceconRc12Dash"]').getAttribute('data-rc12-alerts'), { timeout: 120_000 })
+        .toBe('active')
+      const geometry = await readGeometry(page)
+      expect(geometry.tagSpanOverflows.map((s) => s.text), `tag span texts at ${sizeKey}`).toEqual([...FASTEST_LAP_TAG_TEXTS])
+      for (const span of geometry.tagSpanOverflows) {
+        expect(span.overflowPx, `RC-12/B fixed: span "${span.text}" must not overflow at ${sizeKey}`).toBe(0)
+      }
+    } finally {
+      await context.close()
+    }
+  }
+})
+
 
 test('the fastest-lap alert surfaces inside the tag and fastest row (native 800x480)', async ({ browser }) => {
   const size = viewports[0]   // native 800x480
@@ -348,21 +365,15 @@ test('the fastest-lap alert surfaces inside the tag and fastest row (native 800x
     expect(geometry.tagFontSize!, 'tag < cell position').toBeLessThan(cellPosPx)
     expect(geometry.tagFontSize!, 'tag > ribbon').toBeGreaterThan(ribbonPx)
 
-    // DEFECT RC-12/A: badge == lastLap still holds in fastest-lap state
+    // RC-12/A regression guard: badge strictly outranks lastLap in fastest-lap state.
     const badgePx   = geometry.values.find((v) => v.label === 'cell badge')?.fontSize ?? 0
     const lastLapPx = geometry.values.find((v) => v.label === 'cell last lap')?.fontSize ?? 0
-    expect(badgePx, 'DEFECT RC-12/A: badge == lastLap in fastest-lap state').toBe(lastLapPx)
+    expect(badgePx, 'RC-12/A fixed: badge > lastLap in fastest-lap state').toBeGreaterThan(lastLapPx)
 
-    // DEFECT RC-12/B — tag span overflow at 800x480, within 20 px budget.
-    const anyOverflow = geometry.tagSpanOverflows.some((s) => s.overflowPx > 0)
-    expect(anyOverflow, `DEFECT RC-12/B: tag spans must overflow at ${sizeKey}`).toBe(true)
+    // RC-12/B regression guard: no fastest-lap tag child span overflows its own box at 800x480.
+    expect(geometry.tagSpanOverflows.map((s) => s.text)).toEqual([...FASTEST_LAP_TAG_TEXTS])
     for (const span of geometry.tagSpanOverflows) {
-      if (span.overflowPx > 0) {
-        expect(
-          span.overflowPx,
-          `DEFECT RC-12/B: span "${span.text}" overflow within ${TAG_OVERFLOW_BUDGET_PX}px budget`
-        ).toBeLessThanOrEqual(TAG_OVERFLOW_BUDGET_PX)
-      }
+      expect(span.overflowPx, `RC-12/B fixed: span "${span.text}" must not overflow at ${sizeKey}`).toBe(0)
     }
 
     // Packet omissions still hold in the fastest-lap state
@@ -407,14 +418,14 @@ test('at compact-landscape (759x393) the tag renders but P7 row-highlight is abs
     expect(geometry.fastestRowCount, 'P7 not in 6-row range → no fastest-row highlight').toBe(0)
     expect(geometry.rows, 'compact-landscape row count').toBe('6')
 
-    // DEFECT RC-12/A still holds
+    // RC-12/A regression guard: badge strictly outranks lastLap.
     const badgePx   = geometry.values.find((v) => v.label === 'cell badge')?.fontSize ?? 0
     const lastLapPx = geometry.values.find((v) => v.label === 'cell last lap')?.fontSize ?? 0
-    expect(badgePx, 'DEFECT RC-12/A at compact-landscape: badge == lastLap').toBe(lastLapPx)
+    expect(badgePx, 'RC-12/A fixed at compact-landscape: badge > lastLap').toBeGreaterThan(lastLapPx)
 
-    // DEFECT RC-12/B: compact-landscape tag spans must NOT overflow (only 800x480 and 1024x600 overflow)
+    // RC-12/B regression guard: compact-landscape remains free of tag span overflow.
     const anyOverflow = geometry.tagSpanOverflows.some((s) => s.overflowPx > 0)
-    expect(anyOverflow, 'tag spans must not overflow at compact-landscape (clean at this breakpoint)').toBe(false)
+    expect(anyOverflow, 'tag spans must not overflow at compact-landscape').toBe(false)
 
     const capture = await page.locator('#racecon-rc12-capture-root').screenshot({ animations: 'disabled' })
     expect(capture.byteLength).toBeGreaterThan(5_000)

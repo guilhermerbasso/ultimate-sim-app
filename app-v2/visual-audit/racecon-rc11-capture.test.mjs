@@ -508,7 +508,7 @@ test("data-gap state with gap-band elements but zero measured width fails closed
   )
 })
 
-// ── Gap-label overflow (DEFECT RC-11/1) ───────────────────────────────────────────────────
+// -- Gap-label containment (fixed DEFECT RC-11/1) --------------------------------------
 
 const GAP_LABEL_LEAF = Object.freeze({
   key: "rc11-gap-label",
@@ -522,39 +522,29 @@ const GAP_LABEL_LEAF = Object.freeze({
   textRight: 277.0
 })
 
-test("gap-label overflow within budget in data-gap state is accepted and returned in audit", () => {
+test("RC-11 has no waived overflow ledger entries after fixing the DATA GAP label", () => {
+  assert.deepEqual(RC11_SPEC.knownDefects, [])
+  const audit = validateCaptureMetrics(nativeMetrics("data-gap"), nativeEntry("data-gap"))
+  assert.deepEqual(audit.knownDefects, [])
+})
+
+test("gap-label overflow fails closed (regression guard: DATA GAP must fit its band)", () => {
   const entry   = nativeEntry("data-gap")
   const metrics = nativeMetrics("data-gap")
   metrics.overflowLeaves = [{ ...GAP_LABEL_LEAF }]
-  const audit = validateCaptureMetrics(metrics, entry)
-  assert.ok(
-    audit.knownDefects.some((d) => d.key === "rc11-gap-label"),
-    "the gap-label overflow must appear in the audit's knownDefects"
-  )
-  const reported = audit.knownDefects.find((d) => d.key === "rc11-gap-label")
-  assert.equal(reported.state, "data-gap")
-  assert.ok(reported.overflowX <= 36, `overflowX ${reported.overflowX} should be ≤ 36 (budget)`)
-})
-
-test("gap-label overflow EXCEEDING the budget in data-gap state fails closed", () => {
-  const entry   = nativeEntry("data-gap")
-  const metrics = nativeMetrics("data-gap")
-  metrics.overflowLeaves = [{ ...GAP_LABEL_LEAF, overflowX: 37, scrollWidth: 87, textRight: 287.0 }]
   assert.throws(
     () => validateCaptureMetrics(metrics, entry),
     (error) => {
       assert.ok(error instanceof CaptureSafetyError)
-      assert.match(error.message, /overflows by 37px, past the 36px recorded for the known defect/)
+      assert.match(error.message, /REGRESSION GUARD RC-11\/1: rc11-gap-label.*must fit the band/)
       return true
     }
   )
 })
 
-test("gap-label overflow in silent state fails closed (states=[data-gap])", () => {
-  assertRejects(
-    (m) => { m.overflowLeaves = [{ ...GAP_LABEL_LEAF }] },
-    /rc11-gap-label.*paints.*wider than its.*box/
-  )
+test("a clean data-gap metric with contained labels passes the regression guard", () => {
+  const audit = validateCaptureMetrics(nativeMetrics("data-gap"), nativeEntry("data-gap"))
+  assert.deepEqual(audit.knownDefects, [])
 })
 
 // ── Modifier / state mismatches ────────────────────────────────────────────────────────────

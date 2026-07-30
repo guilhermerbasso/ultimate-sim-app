@@ -198,41 +198,11 @@ export const RC12_SPEC = Object.freeze({
     ])
   ]),
   /**
-   * DEFECT RC-12/B — fastest-lap tag text overflow (800x480 and 1024x600 only, fastest-lap state).
-   *
-   * The three bare `<span>` children of `[data-testid="rc12-tag"]` have no testid and no class,
-   * so the shared overflow sweep identifies them by tag name: key = "span". Measured with
-   * getBoundingClientRect, fastest-lap state:
-   *
-   *   800x480   "FASTEST LAP" +20 px (clientWidth 96)
-   *             "P7"          +4 px  (clientWidth 19)
-   *             "1:37.106"    +16 px (clientWidth 73)
-   *   1024x600  "FASTEST LAP" +18 px (clientWidth 131)
-   *             "P7"          +4 px  (clientWidth 26)
-   *             "1:37.106"    +13 px (clientWidth 100)
-   *
-   * The four compact viewports are clean (the tag zone spans the full content width there, giving
-   * each span enough room at the proportionally smaller font size).
-   *
-   * Separately measured via getBoundingClientRect at 800x480: the tag's painted label "FASTEST
-   * LAP" physically escapes the tag's own right edge (tag.right - span.right ≈ −20 px), yet the
-   * tag div itself remains inside the board zone. The approved normative override
-   * `fastestLapTagOverlap` documents an 8,000 px area overlap between the tag packet box and the
-   * leaderboard band — the shipped widget places the tag in the right column of the band and the
-   * row columns stop at x = 548, so no row text can sit under the tag. The tag label overflows
-   * its own div but NOT the board container.
+   * The measured RC-12 type-rank and tag-span defects have been corrected. These ledger arrays are
+   * intentionally empty so recurrence is an unconditional hard failure; explicit positive
+   * assertions are added to validateCaptureMetrics below.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "span",
-      states: Object.freeze(["fastest-lap"]),
-      sizes: Object.freeze(["800x480", "1024x600"]),
-      budgetPx: 20,
-      note:
-        "fastest-lap tag bare child spans overflow their allocated column at native and app: " +
-        '"FASTEST LAP" +20/+18 px, "P7" +4/+4 px, "1:37.106" +16/+13 px; compact viewports are clean'
-    })
-  ]),
+  knownDefects: Object.freeze([]),
   zoneOverflowDefects: Object.freeze([]),
   containmentDefects: Object.freeze([])
 })
@@ -514,51 +484,17 @@ function assertBattleAvailable(metrics) {
  *
  * Strict descending order (passed to assertTypeScaleOrder):
  *   battle gap (72 px native) > cell gap (24 px) > cell position (22 px) > ribbon (12 px)
- *   … with the fastest-lap tag (18 px) inserted between cell position and ribbon when present.
- *
- * Separate check (NOT in the strict ladder because they tie):
- *   cell badge == cell last lap — DEFECT A, recorded in RC12_TYPE_RANK_DEFECTS.
+ *   - with the fastest-lap tag inserted between cell position and ribbon when present.
  *
  * The ribbon (`rc12-session-time`, 12 px native) closes the ladder. Cell badge (16) and
- * cell last lap (16) sit between cell position and ribbon but are excluded from the strict
- * ladder because they tie at every viewport and both states — the defect is recorded rather
- * than tolerated. Separate strict assertions confirm:
+ * cell last lap (14) sit between cell position and ribbon as separate ranked rungs. Separate
+ * strict assertions confirm:
  *   - badge < cell-position  (22 > 16 at native)
+ *   - badge > cell last lap  (16 > 14 at native)
  *   - ribbon < badge         (12 < 16 at native)
  *
  * `rc12-tag` only exists in the fastest-lap state, so it can only be a ladder step there.
  */
-
-/**
- * DEFECT RC-12/A — type-scale tie: badge == lastLap at every viewport, both states.
- *
- * Packet 11.2 puts badge and lastLap at the same scaled rung (16 px at 800x480). Both use
- * `2 cqw` from the normative override `typeScale`, so they are byte-identical at every canvas
- * width. A tie is a failure — two readouts at the same size carry no hierarchy.
- *
- * Measured at all six viewports and both states:
- *   800x480   badge 16 px   == lastLap 16 px
- *   1024x600  20.48 px      == 20.48 px
- *   393x759   7.86 px       == 7.86 px
- *   412x867   8.24 px       == 8.24 px
- *   759x393   15.18 px      == 15.18 px
- *   867x412   17.34 px      == 17.34 px
- *
- * The ledger covers all six viewports and both states; the check STILL FAILS if the tie spreads
- * to another viewport (it already covers all six) or if the rank INVERTS.
- */
-const RC12_TYPE_RANK_DEFECTS = Object.freeze([
-  Object.freeze({
-    label: "badge over last lap",
-    states: Object.freeze(["silent", "fastest-lap"]),
-    sizes: Object.freeze(["800x480", "1024x600", "393x759", "412x867", "759x393", "867x412"]),
-    note:
-      "raceconRc12.css applies the same 2 cqw font-size to badge (.rc12-type-badge) and last lap " +
-      "(.rc12-type-last) at every breakpoint: the two tier-4 columns share a single packet rung " +
-      "and render at exactly the same pixel size at every canvas width (badge 16 == lastLap 16 at " +
-      "native; 20.48 == 20.48 at app; 7.86 == 7.86 at compact-phone 393; etc.)"
-  })
-])
 
 function assertTypeScale(metrics, entry) {
   const battleGapPx = valueOf(metrics, "battle gap").fontSize
@@ -609,41 +545,66 @@ function assertTypeScale(metrics, entry) {
     )
   }
 
-  // ── Badge == lastLap tie (DEFECT A) ──────────────────────────────────────────
-  const sizeKey = `${entry.size.width}x${entry.size.height}`
+  // Badge > lastLap strict rank
   const rankDefects = []
   if (!(badgePx > lastLapPx)) {
-    const waiver = RC12_TYPE_RANK_DEFECTS.find(
-      (candidate) => candidate.states.includes(entry.state) && candidate.sizes.includes(sizeKey)
+    fail(
+      `type-scale hierarchy does not hold: badge ${badgePx}px must be strictly larger than ` +
+        `last-lap ${lastLapPx}px`
     )
-    if (!waiver) {
-      fail(
-        `type-scale hierarchy does not hold: badge ${badgePx}px must be strictly larger than ` +
-          `last-lap ${lastLapPx}px`
-      )
-    }
-    // A recorded tie is never a licence to invert the rank.
-    if (lastLapPx > badgePx) {
-      fail(
-        `last-lap ${lastLapPx}px is LARGER than badge ${badgePx}px, past the recorded tie: ${waiver.note}`
-      )
-    }
-    rankDefects.push({
-      label: waiver.label,
-      state: entry.state,
-      size: sizeKey,
-      badgePx,
-      lastLapPx,
-      note: waiver.note
-    })
   }
 
   return { steps: scale, rankDefects }
 }
 
+const RC12_FASTEST_LAP_TAG_TEXTS = Object.freeze(["FASTEST LAP", "P7", "1:37.106"])
+
+/**
+ * REGRESSION GUARD 1 - DEFECT RC-12/A badge/lastLap tie removed at all six viewports and states.
+ *
+ * The previous rung tied badge == lastLap at 800x480, 1024x600, 393x759, 412x867, 759x393 and
+ * 867x412 in both silent and fastest-lap states. Stepping lastLap to the 14 px rung with 5-28 px
+ * clamps fixes the tie; this assertion re-raises immediately if badge is not strictly larger at
+ * any viewport or state.
+ */
+function assertBadgeDominatesLastLap(metrics) {
+  const badgePx = valueOf(metrics, "cell badge").fontSize
+  const lastLapPx = valueOf(metrics, "cell last lap").fontSize
+  if (!(badgePx > lastLapPx)) {
+    fail(`DEFECT RC-12/A regression: badge ${badgePx}px must be strictly larger than last-lap ${lastLapPx}px`)
+  }
+}
+
+/**
+ * REGRESSION GUARD 2 - DEFECT RC-12/B fastest-lap tag span overflow removed at 800x480 and 1024x600.
+ *
+ * The tag's bare spans previously overflowed at 800x480 ("FASTEST LAP" +20 px, "P7" +4 px,
+ * "1:37.106" +16 px) and 1024x600 (+18/+4/+13 px). Capping the tag rung by its own packet zone
+ * fixes the shrink; this assertion re-raises if any tag child span reports positive overflow at
+ * any viewport or state.
+ */
+function assertFastestLapTagSpansContained(metrics) {
+  // The tag's three children are BARE spans: no class, no testid, so the shared leaf sweep keys
+  // them as "span" — which is exactly the key the deleted ledger entry used. Any leaf under that
+  // key is a tag child, so failing on the key catches a longer lap time as well as the fixture's.
+  for (const leaf of metrics.overflowLeaves ?? []) {
+    const text = (leaf.text ?? "").trim()
+    const overflow = leaf.overflowX ?? leaf.overflowPx ?? 0
+    if ((leaf.key === "span" || RC12_FASTEST_LAP_TAG_TEXTS.includes(text)) && overflow > 0) {
+      fail(
+        `DEFECT RC-12/B regression: fastest-lap tag span "${text}" overflows its ` +
+          `${leaf.clientWidth}px box by ${overflow}px — the tag rung is capped by its own zone's fit`
+      )
+    }
+  }
+}
+
 // ─────────────────────────────────────────────── exported validators
 
 export function validateCaptureMetrics(metrics, entry) {
+  assertBadgeDominatesLastLap(metrics)
+  assertFastestLapTagSpansContained(metrics)
+
   const common = validateCommonMetrics(metrics, entry, RC12_SPEC)
 
   assertNativeSize(metrics, entry)

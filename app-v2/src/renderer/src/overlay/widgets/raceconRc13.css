@@ -578,6 +578,20 @@
   gap: 2.4cqw;
 }
 
+/*
+ * At compact-phone the header carries a FOURTH item while RESTART IMMINENT is latched, and the
+ * four of them no longer fit one line: the status word was flex-shrunk 3 px below its own nowrap
+ * text at 393x759 (box 153, text 156.38) and at 412x867 (box 161, text 163.94), so `overflow:
+ * hidden` never clipped it and the word painted past its box. The phone header is 73–84 px tall
+ * for a single ~20 px line, so the alert takes the line it needs instead of taking width from the
+ * word that states the race-control status. Every other viewport has free width on the line and
+ * never wraps.
+ */
+.rc13-widget[data-rc13-compact-mode='phone'] .rc13-status {
+  flex-wrap: wrap;
+  align-content: center;
+}
+
 .rc13-widget[data-rc13-compact-mode='phone'] .rc13-window-bar {
   height: 9cqw;
 }

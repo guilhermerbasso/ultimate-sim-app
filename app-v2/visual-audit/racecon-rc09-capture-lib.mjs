@@ -182,49 +182,17 @@ export const RC09_SPEC = Object.freeze({
       '.rc09-fuel, [data-rc09-zone="fuel"], [data-testid="rc09-fuel"], [data-channel="fuel"]'
     ])
   ]),
-  knownDefects: Object.freeze([]),
   /**
-   * DEFECT RC-09/1 — the split value escapes the bottom of the split chip.
-   *
-   * The split chip sizes its type from a container query while its own height comes from the
-   * zone grid, and above the native breakpoint the two disagree: the value's layout box is
-   * taller than the chip that clips it, so the reading paints past the bottom edge of its own
-   * zone. Measured with getBoundingClientRect, silent and split-loss:
-   *
-   *     1024x600  app                 zone +2 px   value escapes bottom by  2.22 px (silent)
-   *     759x393   compact/landscape   zone +4 px   value escapes bottom by  4.86 px (silent)
-   *     867x412   compact/landscape   zone +11 px  value escapes bottom by 10.59 px (silent)
-   *     867x412   compact/landscape   zone +6 px   value escapes bottom by  5.11 px (split-loss)
-   *
-   * 800x480 native and both compact-phone viewports are clean. The engaged frame is smaller at
-   * 759x393 and 867x412 than the silent one because the SPLIT LOSS line re-flows the chip.
-   *
-   * Recorded, NOT suppressed: the budget is the measured maximum plus a small font-metric
-   * allowance, so a defect that grows, spreads to another breakpoint or appears on another
-   * element still fails closed.
+   * Both measured render defects (split chip containment/zone overflow and compact-phone
+   * split/note type-rank tie) have been corrected. These ledger arrays are intentionally empty
+   * so the harness fails closed on recurrence — any new overflow, zone overflow, containment
+   * escape, or type-rank collapse is an unconditional hard failure. Explicit positive assertions
+   * are added to validateCaptureMetrics below.
    */
-  zoneOverflowDefects: Object.freeze([
-    Object.freeze({
-      zone: "split",
-      states: Object.freeze(["silent", "split-loss"]),
-      sizes: Object.freeze(["1024x600", "759x393", "867x412"]),
-      budgetPx: 13,
-      note:
-        "split chip vertical overflow above the native breakpoint: the container-query type scale sizes the split " +
-        "value taller than the chip the zone grid allocates (app +2 px, compact-landscape +4…+11 px)"
-    })
-  ]),
-  containmentDefects: Object.freeze([
-    Object.freeze({
-      label: "split value",
-      states: Object.freeze(["silent", "split-loss"]),
-      sizes: Object.freeze(["1024x600", "759x393", "867x412"]),
-      budgetPx: 13,
-      note:
-        "the split value's box escapes the bottom edge of the split chip it belongs to " +
-        "(1024x600 ≈2.22 px, 759x393 ≈4.86 px, 867x412 ≈10.59 px silent / ≈5.11 px engaged)"
-    })
-  ])
+  knownDefects: Object.freeze([]),
+  zoneOverflowDefects: Object.freeze([]),
+  containmentDefects: Object.freeze([])
+
 })
 
 export const RC09_CAPTURE_MATRIX = Object.freeze(
@@ -458,34 +426,8 @@ function assertNativeSize(metrics, entry) {
  * RC09_TYPE_SCALE_PX declares note and support as ONE rank (40 px each) and the approved image
  * QA measured "note 35 ~ support 36" and accepted it, so an inequality between them would be
  * invented rather than governed. What the packet DOES rank is split (64 px) above note (40 px),
- * and that is checked separately against the ledger below.
- *
- * DEFECT RC-09/2 — the split and note ranks collapse at compact-phone.
- *
- * raceconRc09.css gives `.rc09-split-value` and `.rc09-note-value` a SINGLE shared rule under
- * the compact-phone selector — `font-size: clamp(16px, 11cqw, 56px)` for both — so two distinct
- * packet type ranks render at exactly the same size:
- *
- *     393x759   split 43.23 px  ==  note 43.23 px
- *     412x867   split 45.32 px  ==  note 45.32 px
- *
- * Every other viewport keeps them apart (800x480 64 > 38.98, 1024x600 81.92 > 51.2,
- * 759x393 60.72 > 37.46, 867x412 69.36 > 42.8). A tie is a failure, so the collapse is recorded
- * rather than tolerated silently: the ledger names the exact viewports, and the check still
- * fails if the tie spreads to another breakpoint or if the note ever grows LARGER than the
- * split chip.
+ * and that is checked separately as an unconditional hard failure below.
  */
-const RC09_TYPE_RANK_DEFECTS = Object.freeze([
-  Object.freeze({
-    label: "split value over note value",
-    states: Object.freeze(["silent", "split-loss"]),
-    sizes: Object.freeze(["393x759", "412x867"]),
-    note:
-      "compact-phone collapses two packet type ranks into one: raceconRc09.css applies a single " +
-      "font-size: clamp(16px, 11cqw, 56px) rule to .rc09-split-value and .rc09-note-value together"
-  })
-])
-
 function assertTypeScale(metrics, entry) {
   const scale = assertTypeScaleOrder([
     { label: "stage timer", fontSize: valueOf(metrics, "stage timer").fontSize },
@@ -499,30 +441,10 @@ function assertTypeScale(metrics, entry) {
   const noteDistance = valueOf(metrics, "note distance").fontSize
   const rankDefects = []
   if (!(note < split)) {
-    const sizeKey = `${entry.size.width}x${entry.size.height}`
-    const waiver = RC09_TYPE_RANK_DEFECTS.find(
-      (candidate) => candidate.states.includes(entry.state) && candidate.sizes.includes(sizeKey)
+    fail(
+      `type-scale hierarchy does not hold: the split chip ${split}px must be strictly larger than ` +
+        `the note cue ${note}px`
     )
-    if (!waiver) {
-      fail(
-        `type-scale hierarchy does not hold: the split chip ${split}px must be strictly larger than ` +
-          `the note cue ${note}px`
-      )
-    }
-    // A recorded tie is never a licence to invert the rank.
-    if (note > split) {
-      fail(
-        `the note cue ${note}px is LARGER than the split chip ${split}px, past the recorded tie: ${waiver.note}`
-      )
-    }
-    rankDefects.push({
-      label: waiver.label,
-      state: entry.state,
-      size: sizeKey,
-      splitPx: split,
-      notePx: note,
-      note: waiver.note
-    })
   }
   if (!(note > noteDistance)) {
     fail(`the note cue ${note}px must sit above the note distance ${noteDistance}px in the type ladder`)
@@ -553,6 +475,68 @@ const RC09_FORBIDDEN_LEAF_TEXT = Object.freeze([
   Object.freeze(["FUEL", "would reintroduce the omitted fuel readout (RC09_PACKET_OMISSIONS.fuelReadout)"])
 ])
 
+/**
+ * REGRESSION GUARD 1 — split value stays inside the split chip and the split zone does not
+ * vertically overflow.
+ *
+ * DEFECT RC-09/1 measured the split value escaping the split chip by +2.22 px at 1024x600,
+ * +4.86 px at 759x393, and +10.59 px silent / +5.11 px split-loss at 867x412, with matching
+ * split-zone scroll overflow of +2/+4/+11/+6 px. The fix makes the chip a fixed two-line grammar
+ * and caps `.rc09-split-value` by the published `--rc09-split-box` height. This assertion runs at
+ * every viewport and state so any recurrence fails closed immediately.
+ */
+function assertSplitValueContainedAndZoneFit(metrics) {
+  const item = (metrics.containment ?? []).find((candidate) => candidate.label === "split value")
+  if (!item) fail("containment measurement for split value is missing")
+  if (!item.owner || !item.value) fail("split value has no measurable owner (split chip) or value rect")
+  const owner = item.owner
+  const value = item.value
+  const escape = {
+    left:   finite(owner.left, "split owner left") - finite(value.left, "split value left"),
+    right:  finite(value.left, "split value left") + finite(value.width, "split value width") -
+      (finite(owner.left, "split owner left") + finite(owner.width, "split owner width")),
+    top:    finite(owner.top, "split owner top") - finite(value.top, "split value top"),
+    bottom: finite(value.top, "split value top") + finite(value.height, "split value height") -
+      (finite(owner.top, "split owner top") + finite(owner.height, "split owner height"))
+  }
+  const worst = Math.max(...Object.values(escape))
+  if (worst > 0.5) {
+    const edge = Object.entries(escape).find(([, px]) => px === worst)[0]
+    fail(
+      `split value escapes its split chip on the ${edge} by ${worst.toFixed(2)}px — ` +
+        `the fixed two-line grammar and --rc09-split-box cap must contain it at every viewport`
+    )
+  }
+
+  const split = zoneOf(metrics, "split")
+  const overflow = finite(split.scrollHeight, "split scrollHeight") - finite(split.layoutHeight, "split layoutHeight")
+  if (overflow > 0.5) {
+    fail(
+      `split zone content height (${split.scrollHeight.toFixed(2)}px) exceeds layout height ` +
+        `(${split.layoutHeight.toFixed(2)}px) by ${overflow.toFixed(2)}px — ` +
+        `the split chip must not overflow its layout zone at any viewport`
+    )
+  }
+}
+
+/**
+ * REGRESSION GUARD 2 — split value remains strictly larger than the note value.
+ *
+ * DEFECT RC-09/2 tied compact-phone packet ranks at 393x759 (43.23 == 43.23 px) and 412x867
+ * (45.32 == 45.32 px) because one CSS rule sized `.rc09-split-value` and `.rc09-note-value`
+ * together. The fix gives the phone note rung the split rung's own 0.625 packet ratio
+ * (`clamp(11px, 6.875cqw, 35px)`). This explicit guard replaces the former tie ledger.
+ */
+function assertSplitValueRanksAboveNoteValue(metrics) {
+  const split = valueOf(metrics, "split value").fontSize
+  const note = valueOf(metrics, "note value").fontSize
+  if (!(split > note)) {
+    fail(
+      `split value font-size ${split}px must be strictly greater than note value ${note}px at every viewport`
+    )
+  }
+}
+
 export function validateCaptureMetrics(metrics, entry, _unused) {
   const common = validateCommonMetrics(metrics, entry, RC09_SPEC)
 
@@ -573,6 +557,8 @@ export function validateCaptureMetrics(metrics, entry, _unused) {
   // Every value must also sit inside the zone that owns it, measured by rectangle.
   containsRect(zoneOf(metrics, "clock"), valueOf(metrics, "stage timer").rect, "stage clock in its zone", 0.5)
   containsRect(zoneOf(metrics, "note"), valueOf(metrics, "note value").rect, "note cue in its zone", 0.5)
+  assertSplitValueContainedAndZoneFit(metrics)
+  assertSplitValueRanksAboveNoteValue(metrics)
 
   const { steps, rankDefects } = assertTypeScale(metrics, entry)
   return { ...common, typeScale: steps, typeRankDefects: rankDefects }

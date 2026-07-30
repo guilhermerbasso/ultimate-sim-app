@@ -94,12 +94,7 @@ const WINDOW_ZONE_DEFS = [
   { id: 'under', from: 66, to: 100, startFrac: 0.66, widthFrac: 0.34, centre: 83, word: 'CATCH UP'  }
 ]
 
-/**
- * Viewports where DEFECT RC-13/1 causes restart-status horizontal overflow in restart-imminent state.
- * scrollWidth − clientWidth = +3 px at 393x759 and 412x867. Budget: 3 px.
- */
-const RESTART_STATUS_OVERFLOW_SIZES = new Set(['393x759', '412x867'])
-const RESTART_STATUS_OVERFLOW_BUDGET_PX = 3
+/** REGRESSION GUARD RC-13/1 - restart-status must fit at every viewport and state. */
 
 /** DEFECT RC-13/2 — glyph ascent above root top at 1024x600. Budget: 4 px. */
 const GLYPH_OVERFLOW_BUDGET_PX = 4
@@ -391,8 +386,15 @@ for (const size of viewports) {
         }
       }
 
-      // ── Restart-status text and font size ──────────────────────────────────────────────────────
+      // -- Restart-status text, font size, and RC-13/1 fit guard ----------------------------------
       expect(geometry.restartStatusText, 'restart-status shows "SC DEPLOYED" in silent').toBe('SC DEPLOYED')
+      expect(
+        geometry.restartStatusScrollW,
+        `restart-status scrollWidth must fit clientWidth at ${sizeKey} silent`
+      ).toBeLessThanOrEqual(geometry.restartStatusClientW)
+      if (geometry.statusHeaderRect && geometry.restartStatusRect) {
+        expectContained(geometry.statusHeaderRect, geometry.restartStatusRect)
+      }
 
       const capture = await page.locator('#racecon-rc13-capture-root').screenshot({ animations: 'disabled' })
       expect(capture.byteLength).toBeGreaterThan(5_000)
@@ -425,8 +427,12 @@ test('the restart-imminent alert latches the chip and RESTART IMMINENT text (nat
     expect(geometry.alertChipCount, 'alert chip must be present in restart-imminent').toBe(1)
     expect(geometry.alertChipRect, 'alert chip must have a rendered rect').not.toBeNull()
 
-    // Restart-status shows "RESTART IMMINENT"
+    // Restart-status shows "RESTART IMMINENT" and still fits at native size
     expect(geometry.restartStatusText).toBe('RESTART IMMINENT')
+    expect(geometry.restartStatusScrollW).toBeLessThanOrEqual(geometry.restartStatusClientW)
+    if (geometry.statusHeaderRect && geometry.restartStatusRect) {
+      expectContained(geometry.statusHeaderRect, geometry.restartStatusRect)
+    }
     const restartBlock = geometry.values.find((v) => v.label === 'restart-block')
     expect(restartBlock?.text, 'restart-block shows "RESTART IMMINENT"').toBe('RESTART IMMINENT')
 
@@ -465,11 +471,11 @@ test('the restart-imminent alert latches the chip and RESTART IMMINENT text (nat
   }
 })
 
-test('DEFECT RC-13/1: restart-status overflows its box at compact-phone in restart-imminent state', async ({ browser }) => {
-  // Test the two defect viewports explicitly. Budget: scrollWidth − clientWidth ≤ 3 px.
-  const defectViewports = [viewports[2], viewports[3]] // 393x759, 412x867
+test('REGRESSION GUARD RC-13/1: restart-status fits at compact-phone in restart-imminent state', async ({ browser }) => {
+  // The measured +3 px overflow at 393x759 and 412x867 is fixed by wrapping the phone header.
+  const guardedViewports = [viewports[2], viewports[3]] // 393x759, 412x867
 
-  for (const size of defectViewports) {
+  for (const size of guardedViewports) {
     const sizeKey = `${size.width}x${size.height}`
     const { context, page } = await openCapture(browser, size, {
       layout: 'compact',
@@ -486,16 +492,14 @@ test('DEFECT RC-13/1: restart-status overflows its box at compact-phone in resta
 
       const geometry = await readGeometry(page)
       expect(geometry.restartStatusText).toBe('RESTART IMMINENT')
-
-      const overflow = geometry.restartStatusScrollW - geometry.restartStatusClientW
       expect(
-        overflow,
-        `DEFECT RC-13/1 at ${sizeKey}: restart-status must overflow by > 0 (text clips at compact-phone)`
-      ).toBeGreaterThan(0)
-      expect(
-        overflow,
-        `DEFECT RC-13/1 at ${sizeKey}: restart-status overflow must be within ${RESTART_STATUS_OVERFLOW_BUDGET_PX}px`
-      ).toBeLessThanOrEqual(RESTART_STATUS_OVERFLOW_BUDGET_PX)
+        geometry.restartStatusScrollW,
+        `restart-status scrollWidth (${geometry.restartStatusScrollW}) must fit clientWidth ` +
+        `(${geometry.restartStatusClientW}) at ${sizeKey}`
+      ).toBeLessThanOrEqual(geometry.restartStatusClientW)
+      if (geometry.statusHeaderRect && geometry.restartStatusRect) {
+        expectContained(geometry.statusHeaderRect, geometry.restartStatusRect)
+      }
     } finally {
       await context.close()
     }

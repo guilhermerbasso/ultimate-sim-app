@@ -110,7 +110,7 @@ function nativeZones() {
  *   battle gap 72 > cell gap 24 > cell position 22 > [tag 18 fastest-lap only] > ribbon 12
  *   badge 16 < cell-position 22 (strict)
  *   ribbon 12 < badge 16 (strict)
- *   badge 16 == lastLap 16 — DEFECT A, waived for all 6 viewports in both states
+ *   badge 16 > lastLap 14 (strict)
  */
 function nativeMetrics(state = "silent") {
   const size = CAPTURE_SIZES[0]   // 800×480 native
@@ -122,7 +122,7 @@ function nativeMetrics(state = "silent") {
   const cellGapBox     = rect(boardBox.left + 300,  boardBox.top +  4,  50, 24)
   const cellPosBox     = rect(boardBox.left +   4,  boardBox.top +  4,  40, 22)
   const cellBadgeBox   = rect(boardBox.left +  60,  boardBox.top +  4, 120, 16)
-  const cellLastLapBox = rect(boardBox.left + 450,  boardBox.top +  4,  90, 16)
+  const cellLastLapBox = rect(boardBox.left + 450,  boardBox.top +  4,  90, 14)
   const sessionTimeBox = rect(ribbonBox.left + 4,  ribbonBox.top + 20, 100, 12)
   const sessionDoneBox = rect(ribbonBox.left + 120, ribbonBox.top + 20,  40, 12)
   const sessionTotBox  = rect(ribbonBox.left + 180, ribbonBox.top + 20,  40, 12)
@@ -191,7 +191,7 @@ function nativeMetrics(state = "silent") {
       value("cell gap",            '[data-testid="rc12-cell-gap"]',           "0.8",   cellGapBox,      24),
       value("cell position",       '[data-testid="rc12-cell-position"]',      "1",     cellPosBox,      22),
       value("cell badge",          '[data-testid="rc12-cell-badge"]',         "CAR --",cellBadgeBox,    16),
-      value("cell last lap",       '[data-testid="rc12-cell-lastLap"]',       "1:38.4",cellLastLapBox,  16),
+      value("cell last lap",       '[data-testid="rc12-cell-lastLap"]',       "1:38.4",cellLastLapBox,  14),
       value("session time",        '[data-testid="rc12-session-time"]',       "--",    sessionTimeBox,  12),
       value("session laps done",   '[data-testid="rc12-session-laps-done"]',  "--",    sessionDoneBox,  12),
       value("session laps total",  '[data-testid="rc12-session-laps-total"]', "--",    sessionTotBox,   12)
@@ -278,9 +278,7 @@ test("RC-12 colour tokens classify to the expected hue families", () => {
 
 test("a faithful native silent fixture validates and reports its type scale", () => {
   const audit = validateCaptureMetrics(nativeMetrics("silent"), nativeEntry("silent"))
-  // DEFECT A: badge == lastLap is a recorded rank defect at all viewports / both states
-  assert.equal(audit.typeRankDefects.length, 1)
-  assert.equal(audit.typeRankDefects[0].label, "badge over last lap")
+  assert.deepEqual(audit.typeRankDefects, [])
   // The strict ladder steps are returned
   assert.ok(audit.typeScale.length >= 4)
   assert.equal(audit.typeScale[0].label, "battle gap")
@@ -289,7 +287,7 @@ test("a faithful native silent fixture validates and reports its type scale", ()
 
 test("a faithful native fastest-lap fixture validates with the alert surfaces and tag present", () => {
   const audit = validateCaptureMetrics(nativeMetrics("fastest-lap"), nativeEntry("fastest-lap"))
-  assert.equal(audit.typeRankDefects.length, 1)
+  assert.deepEqual(audit.typeRankDefects, [])
   // Tag step appears in the fastest-lap ladder between cell-position and ribbon
   const tagStep = audit.typeScale.find((s) => s.label === "tag")
   assert.ok(tagStep, "tag step must appear in the fastest-lap type scale")
@@ -307,10 +305,9 @@ test("a faithful native fastest-lap fixture validates with the alert surfaces an
   )
 })
 
-// ── Type-scale tie and inversion (DEFECT A) ──────────────────────────────────────────────────
+// Type-scale badge/lastLap rank
 
-test("badge/lastLap tie is accepted at all recorded viewports (DEFECT A waiver)", () => {
-  // The waiver covers all 6 viewports and both states — no tie is a hard failure at any governed size.
+test("badge/lastLap strict rank is accepted at all governed viewports", () => {
   // Each iteration builds scaled-to-viewport geometries so assertInsideFrame passes at every size.
   for (const entry of RC12_CAPTURE_MATRIX) {
     const { width, height } = entry.size
@@ -326,7 +323,7 @@ test("badge/lastLap tie is accepted at all recorded viewports (DEFECT A waiver)"
     const cellGapBox = sr(300,  64,  50,  24)
     const cellPosBox = sr(4,    64,  40,  22)
     const cellBadge  = sr(60,   64, 120,  16)
-    const cellLL     = sr(450,  64,  90,  16)
+    const cellLL     = sr(450,  64,  90,  14)
     const sesTimeBox = sr(4,    20, 100,  12)
     const sesDoneBox = sr(120,  20,  40,  12)
     const sesTotBox  = sr(180,  20,  40,  12)
@@ -357,7 +354,7 @@ test("badge/lastLap tie is accepted at all recorded viewports (DEFECT A waiver)"
       value("cell gap",           '[data-testid="rc12-cell-gap"]',          "0.8",    cellGapBox, 24),
       value("cell position",      '[data-testid="rc12-cell-position"]',     "1",      cellPosBox, 22),
       value("cell badge",         '[data-testid="rc12-cell-badge"]',        "CAR --", cellBadge,  16),
-      value("cell last lap",      '[data-testid="rc12-cell-lastLap"]',      "1:38.4", cellLL,     16),
+      value("cell last lap",      '[data-testid="rc12-cell-lastLap"]',      "1:38.4", cellLL,     14),
       value("session time",       '[data-testid="rc12-session-time"]',      "--",     sesTimeBox, 12),
       value("session laps done",  '[data-testid="rc12-session-laps-done"]', "--",     sesDoneBox, 12),
       value("session laps total", '[data-testid="rc12-session-laps-total"]',"--",     sesTotBox,  12)
@@ -384,23 +381,21 @@ test("badge/lastLap tie is accepted at all recorded viewports (DEFECT A waiver)"
     metrics.counted[2].count = fastestLap ? (expectedRows.rowCount >= 7 ? 1 : 0) : 0
     assert.doesNotThrow(
       () => validateCaptureMetrics(metrics, entry),
-      `tie must be accepted at ${sizeKey} in ${entry.state} state`
+      `badge must outrank lastLap at ${sizeKey} in ${entry.state} state`
     )
   }
 })
 
-test("badge/lastLap INVERSION (lastLap > badge) is rejected even at a recorded viewport", () => {
-  // Inversion is never a licence from the waiver
+test("badge/lastLap tie or inversion is rejected", () => {
   assert.throws(
     () => {
       const m = nativeMetrics("silent")
-      m.values[3].fontSize = 14  // badge = 14 px
-      m.values[4].fontSize = 18  // lastLap = 18 px > badge → inversion
+      m.values[4].fontSize = 16  // lastLap ties badge
       validateCaptureMetrics(m, nativeEntry("silent"))
     },
     (error) => {
       assert.ok(error instanceof CaptureSafetyError)
-      assert.match(error.message, /is LARGER than badge|last-lap .* is LARGER than/)
+      assert.match(error.message, /badge .* must be strictly larger than last-lap/)
       return true
     }
   )
@@ -422,7 +417,7 @@ test("a zone outside the frame fails closed", () => {
 
 // ── Overflow ledger ──────────────────────────────────────────────────────────────────────────
 
-test("an unrecorded overflow fails and a recorded one is reported within budget", () => {
+test("an unrecorded overflow fails", () => {
   // Overflow on an element not in knownDefects → rejected
   assertRejects(
     (m) => {
@@ -435,26 +430,30 @@ test("an unrecorded overflow fails and a recorded one is reported within budget"
   )
 })
 
-test("fastest-lap tag span overflow is accepted within budget at native and app", () => {
-  // DEFECT RC-12/B: the tag spans overflow at 800x480 and 1024x600 in fastest-lap state
-  const m = nativeMetrics("fastest-lap")
-  m.overflowLeaves = [
-    // "FASTEST LAP" +20 px at native (within budgetPx=20)
-    { key: "span", text: "FASTEST LAP", fontSize: 18, whiteSpace: "nowrap",
-      clientWidth: 96, scrollWidth: 116, overflowX: 20, textLeft: 500, textRight: 620 }
-  ]
-  assert.doesNotThrow(() => validateCaptureMetrics(m, nativeEntry("fastest-lap")))
-  // Same element overflowing past budget → rejected
-  m.overflowLeaves[0].overflowX = 25
-  m.overflowLeaves[0].scrollWidth = 121
-  assert.throws(
-    () => validateCaptureMetrics(m, nativeEntry("fastest-lap")),
-    (error) => {
-      assert.ok(error instanceof CaptureSafetyError)
-      assert.match(error.message, /overflows by 25px, past the 20px/)
-      return true
-    }
+test("badge/lastLap regression guard rejects a synthetic tie and accepts a clean rank", () => {
+  assertRejects((m) => { m.values[4].fontSize = 16 }, /DEFECT RC-12\/A regression|badge .* strictly larger/)
+  assert.doesNotThrow(() => validateCaptureMetrics(nativeMetrics("silent"), nativeEntry("silent")))
+})
+
+test("fastest-lap tag span regression guard rejects overflow and accepts contained spans", () => {
+  assertRejects(
+    (m) => {
+      m.overflowLeaves = [
+        { key: "span", text: "FASTEST LAP", fontSize: 14.472, whiteSpace: "nowrap",
+          clientWidth: 96, scrollWidth: 97, overflowX: 1, textLeft: 500, textRight: 597 }
+      ]
+    },
+    /DEFECT RC-12\/B regression: fastest-lap tag span "FASTEST LAP" overflows its 96px box by 1px/,
+    "fastest-lap"
   )
+
+  const clean = nativeMetrics("fastest-lap")
+  clean.tagSpanOverflows = [
+    { text: "FASTEST LAP", clientWidth: 116, scrollWidth: 116, overflowPx: 0 },
+    { text: "P7", clientWidth: 23, scrollWidth: 23, overflowPx: 0 },
+    { text: "1:37.106", clientWidth: 89, scrollWidth: 89, overflowPx: 0 }
+  ]
+  assert.doesNotThrow(() => validateCaptureMetrics(clean, nativeEntry("fastest-lap")))
 })
 
 // ── Packet omissions ─────────────────────────────────────────────────────────────────────────

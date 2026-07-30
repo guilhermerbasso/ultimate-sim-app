@@ -40,6 +40,41 @@ function expectContained(outer: Rect, inner: Rect, tolerance = 0.5): void {
   expect(inner.bottom).toBeLessThanOrEqual(outer.bottom + tolerance)
 }
 
+function expectTileContentFits(label: string, zone: { rect: Rect; scrollHeight: number }, sizeKey: string): void {
+  expect(
+    zone.scrollHeight,
+    `${label} scrollHeight (${zone.scrollHeight}px) must not exceed layout height ` +
+      `(${zone.rect.height.toFixed(2)}px) at ${sizeKey}`
+  ).toBeLessThanOrEqual(zone.rect.height + 0.5)
+}
+
+function expectTileValueFits(label: string, zoneRect: Rect | null, valueRect: Rect | null, sizeKey: string): void {
+  expect(zoneRect, `${label} zone rect must be measured at ${sizeKey}`).not.toBeNull()
+  expect(valueRect, `${label} value rect must be measured at ${sizeKey}`).not.toBeNull()
+  expectContained(zoneRect!, valueRect!)
+}
+
+function assertDeltaFuelGuards(
+  geometry: Awaited<ReturnType<typeof readGeometry>>,
+  sizeKey: string
+): void {
+  const deltaZone = geometry.zones.find((zone) => zone.name === 'delta')!
+  const fuelZone = geometry.zones.find((zone) => zone.name === 'fuel')!
+
+  // REGRESSION GUARD: delta tile content and value rect must fit its layout box.
+  // The fixed defect measured delta zone overflow at 800x480 (+3px), 759x393 (+12px), 867x412
+  // (+21px) and value bottom escape of 0.94px, 9.91px and 18.44px. The fix is line-height 0.75
+  // plus compact-landscape delta/fuel zones at top 49 / height 28.
+  expectTileContentFits('delta', deltaZone, sizeKey)
+  expectTileValueFits('delta', geometry.deltaZoneRect, geometry.deltaValueRect, sizeKey)
+
+  // REGRESSION GUARD: fuel tile content and value rect must fit its layout box.
+  // The fixed defect measured 867x412 fuel zone overflow (+4px) and value bottom escape (1.48px)
+  // in the silent state. The fix is line-height 0.75 plus compact-landscape top 49 / height 28.
+  expectTileContentFits('fuel', fuelZone, sizeKey)
+  expectTileValueFits('fuel', geometry.fuelZoneRect, geometry.fuelValueRect, sizeKey)
+}
+
 async function openCapture(
   browser: Browser,
   size: { width: number; height: number },
@@ -90,18 +125,6 @@ const viewports = [
   { width: 759,  height: 393, layout: 'compact', compactMode: 'landscape' },
   { width: 867,  height: 412, layout: 'compact', compactMode: 'landscape' }
 ] as const
-
-/**
- * DEFECT RC-10/1 — delta tile overflow (measured budgets; silence + fuel-low share these).
- *   800x480  delta +3 px / budget 24 px
- *   759x393  delta +12 px / budget 24 px
- *   867x412  delta +21 px / budget 24 px
- *   867x412  fuel  +4 px  / budget 7 px (silent only)
- */
-const DELTA_OVERFLOW_SIZES = new Set(['800x480', '759x393', '867x412'])
-const DELTA_OVERFLOW_BUDGET_PX = 24
-const FUEL_OVERFLOW_SIZES  = new Set(['867x412'])
-const FUEL_OVERFLOW_BUDGET_PX = 7
 
 async function readGeometry(page: Page) {
   return page.locator('#racecon-rc10-capture-root').evaluate((root) => {
@@ -196,7 +219,7 @@ async function readGeometry(page: Page) {
       speedText:    root.querySelector('[data-testid="rc10-speed-value"]')?.textContent?.trim() ?? null,
       deltaText:    root.querySelector('[data-testid="rc10-delta-value"]')?.textContent?.trim() ?? null,
       fuelText:     root.querySelector('[data-testid="rc10-fuel-value"]')?.textContent?.trim() ?? null,
-      // Containment spot-checks for DEFECT RC-10/1
+      // Regression guard rects measured with getBoundingClientRect
       deltaZoneRect:  relative(root.querySelector('[data-testid="rc10-delta"]')),
       deltaValueRect: relative(root.querySelector('[data-testid="rc10-delta-value"]')),
       fuelZoneRect:   relative(root.querySelector('[data-testid="rc10-fuel"]')),
@@ -210,8 +233,6 @@ for (const size of viewports) {
   const sizeKey  = `${size.width}x${size.height}`
   const isNative = size.layout === 'native'
   const isApp    = size.layout === 'app'
-  const hasDeltaDefect = DELTA_OVERFLOW_SIZES.has(sizeKey)
-  const hasFuelDefect  = FUEL_OVERFLOW_SIZES.has(sizeKey)
 
   test(`${sizeKey} keeps the ${label} RC-10 composition contained (silent)`, async ({ browser }) => {
     const { context, page } = await openCapture(browser, size, {
@@ -286,27 +307,7 @@ for (const size of viewports) {
         }
       }
 
-      // DEFECT RC-10/1: delta and fuel tile overflow.
-      // At defect viewports the value IS expected to escape the zone bottom — escape must be > 0
-      // and within the recorded budget. At clean viewports there must be no escape.
-      if (geometry.deltaZoneRect && geometry.deltaValueRect) {
-        const deltaEscape = geometry.deltaValueRect.bottom - geometry.deltaZoneRect.bottom
-        if (hasDeltaDefect) {
-          expect(deltaEscape, `${sizeKey} delta value should escape its zone (recorded defect RC-10/1)`).toBeGreaterThan(0)
-          expect(deltaEscape, `${sizeKey} delta escape must stay within ${DELTA_OVERFLOW_BUDGET_PX} px budget`).toBeLessThanOrEqual(DELTA_OVERFLOW_BUDGET_PX)
-        } else {
-          expect(deltaEscape, `${sizeKey} delta value must not escape its zone`).toBeLessThanOrEqual(0.5)
-        }
-      }
-      if (geometry.fuelZoneRect && geometry.fuelValueRect) {
-        const fuelEscape = geometry.fuelValueRect.bottom - geometry.fuelZoneRect.bottom
-        if (hasFuelDefect) {
-          expect(fuelEscape, `${sizeKey} fuel value should escape its zone (recorded defect RC-10/1)`).toBeGreaterThan(0)
-          expect(fuelEscape, `${sizeKey} fuel escape must stay within ${FUEL_OVERFLOW_BUDGET_PX} px budget`).toBeLessThanOrEqual(FUEL_OVERFLOW_BUDGET_PX)
-        } else {
-          expect(fuelEscape, `${sizeKey} fuel value must not escape its zone`).toBeLessThanOrEqual(0.5)
-        }
-      }
+      assertDeltaFuelGuards(geometry, sizeKey)
 
       // Type-scale hierarchy: gear > speed > delta > fuel > position (strict, no ties)
       const scale = ['gear', 'speed', 'delta', 'fuel', 'position'].map(
@@ -321,6 +322,28 @@ for (const size of viewports) {
 
       const capture = await page.locator('#racecon-rc10-capture-root').screenshot({ animations: 'disabled' })
       expect(capture.byteLength).toBeGreaterThan(5_000)
+    } finally {
+      await context.close()
+    }
+  })
+}
+
+for (const size of viewports) {
+  const label   = size.compactMode ? `${size.layout}/${size.compactMode}` : size.layout
+  const sizeKey = `${size.width}x${size.height}`
+
+  test(`${sizeKey} keeps delta and fuel tiles contained (${label}, fuel-low)`, async ({ browser }) => {
+    const { context, page } = await openCapture(browser, size, {
+      layout: size.layout,
+      compactMode: size.compactMode ?? undefined,
+      state: 'fuel-low'
+    })
+    try {
+      await expect
+        .poll(async () => page.locator('[data-widget="raceconRc10Dash"]').getAttribute('data-rc10-alerts'))
+        .toBe('active')
+      const geometry = await readGeometry(page)
+      assertDeltaFuelGuards(geometry, sizeKey)
     } finally {
       await context.close()
     }

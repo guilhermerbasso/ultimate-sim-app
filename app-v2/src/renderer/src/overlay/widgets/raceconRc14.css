@@ -165,6 +165,19 @@
   gap: 0.3cqw;
 }
 
+/*
+ * The row's own name is its identity, and it lost its box entirely: at 800x480 the ENGINE label
+ * painted 73 px of nowrap text against `clientWidth` 0, and 86 px against 7 px at 1024x600. The
+ * cause is track sizing, not the ACK button — `.rc14-fault-detail` is a `·`-joined list of the
+ * active fault sources, so its max-content is unbounded (174.63 px inside a 152.6 px row at
+ * 800x480), and as long as it sat in a bare `auto` SECOND COLUMN it took every pixel the row had
+ * and left the `minmax(0, 1fr)` system track exactly zero.
+ *
+ * The detail and the no-zone notice therefore take FULL-WIDTH rows of their own, so nothing on the
+ * system's line is sized by them; the second column now carries only the short app-only timestamp
+ * and is capped at 30 % besides. The detail wraps instead of running off the row, which is the
+ * honest layout for a list whose length is data, not design.
+ */
 .rc14-fault-select {
   display: grid;
   flex: 1 1 auto;
@@ -176,8 +189,10 @@
   font: inherit;
   grid-template-areas:
     'system stamp'
-    'chip detail';
-  grid-template-columns: minmax(0, 1fr) auto;
+    'chip chip'
+    'nozone nozone'
+    'detail detail';
+  grid-template-columns: minmax(0, 1fr) minmax(0, 30%);
   text-align: left;
   cursor: pointer;
 }
@@ -225,18 +240,21 @@
 .rc14-fault-detail {
   grid-area: detail;
   justify-self: end;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.rc14-fault-nozone {
+  grid-area: nozone;
+  justify-self: end;
+  border: 1px dashed var(--rc14-secondary);
+  padding: 0 0.3cqw;
 }
 
 .rc14-fault-stamp {
   grid-area: stamp;
   justify-self: end;
-}
-
-.rc14-fault-nozone {
-  grid-area: stamp;
-  justify-self: end;
-  border: 1px dashed var(--rc14-secondary);
-  padding: 0 0.3cqw;
 }
 
 .rc14-fault-ack {
@@ -686,21 +704,22 @@
     grid-auto-rows: minmax(0, 1fr);
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .rc14-fault-select {
-    grid-template-areas:
-      'system stamp'
-      'chip detail';
-  }
 }
 
 @container (max-height: 440px) {
+  /*
+   * ONE factor for BOTH rungs. RC14_TYPE_SCALE_PX declares `vitalValue` and `decisionWord` as a
+   * single 40 px rank, and the suite asserts that equality; scaling them by 0.62 and 0.72 broke
+   * the widget's own declared contract in the only grammar where the reduction applies
+   * (759x393 23.53 vs 27.32, 867x412 26.88 vs 31.21). The four stacked gauges are the tighter
+   * constraint, so the shared factor is the gauges' 0.62 and the equality holds at every viewport.
+   */
   .rc14-vital-value {
     font-size: clamp(9px, calc(var(--rc14-type-vital, 5cqw) * 0.62), 34px);
   }
 
   .rc14-decision-word {
-    font-size: clamp(9px, calc(var(--rc14-type-decision, 5cqw) * 0.72), 40px);
+    font-size: clamp(9px, calc(var(--rc14-type-decision, 5cqw) * 0.62), 34px);
   }
 }
 
