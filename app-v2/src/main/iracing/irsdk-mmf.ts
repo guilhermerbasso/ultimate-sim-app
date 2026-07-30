@@ -1,5 +1,19 @@
 import { createRequire } from 'node:module'
 import type { IRacingMmfDiagnostics } from '../../shared/telemetry'
+import {
+  IRSDK_VAR_HEADER_SIZE,
+  MAX_SESSION_INFO_LEN,
+  boundedVarCount,
+  decodeVarValues,
+  isRangeWithin,
+  plausibleMapSize,
+  readConsistentVarFrame,
+  validateHeaderBounds,
+  type IrsdkFrameFailure,
+  type IrsdkFrameSource,
+  type IrsdkHeaderLike,
+  type IrsdkNamedVarHeader
+} from './irsdk-frame'
 
 const require = createRequire(import.meta.url)
 
@@ -15,14 +29,7 @@ const SYNCHRONIZE = 0x00100000
 // canonical "connected" signal used by every irsdk client (pyirsdk/node-irsdk/SimHub).
 const IRSDK_ST_CONNECTED = 1
 
-const VAR_TYPES = {
-  char: 0,
-  bool: 1,
-  int: 2,
-  bitfield: 3,
-  float: 4,
-  double: 5
-} as const
+// irsdk_VarType values live in ./irsdk-frame (IRSDK_VAR_TYPES) alongside the decoder.
 
 // iRacing broadcast command enum (irsdk_BroadcastMsg).
 export const IRSDK_BROADCAST = {
@@ -112,6 +119,8 @@ type NativeLibraries = {
   CloseHandle: (...args: any[]) => any
   OpenEventW: (...args: any[]) => any
   WaitForSingleObject: (...args: any[]) => number
+  VirtualQuery: ((...args: any[]) => number) | null
+  memoryBasicInformation: any
   RegisterWindowMessageW: (...args: any[]) => number
   SendNotifyMessageW: (...args: any[]) => boolean
   headerStruct: any
@@ -119,13 +128,8 @@ type NativeLibraries = {
   varHeaderStruct: any
 }
 
-// Upper bound used to protect against corrupted/uninitialized memory map values
-// before we iterate var-headers. Real iRacing exports rarely top a few hundred
-// variables; 4000 keeps us well above headroom while preventing runaway loops.
-const MAX_NUM_VARS = 4000
-// Cap session-info YAML reads at 8 MiB. The real payload is normally <2 MiB but
-// the field is a raw int32 from the MMF — guard against bogus values.
-const MAX_SESSION_INFO_LEN = 8 * 1024 * 1024
+// Bounds/limit constants live in ./irsdk-frame so the pure algorithm and the native
+// reader agree on a single contract (MAX_NUM_VARS, MAX_SESSION_INFO_LEN, buffer sizes).
 
 type IRSDKHeader = {
   ver: number
@@ -143,14 +147,15 @@ type IRSDKHeader = {
   varBuf: Array<{ tickCount: number; bufOffset: number }>
 }
 
-type VarHeader = {
-  type: number
-  offset: number
-  count: number
-  countAsTime: number
-  name: unknown
-  desc: unknown
-  unit: unknown
+export type IRacingFrameInfo = {
+  /** irsdk varBuf slot the sample was copied from. */
+  bufferIndex: number
+  /** Tick count of that slot, identical before and after the copy (never torn). */
+  tickCount: number
+  /** How many copy attempts were needed before the tick count held still. */
+  attempts: number
+  /** Wall-clock time the consistent copy was taken. */
+  readAt: number
 }
 
 export type IRacingReadResult = {
@@ -158,6 +163,18 @@ export type IRacingReadResult = {
   sessionInfo: any
   sessionInfoYaml: string
   header: IRSDKHeader
+  frame: IRacingFrameInfo
+}
+
+/**
+ * Test seam. Supplying a frame source (and optionally the var-header/session-info
+ * readers) drives the real read() algorithm against a synthetic memory map, so the
+ * torn-frame and bounds behaviour is provable without koffi or a running simulator.
+ */
+export type IRacingMemoryMapOptions = {
+  frameSource?: IrsdkFrameSource
+  readVarHeaders?: (header: IrsdkHeaderLike) => IrsdkNamedVarHeader[]
+  readSessionInfoYaml?: (header: IrsdkHeaderLike) => string
 }
 
 export type BroadcastResult = {
@@ -253,6 +270,29 @@ function loadNativeLibraries(): NativeLibraries | null {
       desc: 'char[64]',
       unit: 'char[32]'
     })
+    // MEMORY_BASIC_INFORMATION (_WIN64 layout: PartitionId sits between
+    // AllocationProtect and RegionSize). Used only to learn how large the mapped view
+    // is so no read can walk past it; a implausible result is discarded, never trusted.
+    let memoryBasicInformation: any = null
+    let VirtualQuery: ((...args: any[]) => number) | null = null
+    try {
+      memoryBasicInformation = koffi.struct('MEMORY_BASIC_INFORMATION', {
+        BaseAddress: 'void*',
+        AllocationBase: 'void*',
+        AllocationProtect: 'uint32',
+        PartitionId: 'uint16',
+        _pad0: koffi.array('uint8', 2),
+        RegionSize: 'size_t',
+        State: 'uint32',
+        Protect: 'uint32',
+        Type: 'uint32',
+        _pad1: koffi.array('uint8', 4)
+      })
+      VirtualQuery = kernel32.func('VirtualQuery', 'size_t', ['void*', koffi.out(koffi.pointer(memoryBasicInformation)), 'size_t'])
+    } catch {
+      memoryBasicInformation = null
+      VirtualQuery = null
+    }
 
     cachedNative = {
       koffi,
@@ -264,6 +304,8 @@ function loadNativeLibraries(): NativeLibraries | null {
       CloseHandle: kernel32.func('CloseHandle', 'bool', ['void*']),
       OpenEventW: kernel32.func('OpenEventW', 'void*', ['uint32', 'bool', 'str16']),
       WaitForSingleObject: kernel32.func('WaitForSingleObject', 'uint32', ['void*', 'uint32']),
+      VirtualQuery,
+      memoryBasicInformation,
       RegisterWindowMessageW: user32.func('RegisterWindowMessageW', 'uint32', ['str16']),
       SendNotifyMessageW: user32.func('SendNotifyMessageW', 'bool', ['void*', 'uint32', 'uint64', 'int64']),
       headerStruct,
@@ -286,8 +328,19 @@ export class IRacingMemoryMap {
   private lastSessionInfo: any = null
   private lastSessionInfoYaml = ''
   private lastSessionInfoYamlUpdate = -1
+  private mappedSize: number | null = null
+  private varHeaderCacheKey = ''
+  private varHeaderCache: IrsdkNamedVarHeader[] = []
+  private lastFrameFailure: IrsdkFrameFailure | null = null
+  private tornFrameCount = 0
+  private readonly options: IRacingMemoryMapOptions
+
+  constructor(options: IRacingMemoryMapOptions = {}) {
+    this.options = options
+  }
 
   start(): void {
+    if (this.options.frameSource) return
     if (this.viewPointer) return
     this.native = loadNativeLibraries()
     if (!this.native) return
@@ -302,6 +355,7 @@ export class IRacingMemoryMap {
         this.fileHandle = null
         return
       }
+      this.mappedSize = this.queryMappedSize()
       this.dataEventHandle = this.native.OpenEventW(SYNCHRONIZE, false, IRSDK_DATA_VALID_EVENT)
     } catch {
       this.stop()
@@ -320,6 +374,11 @@ export class IRacingMemoryMap {
     this.fileHandle = null
     this.dataEventHandle = null
     this.native = null
+    this.mappedSize = null
+    this.varHeaderCacheKey = ''
+    this.varHeaderCache = []
+    this.lastFrameFailure = null
+    this.tornFrameCount = 0
     this.lastSessionInfoUpdate = -1
     this.lastSessionInfo = null
     this.lastSessionInfoYaml = ''
@@ -327,11 +386,12 @@ export class IRacingMemoryMap {
   }
 
   isOpen(): boolean {
+    if (this.options.frameSource) return true
     return Boolean(this.native && this.viewPointer)
   }
 
   isConnected(): boolean {
-    if (!this.native || !this.viewPointer) return false
+    if (!this.isOpen()) return false
     const header = this.readHeader()
     if (!header) return false
     // Connection is driven by the header status bit, never by the data-valid event:
@@ -340,20 +400,43 @@ export class IRacingMemoryMap {
     return (header.status & IRSDK_ST_CONNECTED) !== 0 && header.numVars > 0 && header.bufLen > 0
   }
 
+  /** Diagnostic counters for the last read cycle — surfaced by diagnose(). */
+  frameHealth(): { lastFailure: IrsdkFrameFailure | null; tornFrames: number; mappedSize: number | null } {
+    return { lastFailure: this.lastFrameFailure, tornFrames: this.tornFrameCount, mappedSize: this.mappedSize }
+  }
+
   read(): IRacingReadResult | null {
-    if (!this.native || !this.viewPointer) return null
+    if (!this.isOpen()) return null
 
     try {
-      const header = this.readHeader()
-      if (!header) return null
+      const outcome = readConsistentVarFrame(this.frameSource())
+      if (!outcome.ok) {
+        this.lastFrameFailure = outcome.reason
+        if (outcome.reason === 'torn') this.tornFrameCount += 1
+        // A frame that could not be copied consistently is NEVER published: half of it
+        // would come from tick N and half from tick N+1.
+        return null
+      }
+      this.lastFrameFailure = null
+      const header = outcome.frame.header as IRSDKHeader
       if ((header.status & IRSDK_ST_CONNECTED) === 0) return null
-      if (header.numVars <= 0 || header.bufLen <= 0) return null
-      const bufferOffset = this.pickLatestBufferOffset(header)
-      const varHeaders = this.readVarHeaders(header)
-      const values = this.readValues(varHeaders, bufferOffset)
+
+      const varHeaders = this.varHeadersFor(header)
+      const values = decodeVarValues(outcome.frame.buffer, varHeaders)
       const sessionInfoYaml = this.readSessionInfoYaml(header)
       const sessionInfo = this.parseSessionInfo(header, sessionInfoYaml)
-      return { values, sessionInfo, sessionInfoYaml, header }
+      return {
+        values,
+        sessionInfo,
+        sessionInfoYaml,
+        header,
+        frame: {
+          bufferIndex: outcome.frame.bufferIndex,
+          tickCount: outcome.frame.tickCount,
+          attempts: outcome.frame.attempts,
+          readAt: Date.now()
+        }
+      }
     } catch {
       return null
     }
@@ -417,11 +500,20 @@ export class IRacingMemoryMap {
         if (valuesDecoded === 0) {
           notes.push('No variables decoded despite being connected — likely struct layout error.')
         } else {
-          notes.push('OK: iRacing connected and variables decoded successfully.')
+          notes.push(`OK: iRacing connected and variables decoded successfully (buffer ${read.frame.bufferIndex}, tick ${read.frame.tickCount}, ${read.frame.attempts} attempt(s)).`)
         }
       } else {
-        notes.push('read() returned null despite the connected status.')
+        const health = this.frameHealth()
+        notes.push(`read() returned null despite the connected status (last frame failure: ${health.lastFailure ?? 'unknown'}).`)
       }
+    }
+
+    const health = this.frameHealth()
+    if (health.tornFrames > 0) {
+      notes.push(`${health.tornFrames} torn frame(s) were rejected instead of being published.`)
+    }
+    if (health.mappedSize === null && viewMapped) {
+      notes.push('Mapped view size could not be determined; reads fall back to header-internal bounds only.')
     }
 
     return {
@@ -448,6 +540,34 @@ export class IRacingMemoryMap {
     if (handle) this.native?.CloseHandle(handle)
   }
 
+  /** Best-effort size of the mapped view. Anything implausible is reported as unknown. */
+  private queryMappedSize(): number | null {
+    const native = this.native
+    if (!native?.VirtualQuery || !native.memoryBasicInformation || !this.viewPointer) return null
+    try {
+      const info: any = {}
+      const written = native.VirtualQuery(this.viewPointer, info, 48)
+      if (!written) return null
+      return plausibleMapSize(Number(info.RegionSize))
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * The frame source handed to the pure read algorithm. `mapSize()` self-calibrates: if
+   * the VirtualQuery result would reject a header that is otherwise internally consistent,
+   * the size is distrusted from then on rather than blocking valid telemetry.
+   */
+  private frameSource(): IrsdkFrameSource {
+    if (this.options.frameSource) return this.options.frameSource
+    return {
+      readHeader: () => this.readHeader(),
+      copyVarBuffer: (bufOffset, bufLen) => this.bytesAt(bufOffset, bufLen),
+      mapSize: () => this.mappedSize
+    }
+  }
+
   private decodeAt(offset: number, type: any): any {
     const koffi = this.native?.koffi
     if (!koffi || !this.viewPointer) return null
@@ -462,18 +582,29 @@ export class IRacingMemoryMap {
     }
   }
 
-  private bytesAt(offset: number, length: number): Buffer {
+  /**
+   * Raw copy out of the mapped view. Refuses any range that is negative or that would
+   * walk past the end of the mapping — reading unmapped memory through koffi is an
+   * access violation that takes the whole main process down.
+   */
+  private bytesAt(offset: number, length: number): Buffer | null {
     const koffi = this.native?.koffi
-    if (!koffi || length <= 0) return Buffer.alloc(0)
+    if (!koffi || length <= 0) return null
+    if (!isRangeWithin(offset, length, this.mappedSize)) return null
     const byteArray = koffi.array('uint8', length)
     const raw = this.decodeAt(offset, byteArray)
-    return Buffer.from(Array.from(raw ?? []) as number[])
+    if (raw == null) return null
+    if (Buffer.isBuffer(raw)) return raw
+    if (raw instanceof Uint8Array) return Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength)
+    if (!Array.isArray(raw)) return null
+    return Buffer.from(raw as number[])
   }
 
   private readHeader(): IRSDKHeader | null {
+    if (this.options.frameSource) return this.options.frameSource.readHeader() as IRSDKHeader | null
     const raw = this.decodeAt(0, this.native?.headerStruct)
     if (!raw) return null
-    return {
+    const header: IRSDKHeader = {
       ver: Number(raw.ver ?? 0),
       status: Number(raw.status ?? 0),
       tickRate: Number(raw.tickRate ?? 0),
@@ -488,80 +619,62 @@ export class IRacingMemoryMap {
       curBuf: Number(raw.curBuf ?? 0),
       varBuf: Array.from(raw.varBuf ?? []).map((buf: any) => ({ tickCount: Number(buf.tickCount ?? 0), bufOffset: Number(buf.bufOffset ?? 0) }))
     }
-  }
-
-  private pickLatestBufferOffset(header: IRSDKHeader): number {
-    const buffers = header.varBuf.slice(0, Math.max(0, Math.min(header.numBuf, header.varBuf.length)))
-    if (header.curBuf >= 0 && header.curBuf < buffers.length && buffers[header.curBuf]?.bufOffset > 0) {
-      return buffers[header.curBuf].bufOffset
+    // Self-calibration: a header that is internally consistent but fails only because of
+    // the VirtualQuery size means the size is wrong, not the header. Distrust the size.
+    if (this.mappedSize !== null && !validateHeaderBounds(header, this.mappedSize).ok && validateHeaderBounds(header, null).ok) {
+      this.mappedSize = null
     }
-    return buffers.reduce((best, current) => current.tickCount > best.tickCount ? current : best, buffers[0] ?? { tickCount: 0, bufOffset: 0 }).bufOffset
+    return header
   }
 
-  private readVarHeaders(header: IRSDKHeader): VarHeader[] {
-    const varHeaders: VarHeader[] = []
-    const varHeaderSize = 144
+  /**
+   * Var headers describe the layout of a telemetry buffer and only change when the
+   * exported var set changes, so they are cached against the layout-defining fields
+   * instead of being re-decoded 300+ times per frame.
+   */
+  private varHeadersFor(header: IRSDKHeader): IrsdkNamedVarHeader[] {
+    const key = `${header.varHeaderOffset}:${header.numVars}:${header.bufLen}:${header.numBuf}`
+    if (key === this.varHeaderCacheKey && this.varHeaderCache.length) return this.varHeaderCache
+    const varHeaders = this.options.readVarHeaders
+      ? this.options.readVarHeaders(header)
+      : this.readVarHeaders(header)
+    this.varHeaderCacheKey = key
+    this.varHeaderCache = varHeaders
+    return varHeaders
+  }
+
+  private readVarHeaders(header: IRSDKHeader): IrsdkNamedVarHeader[] {
+    const varHeaders: IrsdkNamedVarHeader[] = []
     // Bound-check: the MMF can momentarily expose garbage during init/shutdown.
-    const count = Math.max(0, Math.min(header.numVars, MAX_NUM_VARS))
+    const count = boundedVarCount(header.numVars)
     for (let i = 0; i < count; i += 1) {
-      const raw = this.decodeAt(header.varHeaderOffset + i * varHeaderSize, this.native?.varHeaderStruct)
+      const offset = header.varHeaderOffset + i * IRSDK_VAR_HEADER_SIZE
+      if (!isRangeWithin(offset, IRSDK_VAR_HEADER_SIZE, this.mappedSize)) break
+      const raw = this.decodeAt(offset, this.native?.varHeaderStruct)
       if (!raw) continue
+      const name = firstString(raw.name)
+      if (!name) continue
       varHeaders.push({
         type: Number(raw.type ?? 0),
         offset: Number(raw.offset ?? 0),
         count: Number(raw.count ?? 1),
-        countAsTime: Number(raw.countAsTime ?? 0),
-        name: raw.name,
-        desc: raw.desc,
-        unit: raw.unit
+        name
       })
     }
     return varHeaders
-  }
-
-  private readValues(varHeaders: VarHeader[], bufferOffset: number): Record<string, unknown> {
-    const values: Record<string, unknown> = {}
-    for (const header of varHeaders) {
-      const name = firstString(header.name)
-      if (!name) continue
-      values[name] = this.readVarValue(bufferOffset + header.offset, header.type, Math.max(1, header.count))
-    }
-    return values
-  }
-
-  private readVarValue(offset: number, type: number, count: number): unknown {
-    const itemSize = type === VAR_TYPES.double ? 8 : type === VAR_TYPES.char || type === VAR_TYPES.bool ? 1 : 4
-    const bytes = this.bytesAt(offset, itemSize * count)
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    const readOne = (index: number): unknown => {
-      const pos = index * itemSize
-      switch (type) {
-        case VAR_TYPES.char:
-          return String.fromCharCode(bytes[pos] ?? 0)
-        case VAR_TYPES.bool:
-          return (bytes[pos] ?? 0) !== 0
-        case VAR_TYPES.int:
-        case VAR_TYPES.bitfield:
-          return view.getInt32(pos, true)
-        case VAR_TYPES.float:
-          return view.getFloat32(pos, true)
-        case VAR_TYPES.double:
-          return view.getFloat64(pos, true)
-        default:
-          return undefined
-      }
-    }
-
-    if (type === VAR_TYPES.char) return bytes.toString('utf8').replace(/\0.*$/, '')
-    if (count === 1) return readOne(0)
-    return Array.from({ length: count }, (_, index) => readOne(index))
   }
 
   private readSessionInfoYaml(header: IRSDKHeader): string {
     if (header.sessionInfoLen <= 0 || header.sessionInfoOffset <= 0) return this.lastSessionInfoYaml
     if (header.sessionInfoLen > MAX_SESSION_INFO_LEN) return this.lastSessionInfoYaml
     if (header.sessionInfoUpdate === this.lastSessionInfoYamlUpdate) return this.lastSessionInfoYaml
+    if (this.options.readSessionInfoYaml) {
+      this.lastSessionInfoYaml = this.options.readSessionInfoYaml(header)
+      this.lastSessionInfoYamlUpdate = header.sessionInfoUpdate
+      return this.lastSessionInfoYaml
+    }
     const bytes = this.bytesAt(header.sessionInfoOffset, header.sessionInfoLen)
+    if (!bytes) return this.lastSessionInfoYaml
     this.lastSessionInfoYaml = bytes.toString('utf8').replace(/\0+$/, '')
     this.lastSessionInfoYamlUpdate = header.sessionInfoUpdate
     return this.lastSessionInfoYaml
