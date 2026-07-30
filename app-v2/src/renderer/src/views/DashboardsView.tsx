@@ -94,7 +94,7 @@ const CYCLE_ACTION_NAME: Record<CycleDirection, AppActionName> = {
 
 const CYCLE_BINDING_LABEL: Record<CycleDirection, string> = {
   next: 'Dashboard · next (playlist)',
-  prev: 'Dashboard ?? previous (playlist)'
+  prev: 'Dashboard · previous (playlist)'
 }
 
 const CYCLE_FIELD_LABEL: Record<CycleDirection, string> = {
@@ -2655,8 +2655,8 @@ function ElementInspector({
             element.type === 'gauge' ||
             element.type === 'shiftlights') && (
             <>
-              <NumberField label="Warn from (0?1)" value={element.style.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
-              <NumberField label="Danger from (0?1)" value={element.style.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+              <NumberField label="Warn from (0–1)" value={element.style.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+              <NumberField label="Danger from (0–1)" value={element.style.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
             </>
           )}
           {element.type === 'shiftlights' && (

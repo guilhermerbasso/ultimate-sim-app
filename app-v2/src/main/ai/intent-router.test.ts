@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { EngineerContext } from '../../shared/ai-engineer'
 import type { CoachTip } from '../../shared/coach'
 import type { FuelStrategyState } from '../../shared/fuel'

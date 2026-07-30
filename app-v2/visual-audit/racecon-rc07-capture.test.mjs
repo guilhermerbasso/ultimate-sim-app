@@ -321,13 +321,13 @@ test("a tie anywhere in the type scale is a failure, not a pass", () => {
 
 /* ── Zone geometry tests ────────────────────────────────────────────────────────────── */
 
-test("zone height ordering behind > ahead > self is required at every breakpoint", () => {
+test("zone height ordering behind > ahead >= self is required at every breakpoint", () => {
   // behind shorter than ahead
   assertRejects(
     (m) => { m.zones[2].height = 160; m.zones[3].height = 165 },
     /zone height ordering does not hold.*behind.*ahead/u
   )
-  // ahead shorter than self
+  // ahead strictly shorter than self
   assertRejects(
     (m) => { m.zones[3].height = 90; m.zones[4].height = 95 },
     /zone height ordering does not hold.*ahead.*self/u
@@ -387,30 +387,33 @@ test("an unrecorded overflow fails and a recorded one within budget passes", () 
   // Since RC07_SPEC.knownDefects is empty, any overflow fails — no exemption path to test.
 })
 
-test("a recorded overflow that grows past its budget fails", () => {
-  // RC-07 has exactly five known defects spanning three layout modes.
-  assert.equal(RC07_SPEC.knownDefects.length, 5)
-  const defect = RC07_SPEC.knownDefects[0]
-  assert.equal(defect.id, "app-ahead-shorter-than-self")
-  assert.equal(defect.budget.selfMinusAheadMaxPx, 8)
-  assert.deepEqual(defect.affectedBreakpoints, ["1024x600"])
+test("the defect ledger is empty after the layout and type-scale fix", () => {
+  // RC-07 has no known defects: all layout and type-scale defects have been fixed.
+  assert.equal(RC07_SPEC.knownDefects.length, 0)
 
-  const tsDefect = RC07_SPEC.knownDefects[2]
-  assert.equal(tsDefect.id, "app-type-scale-badge-exceeds-self")
-  assert.equal(tsDefect.budget.badgeMinusSelfMaxPx, 2.0)
-
-  // A native-layout violation (no exemption applies) still fails.
-  // Shrink ahead to 90 px while self stays at 95 px — both remain in-frame,
-  // only the ahead < self ordering is violated.
+  // With no exemptions, any ahead-shorter-than-self violation fails immediately.
+  // The native fixture has ahead=165px > self=95px; shrinking ahead below self triggers the guard.
   assertRejects(
     (m) => { m.zones[3].height = 90 },
     /zone height ordering does not hold.*ahead.*self/u
   )
 
-  // The "grown past budget" path is exercised by the capture harness at 1024x600 where the
-  // real widget measures ahead≈150px, self≈156px (delta≈6 ≤ 8 → passes). If the delta ever
-  // exceeds 8 the message "budget is 8 px but delta grew to N" will be emitted. The exact
-  // error-message pattern is the normative contract for that path.
+  // Type-scale violations fail at all layouts — no budget exemptions apply.
+  // A tie between self-value and class-badge is a failure (= is not >).
+  assertRejects(
+    (m) => { m.selfValueFontSize = 26 },  // 26 = classBadgeFontSize → tie
+    /type-scale hierarchy does not hold/u
+  )
+  // An inversion (badge > self-value) is a failure.
+  assertRejects(
+    (m) => { m.classBadgeFontSize = 37 },  // 37 > selfValueFontSize (36) → inversion
+    /type-scale hierarchy does not hold/u
+  )
+  // A step narrower than 1 px is a failure — assertTypeScaleOrder enforces >= 1px minimum.
+  assertRejects(
+    (m) => { m.selfValueFontSize = 26.4 },  // 26.4 - 26 = 0.4 px < 1 px minimum
+    /type-scale hierarchy does not hold/u
+  )
 })
 
 /* ── Packet omission tests ──────────────────────────────────────────────────────────── */

@@ -184,44 +184,18 @@ export const RC05_SPEC = Object.freeze({
    * so a defect that grows, spreads to another breakpoint or appears on another element
    * still fails.
    *
-   * DEFECT (app 1024×600 — both states): four peripheral-strip labels and units overflow their
-   * CSS-clamped boxes. The `.rc05-label` elements "SPEED" (19 px) and "FUEL" (15 px) and the
-   * `.rc05-unit` elements "KM/H" (17 px) and "LAPS" (16 px) all use the same 15 px clamp that
-   * the container enforces everywhere else. Root cause: the app-layout peripheral column is
-   * narrower than the sum of label + value + unit widths at the 15 px floor, so the labels
-   * cannot shrink further. The defect is confined to 1024×600 (smaller compact sizes do not
-   * trigger it; native 800×480 uses a different peripheral geometry).
+   * Both peripheral-label / peripheral-unit defects are fixed in the CSS (Part 1 fix:
+   * clamp(9px,1.0cqw,10px) for labels/units, clamp(10px,1.2cqw,12px) for values).
+   * The array is intentionally empty so the harness fails closed on any recurrence.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "rc05-label",
-      states: Object.freeze(["silent", "corner-overheat"]),
-      sizes: Object.freeze(["1024x600"]),
-      budgetPx: 20,
-      note: "app-layout peripheral labels (SPEED 19 px, FUEL 15 px) overflow their 15 px clamp box"
-    }),
-    Object.freeze({
-      key: "rc05-unit",
-      states: Object.freeze(["silent", "corner-overheat"]),
-      sizes: Object.freeze(["1024x600"]),
-      budgetPx: 18,
-      note: "app-layout peripheral units (KM/H 17 px, LAPS 16 px) overflow their compact box alongside the label defect"
-    }),
-  ]),
+  knownDefects: Object.freeze([]),
   /**
-   * Zone-escape defect: the LF corner's overheat scale transform expands the article past the
-   * mandala zone it belongs to (left ≤ 7.73 px, top ≤ 6.24 px). The shared containment sweep
-   * audits it against this budget, so an escape that grows or spreads still fails.
+   * Zone-escape defect: fixed by anchoring each corner's transform-origin to its outboard
+   * edge (Part 2 fix). The array is intentionally empty so the harness fails closed on
+   * any recurrence; the former budget value is preserved in RC05_LF_CORNER_ZOOM_ESCAPE_BUDGET_PX
+   * for reference and for the unit-test synthetic-fixture scenario.
    */
-  containmentDefects: Object.freeze([
-    Object.freeze({
-      label: "LF corner",
-      states: Object.freeze(["corner-overheat"]),
-      sizes: Object.freeze(["1024x600", "393x759", "412x867", "759x393", "867x412"]),
-      budgetPx: RC05_LF_CORNER_ZOOM_ESCAPE_BUDGET_PX,
-      note: "LF corner article escapes mandala zone (left ≤7.73 px, top ≤6.24 px) during overheat zoom animation; native layout unaffected (mandala = full viewport)"
-    })
-  ])
+  containmentDefects: Object.freeze([])
 })
 
 export const RC05_CAPTURE_MATRIX = Object.freeze(
@@ -479,6 +453,71 @@ function assertAppOnlyReveals(metrics, entry) {
 }
 
 /**
+ * Positive regression guard for the Part-1 fix (peripheral-label/unit overflow).
+ *
+ * Every `.rc05-label` and `.rc05-unit` leaf reported in `metrics.overflowLeaves` is a failure:
+ * the CSS fix (clamp(9px,1.0cqw,10px) for labels/units, clamp(10px,1.2cqw,12px) for values at
+ * the app-layout viewport) must ensure zero overflow at every viewport and state.
+ *
+ * `overflowLeaves` entries are built from `scrollWidth - clientWidth > 0` on the leaf itself,
+ * which is valid evidence: the leaf has a definite box width and `white-space: nowrap` expands
+ * its scrollWidth when text overflows.
+ */
+function assertPeripheralLabelsContained(metrics, entry) {
+  for (const leaf of metrics.overflowLeaves ?? []) {
+    if (leaf.key === "rc05-label" || leaf.key === "rc05-unit") {
+      fail(
+        `${entry.size.width}x${entry.size.height} ${entry.state} ${leaf.key} "${leaf.text}" overflows its box by ` +
+          `+${leaf.overflowX}px (textLeft=${leaf.textLeft?.toFixed(1)}, textRight=${leaf.textRight?.toFixed(1)}, ` +
+          `elementRight=${leaf.elementRight?.toFixed(1)})`
+      )
+    }
+  }
+}
+
+/**
+ * Positive regression guard for the Part-2 fix (LF corner escapes mandala on zoom).
+ *
+ * In the corner-overheat state at every non-native viewport the LF corner article's painted
+ * (post-transform) rect must be contained by the mandala zone rect within 0.5 px on all four
+ * edges. The CSS fix (transform-origin: top left for LF corner) anchors the top-left edge to
+ * the mandala corner, so scale(1.06) expands only inward.
+ *
+ * `metrics.containment` entries are: { label, owner, value, ownerDisplay, valueDisplay }
+ * where `owner` and `value` are viewport-relative DOMRect-like objects { left, top, width, height }.
+ * Positive escape = value exceeds owner on that edge.
+ */
+function assertLfCornerInMandala(metrics, entry) {
+  if (entry.state !== "corner-overheat") return
+  const TOLERANCE_PX = 0.5
+  for (const c of metrics.containment ?? []) {
+    if (c.label !== "LF corner") continue
+    if (!c.owner || !c.value) continue
+    const escapes = {
+      left: c.owner.left - c.value.left,
+      right: c.value.left + c.value.width - (c.owner.left + c.owner.width),
+      top: c.owner.top - c.value.top,
+      bottom: c.value.top + c.value.height - (c.owner.top + c.owner.height),
+    }
+    for (const [edge, escape] of Object.entries(escapes)) {
+      if (escape > TOLERANCE_PX) {
+        fail(
+          `${entry.size.width}x${entry.size.height} corner-overheat: LF corner escapes mandala zone on the ` +
+            `${edge} edge by ${escape.toFixed(2)}px (tolerance ${TOLERANCE_PX}px). ` +
+            `Mandala rect: left=${c.owner.left.toFixed(1)}, top=${c.owner.top.toFixed(1)}, ` +
+            `right=${(c.owner.left + c.owner.width).toFixed(1)}, ` +
+            `bottom=${(c.owner.top + c.owner.height).toFixed(1)}. ` +
+            `LF corner rect: left=${c.value.left.toFixed(1)}, top=${c.value.top.toFixed(1)}, ` +
+            `right=${(c.value.left + c.value.width).toFixed(1)}, ` +
+            `bottom=${(c.value.top + c.value.height).toFixed(1)}.`
+        )
+      }
+    }
+    return
+  }
+}
+
+/**
  * image-qa-v2: the type-scale order is what the governance evidence proves and the absolute
  * sizes come from the CSS clamp declarations in the approved attempt-006 build. A tie at any
  * step is a failure — two readouts at the same size carry no hierarchy.
@@ -519,9 +558,9 @@ export function validateCaptureMetrics(metrics, entry) {
   assertValues(metrics, entry)
   assertAlertSurfaces(metrics, entry)
   assertAppOnlyReveals(metrics, entry)
+  assertPeripheralLabelsContained(metrics, entry)
+  assertLfCornerInMandala(metrics, entry)
 
-  // The LF corner's overheat scale transform expands the article past the mandala zone; the
-  // shared containment sweep audits it against `RC05_SPEC.containmentDefects`.
   return { ...common, typeScale: assertTypeScale(metrics) }
 }
 

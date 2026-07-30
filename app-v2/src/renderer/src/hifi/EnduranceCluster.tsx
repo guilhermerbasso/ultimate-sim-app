@@ -1,4 +1,4 @@
-﻿// ── EnduranceCluster ──────────────────────────────────────────────────────────
+// ── EnduranceCluster ──────────────────────────────────────────────────────────
 // Race-car endurance/IMSA dashboard matching ref-endurance-1024x600.png. Pure SVG
 // on a 1024x600 viewBox, SSR-safe and NaN-safe: absent telemetry renders as em-dash.
 import { type ReactElement, type ReactNode } from 'react'

@@ -40,6 +40,7 @@ vi.mock('electron', () => ({
 }))
 
 import { createButtonBoxPanel } from '../../shared/touch-panel'
+import { configureDevRenderer, resetDevRendererForTests } from '../dev-renderer'
 import type { ModuleContext } from '../module-context'
 import { isAllowedTouchPanelNavigation, TouchPanelManager } from './manager'
 
@@ -78,12 +79,16 @@ class FakeTouchWindow extends EventEmitter {
 
 beforeEach(() => {
   vi.unstubAllEnvs()
+  // Fail-closed default from #177: no configuration == treated as packaged, so
+  // the packaged-build cases below need no further setup.
+  resetDevRendererForTests()
   electronMocks.getAllDisplays.mockReturnValue([display])
   electronMocks.getPrimaryDisplay.mockReturnValue(display)
 })
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  resetDevRendererForTests()
   vi.restoreAllMocks()
 })
 
@@ -128,6 +133,7 @@ describe('touch-panel navigation guard — packaged build (audit P0-11 follow-up
 
 describe('touch-panel navigation guard — dev server (audit P0-11 follow-up)', () => {
   it('allows any document on the dev-server origin', () => {
+    configureDevRenderer({ isPackaged: false })
     vi.stubEnv('ELECTRON_RENDERER_URL', 'http://127.0.0.1:5174/')
 
     expect(isAllowedTouchPanelNavigation('http://127.0.0.1:5174/touchpanel.html?panel=pit')).toBe(true)
@@ -135,11 +141,22 @@ describe('touch-panel navigation guard — dev server (audit P0-11 follow-up)', 
   })
 
   it('refuses a different origin while the dev server is configured', () => {
+    configureDevRenderer({ isPackaged: false })
     vi.stubEnv('ELECTRON_RENDERER_URL', 'http://127.0.0.1:5174/')
 
     expect(isAllowedTouchPanelNavigation('http://127.0.0.1:9999/evil.html')).toBe(false)
     expect(isAllowedTouchPanelNavigation('https://renderer.attacker-controlled.invalid/')).toBe(false)
     expect(isAllowedTouchPanelNavigation('file:///C:/Users/driver/Downloads/evil.html')).toBe(false)
+  })
+
+  // #177: a packaged build must not trust ELECTRON_RENDERER_URL at all, so the
+  // guard falls back to the bundled document even when the variable is set.
+  it('ignores a dev-server origin injected into a packaged build', () => {
+    configureDevRenderer({ isPackaged: true })
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'http://127.0.0.1:5174/')
+
+    expect(isAllowedTouchPanelNavigation('http://127.0.0.1:5174/touchpanel.html')).toBe(false)
+    expect(isAllowedTouchPanelNavigation(OWN_DOCUMENT)).toBe(true)
   })
 })
 

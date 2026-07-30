@@ -1,4 +1,4 @@
-﻿import { type ReactElement } from 'react'
+import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
 import { ShiftStrobe, atShiftPoint, resolveRevLightPct, resolveRpmGaugePct, revFill } from '../../../lib/rev-lights'

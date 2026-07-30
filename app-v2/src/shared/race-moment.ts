@@ -676,7 +676,7 @@ export const MOMENT_CATALOG: readonly MomentCatalogEntry[] = [
   { id: 'final-laps', label: 'Laps finais', description: 'Fhighm poucas laps para o end (≤ 3).', group: 'session', detectable: true },
   { id: 'last-lap', label: 'Last lap', description: 'Last lap da race (flag branca).', group: 'session', detectable: true },
   { id: 'cooldown', label: 'Cool-down lap', description: 'After the checkered flag (cool-down).', group: 'session', detectable: true },
-  { id: 'out-lap', label: 'Out-lap (leaving the box)', description: 'Right after leaving the pits ? warming tires/brakes.', group: 'session', detectable: true },
+  { id: 'out-lap', label: 'Out-lap (leaving the box)', description: 'Right after leaving the pits — warming tires/brakes.', group: 'session', detectable: true },
   { id: 'in-lap', label: 'In-lap (entering the box)', description: 'Heading to the pits (limiter/pit entry).', group: 'session', detectable: true },
   { id: 'pit-window-open', label: 'Janela de pit aberta', description: 'Boxes abertos para stop na race.', group: 'session', detectable: true },
   { id: 'in-pit', label: 'Nos boxes', description: 'No pit lane ou no stall.', group: 'session', detectable: true },

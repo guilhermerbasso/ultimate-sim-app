@@ -28,6 +28,19 @@ import { logger } from './modules/logger'
 import { instrumentBroadcast, instrumentIpcMain } from './modules/diagnostics-log'
 import { claimFirstTrayHint, trayHintFlagPath } from './tray-hint'
 import { PASSPORT_APP_PERSISTENCE_DEADLINE_MS } from './passport/persistence-deadlines'
+import {
+  configureDevRenderer,
+  devRendererDiagnostics,
+  devRendererOrigin,
+  devRendererUrl,
+  mayRelaxContentSecurityPolicy
+} from './dev-renderer'
+
+// Audit P0-11. Publish the ONE signal the remote-renderer gate trusts, before any
+// window, navigation guard or CSP decision can run. `app.isPackaged` is derived
+// by Electron from the executable path, so — unlike ELECTRON_RENDERER_URL — it
+// cannot be flipped by anything that can merely set an environment variable.
+configureDevRenderer({ isPackaged: app.isPackaged })
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('io.github.ultimatesim.app')
@@ -284,8 +297,9 @@ function openExternalUrl(url: string, protocols: ReadonlySet<string>): void {
 function isAllowedMainNavigation(url: string): boolean {
   try {
     const parsed = new URL(url)
-    if (process.env.ELECTRON_RENDERER_URL) {
-      return parsed.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    const devOrigin = devRendererOrigin()
+    if (devOrigin) {
+      return parsed.origin === devOrigin
     }
     return parsed.href === pathToFileURL(join(__dirname, '../renderer/index.html')).href
   } catch {
@@ -434,12 +448,9 @@ function configureMediaPermissions(): void {
   const allowedCheckPermissions = new Set(['media', 'audioCapture', 'speaker-selection'])
 
   const isAppOrigin = (origin: string | null | undefined): boolean => {
-    if (process.env.ELECTRON_RENDERER_URL) {
-      try {
-        return origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
-      } catch {
-        return false
-      }
+    const devOrigin = devRendererOrigin()
+    if (devOrigin) {
+      return origin === devOrigin
     }
     // Packaged build: the renderer is the only file:// content we ever load.
     // Chromium reports a file:// document's origin as 'file://' (or an opaque
@@ -474,7 +485,13 @@ function configureMediaPermissions(): void {
 }
 
 function registerProductionContentSecurityPolicy(): void {
-  if (process.env.ELECTRON_RENDERER_URL) return
+  // Audit P0-11: the CSP may ONLY be relaxed on the exact same unpackaged path
+  // that is allowed to load a remote renderer. Both derive from
+  // `devRendererUrl()`, which returns null for any packaged build, so
+  // "packaged AND no CSP" is unreachable by construction — not merely by an
+  // ordering coincidence. Previously a bare ELECTRON_RENDERER_URL dropped the
+  // CSP even in a signed, shipped build.
+  if (mayRelaxContentSecurityPolicy()) return
 
   const contentSecurityPolicy = [
     "default-src 'self'",
@@ -527,8 +544,9 @@ function createWindow(): void {
     openExternalUrl(url, new Set(['https:', 'http:']))
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  const devUrl = devRendererUrl()
+  if (devUrl) {
+    void mainWindow.loadURL(devUrl)
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -570,6 +588,18 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     createTray()
     logger.info('app', 'app ready')
+
+    // Audit P0-11: make a refused remote-renderer override visible in the
+    // diagnostic log, so a machine where something is setting the variable
+    // against a packaged build shows up in a bug report instead of silently
+    // working "fine".
+    const rendererGate = devRendererDiagnostics()
+    if (rendererGate.refusedReason !== null) {
+      logger.warn('app', 'ignored ELECTRON_RENDERER_URL and loaded the bundled renderer', {
+        reason: rendererGate.refusedReason,
+        packaged: rendererGate.packaged
+      })
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

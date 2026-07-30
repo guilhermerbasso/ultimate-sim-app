@@ -1,4 +1,4 @@
-﻿// ─── Hi-fi COACH / ENGINEER composition dashboards ────────────────────────────
+// ─── Hi-fi COACH / ENGINEER composition dashboards ────────────────────────────
 // Clean v4 coach screens: black backplate, corner-to-corner rev strip, then
 // self-explanatory hi-fi widgets only. The AI widgets are LOCAL — no GPU, no cost.
 import { bg, comp, dashboard, hifiEl, revTop, type HifiCompPreset } from './dashboards-hifi-kit'

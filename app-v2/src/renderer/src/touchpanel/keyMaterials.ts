@@ -26,7 +26,7 @@ export const MATERIAL_LABELS: Record<KeyMaterial, string> = {
 
 /** Short one-line description shown under the dropdown. */
 export const MATERIAL_HINTS: Record<KeyMaterial, string> = {
-  backlit: 'Dark face + neon edge glow ? physical button-box look.',
+  backlit: 'Dark face + neon edge glow — physical button-box look.',
   solid: 'Solid fill in the body color (original look).',
   glass: 'Translucent glass with specular shine.',
   carbon: 'Carbon-fiber weave with neon accent.',

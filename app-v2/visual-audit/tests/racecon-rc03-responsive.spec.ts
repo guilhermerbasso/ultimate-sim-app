@@ -84,13 +84,46 @@ const viewports = [
 ] as const
 
 /**
- * The compact-phone pace band reserves 36% of its width for the stint clock but still sizes the
- * type scale from `cqw` on the full container, so the delta numeral paints past its cell. The
- * defect is recorded rather than tolerated: the assertion below still fails if it grows.
+ * The compact-phone pace band used to reserve a flat 36% of its width for a stint clock only 32%
+ * wide while sizing its type scale from `cqw` on the FULL container, so the delta numeral painted
+ * 15px past its 100px cell and its glyphs reached x=176.8 while the speed cell began at x=172.3.
+ * The gutter is now derived from the clock and the portrait cell shares are budgeted from what
+ * each cell paints, so there is no overflow budget left at any viewport.
  */
-const KNOWN_PHONE_OVERFLOW_PX: Record<string, number> = {
-  '393x759': 20,
-  '412x867': 20
+const KNOWN_PHONE_OVERFLOW_PX: Record<string, number> = {}
+
+/**
+ * The pace band's reserved clock gutter, measured. `scrollWidth` cannot see this class of defect:
+ * `white-space: nowrap` sizes each numeral to its own glyphs, so a cell reports that it fits
+ * while the glyphs still cross into the cell beside it. Only the Range rectangle compared against
+ * the neighbouring cell's layout box sees the collision.
+ */
+async function readPaceBandCollision(page: Page) {
+  return page.locator('#racecon-rc03-capture-root').evaluate((root) => {
+    const paintedRight = (selector: string): number => {
+      const element = root.querySelector<HTMLElement>(selector)!
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      return range.getBoundingClientRect().right
+    }
+    const boxOf = (selector: string): DOMRect =>
+      root.querySelector<HTMLElement>(selector)!.getBoundingClientRect()
+    return {
+      deltaPaintedRight: paintedRight('[data-rc03-zone="delta"] .rc03-delta'),
+      deltaCellRight: boxOf('[data-rc03-zone="delta"] .rc03-delta').right,
+      speedCellLeft: boxOf('[data-rc03-zone="speed"] .rc03-speed').left,
+      speedPaintedRight: paintedRight('[data-rc03-zone="speed"] .rc03-speed'),
+      speedBoxRight: boxOf('[data-rc03-zone="speed"] .rc03-speed').right,
+      fuelLapsPaintedRight: paintedRight('[data-rc03-zone="fuel-laps"] .rc03-fuel-laps'),
+      fuelLapsBoxRight: boxOf('[data-rc03-zone="fuel-laps"] .rc03-fuel-laps').right,
+      clockLeft: boxOf('.rc03-stint-clock').left,
+      units: Array.from(root.querySelectorAll<HTMLElement>('.rc03-unit')).map((unit) => {
+        const range = document.createRange()
+        range.selectNodeContents(unit)
+        return { text: unit.textContent?.trim() ?? '', painted: range.getBoundingClientRect().right, box: unit.getBoundingClientRect().right }
+      })
+    }
+  })
 }
 
 async function readGeometry(page: Page) {
@@ -308,6 +341,66 @@ for (const size of viewports) {
       await context.close()
     }
   })
+}
+
+/**
+ * Regression guard for the measured compact-phone pace-band collision.
+ *
+ * On `origin/main` the delta numeral painted 15px past its 100px cell and its glyphs reached
+ * x=176.81 while the speed cell began at x=172.27 — a 4.54px collision that jsdom, the green unit
+ * suite and `scrollWidth` on the band all passed, because `white-space: nowrap` sizes the numeral
+ * to its own text. Every number below comes from `getBoundingClientRect` (element boxes) and a
+ * `Range` rectangle (painted glyphs); `scrollWidth` is never consulted.
+ */
+for (const size of viewports.filter((viewport) => viewport.compactMode === 'phone')) {
+  const sizeKey = `${size.width}x${size.height}`
+
+  for (const state of ['silent', 'oil-alarm'] as const) {
+    test(`${sizeKey} ${state}: the pace band's readouts paint inside their own cells and never collide`, async ({
+      browser
+    }) => {
+      const { context, page } = await openCapture(browser, size, {
+        layout: size.layout,
+        compactMode: size.compactMode ?? undefined,
+        state
+      })
+      try {
+        const measured = await readPaceBandCollision(page)
+
+        expect(
+          measured.deltaPaintedRight - measured.deltaCellRight,
+          'the delta numeral paints past its own cell'
+        ).toBeLessThanOrEqual(0.5)
+        expect(
+          measured.speedPaintedRight - measured.speedBoxRight,
+          'the speed numeral paints past its own cell'
+        ).toBeLessThanOrEqual(0.5)
+        expect(
+          measured.fuelLapsPaintedRight - measured.fuelLapsBoxRight,
+          'the fuel-laps hero paints past its own cell'
+        ).toBeLessThanOrEqual(0.5)
+
+        // The collision itself: the delta glyphs must stop before the speed cell begins.
+        expect(
+          measured.speedCellLeft - measured.deltaPaintedRight,
+          `delta glyphs reach x=${measured.deltaPaintedRight.toFixed(2)} and the speed cell begins at x=${measured.speedCellLeft.toFixed(2)}`
+        ).toBeGreaterThan(0.5)
+
+        // The reserved gutter must still clear the stint clock it exists for.
+        expect(
+          measured.clockLeft - measured.speedPaintedRight,
+          'the pace band paints into the stint clock'
+        ).toBeGreaterThan(0.5)
+
+        // A unit annotates its numeral and may never be squeezed narrower than its own glyphs.
+        for (const unit of measured.units) {
+          expect(unit.painted - unit.box, `the "${unit.text}" unit paints past its own box`).toBeLessThanOrEqual(0.5)
+        }
+      } finally {
+        await context.close()
+      }
+    })
+  }
 }
 
 test('the low-oil-pressure alarm surfaces only inside the vitals band', async ({ browser }) => {

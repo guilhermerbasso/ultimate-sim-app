@@ -1,4 +1,4 @@
-﻿import { type CSSProperties, type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AlertEvent,
   AlertOutput,

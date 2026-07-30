@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from 'electron'
+import { devRendererOrigin, devRendererUrl } from '../dev-renderer'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
@@ -34,7 +35,7 @@ const SUBDIR = 'touch-panels'
 // same-window navigation. Anything this predicate lets through therefore gets
 // that bridge.
 //
-// It previously matched with `url.startsWith(process.env.ELECTRON_RENDERER_URL ?? 'file://')`.
+// It previously matched with `url.startsWith(devRendererUrl() ?? 'file://')`.
 // A `file://` PREFIX test is not an origin check: in a packaged build it admitted
 // EVERY `file:` URL on the machine — a downloaded page in the user's Downloads
 // folder, any HTML on any mounted volume — and on Windows `file://host/share`
@@ -45,11 +46,15 @@ const SUBDIR = 'touch-panels'
 // require `file:` with the exact pathname of our own bundled document. Comparing
 // pathname (not href) keeps in-page navigation between panels working, since
 // `loadFile(..., { query })` differs only in the query string.
+//
+// The dev origin comes from `devRendererOrigin()` (audit P0-11, #177), never from
+// the raw environment variable: a packaged build must not trust it at all.
 export function isAllowedTouchPanelNavigation(url: string): boolean {
   try {
     const parsed = new URL(url)
-    if (process.env.ELECTRON_RENDERER_URL) {
-      return parsed.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    const devOrigin = devRendererOrigin()
+    if (devOrigin) {
+      return parsed.origin === devOrigin
     }
     const appHtml = pathToFileURL(join(__dirname, '../renderer/touchpanel.html'))
     return parsed.protocol === 'file:' && parsed.pathname === appHtml.pathname
@@ -374,8 +379,9 @@ export class TouchPanelManager {
   private loadPanel(win: BrowserWindow, panelId: string): void {
     void releaseTouchActionsForWebContents(win.webContents.id)
     const query = { panel: panelId }
-    if (process.env.ELECTRON_RENDERER_URL) {
-      const url = new URL('touchpanel.html', process.env.ELECTRON_RENDERER_URL)
+    const devUrl = devRendererUrl()
+    if (devUrl) {
+      const url = new URL('touchpanel.html', devUrl)
       url.searchParams.set('panel', panelId)
       void win.loadURL(url.toString())
     } else {
@@ -410,3 +416,4 @@ export function register(ctx: ModuleContext): void {
   void manager.load()
   liveManager = manager
 }
+

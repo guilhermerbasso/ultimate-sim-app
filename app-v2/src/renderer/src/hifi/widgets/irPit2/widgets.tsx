@@ -1,4 +1,4 @@
-﻿import type { ReactElement, ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, FONT_LABEL, LEGIBLE, legibleStroke, num } from '../kit'
 

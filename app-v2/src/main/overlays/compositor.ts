@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, shell, type Display } from 'electron'
+import { devRendererOrigin, devRendererUrl } from '../dev-renderer'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -34,8 +35,9 @@ function openExternalUrl(url: string): void {
 function isAllowedCompositorNavigation(url: string): boolean {
   try {
     const parsed = new URL(url)
-    if (process.env.ELECTRON_RENDERER_URL) {
-      return parsed.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    const devOrigin = devRendererOrigin()
+    if (devOrigin) {
+      return parsed.origin === devOrigin
     }
     const appHtml = pathToFileURL(join(__dirname, '../renderer/compositor.html'))
     return parsed.protocol === 'file:' && parsed.pathname === appHtml.pathname
@@ -228,8 +230,9 @@ export class OverlayCompositorManager {
       displayWidth: String(display.bounds.width),
       displayHeight: String(display.bounds.height)
     }
-    if (process.env.ELECTRON_RENDERER_URL) {
-      const url = new URL('compositor.html', process.env.ELECTRON_RENDERER_URL)
+    const devUrl = devRendererUrl()
+    if (devUrl) {
+      const url = new URL('compositor.html', devUrl)
       Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value))
       void win.loadURL(url.toString())
     } else {
@@ -322,3 +325,4 @@ export class OverlayCompositorManager {
     this.hitResetTimers.clear()
   }
 }
+

@@ -831,7 +831,7 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
       { id: 'coach-heatmap', label: 'Coaching · curvas (heatmap)', type: 'coach-heatmap', w: 240, h: 240, category: 'Track/Radar', styleFamily: 'heatmap', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Coaching · curvas' }) },
       { id: 'coach-tips', label: 'Coach · tips (text)', type: 'coach-tips', w: 300, h: 150, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Coach tips' }) },
       { id: 'coach-findings', label: 'Coach · achados (lista)', type: 'coach-findings', w: 300, h: 220, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Achados do coach' }) },
-      { id: 'coach-sector-graph', label: 'Coach · setores (grafico)', type: 'coach-sector-graph', w: 260, h: 160, category: 'Track/Radar', styleFamily: 'chart', cluster: 'Timing / Delta', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Sectors ? loss' }) },
+      { id: 'coach-sector-graph', label: 'Coach · setores (grafico)', type: 'coach-sector-graph', w: 260, h: 160, category: 'Track/Radar', styleFamily: 'chart', cluster: 'Timing / Delta', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Sectors · loss' }) },
       { id: 'engineer-feed', label: 'Engenheiro · radio (texto)', type: 'engineer-feed', w: 320, h: 200, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Engenheiro · radio' }) }
     ]
   },

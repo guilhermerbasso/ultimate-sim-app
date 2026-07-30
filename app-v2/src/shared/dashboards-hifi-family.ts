@@ -1,4 +1,4 @@
-﻿// ─── Hi-fi FAMILY / HERO composition dashboards ───────────────────────────────
+// ─── Hi-fi FAMILY / HERO composition dashboards ───────────────────────────────
 // Clean v4 1024×600 hero pages composed only from registered hi-fi widget ids.
 import { bg, comp, dashboard, hifiEl, revTop, type HifiCompPreset } from './dashboards-hifi-kit'
 
