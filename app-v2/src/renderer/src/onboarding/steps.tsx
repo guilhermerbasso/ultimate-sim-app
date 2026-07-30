@@ -4,6 +4,8 @@ type TelemetryChoice = 'auto' | 'mock'
 type OverlayPreset = 'minimal' | 'endurance' | 'streaming' | 'engineer'
 
 interface WelcomeStepProps {
+  busy: boolean
+  error: string | null
   onConfigure(): void
   onDemo(): void
   onSkip(): void
@@ -37,7 +39,7 @@ const presetLabels: Record<OverlayPreset, string> = {
   engineer: 'Engineer'
 }
 
-export function WelcomeStep({ onConfigure, onDemo, onSkip }: WelcomeStepProps): ReactElement {
+export function WelcomeStep({ busy, error, onConfigure, onDemo, onSkip }: WelcomeStepProps): ReactElement {
   return (
     <div className="onboarding-hero">
       <span className="onboarding-kicker">First lap</span>
@@ -46,16 +48,24 @@ export function WelcomeStep({ onConfigure, onDemo, onSkip }: WelcomeStepProps): 
         Configure telemetry, SIM-X, and overlays in under 90 seconds so you can leave the pit box with the basics ready.
       </p>
       <div className="onboarding-actions onboarding-actions--hero">
-        <button className="onboarding-button onboarding-button--primary" type="button" onClick={onConfigure}>
+        <button className="onboarding-button onboarding-button--primary" type="button" onClick={onConfigure} disabled={busy}>
           Configure
         </button>
-        <button className="onboarding-button" type="button" onClick={onDemo}>
+        <button
+          className="onboarding-button"
+          type="button"
+          onClick={onDemo}
+          disabled={busy}
+          aria-busy={busy || undefined}
+        >
           Use Demo mode
         </button>
         <button className="onboarding-button onboarding-button--ghost" type="button" onClick={onSkip}>
           Skip
         </button>
       </div>
+      {busy && <p className="onboarding-note">Starting Demo mode…</p>}
+      {error && <p className="onboarding-error" role="alert">{error}</p>}
     </div>
   )
 }
@@ -86,7 +96,7 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
           <span>Synthetic data to learn the app without hardware.</span>
         </button>
       </div>
-      {busy && <p className="onboarding-note">Applying telemetry source?</p>}
+      {busy && <p className="onboarding-note">Applying telemetry source…</p>}
       {error && <p className="onboarding-error" role="alert">{error}</p>}
     </div>
   )
