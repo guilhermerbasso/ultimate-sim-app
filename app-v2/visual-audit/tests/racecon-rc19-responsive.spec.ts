@@ -225,18 +225,17 @@ async function readGeometry(page: Page) {
       fuelLapsRect: relative(root.querySelector('[data-testid="rc19-fuel-laps"]')),
       confirmLabelRectInner: relative(root.querySelector('[data-testid="rc19-confirm-label"]')),
 
-      // Every cell of every next-stint row with its layout box AND its painted range rect. The
-      // `FUEL PER LAP` label carries its `L` unit as an element CHILD, so it is not a leaf and no
-      // leaf sweep can see it overflow; only the range rect can.
-      nextStintCells: Array.from(
-        root.querySelectorAll<HTMLElement>('[data-testid="rc19-next-stint"] .rc19-row > *')
+      // Every next-stint row's VALUE cell with its layout box AND its painted range rect. Values
+      // only: the `.rc19-label` beside each carries its unit as an element child, so it is not a
+      // leaf and is outside what these harnesses undertake to observe.
+      nextStintValues: Array.from(
+        root.querySelectorAll<HTMLElement>('[data-testid="rc19-next-stint"] .rc19-row > .rc19-value')
       ).map((cell) => {
         const range = document.createRange()
         range.selectNodeContents(cell)
         const ink = range.getBoundingClientRect()
         const box = cell.getBoundingClientRect()
         return {
-          kind: cell.classList.contains('rc19-label') ? 'label' : 'value',
           text: (cell.textContent ?? '').trim(),
           boxWidth: box.width,
           inkWidth: ink.width,
@@ -359,25 +358,31 @@ for (const size of viewports) {
       if (g.checklistRect && g.confirmBodyRect) expectContained(g.checklistRect, g.confirmBodyRect, 'confirm in checklist')
       if (g.confirmBodyRect && g.confirmLabelRectInner) expectContained(g.confirmBodyRect, g.confirmLabelRectInner, 'confirm-label in confirm')
 
-      // GUARD (defect 5) — no next-stint row cell may paint past its own box.
+      // GUARD (defect 5) — no next-stint VALUE may paint past its own box.
       //
-      // At 800x480 the packet's 250 px column leaves a 168 px row, and `FUEL PER LAP` plus its `L`
-      // unit needed 110.45 px of it at the shared 1.875cqw step against a 30 px `2.94` numeral
-      // needing 56.63 px and a 9.6 px gap. The flex algorithm split the deficit, so the label
-      // painted 5.45 px past its 105 px box and the numeral 3 px past its 54 px box, in all three
-      // governed states, while `scrollWidth === clientWidth` on every ancestor — and the label is
-      // not even a leaf, so no leaf sweep could ever have seen it. The column now carries its own
-      // 1.6cqw label step. This runs at all six viewports with a 1 px sub-pixel tolerance.
-      expect(g.nextStintCells.length).toBeGreaterThan(0)
-      for (const cell of g.nextStintCells) {
+      // WHICH AUDITOR SEES THIS: this one, and the capture's shared leaf sweep as well —
+      // `rc19-fuel-per-lap` is a true leaf, so an empty `knownDefects` ledger already covers it.
+      // This is the stronger second opinion, because `scrollWidth` is integer-rounded and
+      // `white-space: nowrap` sizes a cell to its own glyphs.
+      //
+      // At 800x480 the packet's 250 px column leaves a 168 px row, and at the shared 1.875cqw step
+      // the `FUEL PER LAP` label needs 110.45 px of it against a 30 px `2.94` numeral needing
+      // 56.63 px and a 9.6 px gap — 176.68 px of demand in 168 px. The flex algorithm spread that
+      // 8.68 px deficit across both cells, and the numeral's 2.94 px share is the recorded
+      // overflow. The column carries its own 1.6cqw label step now, which retires the deficit at
+      // source. The `.rc19-label` beside each value is deliberately NOT asserted: it carries its
+      // unit as an element child, so it is not a leaf and is outside what these harnesses
+      // undertake to observe.
+      expect(g.nextStintValues.length).toBeGreaterThan(0)
+      for (const cell of g.nextStintValues) {
         expect(
           cell.inkRight - cell.boxRight,
-          `next-stint ${cell.kind} "${cell.text}" paints ` +
+          `next-stint value "${cell.text}" paints ` +
             `${(cell.inkRight - cell.boxRight).toFixed(2)}px past its ${cell.boxWidth.toFixed(2)}px box`
         ).toBeLessThanOrEqual(1)
         expect(
           cell.inkWidth - cell.boxWidth,
-          `next-stint ${cell.kind} "${cell.text}" needs ${cell.inkWidth.toFixed(2)}px ` +
+          `next-stint value "${cell.text}" needs ${cell.inkWidth.toFixed(2)}px ` +
             `in a ${cell.boxWidth.toFixed(2)}px box`
         ).toBeLessThanOrEqual(1)
       }

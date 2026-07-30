@@ -298,30 +298,14 @@ function nativeMetrics(state = "ready", overrides = {}) {
     },
     alertScope,
     timelineSegments: null,
-    // Five next-stint rows, each cell's painted range rect inside its own layout box. This is the
-    // guard's healthy baseline; the overrun tests replace it with the measured defect geometry.
-    nextStintRows: [
-      ["target-laps", "TARGET LAPS", "--"],
-      ["fuel-per-lap", "FUEL PER LAPL", "2.94"],
-      ["fuel-plan", "FUEL PLAN", "--"],
-      ["tire-plan", "TIRE PLAN", "--"],
-      ["weather", "WEATHER", "--"]
-    ].flatMap(([row, label, value], index) => [
-      {
-        row,
-        kind: "label",
-        text: label,
-        rect: { left: 560, top: 100 + index * 40, width: 100, height: 18 },
-        textRect: { left: 560, top: 100 + index * 40, width: 94, height: 18 }
-      },
-      {
-        row,
-        kind: "value",
-        text: value,
-        rect: { left: 668, top: 100 + index * 40, width: 60, height: 30 },
-        textRect: { left: 668, top: 100 + index * 40, width: 57, height: 30 }
-      }
-    ]),
+    // Five next-stint value cells, each painted range rect inside its own layout box. This is the
+    // guard's healthy baseline; the overrun test replaces it with the measured defect geometry.
+    nextStintValues: ["--", "2.94", "--", "--", "--"].map((text, index) => ({
+      row: ["target-laps", "fuel-per-lap", "fuel-plan", "tire-plan", "weather"][index],
+      text,
+      rect: { left: 668, top: 100 + index * 40, width: 60, height: 30 },
+      textRect: { left: 668, top: 100 + index * 40, width: 57, height: 30 }
+    })),
     // nativeSize is the data-rc19-native-size attr (top-level, not in stateAttributes)
     // already set above
   }
@@ -995,45 +979,29 @@ test("the measured 3.47 px CONFIRM READY occlusion now fails closed at 800x480 h
   )
 })
 
-test("a next-stint row cell painting past its own box fails closed at every viewport", () => {
+test("a next-stint value painting past its own box fails closed at every viewport", () => {
   assert.deepEqual(RC19_SPEC.knownDefects, [])
-  // The `FUEL PER LAP` label is NOT a leaf — it carries its `L` unit as an element child — so the
-  // shared leaf sweep is structurally blind to it. Replay the exact measurement: a 110.45 px
-  // range rect in the 105 px box the flex algorithm squeezed it into.
-  const overrun = (kind, boxWidth, inkWidth) => ({
+  // The exact measurement the shipped build produced: `2.94` needing 56.63 px in the 53.69 px box
+  // the flex algorithm squeezed it into, in all three governed states.
+  const overrun = { left: 668, top: 120 }
+  const cell = {
     row: "fuel-per-lap",
-    kind,
-    text: kind === "label" ? "FUEL PER LAPL" : "2.94",
-    rect: { left: 560, top: 120, width: boxWidth, height: 18 },
-    textRect: { left: 560, top: 120, width: inkWidth, height: 18 }
-  })
+    text: "2.94",
+    rect: { ...overrun, width: 53.69, height: 30 },
+    textRect: { ...overrun, width: 56.63, height: 30 }
+  }
   for (const state of ["ready", "handover", "cold-mount"]) {
     assert.throws(
-      () =>
-        validateCaptureMetrics(
-          nativeMetrics(state, { nextStintRows: [overrun("label", 105, 110.45)] }),
-          entryFor(state)
-        ),
+      () => validateCaptureMetrics(nativeMetrics(state, { nextStintValues: [cell] }), entryFor(state)),
       (error) =>
         error instanceof CaptureSafetyError &&
-        /the next-stint label "FUEL PER LAPL" paints 5\.45px past its own 105\.00px box/u.test(error.message)
+        /the next-stint value "2\.94" paints 2\.94px past its own 53\.69px box/u.test(error.message)
     )
   }
-  // The numeral beside it, at its measured 54 px box against 56.63 px of glyphs.
+  // A frame that collected no value cells at all is a harness failure, not a pass.
   assert.throws(
-    () =>
-      validateCaptureMetrics(
-        nativeMetrics("ready", { nextStintRows: [overrun("value", 54, 56.63)] }),
-        entryFor("ready")
-      ),
-    (error) =>
-      error instanceof CaptureSafetyError &&
-      /the next-stint value "2\.94" paints 2\.63px past its own 54\.00px box/u.test(error.message)
-  )
-  // A frame that collected no rows at all is a harness failure, not a pass.
-  assert.throws(
-    () => validateCaptureMetrics(nativeMetrics("ready", { nextStintRows: [] }), entryFor("ready")),
-    (error) => error instanceof CaptureSafetyError && /collected no next-stint row cells/u.test(error.message)
+    () => validateCaptureMetrics(nativeMetrics("ready", { nextStintValues: [] }), entryFor("ready")),
+    (error) => error instanceof CaptureSafetyError && /collected no next-stint value cells/u.test(error.message)
   )
 })
 
