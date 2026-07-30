@@ -8,7 +8,7 @@ import type {
   DashboardScaleMode,
   AdaptiveBlink
 } from '../../../shared/dashboards'
-import { composeImageFilter, resolveSlotStyle, sortElementsByZ } from '../../../shared/dashboards'
+import { composeImageFilter, resolveDashboardScaleMode, resolveSlotStyle, sortElementsByZ } from '../../../shared/dashboards'
 import { createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET } from '../../../shared/overlays'
 import type { OverlayWidgetConfig } from '../../../shared/overlays'
 import {
@@ -1781,7 +1781,7 @@ export function resolveDashboardCanvasRenderModel(
 ): DashboardCanvasRenderModel {
   const baseWidth = dashboard.width ?? 1920
   const baseHeight = dashboard.height ?? 1080
-  const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'stretch'
+  const scaleMode: DashboardScaleMode = resolveDashboardScaleMode(dashboard)
   if (!viewport || !isResponsiveFullFrame(dashboard)) {
     return { dashboard, baseWidth, baseHeight, scaleMode }
   }

@@ -117,6 +117,20 @@ export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize'
 
 export type DashboardScaleMode = 'fit' | 'fill' | 'stretch'
 
+export const DASHBOARD_SCALE_MODES = ['fit', 'fill', 'stretch'] as const
+
+// One canonical default. The runtime renderer, the editor and the structural fingerprint
+// all resolve through `resolveDashboardScaleMode`, so a dashboard saved before `scaleMode`
+// existed can no longer render one way and be fingerprinted another.
+export const DEFAULT_DASHBOARD_SCALE_MODE: DashboardScaleMode = 'stretch'
+
+export function resolveDashboardScaleMode(
+  dashboard: { scaleMode?: DashboardScaleMode } | null | undefined
+): DashboardScaleMode {
+  const value = dashboard?.scaleMode
+  return value === 'fit' || value === 'fill' || value === 'stretch' ? value : DEFAULT_DASHBOARD_SCALE_MODE
+}
+
 export const DASHBOARD_TABLE_COLUMNS = [
   'pos', 'classPos', 'number', 'name', 'gap', 'class', 'license', 'iRating', 'laps'
 ] as const
