@@ -15,6 +15,7 @@
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   useCallback,
   useEffect,
@@ -40,6 +41,7 @@ import { useUnitSystem } from '../../lib/units'
 import { WidgetGallery, variantToElement, type WidgetVariant } from './widget-catalog'
 import { resolveWidgetComponent } from '../../overlay/widgets'
 import '../../dashboard/dashboard-runtime.css'
+import '../../styles/canvas-keyboard.css'
 
 const CHROME = 'var(--accent-primary)'
 const DANGER = 'var(--accent-danger)'
@@ -240,6 +242,7 @@ export function DashboardCanvasEditor({
   alertsConfig?: AlertsConfig
 }): ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [liveMessage, setLiveMessage] = useState('')
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [gridStep, setGridStep] = useState(8)
   const activeEdit = useRef<PointerEditState | null>(null)
@@ -401,6 +404,14 @@ export function DashboardCanvasEditor({
           <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Alt = free movement · {board.elements.length} widget(s)</span>
         </div>
 
+        <p id="canvas-keyboard-help" style={{ color: 'var(--text-muted)', fontSize: 11, margin: '0 0 6px' }}>
+          Tab to a widget, then arrow keys move it by {snapStep}px, Shift+arrow by 1px, Alt+arrow resizes it, and
+          Delete removes it.
+        </p>
+        <div aria-live="polite" className="canvas-sr-only">
+          {liveMessage}
+        </div>
+
         <div
           onPointerDown={() => setSelectedId(null)}
           style={{
@@ -434,6 +445,16 @@ export function DashboardCanvasEditor({
                 element={el}
                 selected={el.id === selectedId}
                 handleSize={handleSize}
+                snapStep={snapStep}
+                onKeyboardGeometry={(geom) => {
+                  const next = constrainCanvasGeometry(geom, board)
+                  setGeometry(el.id, next)
+                  setLiveMessage(describeCanvasElement({ ...el, ...next }))
+                }}
+                onRemove={() => {
+                  removeElement(el.id)
+                  setLiveMessage(`${el.name?.trim() || el.type} removed`)
+                }}
                 onSelect={() => setSelectedId(el.id)}
                 onBodyPointerDown={(e) => beginEdit(e, el, 'move')}
                 onHandlePointerDown={(e, h) => beginEdit(e, el, 'resize', h)}
@@ -469,6 +490,53 @@ export function DashboardCanvasEditor({
   )
 }
 
+/**
+ * Keyboard equivalent of the pointer drag/resize gestures.
+ *
+ * The canvas was pointer-only: elements could not be reached by Tab, and there
+ * was no way to move or resize one without a mouse. Arrow keys nudge by the
+ * current grid step, Shift makes it a single pixel for fine placement, and Alt
+ * resizes instead of moving — the same modifier the pointer path already uses
+ * for free movement, so the two mental models match.
+ */
+function keyboardGeometry(
+  event: ReactKeyboardEvent<HTMLElement>,
+  element: DashboardElement,
+  step: number
+): CanvasGeometry | null {
+  const delta = event.shiftKey ? 1 : Math.max(1, step)
+  const geom = { x: element.x, y: element.y, w: element.w, h: element.h }
+  const resizing = event.altKey
+
+  switch (event.key) {
+    case 'ArrowLeft':
+      if (resizing) geom.w -= delta
+      else geom.x -= delta
+      break
+    case 'ArrowRight':
+      if (resizing) geom.w += delta
+      else geom.x += delta
+      break
+    case 'ArrowUp':
+      if (resizing) geom.h -= delta
+      else geom.y -= delta
+      break
+    case 'ArrowDown':
+      if (resizing) geom.h += delta
+      else geom.y += delta
+      break
+    default:
+      return null
+  }
+  return geom
+}
+
+/** Announced to screen readers and used as the element's accessible name. */
+export function describeCanvasElement(element: DashboardElement): string {
+  const label = element.name?.trim() || element.type
+  return `${label}, x ${Math.round(element.x)}, y ${Math.round(element.y)}, ${Math.round(element.w)} by ${Math.round(element.h)}`
+}
+
 function CanvasEditableElement({
   element,
   selected,
@@ -479,6 +547,9 @@ function CanvasEditableElement({
   onPointerMove,
   onPointerUp,
   onPointerCancel,
+  onKeyboardGeometry,
+  onRemove,
+  snapStep,
   showTriggerOnlyActive,
   alertsConfig
 }: {
@@ -491,12 +562,36 @@ function CanvasEditableElement({
   onPointerMove: (e: ReactPointerEvent<HTMLElement>) => void
   onPointerUp: (e: ReactPointerEvent<HTMLElement>) => void
   onPointerCancel: (e: ReactPointerEvent<HTMLElement>) => void
+  onKeyboardGeometry: (geom: CanvasGeometry) => void
+  onRemove: () => void
+  snapStep: number
   showTriggerOnlyActive: boolean
   alertsConfig?: AlertsConfig
 }): ReactElement {
   const dimmed = element.visible === false
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      onRemove()
+      return
+    }
+    const geom = keyboardGeometry(event, element, snapStep)
+    if (!geom) return
+    event.preventDefault()
+    // Stop the arrow key from also scrolling the surrounding editor pane.
+    event.stopPropagation()
+    onKeyboardGeometry(geom)
+  }
   return (
     <div
+      tabIndex={0}
+      role="button"
+      aria-label={describeCanvasElement(element)}
+      aria-pressed={selected}
+      aria-describedby="canvas-keyboard-help"
+      className="canvas-editable-element"
+      onFocus={onSelect}
+      onKeyDown={onKeyDown}
       onClick={onSelect}
       onPointerDown={onBodyPointerDown}
       onPointerMove={onPointerMove}
@@ -511,7 +606,6 @@ function CanvasEditableElement({
         cursor: 'move',
         boxSizing: 'border-box',
         borderRadius: element.style.radius ?? 8,
-        outline: selected ? `2px dashed ${CHROME}` : undefined,
         outlineOffset: 2,
         opacity: dimmed ? 0.35 : 1,
         touchAction: 'none',
@@ -527,6 +621,7 @@ function CanvasEditableElement({
         CANVAS_RESIZE_HANDLES.map((h) => (
           <div
             key={h}
+            aria-hidden="true"
             onPointerDown={(e) => onHandlePointerDown(e, h)}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}

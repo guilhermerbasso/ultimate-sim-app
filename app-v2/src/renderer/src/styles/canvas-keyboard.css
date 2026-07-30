@@ -1,0 +1,41 @@
+/*
+ * Keyboard affordances for the dashboard canvas.
+ *
+ * The canvas was pointer-only: elements had no tab stop and no visible focus
+ * indicator, so a keyboard user could neither reach a widget nor tell which one
+ * they were on. The ring below is what makes the arrow-key move/resize path
+ * usable rather than merely present.
+ */
+
+/* Selected but not focused: keep the existing dashed marker so pointer users
+   still see which widget the inspector is editing. */
+.canvas-editable-element[aria-pressed='true'] {
+  outline: 2px dashed rgba(224, 182, 74, 0.9);
+  outline-offset: 2px;
+}
+
+/*
+ * The ring is on `:focus`, not `:focus-visible`, deliberately. In an editing
+ * canvas the user needs to know which object will receive the next arrow key
+ * regardless of how it got focus, and a modality-dependent indicator would
+ * disappear exactly when a pointer user switches to the keyboard mid-edit.
+ */
+.canvas-editable-element:focus {
+  outline: 3px solid var(--accent, #e0b64a);
+  outline-offset: 3px;
+  /* Second ring in a contrasting colour so the indicator stays visible over
+     both bright and dark widget artwork. */
+  box-shadow: 0 0 0 6px rgba(0, 0, 0, 0.75);
+}
+
+.canvas-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

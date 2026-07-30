@@ -13,8 +13,8 @@
     "dist:win": "bash scripts/fetch-win-cloudflared.sh && bash scripts/fetch-win-llama.sh && bash scripts/fetch-win-whisper.sh && bash scripts/fetch-win-sherpa.sh && bash scripts/verify-win-tts.sh && (bash scripts/fetch-win-sharp.sh || true) && npm run build && bash scripts/fetch-win-cloudflared.sh --verify && electron-builder --win --publish never",
     "verify:win-package": "bash scripts/fetch-win-cloudflared.sh --verify-package",
     "verify:release-artifacts": "node scripts/verify-release-artifacts.mjs",
-    "test": "npm run test:unit && npm run test:ledger-performance",
-    "test:unit": "vitest run --exclude src/shared/visual-artifact-ledger/performance.test.ts",
+    "test": "npm run test:unit && npm run test:browser && npm run test:ledger-performance",
+    "test:unit": "vitest run --exclude src/shared/visual-artifact-ledger/performance.test.ts --exclude '**/*.browser.test.ts'",
     "test:ledger-performance": "vitest run src/shared/visual-artifact-ledger/performance.test.ts --maxWorkers=1 --no-file-parallelism",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
     "check:encoding": "node ../scripts/check-encoding.mjs",
@@ -31,13 +31,15 @@
     "visual:touch": "node visual-audit/shoot-touchpanels.mjs",
     "racecon:capture:rc01": "node visual-audit/racecon-rc01-capture.mjs",
     "racecon:capture:rc02": "node visual-audit/racecon-rc02-capture.mjs",
-    "racecon:capture:rc03": "node visual-audit/racecon-rc03-capture.mjs",    "racecon:capture:rc04": "node visual-audit/racecon-rc04-capture.mjs",
+    "racecon:capture:rc03": "node visual-audit/racecon-rc03-capture.mjs",
+    "racecon:capture:rc04": "node visual-audit/racecon-rc04-capture.mjs",
     "racecon:capture:rc05": "node visual-audit/racecon-rc05-capture.mjs",
     "racecon:capture:rc06": "node visual-audit/racecon-rc06-capture.mjs",
     "racecon:capture:rc07": "node visual-audit/racecon-rc07-capture.mjs",
     "racecon:capture:rc08": "node visual-audit/racecon-rc08-capture.mjs",
     "racecon:capture:test": "node --test visual-audit/racecon-rc01-capture.test.mjs visual-audit/racecon-rc02-capture.test.mjs visual-audit/racecon-rc03-capture.test.mjs visual-audit/racecon-rc04-capture.test.mjs visual-audit/racecon-rc05-capture.test.mjs visual-audit/racecon-rc06-capture.test.mjs visual-audit/racecon-rc07-capture.test.mjs visual-audit/racecon-rc08-capture.test.mjs",
-    "racecon:responsive": "playwright test visual-audit/tests/racecon-rc01-responsive.spec.ts visual-audit/tests/racecon-rc02-responsive.spec.ts visual-audit/tests/racecon-rc03-responsive.spec.ts visual-audit/tests/racecon-rc04-responsive.spec.ts visual-audit/tests/racecon-rc05-responsive.spec.ts visual-audit/tests/racecon-rc06-responsive.spec.ts visual-audit/tests/racecon-rc07-responsive.spec.ts visual-audit/tests/racecon-rc08-responsive.spec.ts --workers=1"
+    "racecon:responsive": "playwright test visual-audit/tests/racecon-rc01-responsive.spec.ts visual-audit/tests/racecon-rc02-responsive.spec.ts visual-audit/tests/racecon-rc03-responsive.spec.ts visual-audit/tests/racecon-rc04-responsive.spec.ts visual-audit/tests/racecon-rc05-responsive.spec.ts visual-audit/tests/racecon-rc06-responsive.spec.ts visual-audit/tests/racecon-rc07-responsive.spec.ts visual-audit/tests/racecon-rc08-responsive.spec.ts --workers=1",
+    "test:browser": "vitest run --maxWorkers=1 --no-file-parallelism src/renderer/src/a11y src/renderer/src/views/dashboard/inert-previews.browser.test.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.13.0",

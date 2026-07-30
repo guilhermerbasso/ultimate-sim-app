@@ -56,6 +56,12 @@ export interface HarnessOptions {
   browserEntry: string
   /** Extra bare imports Vite should pre-bundle instead of discovering lazily. */
   optimizeInclude?: readonly string[]
+  /**
+   * Let Vite discover dependencies itself. Off by default because re-optimising
+   * mid-run reloads the Electron window, but required for subjects that pull in
+   * CommonJS transitively (a CJS module imported as ESM fails without it).
+   */
+  discoverDeps?: boolean
 }
 
 export async function withA11yPage<T>(
@@ -90,7 +96,7 @@ export async function withA11yPage<T>(
       }
     ],
     optimizeDeps: {
-      noDiscovery: true,
+      noDiscovery: options.discoverDeps !== true,
       include: [
         'react',
         'react-dom',
