@@ -237,30 +237,26 @@ export const RC16_SPEC = Object.freeze({
     ])
   ]),
   /**
-   * DEFECT 1 — the LAST LAP time string overflows its summary-row column at three of the six
-   * governed viewports, in both governed states:
-   *   1024x600 app                 "1:42.318" paints 17 px wider than its 124 px box
+   * The defect ledger is EMPTY, so every measured overflow now fails closed.
+   *
+   * It used to record the LAST LAP time string overflowing its summary-row column at three of the
+   * six governed viewports, in both governed states:
+   *   1024x600 app                 "1:42.318" painted 17 px wider than its 124 px box
    *   867x412 compact-landscape    22 px wider than its 99 px box
    *   759x393 compact-landscape    19 px wider than its 87 px box
-   * Native 800x480 and both compact-phone viewports are clear. The summary rows lay the label and
-   * the value on one line, and the widest value — a full m:ss.mmm lap time — does not fit the
-   * column the app and landscape reflows give it, so the glyphs paint past the row. This is the
-   * `white-space: nowrap` class: `scrollWidth === clientWidth` on every ancestor and a green jsdom
-   * suite says nothing; only the measured rectangles disagree.
+   * Native 800x480 and both compact-phone viewports were clear. The summary rows lay the label and
+   * the value on one line, and `.rc16-summary-value` carried `flex-shrink: 1`, so the flex
+   * algorithm split the row's deficit between the annotation and the numeral it annotates and
+   * `white-space: nowrap` then sized the value's text to itself — `scrollWidth === clientWidth` on
+   * every ancestor and a green jsdom suite says nothing; only the measured rectangles disagreed.
    *
-   * Recorded at the measured maximum plus a font-metric allowance — a budget, never a cap. A
-   * defect that grows, spreads to native or phone, moves to another element or appears in another
-   * state still fails closed.
+   * The numeral is the reading and the label is its annotation, so the value is now
+   * `flex: 1 0 auto` and the LABEL gives way. It already wrapped to its two words at exactly those
+   * three canvases and has 21 px, 5 px and 6 px of room to do it in, so no row grew and the type
+   * ladder is untouched. Deleting the ledger is the regression guard: any recurrence is
+   * unrecorded and fails.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "rc16-summary-lastLap",
-      states: Object.freeze(["silent", "over-rev"]),
-      sizes: Object.freeze(["1024x600", "759x393", "867x412"]),
-      budgetPx: 25,
-      note: "the LAST LAP m:ss.mmm value overflows its summary-row column at the app and both compact-landscape canvases (17px/124px at 1024x600, 19px/87px at 759x393, 22px/99px at 867x412); native and compact-phone are clear"
-    })
-  ]),
+  knownDefects: Object.freeze([]),
   zoneOverflowDefects: Object.freeze([]),
   containmentDefects: Object.freeze([])
 })

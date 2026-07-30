@@ -324,7 +324,8 @@ function appMetrics(state = "silent", overrides = {}) {
  *   clock (184,30,200,200) — centre ring; centre (284,130)
  *   closing (388,30,180,145) — right column
  *   pace (0,240,759,75)  — lower full-width strip
- *   tertiary (0,320,759,60) — bottom strip; scrollHeight may be +1 px by design (governed defect)
+ *   tertiary (0,320,759,60) — bottom strip; scrollHeight must equal layoutHeight (the +1 px
+ *     overrun the ledger recorded here is fixed and there is no budget left)
  * rev fill: 231/285 = 0.8105, within the ±0.02 tolerance.
  */
 function compactLandscape759Metrics(state = "silent", overrides = {}) {
@@ -801,10 +802,27 @@ test("a zone whose own content overflows its layout box fails closed", () => {
   )
 })
 
-/* ── Fail-closed: known zone-overflow defect budget ─────────────────────────────────────── */
+/* ── Fail-closed: the tertiary strip overrun is fixed and the ledger is empty ───────────── */
 
-test("the tertiary zone-overflow defect is scoped: 1 px at native 800×480 still fails closed", () => {
-  // The waiver covers only 759×393; 800×480 has no entry → unrecorded overflow always fails.
+test("the tertiary zone overrun now fails closed at 759x393, in both governed states", () => {
+  assert.deepEqual(RC17_SPEC.zoneOverflowDefects, [])
+  // The exact measurement the shipped build produced: +1 px, at the exact canvas, in both states.
+  for (const state of ["silent", "car-alongside"]) {
+    const metrics = compactLandscape759Metrics(state)
+    const mutated = {
+      ...metrics,
+      zones: metrics.zones.map((z) =>
+        z.name === "tertiary" ? { ...z, scrollHeight: z.layoutHeight + 1 } : z
+      )
+    }
+    assert.throws(
+      () => validateCaptureMetrics(mutated, entryFor(state, 4), RC17_SPEC),
+      (error) =>
+        error instanceof CaptureSafetyError &&
+        /zone tertiary overflows its layout box by 1\.00px/u.test(error.message)
+    )
+  }
+  // And the same 1 px at a viewport that never had one still fails, exactly as before.
   assertRejects(
     (metrics) => ({
       ...metrics,
@@ -813,23 +831,6 @@ test("the tertiary zone-overflow defect is scoped: 1 px at native 800×480 still
       )
     }),
     /zone tertiary overflows its layout box by 1\.00px/u
-  )
-})
-
-test("the tertiary zone-overflow defect has a hard budget: 3 px at 759×393 fails closed", () => {
-  // 759×393 is in the defect list with budgetPx=2. An overflow of 3 px (> 2) fails "past budget".
-  const metrics = compactLandscape759Metrics()
-  const mutated = {
-    ...metrics,
-    zones: metrics.zones.map((z) =>
-      z.name === "tertiary" ? { ...z, scrollHeight: z.layoutHeight + 3 } : z
-    )
-  }
-  assert.throws(
-    () => validateCaptureMetrics(mutated, entryFor("silent", 4), RC17_SPEC),
-    (error) =>
-      error instanceof CaptureSafetyError &&
-      /zone tertiary overflows by 3\.00px.*past the 2px recorded/u.test(error.message)
   )
 })
 

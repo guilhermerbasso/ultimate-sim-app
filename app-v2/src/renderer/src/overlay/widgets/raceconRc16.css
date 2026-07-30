@@ -379,9 +379,19 @@
   flex: 0 1 auto;
 }
 
+/*
+ * The numeral is the reading and the label is its annotation, so the LABEL gives way when the row
+ * is short — never the numeral. With `flex-shrink: 1` here the flex algorithm split the deficit
+ * between the two and `white-space: nowrap` then sized the value's text to itself, so the cell
+ * measured narrower than its own glyphs while `scrollWidth === clientWidth` on every ancestor:
+ * `1:42.318` painted 17px past a 124px cell at 1024x600, 19px past 87px at 759x393 and 22px past
+ * 99px at 867x412, in both states. `flex-shrink: 0` pins the cell to its own max-content; the
+ * label already wraps to its two words at exactly those three canvases and has 21px, 5px and 6px
+ * of room to do it in. The type ladder is untouched: summary stays the fifth rung.
+ */
 .rc16-summary-value {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   overflow: hidden;
   color: var(--rc16-primary);
   font-size: clamp(8px, var(--rc16-type-summary, 3.5cqw), 42px);

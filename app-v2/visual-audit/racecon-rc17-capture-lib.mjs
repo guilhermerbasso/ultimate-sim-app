@@ -257,25 +257,22 @@ export const RC17_SPEC = Object.freeze({
    * recurs at any governed viewport in either state, so `knownDefects` and `containmentDefects`
    * stay EMPTY and any recurrence is a new regression that fails closed.
    *
-   * DEFECT 1 — the governed tertiary strip's content stands 1 px taller than its layout box at the
-   * 759x393 compact-landscape viewport, in both governed states. The strip is a GOVERNED ADDITION
-   * (`RC17_PACKET_OMISSIONS.tertiaryZone`: packet 11.1 and 12.1 give gear, engine RPM and water
-   * temperature no zone on either canvas although section 16 declares all three), so it is laid
-   * out in space the packet leaves unassigned and its height has no packet backing. Recorded at
-   * its measured 1 px: the budget is the measurement plus a 1 px font-metric allowance, not a cap,
-   * so any growth, any spread to another viewport and any move to another zone still fails.
-   * 867x412 — the wider landscape viewport — is clear, as are native, app and both phone sizes.
+   * `zoneOverflowDefects` is now empty too. It used to record the governed tertiary strip standing
+   * 1 px taller than its layout box at the 759x393 compact-landscape viewport, in both governed
+   * states. The strip is a GOVERNED ADDITION (`RC17_PACKET_OMISSIONS.tertiaryZone`: packet 11.1 and
+   * 12.1 give gear, engine RPM and water temperature no zone on either canvas although section 16
+   * declares all three), so it is laid out in space the packet leaves unassigned.
+   *
+   * The cause was not the strip's height. `.rc17-unit` inherits `display: inline-block` and
+   * `overflow: hidden` from the shared type rule, and CSS gives an inline-block with a non-visible
+   * overflow the BOTTOM MARGIN EDGE as its baseline — so the whole 14.30 px `DEG C` box sat above
+   * the strip's baseline and pushed the WATER label's line box to 16.59 px against 14.30 px for
+   * GEAR and RPM. That 2.29 px made the WATER cell 33.98 px tall in a 33 px content box. The unit
+   * is now a plain inline box inside the strip, so it shares its label's baseline and all three
+   * cells are the same height at every canvas. Deleting the ledger is the regression guard.
    */
   knownDefects:       Object.freeze([]),
-  zoneOverflowDefects: Object.freeze([
-    Object.freeze({
-      zone: "tertiary",
-      states: Object.freeze(["silent", "car-alongside"]),
-      sizes: Object.freeze(["759x393"]),
-      budgetPx: 2,
-      note: "the governed tertiary strip (gear / RPM / water, a tertiaryZone addition with no packet height) overruns its layout box by 1px at 759x393 compact-landscape; every other governed viewport is clear"
-    })
-  ]),
+  zoneOverflowDefects: Object.freeze([]),
   containmentDefects:  Object.freeze([])
 })
 

@@ -438,11 +438,12 @@ test("a zone whose own content overflows its layout box fails closed", () => {
 })
 
 /**
- * The two recorded RC-15 defects are RECORDED, not suppressed. Each carries the measurement it was
- * observed at, so the same defect one pixel larger, at another viewport, or on another element
- * still fails closed.
+ * The two RC-15 defects are FIXED, so both ledgers are empty and there is no waiver left for the
+ * sweeps to consult. These two tests replay the exact measurements the shipped build produced and
+ * prove each one now fails closed at the viewport it was observed at.
  */
-test("the recorded strip-label overflow is honoured at the app canvas and nowhere else", () => {
+test("the strip-label overflow now fails closed at the app canvas it was measured at", () => {
+  assert.deepEqual(RC15_SPEC.knownDefects, [])
   const leaf = (overflowX) => ({
     key: "rc15-strip-label",
     text: "BRAKE F / R",
@@ -454,53 +455,63 @@ test("the recorded strip-label overflow is honoured at the app canvas and nowher
     textLeft: 24,
     textRight: 24 + 70 + overflowX
   })
-  // Recorded at 1024x600: 28 px is inside the 30 px budget.
-  const accepted = appMetrics("silent", { overflowLeaves: [leaf(28)] })
-  const audit = validateCaptureMetrics(accepted, entryFor("silent", 1), RC15_SPEC)
-  assert.equal(audit.knownDefects.length, 1)
-  assert.equal(audit.knownDefects[0].overflowX, 28)
-  // The SAME overflow at the native canvas is not recorded there, so it fails closed.
+  // The exact leaf, at the exact measured size, at the exact canvas it was recorded at.
+  for (const state of ["silent", "brake-hot"]) {
+    assert.throws(
+      () =>
+        validateCaptureMetrics(
+          appMetrics(state, { overflowLeaves: [leaf(28)] }),
+          entryFor(state, 1),
+          RC15_SPEC
+        ),
+      (error) =>
+        error instanceof CaptureSafetyError &&
+        /rc15-strip-label "BRAKE F \/ R" paints 28px wider than its 70px box/u.test(error.message)
+    )
+  }
+  // "BALANCE" overflowed by only 2 px; there is no budget left to grow into, so 1 px fails too.
+  assert.throws(
+    () =>
+      validateCaptureMetrics(
+        appMetrics("silent", { overflowLeaves: [{ ...leaf(1), text: "BALANCE" }] }),
+        entryFor("silent", 1),
+        RC15_SPEC
+      ),
+    (error) => error instanceof CaptureSafetyError && /paints 1px wider/u.test(error.message)
+  )
+  // And the same overflow at the native canvas still fails, exactly as before.
   assertRejects(
     (metrics) => ({ ...metrics, overflowLeaves: [leaf(28)] }),
     /rc15-strip-label "BRAKE F \/ R" paints 28px wider than its 70px box/u
   )
-  // Growing past the recorded budget fails closed even at the recorded viewport.
-  assert.throws(
-    () =>
-      validateCaptureMetrics(
-        appMetrics("silent", { overflowLeaves: [leaf(31)] }),
-        entryFor("silent", 1),
-        RC15_SPEC
-      ),
-    (error) => error instanceof CaptureSafetyError && /past the 30px recorded/u.test(error.message)
-  )
 })
 
-test("the recorded bias zone overrun is honoured at the app canvas and nowhere else", () => {
+test("the bias zone overrun now fails closed at the app canvas it was measured at", () => {
+  assert.deepEqual(RC15_SPEC.zoneOverflowDefects, [])
   const withBiasOverrun = (base, extra) => ({
     ...base,
     zones: base.zones.map((entry) =>
       entry.name === "bias" ? { ...entry, scrollHeight: entry.layoutHeight + extra } : entry
     )
   })
-  // Recorded at 1024x600: 7 px is inside the 8 px budget.
-  const audit = validateCaptureMetrics(
-    withBiasOverrun(appMetrics("silent"), 7),
-    entryFor("silent", 1),
-    RC15_SPEC
+  // The measured 7 px overrun, in both governed states, at the 1024x600 canvas.
+  for (const state of ["silent", "brake-hot"]) {
+    assert.throws(
+      () => validateCaptureMetrics(withBiasOverrun(appMetrics(state), 7), entryFor(state, 1), RC15_SPEC),
+      (error) =>
+        error instanceof CaptureSafetyError && /zone bias overflows its layout box by 7\.00px/u.test(error.message)
+    )
+  }
+  // A single pixel is enough: the ledger is empty, so there is nothing to grow into.
+  assert.throws(
+    () => validateCaptureMetrics(withBiasOverrun(appMetrics("silent"), 1), entryFor("silent", 1), RC15_SPEC),
+    (error) =>
+      error instanceof CaptureSafetyError && /zone bias overflows its layout box by 1\.00px/u.test(error.message)
   )
-  assert.equal(audit.zoneDefects.length, 1)
-  assert.equal(audit.zoneDefects[0].overflowPx, 7)
-  // The same overrun at the native canvas is unrecorded there and fails closed.
+  // The same overrun at the native canvas still fails, exactly as before.
   assertRejects(
     (metrics) => withBiasOverrun(metrics, 7),
     /zone bias overflows its layout box by 7\.00px/u
-  )
-  // Growing past the recorded budget fails closed.
-  assert.throws(
-    () =>
-      validateCaptureMetrics(withBiasOverrun(appMetrics("silent"), 12), entryFor("silent", 1), RC15_SPEC),
-    (error) => error instanceof CaptureSafetyError && /past the 8px recorded/u.test(error.message)
   )
 })
 

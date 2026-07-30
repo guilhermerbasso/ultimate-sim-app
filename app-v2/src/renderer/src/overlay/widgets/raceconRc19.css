@@ -544,6 +544,25 @@
 
 /* ---------------------------------------------------------------- app canvas */
 
+/*
+ * The next-stint column carries the longest row labels in the artifact, and it is the narrowest
+ * usable row in the frame: at 800x480 the packet's 250px column leaves a 168px row after the
+ * column inset, and `FUEL PER LAP` plus its `L` unit needs 110.45px of that at the shared 1.875cqw
+ * label step, against a 30px `2.94` numeral needing 56.63px and a 9.6px gap — 176.68px of demand
+ * in 168px. The flex algorithm split the deficit, so `white-space: nowrap` pushed the label 5.45px
+ * past its 105px box and the numeral 3px past its 54px box in all three governed states, with
+ * `scrollWidth === clientWidth` on every ancestor.
+ *
+ * These are ROW labels, the smallest rung of the ladder and not part of it — the ladder's
+ * `row-label` rung is measured from the car-state `FUEL LAPS` row, which is unaffected. This
+ * column therefore carries its own smaller step, derived from the longest label it must print:
+ * 1.6cqw is 12.8px at 800x480, which needs 94.25px and leaves the numeral 64.15px for its 56.63px.
+ * Both compact families keep their own steps, which already fit.
+ */
+.rc19-next-stint .rc19-label {
+  font-size: clamp(7px, var(--rc19-type-next-stint-label, 1.6cqw), 16px);
+}
+
 .rc19-widget[data-rc19-layout='app'] .rc19-column-body,
 .rc19-widget[data-rc19-layout='app'] .rc19-next-stint,
 .rc19-widget[data-rc19-layout='app'] .rc19-check-list {

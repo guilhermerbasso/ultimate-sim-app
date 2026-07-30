@@ -747,21 +747,32 @@ function appRect(x: number, y: number, w: number, h: number): Rc19Rect {
 }
 
 /**
- * Packet 11.1 verbatim, converted arithmetically from its own pixel rectangles. OV-3: the
- * approved render drifts up to 2.50 pp on the panels and 5.62 pp on the confirm control, and
- * those pixels are never traced.
+ * Packet 11.1 verbatim, converted arithmetically from its own pixel rectangles, with the alert
+ * floor band of `RC19_NATIVE_ALERT_FLOOR_PX` reserved below the columns. OV-3: the approved render
+ * drifts up to 2.50 pp on the panels and 5.62 pp on the confirm control, and those pixels are
+ * never traced.
  *
  * OV-2: the confirm control is 100 % contained in the checklist column, so it is a CHILD
  * sub-zone and the six rows are reserved to the `checklistList` area above it.
+ *
+ * OV-15: packet 11.1 runs the columns to y=460 and leaves 20 px of bare `bg` below them, which is
+ * where the alert strip lives. The strip measures 24.50 px tall at 800x480, so it started at
+ * y=455.50 and overlapped the confirm control by 3.47 px whenever an alert was up — measured with
+ * `getBoundingClientRect` in the handover state. `RC19_COMPACT_ALERT_FLOOR_PCT` already reserves
+ * exactly this band on the compact canvases; the native canvas is given the same reservation in
+ * pixels instead of percent, which lifts the column floor from 460 to 450 and moves the confirm
+ * control and the checklist list up with it. Nothing else moves and no type step changes.
  */
+export const RC19_NATIVE_ALERT_FLOOR_PX = 30
+
 export const RC19_NATIVE_ZONES: Rc19ZoneMap = Object.freeze({
   header: nativeRect(16, 12, 768, 44),
-  carState: nativeRect(16, 66, 250, 394),
-  carStateBody: nativeRect(16, 66, 250, 394),
-  checklist: nativeRect(282, 66, 236, 394),
-  checklistList: nativeRect(282, 66, 236, 336),
-  confirm: nativeRect(282, 410, 236, 50),
-  nextStint: nativeRect(534, 66, 250, 394)
+  carState: nativeRect(16, 66, 250, 384),
+  carStateBody: nativeRect(16, 66, 250, 384),
+  checklist: nativeRect(282, 66, 236, 384),
+  checklistList: nativeRect(282, 66, 236, 334),
+  confirm: nativeRect(282, 400, 236, 50),
+  nextStint: nativeRect(534, 66, 250, 384)
 })
 
 /**
@@ -792,9 +803,11 @@ export const RC19_APP_ZONES: Rc19ZoneMap = Object.freeze({
  * only the phone stacks it, and the app-only timeline and tertiary strip never appear.
  *
  * The packet's own canvases leave 20 px (native) and 36 px (app) of bare `bg` below the
- * columns, which is where the alert strip lives. A compact canvas has no such gift, so the
- * columns are shortened to reserve one: a real-browser audit measured the strip covering the
- * FAULTS row and the CONFIRM READY label at 812x375 and 640x520 before this reservation.
+ * columns, which is where the alert strip lives. The native band was 4 px too short for the
+ * 24.50 px strip and is now reserved explicitly as `RC19_NATIVE_ALERT_FLOOR_PX`. A compact canvas
+ * has no such gift at all, so the columns are shortened to reserve one: a real-browser audit
+ * measured the strip covering the FAULTS row and the CONFIRM READY label at 812x375 and 640x520
+ * before this reservation.
  */
 export const RC19_COMPACT_ALERT_FLOOR_PCT = 9
 
