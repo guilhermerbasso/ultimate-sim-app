@@ -93,6 +93,15 @@ asarUnpack:
 
 win:
   icon: build/icon.ico
+  # Authenticode. The certificate is supplied by CI through CSC_LINK/CSC_KEY_PASSWORD and
+  # is never committed; with no certificate present electron-builder produces an UNSIGNED
+  # build (see .github/workflows/build-windows-installer.yml, which fails the job when a
+  # certificate IS configured but the resulting signature is invalid or untimestamped).
+  # RFC-3161 timestamping keeps the signature valid after the certificate expires.
+  signtoolOptions:
+    signingHashAlgorithms:
+      - sha256
+    rfc3161TimeStampServer: http://timestamp.digicert.com
   target:
     - target: nsis
       arch:
