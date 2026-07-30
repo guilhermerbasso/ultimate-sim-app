@@ -105,5 +105,5 @@ const before = md.slice(0, startIdx + START.length)
 const after = md.slice(endIdx)
 md = `${before}\n\n${entries.join('\n\n')}\n\n${after}`
 
-writeFileSync(README, md)
+writeFileSync(README, md, 'utf8')
 console.log(`README updated for ${tag} (${entries.length} entries in What's new).`)

@@ -100,10 +100,23 @@ traffic). Add tests for combined-filter correctness.
 cd app-v2
 npm run typecheck        # tsc -p tsconfig.node.json && tsc -p tsconfig.json
 npx vitest run
+npm run check:encoding   # byte scan: no BOMs, no invalid UTF-8, no mojibake
 node visual-audit/shoot-dashboards.mjs   # renders every dashboard; fails on render errors
 node visual-audit/lint-overflow.mjs      # flags overflow/clipping
 ```
 Run the smallest targeted tests first, then the full suite. Fix every regression you introduce.
+
+## File encoding (mandatory)
+Every tracked text file is **UTF-8 without a BOM**. Windows PowerShell 5.1 silently breaks this and
+has corrupted `main` three times. See `docs/ENCODING.md`.
+- **Never** use `Set-Content -Encoding UTF8`, `Out-File -Encoding utf8`, `Add-Content -Encoding UTF8`
+  or `>` / `>>` to write a tracked file on PowerShell 5.1 — they emit a BOM (or UTF-16).
+- **Never** read a file with `Get-Content` without `-Encoding UTF8`; the default is the ANSI code
+  page, and a read+write round-trip turns `módulos` into mojibake *and* adds a BOM in one step.
+- Write with `[IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding $false))`,
+  `-Encoding utf8NoBOM` on PowerShell 7+, or Node with an explicit `'utf8'` on both read and write.
+- The same applies to commit-message files passed to `git commit -F`.
+- `node scripts/check-encoding.mjs` scans every tracked file; `--fix` strips BOMs. CI runs it.
 
 ## Delivery
 Work on a feature branch. **Never commit or merge to `main` directly.** Open a PR, run the GitHub
