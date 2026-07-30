@@ -40,6 +40,7 @@ import {
 } from 'electron'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { devRendererUrl } from '../dev-renderer'
 
 import { type IRacingSessionCookie, isIRacingAuthCookieName } from './iracing-api'
 
@@ -845,8 +846,9 @@ export async function openIRacingLoginWindow(opts?: {
             // user back.
           })
       }
-      if (process.env.ELECTRON_RENDERER_URL) {
-        const url = new URL('login-toolbar.html', process.env.ELECTRON_RENDERER_URL)
+      const devUrl = devRendererUrl()
+      if (devUrl) {
+        const url = new URL('login-toolbar.html', devUrl)
         url.searchParams.set('done', DONE_SENTINEL)
         url.searchParams.set('cancel', CANCEL_SENTINEL)
         win.webContents.loadURL(url.toString()).catch(onToolbarLoadFail)
