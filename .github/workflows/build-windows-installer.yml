@@ -2,6 +2,14 @@ name: Build Windows Installer
 
 # Builds the "Ultimate Sim App" NSIS .exe installer on a real Windows runner.
 # Trigger manually (Actions tab -> Build Windows Installer -> Run workflow) or via a v* tag.
+#
+# The pipeline is FAIL-CLOSED and never publishes on its own:
+#   * tag, package.json and package-lock.json must declare the same version;
+#   * typecheck + tests run before packaging;
+#   * the four release assets (latest.yml, .exe, .exe.blockmap, .zip) must all exist,
+#     latest.yml must match them byte-for-byte, and each gets its own SHA-256;
+#   * build provenance is attested for the shipped binaries;
+#   * the GitHub Release is created as a DRAFT — publishing is a human action.
 
 on:
   workflow_dispatch: {}
@@ -10,7 +18,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -18,6 +26,10 @@ env:
 jobs:
   build-win:
     runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     defaults:
       run:
         working-directory: app-v2
@@ -33,11 +45,109 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Cheap gate first: a mismatched tag must never consume a 40-minute build.
+      - name: Verify release version consistency
+        shell: pwsh
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $lock = (Get-Content package-lock.json -Raw | ConvertFrom-Json)
+          if ($lock.version -ne $pkg) {
+            Write-Error "package-lock.json version $($lock.version) != package.json version $pkg"
+            exit 1
+          }
+          if ($env:RELEASE_REF -like 'refs/tags/*') {
+            $tag = $env:RELEASE_REF -replace '^refs/tags/v?', ''
+            if ($tag -ne $pkg) {
+              Write-Error "tag $tag != package.json version $pkg — refusing to build a mislabelled release"
+              exit 1
+            }
+            Write-Output "tag, package.json and package-lock.json all declare $pkg"
+          } else {
+            Write-Output "manual dispatch — building $pkg without a tag"
+          }
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Authenticode: the private key never leaves the secret store. When
+      # WINDOWS_SIGNING_PFX_BASE64 is absent the build still runs but the installer is
+      # explicitly UNSIGNED; set the repository variable REQUIRE_SIGNED_INSTALLER=true to
+      # make an unsigned build a hard failure. When the secret IS present, a missing or
+      # invalid signature always fails the job.
+      - name: Configure Authenticode signing
+        id: signing
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          REQUIRE_SIGNED_INSTALLER: ${{ vars.REQUIRE_SIGNED_INSTALLER }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_BASE64)) {
+            if ($env:REQUIRE_SIGNED_INSTALLER -eq 'true') {
+              Write-Error "REQUIRE_SIGNED_INSTALLER=true but secret WINDOWS_SIGNING_PFX_BASE64 is not configured"
+              exit 1
+            }
+            "enabled=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Warning "No signing certificate configured — the installer will be UNSIGNED."
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_PASSWORD)) {
+            Write-Error "WINDOWS_SIGNING_PFX_BASE64 is set but WINDOWS_SIGNING_PFX_PASSWORD is missing"
+            exit 1
+          }
+          # Outside the workspace so the key can never be packaged or uploaded.
+          $pfx = Join-Path $env:RUNNER_TEMP 'code-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          "CSC_LINK=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CSC_KEY_PASSWORD=$env:SIGNING_PFX_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "enabled=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Output "Signing certificate staged for electron-builder."
+
       - name: Build NSIS installer
         run: npm run dist:win
 
       - name: Verify packaged cloudflared and artifacts
         run: npm run verify:win-package
+
+      - name: Verify release artifacts
+        run: npm run verify:release-artifacts -- --tag "${{ github.ref }}"
+
+      - name: Verify Authenticode signature
+        shell: pwsh
+        env:
+          SIGNING_ENABLED: ${{ steps.signing.outputs.enabled }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $installer = "dist-win/Ultimate-Sim-App-$version-x64.exe"
+          $signature = Get-AuthenticodeSignature -FilePath $installer
+          if ($env:SIGNING_ENABLED -ne 'true') {
+            if ($signature.Status -eq 'NotSigned') {
+              Write-Warning "Installer is UNSIGNED (no certificate configured). SmartScreen will warn users."
+              exit 0
+            }
+            Write-Error "Unexpected signature state '$($signature.Status)' for an unsigned build"
+            exit 1
+          }
+          if ($signature.Status -ne 'Valid') {
+            Write-Error "Authenticode validation failed: $($signature.Status) - $($signature.StatusMessage)"
+            exit 1
+          }
+          if (-not $signature.TimeStamperCertificate) {
+            Write-Error "Installer is signed but not timestamped — the signature dies with the certificate"
+            exit 1
+          }
+          Write-Output "Authenticode OK: $($signature.SignerCertificate.Subject)"
+          Write-Output "Timestamped by: $($signature.TimeStamperCertificate.Subject)"
+
+      - name: Remove signing material
+        if: ${{ always() }}
+        shell: pwsh
+        run: Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'code-signing.pfx')
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -48,16 +158,29 @@ jobs:
             app-v2/dist-win/*.zip
             app-v2/dist-win/*.exe.blockmap
             app-v2/dist-win/latest.yml
+            app-v2/dist-win/SHA256SUMS.txt
           if-no-files-found: error
 
-      # On v* tag pushes, attach the installer to a GitHub Release.
+      - name: Attest installer provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            app-v2/dist-win/*.exe
+            app-v2/dist-win/*.zip
+
+      # On v* tag pushes, attach the installer to a DRAFT GitHub Release.
+      # Publishing stays a deliberate human action after the draft is inspected.
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
+          draft: true
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             app-v2/dist-win/*.exe
             app-v2/dist-win/*.zip
             app-v2/dist-win/*.exe.blockmap
             app-v2/dist-win/latest.yml
+            app-v2/dist-win/SHA256SUMS.txt
