@@ -176,6 +176,15 @@ class OutputRouter {
       if (!route.enabled) continue
       const raw = this.evaluateSource(route.source, snapshot)
       if (raw === undefined) {
+        // Audit P0-13 / §24-13: an EXPRESSION route that has already driven a
+        // value and then stops resolving (evaluation error, expression removed
+        // from the studio) must not leave that value latched on the physical
+        // target. Publish one explicit invalidation so the serial device /
+        // second screen / dashboard clears instead of holding a stale reading.
+        // Scoped to expression sources on purpose: telemetry sources go
+        // undefined routinely between sessions and their safe-off behaviour is
+        // owned by the hardware-safety work (P0-10), not by this change.
+        if (route.source.kind === 'expression') this.invalidateRoute(route)
         // Source not resolvable (yet) — skip; we don't broadcast "" by mistake.
         continue
       }
@@ -199,6 +208,25 @@ class OutputRouter {
         this.pendingUpdates.set(route.id, update)
       }
     }
+  }
+
+  // Publishes a single invalidation for a route whose source stopped resolving
+  // after it had already produced a value, then forgets the route so repeated
+  // failures on following ticks stay silent. A route that never resolved has
+  // nothing latched and is left alone.
+  private invalidateRoute(route: OutputRoute): void {
+    const previous = this.values.get(route.id)
+    if (!previous || previous.invalid) return
+    const update: OutputValueUpdate = {
+      routeId: route.id,
+      name: targetDisplayName(route.target),
+      value: '',
+      raw: null,
+      invalid: true
+    }
+    this.values.set(route.id, update)
+    this.dispatchToTarget(route, update, sourceFieldName(route.source))
+    this.pendingUpdates.set(route.id, update)
   }
 
   private evaluateSource(source: OutputSource, snapshot: TelemetrySnapshot | null): ExpressionValue | undefined {
