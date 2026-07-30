@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { BrowserWindow, dialog, screen, shell, type Display, type Rectangle } from 'electron'
+import { devRendererOrigin, devRendererUrl } from '../dev-renderer'
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -126,8 +127,9 @@ function openExternalUrl(url: string): void {
 function isAllowedAppNavigation(url: string): boolean {
   try {
     const parsed = new URL(url)
-    if (process.env.ELECTRON_RENDERER_URL) {
-      return parsed.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    const devOrigin = devRendererOrigin()
+    if (devOrigin) {
+      return parsed.origin === devOrigin
     }
     const appHtml = pathToFileURL(join(__dirname, '../renderer/dashboard.html'))
     return parsed.protocol === 'file:' && parsed.pathname === appHtml.pathname
@@ -1326,9 +1328,10 @@ export class DashboardManager {
       }
     })
 
-    const load = process.env.ELECTRON_RENDERER_URL
+    const devUrl = devRendererUrl()
+    const load = devUrl
       ? (): Promise<void> => {
-          const url = applyDashboardQuery(new URL('dashboard.html', process.env.ELECTRON_RENDERER_URL), id, options.kiosk)
+          const url = applyDashboardQuery(new URL('dashboard.html', devUrl), id, options.kiosk)
           return win.loadURL(url.toString())
         }
       : (): Promise<void> => win.loadFile(
@@ -1759,3 +1762,4 @@ export class DashboardManager {
     return result.filePath
   }
 }
+

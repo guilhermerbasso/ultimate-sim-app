@@ -55,6 +55,7 @@ import {
 } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import { getDashboardManager } from './dashboards'
+import { devRendererOrigin, devRendererUrl, isDevRendererActive } from '../dev-renderer'
 import { logger } from './logger'
 import { ReceiverV2Gateway } from './receiver-v2'
 import { getTouchPanelManager } from '../touchpanel/manager'
@@ -1589,7 +1590,7 @@ let receiverAssetGraphCache: ReceiverAssetGraphCache | null = null
 
 function receiverAssetPaths(): ReadonlySet<string> {
   const rendererRoot = rendererDir()
-  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('receiver.html')
+  const htmlPath = isDevRendererActive() ? null : findRendererHtml('receiver.html')
   let htmlModifiedMs = 0
   try {
     if (htmlPath) htmlModifiedMs = statSync(htmlPath).mtimeMs
@@ -1651,7 +1652,7 @@ function ensureStreamBaseHref(html: string): string {
 }
 
 function devFallbackHtml(): string {
-  const devUrl = process.env.ELECTRON_RENDERER_URL
+  const devUrl = devRendererUrl()
   if (!devUrl) {
     return '<!doctype html><html><body style="margin:0;background:#05070d;color:white;font-family:sans-serif">stream page not built yet</body></html>'
   }
@@ -1667,7 +1668,7 @@ function replaceBaseHref(html: string, href: string): string {
 }
 
 function devReceiverFallbackHtml(): string {
-  const devUrl = process.env.ELECTRON_RENDERER_URL
+  const devUrl = devRendererUrl()
   const moduleScript = devUrl
     ? `<script type="module" src="${new URL('/src/receiver/main.tsx', devUrl).toString()}"></script>`
     : ''
@@ -1699,9 +1700,9 @@ function receiverCspSources(): { script: string; connect: string; style: string 
       // The public URL is validated before it reaches state.
     }
   }
-  if (process.env.ELECTRON_RENDERER_URL) {
+  const devOrigin = devRendererOrigin()
+  if (devOrigin) {
     try {
-      const devOrigin = new URL(process.env.ELECTRON_RENDERER_URL).origin
       script.add(devOrigin)
       style.add(devOrigin)
       style.add("'unsafe-inline'")
@@ -1733,7 +1734,7 @@ function applyReceiverBrowserControls(response: ServerResponse): void {
 }
 
 function serveReceiverHtml(request: IncomingMessage, response: ServerResponse, sessionCookie: string): void {
-  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('receiver.html')
+  const htmlPath = isDevRendererActive() ? null : findRendererHtml('receiver.html')
   const html = ensureReceiverBootstrap(
     replaceBaseHref(htmlPath ? readFileSync(htmlPath, 'utf8') : devReceiverFallbackHtml(), '../../')
   )
@@ -1811,7 +1812,7 @@ function serveHtml(request: IncomingMessage, response: ServerResponse, sessionCo
   // In dev (electron-vite sets ELECTRON_RENDERER_URL), serve a shim that loads the
   // transpiled stream entry from the vite origin; the raw source stream.html would
   // otherwise 404 its .tsx <script>. In production we serve the built stream.html.
-  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('stream.html')
+  const htmlPath = isDevRendererActive() ? null : findRendererHtml('stream.html')
   const html = htmlPath ? readFileSync(htmlPath, 'utf8') : devFallbackHtml()
   applyCors(response)
   if (sessionCookie) response.setHeader('Set-Cookie', sessionCookie)
@@ -3346,12 +3347,9 @@ async function verifyResourceGraph(documentUrl: URL, html: string, cookie: Probe
   let cssCount = 0
   const allowedOrigins = new Set([documentUrl.origin])
   const expectedAssetPath = `${normalizedBasePath(new URL('../', documentUrl).pathname)}assets/`
-  if (process.env.ELECTRON_RENDERER_URL) {
-    try {
-      allowedOrigins.add(new URL(process.env.ELECTRON_RENDERER_URL).origin)
-    } catch {
-      // An invalid dev renderer URL will fail when its resource is resolved.
-    }
+  const devOrigin = devRendererOrigin()
+  if (devOrigin) {
+    allowedOrigins.add(devOrigin)
   }
 
   while (queue.length > 0) {
@@ -3366,7 +3364,7 @@ async function verifyResourceGraph(documentUrl: URL, html: string, cookie: Probe
       if (!allowedOrigins.has(candidate.origin)) {
         throw new SelfTestStageError('assets', `Resource graph left the trusted stream origin: ${displayUrl(candidate)}.`)
       }
-      if (!process.env.ELECTRON_RENDERER_URL && candidate.origin === documentUrl.origin && !candidate.pathname.startsWith(expectedAssetPath)) {
+      if (!isDevRendererActive() && candidate.origin === documentUrl.origin && !candidate.pathname.startsWith(expectedAssetPath)) {
         throw new SelfTestStageError('assets', `Packaged resource escaped the scoped asset root ${expectedAssetPath}: ${displayUrl(candidate)}.`)
       }
       if (/\/obs\/assets\//.test(candidate.pathname)) {
@@ -3405,7 +3403,7 @@ async function verifyResourceGraph(documentUrl: URL, html: string, cookie: Probe
     }))
     for (const dependencies of fetched) queue.push(...dependencies)
   }
-  if (!process.env.ELECTRON_RENDERER_URL && (javascriptCount === 0 || cssCount === 0)) {
+  if (!isDevRendererActive() && (javascriptCount === 0 || cssCount === 0)) {
     throw new SelfTestStageError('assets', `Packaged resource graph is incomplete (${javascriptCount} JavaScript, ${cssCount} CSS resources).`)
   }
   return seen.size
@@ -4757,3 +4755,4 @@ export function register(ctx: ModuleContext): void {
     await stop()
   }, 'quiesce')
 }
+
