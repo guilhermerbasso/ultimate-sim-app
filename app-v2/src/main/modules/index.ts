@@ -50,6 +50,7 @@ import { register as driverNotes } from './driver-notes'
 import { register as spotter } from './spotter'
 import { register as piperTts } from '../tts/piper'
 import { register as haptics } from './haptics'
+import { safeOff as hapticsSafeOff } from './haptics'
 import { register as teamFuel } from './team-fuel'
 import { register as tradingPaints } from './trading-paints'
 import { register as coach } from './coach'
@@ -67,6 +68,7 @@ import { register as semanticSearch } from './semantic-search'
 import { register as dashboardAi } from './dashboard-ai'
 import { register as biometrics } from './biometrics'
 import { register as hapticsZonal } from './haptics-zonal'
+import { safeOff as hapticsZonalSafeOff } from './haptics-zonal'
 import { register as spotter3d } from './spotter3d'
 import { register as stt } from './stt'
 import { register as iflagDynamic } from './iflag-dynamic'
@@ -172,6 +174,12 @@ export interface RegisteredModules {
   settingsStore: SettingsStore
   revlightsEngine: RevlightsEngine
   rgbMatrix: RgbMatrixModule
+  /**
+   * P0-10: drive every haptic actuator to its off state. Runs in the quit
+   * teardown's bounded output-off stage, i.e. BEFORE the serial drain, so the
+   * stop frame can still reach the board.
+   */
+  hapticsSafeOff: () => Promise<void>
 }
 
 export function registerModules(ctx: ModuleContext): RegisteredModules {
@@ -222,7 +230,14 @@ export function registerModules(ctx: ModuleContext): RegisteredModules {
     })
   })
 
-  return { settingsStore, revlightsEngine, rgbMatrix: rgbMatrixModule }
+  return {
+    settingsStore,
+    revlightsEngine,
+    rgbMatrix: rgbMatrixModule,
+    hapticsSafeOff: async () => {
+      await Promise.all([hapticsSafeOff(ctx), hapticsZonalSafeOff(ctx)])
+    }
+  }
 }
 
 function wireSimxAutostart(ctx: ModuleContext, settingsStore: SettingsStore, revlightsEngine: RevlightsEngine): void {
