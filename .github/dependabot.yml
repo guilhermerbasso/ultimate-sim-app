@@ -1,0 +1,65 @@
+version: 2
+
+# Supply-chain maintenance. Dependabot vulnerability alerts alone do not open PRs, and
+# without a schedule the pinned action SHAs and the npm tree drift silently — which is how
+# protobufjs@6.11.6 (GHSA-xq3m-2v4x-88gg, critical) and undici@7.27.2 (three high
+# advisories) reached main unnoticed.
+#
+# Deliberately conservative: updates are GROUPED so one PR carries a coherent theme, the
+# open-PR limits are low, and majors are ignored for the native/ML packages whose upgrades
+# need a real Windows package build and a compatibility pass.
+updates:
+  # Actions are pinned to 40-character SHAs and ci.yml enforces that. Dependabot bumps the
+  # SHA and rewrites the trailing version comment, which is the only maintainable way to
+  # keep SHA pins current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(ci)"
+
+  - package-ecosystem: npm
+    directory: /app-v2
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    versioning-strategy: increase
+    groups:
+      npm-production:
+        dependency-type: production
+        update-types:
+          - patch
+          - minor
+      npm-development:
+        dependency-type: development
+        update-types:
+          - patch
+          - minor
+    ignore:
+      # Native addons and the Electron/build toolchain: a major bump changes the packaged
+      # binary and must be driven by a real `npm run dist:win` on Windows, not by a bot.
+      - dependency-name: electron
+        update-types: [version-update:semver-major]
+      - dependency-name: electron-builder
+        update-types: [version-update:semver-major]
+      - dependency-name: serialport
+        update-types: [version-update:semver-major]
+      - dependency-name: node-llama-cpp
+        update-types: [version-update:semver-major]
+      - dependency-name: sherpa-onnx-node
+        update-types: [version-update:semver-major]
+      - dependency-name: onnxruntime-node
+        update-types: [version-update:semver-major]
+      # @xenova/transformers is deprecated upstream; the migration to
+      # @huggingface/transformers is a deliberate change, not a bot bump.
+      - dependency-name: "@xenova/transformers"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
