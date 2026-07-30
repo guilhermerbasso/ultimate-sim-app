@@ -114,6 +114,55 @@ Measured render defects in the shipped widgets are **recorded, not suppressed**:
 a note, the capture prints every one it observes, and a defect that grows, spreads to another
 breakpoint or appears on another element still fails closed.
 
+## RaceCon RC-15 … RC-20 dev capture
+
+RC-15 … RC-20 were implemented and merged without ever being measured against their approved
+reference images. Each now has the same five files plus a Playwright responsive spec, driven through
+the same `racecon-capture-shared.mjs` as RC-03 … RC-08 — the shared module was reused unchanged, so
+nothing in it was extended for these six.
+
+```bash
+npm run racecon:capture:rc17 -- --mode validate --out C:/Temp/racecon-rc17-capture
+npm run racecon:capture:test
+npm run racecon:responsive
+```
+
+The approved attempt is **not** always the highest-numbered one. Several of these artifacts were
+approved by re-adjudicating back to an earlier attempt after later attempts regressed, so each
+harness asserts the channel values, counts and geometry of the attempt its governance chain actually
+approved:
+
+| artifact | approved attempt | governed states | headline promise the harness proves |
+| --- | --- | --- | --- |
+| RC-15 On The Nose | attempt-001 (re-adjudicated from REJECTED) | `silent`, `brake-hot` | ten equal heat cells per pan lit `min(10, floor(t / 50))`, so the bar and the numeral can never contradict one channel; the beam tilt equals `index x 12 deg` |
+| RC-16 Learn Lines | attempt-002 (SOP failure mode 11) | `silent`, `over-rev` | ring separation never below **8.00 px** at full scale, and monotonic in dispersion |
+| RC-17 High Line | attempt-005 | `silent`, `car-alongside` | the spotter clock fits its 260x260 zone; `DEG C`, `SPEED KM/H` and the side flag in the 200x30 band stay inside their zones |
+| RC-18 Split Test | attempt-004 (005 and 006 both regressed) | `matched`, `reference` | the three delta bars really do share **one** vertical datum, and the two halves' plot regions are equal and mirrored about the spine |
+| RC-19 Hand Over | attempt-003 | `ready`, `handover`, `cold-mount` | the reserved alert floor band keeps the alert strip clear of `FAULTS` and `CONFIRM READY`; a cold mount dashes **nine** readouts, not eight |
+| RC-20 Lights Out | attempt-003 (the only frame with zero blocking failures) | `grid`, `jump-start`, `no-feed` | the start-light ladder renders **exactly five** bars at every viewport in every state; miscounted element arrays were among the most common image-QA rejections |
+
+Two of the six cannot be audited by hue alone, and the harnesses say so rather than shipping a check
+that can never fail:
+
+- **RC-15** only became hue-auditable *because* of normative override 4. The packet's danger
+  `#FF3B2E` sits in the same `red` family as signature `#FF5E3A`, so routine brake heat read as the
+  alarm; the shipped retune to `#FF1F5B` moves danger into `magenta` and makes "the alarm is absent
+  while silent, and scoped to the pan that owns it while hot" a decidable statement.
+- **RC-20** has the opposite problem. `danger #FF3A2E` and `signature #FF2A2A` are both `red`
+  (`RC20_PACKET_OMISSIONS.twoRedTokens`: "danger and signature are 16.49 apart in RGB and are
+  separated semantically"), so the harness proves scope from the DOM rects instead and asserts the
+  families that genuinely are absent.
+
+Documented packet omissions are asserted as **absence-is-the-contract**, never reported as failures.
+The load-bearing ones for this batch: RC-17 ships `CAR LEFT` / `CAR RIGHT` / `CARS BOTH SIDES` and
+**never** `CAR INSIDE`, because no channel reports the oval's turn direction
+(`insideOutsideWording`); RC-19's `ABS`, `MAP`, `BIAS`, `TARGET LAPS`, `FUEL PLAN`, `TIRE PLAN` and
+`WEATHER` must read `--` and a number there is the failure ("Dashes are a feature. Nothing
+unmonitored may render as healthy"); RC-20's ladder can only ever light 0 or 5 bars because the only
+real start feed resolves four states and S1–S4 are never decoded
+(`startLightLadderStages`) — the approved reference image's `STAGE 3 OF 5` is not reproducible by the
+shipped decoder and is not a render-QA defect.
+
 ## What gets rendered
 
 - **Overlays** — every id in `WIDGET_COMPONENTS`

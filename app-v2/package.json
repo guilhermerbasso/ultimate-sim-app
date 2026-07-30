@@ -34,8 +34,14 @@
     "racecon:capture:rc06": "node visual-audit/racecon-rc06-capture.mjs",
     "racecon:capture:rc07": "node visual-audit/racecon-rc07-capture.mjs",
     "racecon:capture:rc08": "node visual-audit/racecon-rc08-capture.mjs",
-    "racecon:capture:test": "node --test visual-audit/racecon-rc01-capture.test.mjs visual-audit/racecon-rc02-capture.test.mjs visual-audit/racecon-rc03-capture.test.mjs visual-audit/racecon-rc04-capture.test.mjs visual-audit/racecon-rc05-capture.test.mjs visual-audit/racecon-rc06-capture.test.mjs visual-audit/racecon-rc07-capture.test.mjs visual-audit/racecon-rc08-capture.test.mjs",
-    "racecon:responsive": "playwright test visual-audit/tests/racecon-rc01-responsive.spec.ts visual-audit/tests/racecon-rc02-responsive.spec.ts visual-audit/tests/racecon-rc03-responsive.spec.ts visual-audit/tests/racecon-rc04-responsive.spec.ts visual-audit/tests/racecon-rc05-responsive.spec.ts visual-audit/tests/racecon-rc06-responsive.spec.ts visual-audit/tests/racecon-rc07-responsive.spec.ts visual-audit/tests/racecon-rc08-responsive.spec.ts --workers=1"
+    "racecon:capture:rc15": "node visual-audit/racecon-rc15-capture.mjs",
+    "racecon:capture:rc16": "node visual-audit/racecon-rc16-capture.mjs",
+    "racecon:capture:rc17": "node visual-audit/racecon-rc17-capture.mjs",
+    "racecon:capture:rc18": "node visual-audit/racecon-rc18-capture.mjs",
+    "racecon:capture:rc19": "node visual-audit/racecon-rc19-capture.mjs",
+    "racecon:capture:rc20": "node visual-audit/racecon-rc20-capture.mjs",
+    "racecon:capture:test": "node --test visual-audit/racecon-rc01-capture.test.mjs visual-audit/racecon-rc02-capture.test.mjs visual-audit/racecon-rc03-capture.test.mjs visual-audit/racecon-rc04-capture.test.mjs visual-audit/racecon-rc05-capture.test.mjs visual-audit/racecon-rc06-capture.test.mjs visual-audit/racecon-rc07-capture.test.mjs visual-audit/racecon-rc08-capture.test.mjs visual-audit/racecon-rc15-capture.test.mjs visual-audit/racecon-rc16-capture.test.mjs visual-audit/racecon-rc17-capture.test.mjs visual-audit/racecon-rc18-capture.test.mjs visual-audit/racecon-rc19-capture.test.mjs visual-audit/racecon-rc20-capture.test.mjs",
+    "racecon:responsive": "playwright test visual-audit/tests/racecon-rc01-responsive.spec.ts visual-audit/tests/racecon-rc02-responsive.spec.ts visual-audit/tests/racecon-rc03-responsive.spec.ts visual-audit/tests/racecon-rc04-responsive.spec.ts visual-audit/tests/racecon-rc05-responsive.spec.ts visual-audit/tests/racecon-rc06-responsive.spec.ts visual-audit/tests/racecon-rc07-responsive.spec.ts visual-audit/tests/racecon-rc08-responsive.spec.ts visual-audit/tests/racecon-rc15-responsive.spec.ts visual-audit/tests/racecon-rc16-responsive.spec.ts visual-audit/tests/racecon-rc17-responsive.spec.ts visual-audit/tests/racecon-rc18-responsive.spec.ts visual-audit/tests/racecon-rc19-responsive.spec.ts visual-audit/tests/racecon-rc20-responsive.spec.ts --workers=1"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.1",
