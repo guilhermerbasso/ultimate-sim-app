@@ -1,6 +1,7 @@
 // ── irElectronics — iRacing electronics tell-tales (v6, gpt-image referenced) ──
 // Clean, transparent, title-less DRS and push-to-pass controls. Active states glow;
 // null/off states stay dim and legible over cockpit video.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, FONT_LABEL, LEGIBLE, legibleStroke, num } from '../kit'
@@ -13,7 +14,7 @@ const OFF_STROKE = 'rgba(154,163,173,0.58)'
 
 function Root({ width, height, children }: HifiWidgetProps & { children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

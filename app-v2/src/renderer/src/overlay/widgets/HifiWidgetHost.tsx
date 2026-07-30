@@ -200,6 +200,7 @@ function HifiWidgetView({ props, ai, unitSystem }: { props: WidgetProps; ai: Hif
         preserveAspectRatio={fillBox ? 'none' : 'xMidYMid meet'}
         style={{ display: 'block' }}
         role="img"
+        aria-label={mod.title}
       >
         {content}
       </svg>

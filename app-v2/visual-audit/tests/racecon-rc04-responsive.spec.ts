@@ -257,26 +257,14 @@ for (const size of viewports) {
       expect(geo.dashboardOverflow.scrollHeight).toBeLessThanOrEqual(geo.dashboardOverflow.clientHeight)
 
       // Type scale: governance promises speed hero > action line > limiter badge > active step.
-      // Known defect: at portrait/app layouts (1024×600, 393×759, 412×867) the widget renders
-      // limiter badge > action line. Assert the actual order at defective sizes so that any
-      // growth of the inversion (e.g., action < active step) still fails.
+      // Packet 11.2 mandates this strict order at every viewport — a tie is a failure.
       const [sh, al, lb] = ['speed hero', 'action line', 'limiter badge'].map(
         (name) => geo.values.find((v) => v.label === name)!
       )
-      const TYPE_SCALE_INVERSION_SIZES = ['1024x600', '393x759', '412x867']
-      const sizeKey = `${size.width}x${size.height}`
-      const inverted = TYPE_SCALE_INVERSION_SIZES.includes(sizeKey)
-      expect(sh.fontSize, 'speed hero must be strictly larger than the second tier').toBeGreaterThan(
-        inverted ? lb.fontSize : al.fontSize
-      )
-      if (inverted) {
-        // Documented inversion: limiter > action at this size.
-        expect(lb.fontSize, 'limiter badge must be strictly larger than action line (inverted)').toBeGreaterThan(al.fontSize)
-      } else {
-        expect(al.fontSize, 'action line must be strictly larger than limiter badge').toBeGreaterThan(lb.fontSize)
-      }
+      expect(sh.fontSize, 'speed hero must be strictly larger than action line').toBeGreaterThan(al.fontSize)
+      expect(al.fontSize, 'action line must be strictly larger than limiter badge').toBeGreaterThan(lb.fontSize)
       if (geo.activeStepFontSize !== null) {
-        expect(al.fontSize, 'action line must be strictly larger than active step').toBeGreaterThan(
+        expect(lb.fontSize, 'limiter badge must be strictly larger than active step').toBeGreaterThan(
           geo.activeStepFontSize
         )
       }
@@ -383,13 +371,66 @@ test('the pit-overspeed alert surfaces only inside the speed zone and action zon
     expect(alert.holdBlockCount).toBe(0)
     expect(alert.alarmLineText).toContain('PIT OVERSPEED')
 
-    // The alarm line must be confined to the action zone.
+    // The alarm line must be confined to the action zone (unconditional: both elements must exist).
+    expect(alert.alarmLine,  'alarm line element must exist in overspeed state').not.toBeNull()
+    expect(alert.actionZone, 'action zone element must exist').not.toBeNull()
     if (alert.alarmLine && alert.actionZone) {
-      expect(alert.alarmLine.left).toBeGreaterThanOrEqual(alert.actionZone.left - 1)
-      expect(alert.alarmLine.right).toBeLessThanOrEqual(alert.actionZone.right + 1)
-      expect(alert.alarmLine.top).toBeGreaterThanOrEqual(alert.actionZone.top - 1)
-      expect(alert.alarmLine.bottom).toBeLessThanOrEqual(alert.actionZone.bottom + 1)
+      expectContained(alert.actionZone, { ...alert.alarmLine, width: alert.alarmLine.right - alert.alarmLine.left, height: alert.alarmLine.bottom - alert.alarmLine.top })
     }
+  } finally {
+    await context.close()
+  }
+})
+
+test('1024x600 app overspeed — alarm line contained in action zone and zone does not overflow', async ({ browser }) => {
+  const size = { width: 1024, height: 600 }
+  const { context, page } = await openCapture(browser, size, { layout: 'app', state: 'overspeed' })
+  try {
+    const alert = await page.locator('#racecon-rc04-capture-root').evaluate((root) => {
+      const rootRect = root.getBoundingClientRect()
+      const relative = (el: Element | null) => {
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { left: r.left - rootRect.left, top: r.top - rootRect.top, right: r.right - rootRect.left, bottom: r.bottom - rootRect.top }
+      }
+      const actionZoneEl = root.querySelector<HTMLElement>('.rc04-action')
+      const alarmLineEl  = root.querySelector<HTMLElement>('[data-testid="rc04-alarm-line"]')
+      return {
+        overspeed:       root.querySelector<HTMLElement>('[data-widget="raceconRc04Dash"]')?.dataset.rc04Overspeed,
+        alarmLineCount:  root.querySelectorAll('[data-testid="rc04-alarm-line"]').length,
+        alarmLineText:   alarmLineEl?.textContent?.trim() ?? null,
+        actionText:      root.querySelector('[data-testid="rc04-action-text"]')?.textContent?.trim() ?? null,
+        actionZone:      relative(actionZoneEl),
+        alarmLine:       relative(alarmLineEl),
+        actionScrollH:   actionZoneEl?.scrollHeight ?? null,
+        actionClientH:   actionZoneEl?.clientHeight ?? null,
+        // Type scale at app layout.
+        actionFontSize:  Number.parseFloat(getComputedStyle(root.querySelector<HTMLElement>('[data-testid="rc04-action-text"]')!).fontSize),
+        limiterFontSize: Number.parseFloat(getComputedStyle(root.querySelector<HTMLElement>('[data-testid="rc04-limiter-badge"] output.rc04-value')!).fontSize)
+      }
+    })
+
+    expect(alert.overspeed).toBe('true')
+    expect(alert.alarmLineCount).toBe(1)
+    expect(alert.alarmLineText).toContain('PIT OVERSPEED')
+    expect(alert.actionText).toBe('LIFT - PIT LIMIT')
+
+    // Action zone must not overflow.
+    expect(alert.actionScrollH, 'action zone must not overflow vertically').not.toBeNull()
+    expect(alert.actionScrollH!).toBeLessThanOrEqual(alert.actionClientH! + 0.5)
+
+    // Alarm line fully contained within action zone (packet 11.1: alarm belongs to its zone).
+    expect(alert.alarmLine,  'alarm line must exist at 1024x600 overspeed').not.toBeNull()
+    expect(alert.actionZone, 'action zone rect must exist').not.toBeNull()
+    if (alert.alarmLine && alert.actionZone) {
+      expect(alert.alarmLine.top,    'alarm line top must be ≥ action zone top').toBeGreaterThanOrEqual(alert.actionZone.top    - 0.5)
+      expect(alert.alarmLine.bottom, 'alarm line bottom must be ≤ action zone bottom').toBeLessThanOrEqual(alert.actionZone.bottom + 0.5)
+      expect(alert.alarmLine.left,   'alarm line left must be ≥ action zone left').toBeGreaterThanOrEqual(alert.actionZone.left   - 0.5)
+      expect(alert.alarmLine.right,  'alarm line right must be ≤ action zone right').toBeLessThanOrEqual(alert.actionZone.right   + 0.5)
+    }
+
+    // Packet 11.2 — type hierarchy at app layout.
+    expect(alert.actionFontSize,  'action line must be strictly larger than limiter badge at 1024x600').toBeGreaterThan(alert.limiterFontSize)
   } finally {
     await context.close()
   }

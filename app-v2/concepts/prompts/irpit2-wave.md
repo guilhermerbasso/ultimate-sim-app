@@ -1,4 +1,4 @@
-﻿# irPit2 reference prompt
+# irPit2 reference prompt
 
 Create transparent-background, hi-fi motorsport telemetry pit-service widgets for iRacing. Style: clean Bosch DDU/MoTeC-inspired SVG badges, no panel, no border, no title, highly legible over cockpit video. Active states glow strongly; off/null states remain visibly dim.
 

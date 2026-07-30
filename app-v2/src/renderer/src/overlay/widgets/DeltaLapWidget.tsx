@@ -51,7 +51,7 @@ export function DeltaLapWidget({ snapshot, config }: WidgetProps): ReactElement 
       width="100%"
       height="100%"
       data-widget="deltaLap"
-      role="img"
+      role="img" aria-label="Lap delta"
       style={{ display: 'block' }}
     >
       <rect

@@ -236,15 +236,37 @@ class ExpressionEngine {
       try {
         value = evaluateExpression(formula, scope)
       } catch {
+        // Audit P0-13 / §24-13: a failed evaluation must INVALIDATE the result,
+        // never leave the previous one latched. `continue` alone kept the last
+        // good value in `this.results`, so the output-router resolver kept
+        // handing it to physical outputs and alerts as if it were fresh.
+        this.invalidateResult(definition.id, definition.name)
         continue
       }
       const entry: ExpressionResultEntry = { name: definition.name, value }
       const previous = this.results.get(definition.id)
       this.results.set(definition.id, entry)
-      if (!previous || previous.value !== value || previous.name !== entry.name || previous.deleted) {
+      if (
+        !previous ||
+        previous.value !== value ||
+        previous.name !== entry.name ||
+        previous.deleted ||
+        previous.error
+      ) {
         this.pendingResults.set(definition.id, entry)
       }
     }
+  }
+
+  // Replaces a result with an explicit invalid marker and broadcasts it once, so
+  // consumers evict the stale value instead of holding it. Repeated failures on
+  // following ticks stay silent (the invalid state is already published).
+  private invalidateResult(id: string, name: string): void {
+    const previous = this.results.get(id)
+    if (previous?.error && previous.name === name) return
+    const entry: ExpressionResultEntry = { name, value: null, error: true }
+    this.results.set(id, entry)
+    this.pendingResults.set(id, entry)
   }
 
   private buildScope(snapshot: TelemetrySnapshot | null): ExpressionScope {

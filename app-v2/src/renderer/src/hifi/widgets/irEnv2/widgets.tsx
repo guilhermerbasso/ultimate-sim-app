@@ -3,6 +3,7 @@
 // v6: fog density, relative humidity (percent + fill bar with a distinguishing
 // glyph), wind (compass ring + direction arrow + speed), and sun altitude (horizon
 // arc + sun dot + elevation degrees). Built to match concepts/refs/ref-ir-*.png.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, FONT_LABEL, LEGIBLE, fixed, num } from '../kit'
@@ -23,7 +24,7 @@ function PercentBar({ width, height, value, color, glyph }: HifiWidgetProps & { 
   const gx = 44
   const gy = 214
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <BigNum x={W / 2} y={150} value={p == null ? '—' : fixed(p, 0)} unit="%" color={p == null ? C.dim : color} size={112} />
       {glyph === 'drop' ? (
         <path d={`M${gx} ${gy - 12} q9 12 9 19 a9 9 0 0 1 -18 0 q0 -7 9 -19 z`} fill="none" stroke={color} strokeWidth={2} opacity={0.9} />
@@ -63,7 +64,7 @@ function WindCompass({ width, height, snapshot, unitSystem = 'metric' }: HifiWid
     ['W', cx - r - 16, cy + 6]
   ]
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.cyan} strokeWidth={1.5} opacity={0.55} />
       {Array.from({ length: 12 }, (_, i) => {
         const a = (Math.PI * 2 * i) / 12
@@ -99,7 +100,7 @@ function SolarArc({ width, height, snapshot }: HifiWidgetProps): ReactElement {
   const sunY = t == null ? null : baseY - r * Math.sin(t)
   const deg = alt == null ? null : (alt * 180) / Math.PI
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <line x1={cx - r - 6} y1={baseY} x2={cx + r + 6} y2={baseY} stroke="rgba(255,255,255,0.28)" strokeWidth={1.5} />
       <path d={`M${cx - r} ${baseY} A ${r} ${r} 0 0 1 ${cx + r} ${baseY}`} fill="none" stroke={C.cyan} strokeWidth={1.5} opacity={0.5} />
       {sunX != null && sunY != null ? (

@@ -1,3 +1,4 @@
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement } from 'react'
 import type { HifiWidgetProps } from '../types'
 import type {
@@ -154,7 +155,7 @@ function Root({
       width={props.width ?? size.w}
       height={props.height ?? size.h}
       preserveAspectRatio="xMidYMid meet"
-      role="img"
+      {...useSurfaceRole()}
       aria-label={`${descriptor.label} ${variant}`}
       style={{ display: 'block' }}
     >

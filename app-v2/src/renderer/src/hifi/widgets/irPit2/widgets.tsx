@@ -1,4 +1,5 @@
-﻿import type { ReactElement, ReactNode } from 'react'
+import { useSurfaceRole } from '../a11y'
+import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, FONT_LABEL, LEGIBLE, legibleStroke, num } from '../kit'
 
@@ -9,7 +10,7 @@ type ServiceToken = 'fuel' | 'lf' | 'rf' | 'lr' | 'rr'
 
 function Root({ width, height, children }: HifiWidgetProps & { children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

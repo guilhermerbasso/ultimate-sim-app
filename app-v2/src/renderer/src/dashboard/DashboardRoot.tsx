@@ -8,7 +8,7 @@ import type {
   DashboardScaleMode,
   AdaptiveBlink
 } from '../../../shared/dashboards'
-import { composeImageFilter, resolveSlotStyle, sortElementsByZ } from '../../../shared/dashboards'
+import { composeImageFilter, resolveDashboardScaleMode, resolveSlotStyle, sortElementsByZ } from '../../../shared/dashboards'
 import { createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET } from '../../../shared/overlays'
 import type { OverlayWidgetConfig } from '../../../shared/overlays'
 import {
@@ -32,6 +32,10 @@ import type { DriverEntry, RadarCarEntry, TelemetrySnapshot } from '../../../sha
 import type { TrackMapData } from '../../../shared/track-map'
 import { TRACK_MAP_CHANNELS } from '../../../shared/track-map'
 import { EXPR_CHANNELS } from '../../../shared/expr'
+import {
+  IPC_SOURCED_OVERLAY_WIDGET_IDS,
+  isIpcSourcedElementType
+} from '../../../shared/dashboard-render-capability'
 import type { ExpressionDestinationPlacement } from '../../../shared/expression-studio'
 import { RADAR_THREAT_COLORS, radarSideThreat, radarThreatColor, radarThreatLevel } from '../../../shared/radar'
 import {
@@ -41,6 +45,7 @@ import {
   trackMapStrokeWidth
 } from '../lib/track-map'
 import { readButtonPressed } from '../lib/gamepad'
+import { observeBindingEdge } from '../../../shared/binding-edge'
 import { useAlertsConfig } from '../lib/alerts-config'
 import { useUnitSystem } from '../lib/units'
 import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } from './binding'
@@ -210,15 +215,10 @@ interface ElementProps {
   forceTriggerActive?: boolean
 }
 
-const INERT_OVERLAY_WIDGET_IDS = new Set<string>([
-  'coachHeatmap', 'coachTips', 'coachFindings', 'coachSectorGraph', 'engineerFeed',
-  'trackMap', 'trackMapNav3D', 'customValue', 'teamFuel', 'tireWear',
-  'predCatchAhead', 'predCaughtBehind', 'predFuelMargin', 'predTireWear', 'predPaceProjected'
-])
+const INERT_OVERLAY_WIDGET_IDS: ReadonlySet<string> = new Set<string>(IPC_SOURCED_OVERLAY_WIDGET_IDS)
 
 function needsInertFixture(type: string): boolean {
-  return type === 'map' || type === 'trackmap-clean' || type === 'trackmap-elaborate' ||
-    type === 'engineer-feed' || type.startsWith('coach-') || type.startsWith('pred-')
+  return isIpcSourcedElementType(type)
 }
 
 interface InertPredictionFixture { kind: string; label: string; value: string }
@@ -1781,7 +1781,7 @@ export function resolveDashboardCanvasRenderModel(
 ): DashboardCanvasRenderModel {
   const baseWidth = dashboard.width ?? 1920
   const baseHeight = dashboard.height ?? 1080
-  const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'stretch'
+  const scaleMode: DashboardScaleMode = resolveDashboardScaleMode(dashboard)
   if (!viewport || !isResponsiveFullFrame(dashboard)) {
     return { dashboard, baseWidth, baseHeight, scaleMode }
   }
@@ -2005,9 +2005,11 @@ export function DashboardRoot() {
         if (!control) continue
         const key = cycleControlKey(direction, control)
         const pressed = readButtonPressed(control.gamepadIndex, control.buttonIndex, control.gamepadId)
-        const wasPressed = pressedState.get(key) ?? false
-        pressedState.set(key, pressed)
-        if (pressed && !wasPressed) {
+        // P1-10: the FIRST sample only arms the detector, so a cycle button held
+        // when the dashboard mounts does not immediately switch dashboards.
+        const edge = observeBindingEdge(pressedState.get(key), pressed)
+        pressedState.set(key, edge.pressed)
+        if (edge.rising) {
           void window.ipc.invoke('app:dash:cycle', direction).catch(() => undefined)
         }
       }

@@ -92,18 +92,18 @@ const ICON_GROUPS = ICON_OPTIONS.reduce<Array<{ group: string; items: Array<{ id
 )
 
 const IRACING_COMMANDS: Array<{ value: IracingCommandName; group: IracingCommandGroup; label: string }> = [
-  { value: 'pit:addFuel', group: 'pit', label: 'Pit ? Add fuel' },
-  { value: 'pit:clearFuel', group: 'pit', label: 'Pit ? Cancel fuel' },
+  { value: 'pit:addFuel', group: 'pit', label: 'Pit → Add fuel' },
+  { value: 'pit:clearFuel', group: 'pit', label: 'Pit → Cancel fuel' },
   { value: 'pit:toggleTyreLf', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreLf']}` },
   { value: 'pit:toggleTyreRf', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreRf']}` },
   { value: 'pit:toggleTyreLr', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreLr']}` },
   { value: 'pit:toggleTyreRr', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreRr']}` },
   { value: 'pit:fastRepair', group: 'pit', label: 'Pit · Fast Repair' },
   { value: 'pit:clearAll', group: 'pit', label: 'Pit · Limpar tudo' },
-  { value: 'camera:next', group: 'camera', label: 'Camera ? Next' },
-  { value: 'camera:previous', group: 'camera', label: 'Camera ? Previous' },
-  { value: 'blackBox:next', group: 'blackBox', label: 'Black Box ? Next' },
-  { value: 'blackBox:previous', group: 'blackBox', label: 'Black Box ? Previous' }
+  { value: 'camera:next', group: 'camera', label: 'Camera → Next' },
+  { value: 'camera:previous', group: 'camera', label: 'Camera → Previous' },
+  { value: 'blackBox:next', group: 'blackBox', label: 'Black Box → Next' },
+  { value: 'blackBox:previous', group: 'blackBox', label: 'Black Box → Previous' }
 ]
 
 const KEYBOARD_MODE_HINTS: Record<KeyboardMacroCommand['mode'], string> = {
@@ -178,10 +178,10 @@ async function prepareButtonImage(file: File): Promise<string> {
 }
 
 const APP_ACTIONS: Array<{ value: AppActionName; label: string }> = [
-  { value: 'dash:cycleNext', label: 'Dashboard ? next (playlist)' },
-  { value: 'dash:cyclePrev', label: 'Dashboard ? previous (playlist)' },
+  { value: 'dash:cycleNext', label: 'Dashboard → next (playlist)' },
+  { value: 'dash:cyclePrev', label: 'Dashboard → previous (playlist)' },
   { value: 'overlays:toggle', label: 'Overlays · alternar' },
-  { value: 'oled:setActivePage', label: 'OLED ? active page' }
+  { value: 'oled:setActivePage', label: 'OLED → active page' }
 ]
 
 function field(): CSSProperties {

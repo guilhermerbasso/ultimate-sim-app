@@ -133,6 +133,13 @@ export interface DriverEntry {
   carPath?: string // pasta do carro p/ paints (ex.: 'rt2000')
   carNumberRaw?: number
   isPlayer: boolean
+  /**
+   * False when iRacing reports irsdk_NotInWorld (CarIdxTrackSurface === -1) for this car:
+   * it is in the session roster but has no live position, gap, lap or telemetry. Consumers
+   * MUST exclude these cars from relatives, radar and the track map instead of drawing
+   * them from a fabricated position. Absent means the provider does not expose the channel.
+   */
+  inWorld?: boolean
   /** DriverInfo.Drivers[].CarIsPaceCar from the iRacing session YAML. */
   isPaceCar?: boolean
   inPits?: boolean

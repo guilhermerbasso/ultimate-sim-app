@@ -1,3 +1,4 @@
+# QUARANTINED - NOT AN ASSEMBLY SOURCE. This file conflicts with firmware/sim-x-reference/pinout.h and assigns CD74HC4067 physical pins 6/7/8/16 twice. Do not wire or order from it. See docs/HARDWARE-QUARANTINE.md (Q1). Requires a qualified electrical review against https://www.ti.com/lit/ds/symlink/cd74hc4067.pdf
 De_Componente,De_Pino,De_Pino_Nome,Para_Componente,Para_Pino,Para_Pino_Nome,Cor_Fio,Bitola,Notas,Aba
 Pro Micro,VCC,5V,CD74HC4067,16,VCC,Vermelho,22AWG,,Conexões
 Pro Micro,GND,GND,CD74HC4067,8,GND,Preto,22AWG,,Conexões

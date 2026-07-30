@@ -86,7 +86,7 @@ export function SessionStateBannerWidget({ snapshot, config }: WidgetProps): Rea
       width="100%"
       height="100%"
       data-widget="sessionBanner"
-      role="img"
+      role="img" aria-label="Session state"
       style={{ display: 'block' }}
     >
       <rect

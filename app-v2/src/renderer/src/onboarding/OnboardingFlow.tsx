@@ -1,3 +1,4 @@
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { useCallback, useMemo, useState, type ReactElement } from 'react'
 import { setTelemetrySource } from '../lib/telemetry'
 import '../styles/onboarding.css'
@@ -99,27 +100,32 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
     setStepIndex((current) => Math.max(current - 1, 0))
   }, [])
 
-  const selectTelemetry = useCallback(async (choice: TelemetryChoice) => {
+  const selectTelemetry = useCallback(async (choice: TelemetryChoice): Promise<boolean> => {
     setTelemetryChoice(choice)
     setTelemetryBusy(true)
     setTelemetryError(null)
     writeStorageValue(PREFERRED_SIM_STORAGE_KEY, choice)
     try {
       await setTelemetrySource(choice)
+      return true
     } catch (error) {
       setTelemetryError(getErrorMessage(error))
+      return false
     } finally {
       setTelemetryBusy(false)
     }
   }, [])
 
-  const useDemo = useCallback(() => {
-    void selectTelemetry('mock')
-    setStepIndex(2)
-  }, [selectTelemetry])
+  const useDemo = useCallback(async () => {
+    if (telemetryBusy) return
+    const applied = await selectTelemetry('mock')
+    if (applied) setStepIndex(2)
+  }, [selectTelemetry, telemetryBusy])
+
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: markCompleteAndClose })
 
   return (
-    <div className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div className="onboarding-backdrop" ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
       <div className="onboarding-panel">
         <header className="onboarding-header">
           <div>
@@ -142,7 +148,13 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
 
         <section className="onboarding-content">
           {currentStep.id === 'welcome' && (
-            <WelcomeStep onConfigure={next} onDemo={useDemo} onSkip={markCompleteAndClose} />
+            <WelcomeStep
+              busy={telemetryBusy}
+              error={telemetryError}
+              onConfigure={next}
+              onDemo={useDemo}
+              onSkip={markCompleteAndClose}
+            />
           )}
           {currentStep.id === 'telemetry' && (
             <TelemetryStep

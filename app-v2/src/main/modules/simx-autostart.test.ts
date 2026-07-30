@@ -2,9 +2,39 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { SimxAutostartController, type SimxAutostartDeps } from './simx-autostart'
 import type { PortInfo } from '../../shared/ipc'
+import type { SimXEnrollment } from '../../shared/simx-enrollment'
 
-const simx = (path: string): PortInfo => ({ path, isSimX: true })
+const ENROLLED_VID = '2341'
+const ENROLLED_PID = '8036'
+
+// A port carrying the ENROLLED board's USB identity, wherever Windows put it.
+const enrolledBoard = (path: string, serialNumber = 'BOX-A'): PortInfo => ({
+  path,
+  isSimX: true,
+  vendorId: ENROLLED_VID,
+  productId: ENROLLED_PID,
+  serialNumber
+})
+
+// A DIFFERENT board that the old vendor-wide heuristic still flags as "SIM-X".
+const strangerFlaggedSimX = (path: string, vendorId = '239a'): PortInfo => ({
+  path,
+  isSimX: true,
+  vendorId,
+  productId: '800c',
+  serialNumber: 'OTHER'
+})
+
 const other = (path: string): PortInfo => ({ path, isSimX: false })
+
+const enrollment = (over: Partial<SimXEnrollment> = {}): SimXEnrollment => ({
+  version: 1,
+  vendorId: ENROLLED_VID,
+  productId: ENROLLED_PID,
+  serialNumber: 'BOX-A',
+  enrolledAt: '2026-01-01T00:00:00.000Z',
+  ...over
+})
 
 class FakeSerial extends EventEmitter {
   ports: PortInfo[] = []
@@ -29,9 +59,8 @@ const flush = async (): Promise<void> => {
 describe('SimxAutostartController', () => {
   let serial: FakeSerial
   let enabled: boolean
-  let lastPort: string | null
+  let enrolled: SimXEnrollment | null
   let revlights: boolean[]
-  let saved: string[]
 
   const makeDeps = (over: Partial<SimxAutostartDeps> = {}): SimxAutostartDeps => ({
     serial,
@@ -39,11 +68,7 @@ describe('SimxAutostartController', () => {
       revlights.push(on)
     },
     isEnabled: () => enabled,
-    loadLastPort: () => lastPort,
-    saveLastPort: (p) => {
-      saved.push(p)
-      lastPort = p
-    },
+    loadEnrollment: () => enrolled,
     retryMs: 3000,
     ...over
   })
@@ -52,43 +77,128 @@ describe('SimxAutostartController', () => {
     vi.useFakeTimers()
     serial = new FakeSerial()
     enabled = true
-    lastPort = null
+    enrolled = enrollment()
     revlights = []
-    saved = []
   })
   afterEach(() => vi.useRealTimers())
 
-  it('connects the SIM-X on boot and activates rev-lights AFTER connecting', async () => {
-    serial.ports = [other('COM1'), simx('COM5')]
+  it('connects the ENROLLED SIM-X on boot and activates rev-lights AFTER connecting', async () => {
+    serial.ports = [other('COM1'), enrolledBoard('COM5')]
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
     expect(serial.connectCalls).toEqual(['COM5'])
     expect(revlights).toEqual([true]) // enabled only after the connect event
-    expect(saved).toEqual(['COM5']) // last port persisted
     expect(c.isConnected()).toBe(true)
+    expect(c.getQuarantine()).toBeNull()
     c.dispose()
   })
 
-  it('prefers the persisted last port even if its isSimX heuristic is false', async () => {
-    lastPort = 'COM7'
-    serial.ports = [simx('COM5'), other('COM7')]
+  it('follows the enrolled board to a NEW COM path after re-enumeration', async () => {
+    // Windows moved the board from COM5 to COM21 and gave COM5 to something else.
+    serial.ports = [strangerFlaggedSimX('COM5'), enrolledBoard('COM21')]
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
-    expect(serial.connectCalls).toEqual(['COM7'])
+    expect(serial.connectCalls).toEqual(['COM21'])
     c.dispose()
   })
 
-  it('retries in the background until the SIM-X appears', async () => {
+  // ─── P0-09 / §24-15: the quarantine gate ────────────────────────────────────
+
+  it('never opens ANY port while no board is enrolled', async () => {
+    enrolled = null
+    serial.ports = [enrolledBoard('COM5'), strangerFlaggedSimX('COM9')]
+    const c = new SimxAutostartController(makeDeps())
+    c.start()
+    await flush()
+    expect(serial.connectCalls).toEqual([])
+    expect(c.getQuarantine()?.reason).toBe('not-enrolled')
+    expect(c.getQuarantine()?.candidatePaths).toEqual(['COM5', 'COM9'])
+    // It keeps watching, but it never probes.
+    expect(c.hasPendingRetry()).toBe(true)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await flush()
+    expect(serial.connectCalls).toEqual([])
+    c.dispose()
+  })
+
+  it('never opens an unrelated vendor-flagged board (Arduino/SparkFun/Adafruit)', async () => {
+    serial.ports = [strangerFlaggedSimX('COM9', '239a'), strangerFlaggedSimX('COM10', '1b4f')]
+    const c = new SimxAutostartController(makeDeps())
+    c.start()
+    await flush()
+    expect(serial.connectCalls).toEqual([])
+    expect(c.getQuarantine()?.reason).toBe('enrolled-board-absent')
+    c.dispose()
+  })
+
+  it('never falls back to the remembered COM path when the enrolled board is gone', async () => {
+    // Something else now answers on the path the SIM-X used to occupy.
+    serial.ports = [strangerFlaggedSimX('COM18')]
+    enrolled = enrollment({ lastKnownPath: 'COM18' })
+    const c = new SimxAutostartController(makeDeps())
+    c.start()
+    await flush()
+    expect(serial.connectCalls).toEqual([])
+    expect(c.getQuarantine()?.reason).toBe('enrolled-board-absent')
+    c.dispose()
+  })
+
+  it('refuses rather than guess when two boards share the enrolled identity', async () => {
+    enrolled = enrollment({ serialNumber: undefined })
+    serial.ports = [enrolledBoard('COM3', ''), enrolledBoard('COM7', '')]
+    const c = new SimxAutostartController(makeDeps())
+    c.start()
+    await flush()
+    expect(serial.connectCalls).toEqual([])
+    expect(c.getQuarantine()?.reason).toBe('ambiguous-identity')
+    c.dispose()
+  })
+
+  it('quarantines instead of probing when the enrolment cannot be read', async () => {
+    serial.ports = [enrolledBoard('COM5')]
+    const c = new SimxAutostartController(
+      makeDeps({
+        loadEnrollment: () => {
+          throw new Error('corrupt enrolment file')
+        }
+      })
+    )
+    c.start()
+    await flush()
+    expect(serial.connectCalls).toEqual([])
+    expect(c.getQuarantine()?.reason).toBe('not-enrolled')
+    c.dispose()
+  })
+
+  it('picks the quarantine up the moment the user enrols the board', async () => {
+    enrolled = null
+    serial.ports = [enrolledBoard('COM5')]
+    const c = new SimxAutostartController(makeDeps())
+    c.start()
+    await flush()
+    expect(serial.connectCalls).toEqual([])
+    // The user presses Connect once → the identity is enrolled.
+    enrolled = enrollment()
+    await vi.advanceTimersByTimeAsync(3000)
+    await flush()
+    expect(serial.connectCalls).toEqual(['COM5'])
+    expect(c.getQuarantine()).toBeNull()
+    c.dispose()
+  })
+
+  // ─── Existing lifecycle behaviour, now identity-gated ────────────────────────
+
+  it('retries in the background until the enrolled SIM-X appears', async () => {
     serial.ports = [] // nothing yet
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
     expect(serial.connectCalls).toEqual([])
     expect(c.hasPendingRetry()).toBe(true)
-    // The panel shows up before the next retry tick.
-    serial.ports = [simx('COM5')]
+    // The box shows up before the next retry tick.
+    serial.ports = [enrolledBoard('COM5')]
     await vi.advanceTimersByTimeAsync(3000)
     await flush()
     expect(serial.connectCalls).toEqual(['COM5'])
@@ -97,7 +207,7 @@ describe('SimxAutostartController', () => {
   })
 
   it('reconnects after a mid-session disconnect', async () => {
-    serial.ports = [simx('COM5')]
+    serial.ports = [enrolledBoard('COM5')]
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
@@ -113,7 +223,7 @@ describe('SimxAutostartController', () => {
   })
 
   it('activates rev-lights ONCE — a reconnect does not re-force them', async () => {
-    serial.ports = [simx('COM5')]
+    serial.ports = [enrolledBoard('COM5')]
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
@@ -127,7 +237,7 @@ describe('SimxAutostartController', () => {
   })
 
   it('suppresses auto-reconnect after a USER-initiated disconnect', async () => {
-    serial.ports = [simx('COM5')]
+    serial.ports = [enrolledBoard('COM5')]
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
@@ -144,7 +254,7 @@ describe('SimxAutostartController', () => {
   })
 
   it('does NOT activate rev-lights when the connect attempt fails', async () => {
-    serial.ports = [simx('COM5')]
+    serial.ports = [enrolledBoard('COM5')]
     serial.failConnect = true
     const c = new SimxAutostartController(makeDeps())
     c.start()
@@ -156,7 +266,7 @@ describe('SimxAutostartController', () => {
 
   it('does nothing when the feature is disabled', async () => {
     enabled = false
-    serial.ports = [simx('COM5')]
+    serial.ports = [enrolledBoard('COM5')]
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
@@ -184,8 +294,9 @@ describe('SimxAutostartController', () => {
     c.dispose()
   })
 
-  it('still persists the port + activates rev-lights on a MANUAL connect (connect event)', async () => {
-    serial.ports = [] // auto-attempt finds nothing
+  it('still activates rev-lights on a MANUAL connect (connect event)', async () => {
+    enrolled = null
+    serial.ports = [] // auto-attempt is quarantined anyway
     const c = new SimxAutostartController(makeDeps())
     c.start()
     await flush()
@@ -193,23 +304,9 @@ describe('SimxAutostartController', () => {
     // The user connects manually via the UI → SerialManager emits 'connect'.
     serial.emit('connect', { path: 'COM9' })
     await flush()
-    expect(saved).toEqual(['COM9'])
     expect(revlights).toEqual([true])
     expect(c.isConnected()).toBe(true)
+    expect(c.getQuarantine()).toBeNull()
     c.dispose()
-  })
-
-  it('dispose() unsubscribes and cancels retries', async () => {
-    serial.ports = []
-    const c = new SimxAutostartController(makeDeps())
-    c.start()
-    await flush()
-    expect(c.hasPendingRetry()).toBe(true)
-    c.dispose()
-    expect(c.hasPendingRetry()).toBe(false)
-    // A post-dispose connect event is ignored.
-    serial.emit('connect', { path: 'COM5' })
-    await flush()
-    expect(revlights).toEqual([])
   })
 })

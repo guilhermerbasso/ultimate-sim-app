@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { buildSync } from 'esbuild'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, afterAll } from 'vitest'
 import type {
   LedgerAppendAuthorityCommit,
   LedgerAppendOperation,
@@ -371,9 +372,36 @@ function finalizationOperation(
   }
 }
 
+// The worker bundle is identical for every case - all of its inputs arrive at
+// runtime through argv - but it used to be re-bundled from scratch for each
+// scratch directory, so a single run paid for a dozen esbuild builds. Building
+// once and copying the artifact is what pushed these cases past Vitest's
+// default 5s timeout whenever the suite ran in parallel.
+let sharedWorkerBundle: string | null = null
+let sharedWorkerDirectory: string | null = null
+
+afterAll(() => {
+  if (sharedWorkerDirectory) {
+    rmSync(sharedWorkerDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100
+    })
+    sharedWorkerDirectory = null
+    sharedWorkerBundle = null
+  }
+})
+
 function compileWorker(directoryPath: string): string {
-  const moduleDirectory = dirname(fileURLToPath(import.meta.url))
   const workerPath = join(directoryPath, 'publication-worker.mjs')
+  if (sharedWorkerBundle) {
+    copyFileSync(sharedWorkerBundle, workerPath)
+    return workerPath
+  }
+  const moduleDirectory = dirname(fileURLToPath(import.meta.url))
+  sharedWorkerDirectory = mkdtempSync(join(tmpdir(), 'visual-ledger-publication-worker-'))
+  const bundlePath = join(sharedWorkerDirectory, 'publication-worker.mjs')
   buildSync({
     stdin: {
       contents: `
@@ -421,9 +449,11 @@ function compileWorker(directoryPath: string): string {
     platform: 'node',
     format: 'esm',
     target: ESBUILD_NODE_TARGET,
-    outfile: workerPath,
+    outfile: bundlePath,
     logLevel: 'silent'
   })
+  sharedWorkerBundle = bundlePath
+  copyFileSync(bundlePath, workerPath)
   return workerPath
 }
 
@@ -470,7 +500,7 @@ function parsedWorkerResult(result: {
 describe('durable shared ledger publication authority', () => {
   it('poisons a rollback-error connection and confirms absence only through a fresh connection', () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const subject = authority(directory, 'before-commit')
@@ -504,13 +534,13 @@ describe('durable shared ledger publication authority', () => {
         restarted.close()
       }
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('does not recover an uncommitted finalization from a poisoned connection or restart', () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const seed = certifiedSeed()
@@ -548,13 +578,13 @@ describe('durable shared ledger publication authority', () => {
         restarted.close()
       }
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('poisons a connection when rollback returns without restoring autocommit', () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const subject = authority(directory, 'before-commit')
@@ -572,16 +602,16 @@ describe('durable shared ledger publication authority', () => {
         subject.close()
       }
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('recovers committed append and finalization responses only after replacing the connection', () => {
     const appendDirectory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     const finalizeDirectory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const appendSubject = authority(appendDirectory)
@@ -650,14 +680,14 @@ describe('durable shared ledger publication authority', () => {
         finalizeRestart.close()
       }
     } finally {
-      rmSync(appendDirectory, { recursive: true, force: true })
-      rmSync(finalizeDirectory, { recursive: true, force: true })
+      rmSync(appendDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      rmSync(finalizeDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('serializes append CAS across instances, rejects ABA, and recovers after restart', () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     const open: DurableLedgerFinalizationAuthority[] = []
     try {
@@ -698,16 +728,16 @@ describe('durable shared ledger publication authority', () => {
       )
     } finally {
       for (const item of open) item.close()
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('uses one transactional fence for competing append and finalization', () => {
     const finalizeDirectory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     const appendDirectory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     const open: DurableLedgerFinalizationAuthority[] = []
     try {
@@ -754,14 +784,14 @@ describe('durable shared ledger publication authority', () => {
       })
     } finally {
       for (const item of open) item.close()
-      rmSync(finalizeDirectory, { recursive: true, force: true })
-      rmSync(appendDirectory, { recursive: true, force: true })
+      rmSync(finalizeDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      rmSync(appendDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('allows exactly one cross-process append/finalization winner', async () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const seed = certifiedSeed()
@@ -799,16 +829,16 @@ describe('durable shared ledger publication authority', () => {
         restarted.close()
       }
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('fails closed before commit and recovers an after-commit power-loss boundary', async () => {
     const beforeDirectory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     const afterDirectory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const beforeWorker = compileWorker(beforeDirectory)
@@ -851,14 +881,14 @@ describe('durable shared ledger publication authority', () => {
         afterRestart.close()
       }
     } finally {
-      rmSync(beforeDirectory, { recursive: true, force: true })
-      rmSync(afterDirectory, { recursive: true, force: true })
+      rmSync(beforeDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      rmSync(afterDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('recovers a committed finalization after process loss and rejects restart competitors', async () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const seed = certifiedSeed()
@@ -889,13 +919,13 @@ describe('durable shared ledger publication authority', () => {
         restarted.close()
       }
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 
   it('fails closed on corrupted transactional records', () => {
     const directory = mkdtempSync(
-      join(process.cwd(), '.visual-ledger-publication-test-')
+      join(tmpdir(), 'visual-ledger-publication-test-')
     )
     try {
       const subject = authority(directory)
@@ -950,7 +980,7 @@ describe('durable shared ledger publication authority', () => {
         restarted.close()
       }
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 })

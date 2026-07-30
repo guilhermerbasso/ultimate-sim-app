@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from 'electron'
+import { devRendererUrl } from '../dev-renderer'
 import { join } from 'node:path'
 import type { ModuleContext } from '../module-context'
 
@@ -94,8 +95,9 @@ function openWindow(ctx: ModuleContext, options: PitPanelOpenOptions = {}): { id
     }
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    const url = new URL('pitpanel.html', process.env.ELECTRON_RENDERER_URL)
+  const devUrl = devRendererUrl()
+  if (devUrl) {
+    const url = new URL('pitpanel.html', devUrl)
     void win.loadURL(url.toString())
   } else {
     void win.loadFile(join(__dirname, '../renderer/pitpanel.html'))
@@ -111,8 +113,7 @@ function closeWindow(): void {
   panelWindow = null
 }
 
-export function register(ctx: ModuleContext): void {
-  ctx.ipcMain.handle('app:pitpanel:open', (_event, options?: PitPanelOpenOptions) => openWindow(ctx, options ?? {}))
+export function register(ctx: ModuleContext): void {  ctx.ipcMain.handle('app:pitpanel:open', (_event, options?: PitPanelOpenOptions) => openWindow(ctx, options ?? {}))
   ctx.ipcMain.handle('app:pitpanel:close', () => {
     closeWindow()
     broadcastOpenState(ctx)
@@ -124,4 +125,15 @@ export function register(ctx: ModuleContext): void {
   ctx.app.once('before-quit', () => {
     closeWindow()
   })
+}
+
+// Exported for the P0-11 remote-renderer regression test, which drives the real
+// window-open path to prove a packaged build loads the bundled document instead
+// of an injected ELECTRON_RENDERER_URL origin.
+export function openPitPanelWindowForTest(
+  ctx: ModuleContext,
+  options: PitPanelOpenOptions = {}
+): { id: number; displayId: number; fullscreen: boolean } {
+  panelWindow = null
+  return openWindow(ctx, options)
 }

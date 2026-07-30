@@ -4,6 +4,7 @@
 // first-class members of the merged catalog used by the Pinout Designer and the
 // firmware generator.
 
+import { useFocusTrap } from '../../lib/useFocusTrap'
 import { type CSSProperties, type ReactElement, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -304,6 +305,8 @@ export default function CustomCatalogModal({ defaultTab, editing, onClose, onSav
     }
   }
 
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onClose })
+
   return createPortal(
     <div
       style={overlayStyle}
@@ -311,7 +314,7 @@ export default function CustomCatalogModal({ defaultTab, editing, onClose, onSav
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div style={modalStyle} role="dialog" aria-modal="true" aria-label={title}>
+      <div style={modalStyle} ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-label={title}>
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div>
             <span style={labelStyle}>Pinout · Custom catalog</span>

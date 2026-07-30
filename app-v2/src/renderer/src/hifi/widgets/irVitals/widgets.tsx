@@ -4,6 +4,7 @@
 // self-explanatory value + unit over a hairline min→max micro-scale with a
 // health-coloured value tick (conditional colour: red = below safe, amber = high).
 // Built to match concepts/refs/ref-ir-*.png (Bosch DDU / MoTeC style).
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, FONT_LABEL, Hairline, LEGIBLE, fixed, num } from '../kit'
@@ -46,7 +47,7 @@ function DigitalReadout({ width, height, value, unit, kind, min, max, digits, ok
   const maxDisplay = kind ? formatMeasurement(max, kind, unitSystem, { decimals: digits }).display : fixed(max, digits)
   const ticks = 5
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <BigNum x={W / 2} y={130} value={reading.display} unit={reading.unit} color={color} size={104} />
       <Hairline x={sx} y={sy} len={ex - sx} opacity={0.28} />
       {Array.from({ length: ticks + 1 }, (_, i) => {

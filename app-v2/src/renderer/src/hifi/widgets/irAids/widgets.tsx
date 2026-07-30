@@ -1,6 +1,7 @@
 // ── irAids — iRacing driver aids and warning tell-tales (v6) ──────────────────
 // Clean, transparent, title-less aid badges and lamp clusters. Active lamps glow;
 // null/off states remain dim and readable over cockpit video.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, FONT_LABEL, LEGIBLE, VBar, legibleStroke, num } from '../kit'
@@ -14,7 +15,7 @@ const WARN_H = 240
 
 function Root({ width, height, w, h, children }: { width: number | undefined; height: number | undefined; w: number; h: number; children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={width ?? w} height={height ?? h} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${w} ${h}`} width={width ?? w} height={height ?? h} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

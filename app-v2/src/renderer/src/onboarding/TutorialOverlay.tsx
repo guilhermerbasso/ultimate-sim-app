@@ -1,3 +1,4 @@
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 import { tt, type ResolvedLanguage } from '../i18n'
 import type { TutorialDefinition } from './tutorialRegistry'
@@ -28,8 +29,10 @@ export function TutorialOverlay({ tutorial, viewLabel, language, onClose }: Tuto
     return () => window.removeEventListener('keydown', onKey)
   }, [close])
 
+  const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: close })
+
   return (
-    <div className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+    <div className="onboarding-backdrop" ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
       <div className="onboarding-panel tutorial-panel">
         <header className="onboarding-header">
           <div>

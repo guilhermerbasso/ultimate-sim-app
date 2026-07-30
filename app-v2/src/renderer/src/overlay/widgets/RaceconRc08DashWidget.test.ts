@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { act, cleanup, render } from '@testing-library/react'

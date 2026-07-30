@@ -512,6 +512,62 @@ export function assertHueFamilyScoped(audit, family, label) {
   if (stray > 0) fail(`${label}: ${stray} ${family} pixels fall outside the elements that own that alert`)
 }
 
+/**
+ * Some RaceCon palettes put the alert colour and the resting chrome in the SAME hue family, so
+ * neither absence nor scope can prove the alert fired. RC-09's whole grammar is warm — labels,
+ * units, dividers and the shift arc all paint amber — while its SPLIT LOSS surface is amber
+ * too; RC-10's Okabe-Ito set collapses caution #E69F00, danger #D55E00 and signature #F0E442
+ * into one amber family; RC-13 keeps a standing amber signature lit at rest and raises an amber
+ * chip; RC-14 tints a zone with a family its silhouette already carries.
+ *
+ * What still separates them is DENSITY. An alert paints a SURFACE inside the element that owns
+ * it, so the family covers a large fraction of that rectangle; resting chrome only ever paints
+ * a label, a rule or an outline there, so it covers a tiny one. Measuring the fraction turns
+ * "amber exists somewhere" into a real before/after test that fails closed in both directions:
+ * an alert that never painted, and an alert surface bleeding into the silent frame.
+ */
+export function hueFamilyDensityInRects(image, family, rects) {
+  const boxes = (rects ?? []).filter((rect) => rect && rect.width > 0 && rect.height > 0)
+  if (boxes.length === 0) fail(`no rectangles were measured for the ${family} density audit`)
+  let area = 0
+  for (const rect of boxes) area += rect.width * rect.height
+  let inside = 0
+  let outside = 0
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const [r, g, b] = rgbaAt(image, x, y)
+      if (hueFamily(r, g, b) !== family) continue
+      const hit = boxes.some(
+        (rect) =>
+          x >= rect.left - 1 && x <= rect.left + rect.width + 1 && y >= rect.top - 1 && y <= rect.top + rect.height + 1
+      )
+      if (hit) inside += 1
+      else outside += 1
+    }
+  }
+  return { family, inside, outside, area, density: area > 0 ? inside / area : 0 }
+}
+
+export function assertHueFamilyDensityBelow(measurement, ceiling, label) {
+  if (measurement.density > ceiling) {
+    fail(
+      `${label}: the ${measurement.family} family covers ${(measurement.density * 100).toFixed(3)}% of the ` +
+        `${Math.round(measurement.area)}px surface that owns the alert, above the ${(ceiling * 100).toFixed(3)}% ` +
+        "resting ceiling — an alert surface is painted on a frame that must be silent"
+    )
+  }
+}
+
+export function assertHueFamilyDensityAtLeast(measurement, floor, label) {
+  if (measurement.density < floor) {
+    fail(
+      `${label}: the ${measurement.family} family covers only ${(measurement.density * 100).toFixed(3)}% of the ` +
+        `${Math.round(measurement.area)}px surface that owns the alert, below the ${(floor * 100).toFixed(3)}% ` +
+        "engaged floor — the alert did not paint its surface"
+    )
+  }
+}
+
 /* ── Capture driver ───────────────────────────────────────────────────────────────────── */
 
 export const STOP_MOTION_CSS =
@@ -521,6 +577,14 @@ export const STOP_MOTION_CSS =
  * Installed before any application script runs, so every artifact collector measures geometry
  * the same way. `__rcMeasure` binds the helpers to the capture root; `__rcCommon` returns the
  * metric contract every RaceCon capture shares.
+ *
+ * `spec.readoutSelector` exists because the "every readout must carry text" rule was written
+ * against `<output>`, and RC-12 and RC-14 publish no `<output>` element anywhere: RC-12's
+ * leaderboard cells are `<span>`s inside a row grid and RC-14's vitals, corner table and
+ * decision word are `<span>`/`<td>`. Hard-coding `output` would have scored both artifacts as
+ * having zero readouts, which fails the check for the wrong reason and, worse, would have
+ * passed if every readout they DO publish went blank. Artifacts that publish `<output>`
+ * (RC-01 … RC-11, RC-13) pass no selector and keep the original behaviour exactly.
  */
 export const MEASURE_SCRIPT = `
 window.__rcMeasure = (root) => {
@@ -636,7 +700,7 @@ window.__rcCommon = (root, spec, helpers) => {
       selector,
       count: root.querySelectorAll(selector).length
     })),
-    textOutputs: Array.from(root.querySelectorAll('output')).map((output) => output.textContent?.trim() ?? ''),
+    textOutputs: Array.from(root.querySelectorAll(spec.readoutSelector ?? 'output')).map((output) => output.textContent?.trim() ?? ''),
     leafTexts: Array.from(root.querySelectorAll('*'))
       .filter((node) => node.childElementCount === 0)
       .map((node) => node.textContent?.trim() ?? '')
@@ -765,7 +829,7 @@ export function validateCommonMetrics(metrics, entry, spec) {
     metrics.textOutputs.length === 0 ||
     metrics.textOutputs.some((text) => typeof text !== "string" || text.length === 0)
   ) {
-    fail("capture rendered an empty telemetry output")
+    fail(`capture rendered an empty telemetry readout (${spec.readoutSelector ?? "output"})`)
   }
   if (/\b(?:NaN|undefined|Infinity)\b/u.test(String(metrics.rootText))) {
     fail("capture text contains an invalid numeric token")
@@ -1003,7 +1067,10 @@ export async function runRaceconCapture(config) {
     const defects = report.captures.flatMap((capture) => [
       ...(capture.audit?.knownDefects ?? []).map((defect) => `${defect.state} ${defect.size} ${defect.key} "${defect.text}" +${defect.overflowX}px — ${defect.note}`),
       ...(capture.audit?.zoneDefects ?? []).map((defect) => `${defect.state} ${defect.size} zone ${defect.zone} +${defect.overflowPx}px — ${defect.note}`),
-      ...(capture.audit?.containmentDefects ?? []).map((defect) => `${defect.state} ${defect.size} ${defect.label} escapes ${defect.escapePx}px — ${defect.note}`)
+      ...(capture.audit?.containmentDefects ?? []).map((defect) => `${defect.state} ${defect.size} ${defect.label} escapes ${defect.escapePx}px — ${defect.note}`),
+      // A collapsed type rank is a render defect too: two readouts at the same size carry no
+      // hierarchy, so an artifact that records one must still report it on every run.
+      ...(capture.audit?.typeRankDefects ?? []).map((defect) => `${defect.state} ${defect.size} ${defect.label} tied — ${defect.note}`)
     ])
     if (defects.length > 0) {
       console.log(`  ${defects.length} recorded render defect(s) observed:`)

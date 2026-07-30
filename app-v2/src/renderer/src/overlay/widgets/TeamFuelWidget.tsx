@@ -38,8 +38,12 @@ export function TeamFuelWidget({ config }: WidgetProps): ReactElement {
 
   const [peers, setPeers] = useState<TeamFuelPeer[]>([])
   useEffect(() => {
-    const unsubscribe = window.ipc.subscribe<TeamFuelPeer[]>(TEAM_FUEL_CHANNELS.updated, setPeers)
-    void window.ipc.invoke<TeamFuelPeer[]>(TEAM_FUEL_CHANNELS.state).then(setPeers).catch(() => undefined)
+    // The team fuel room is an Electron IPC room. In a browser source (streaming / OBS)
+    // there is no `window.ipc`, so render the empty room instead of throwing.
+    const ipc = typeof window !== 'undefined' ? window.ipc : undefined
+    if (!ipc) return
+    const unsubscribe = ipc.subscribe<TeamFuelPeer[]>(TEAM_FUEL_CHANNELS.updated, setPeers)
+    void ipc.invoke<TeamFuelPeer[]>(TEAM_FUEL_CHANNELS.state).then(setPeers).catch(() => undefined)
     return unsubscribe
   }, [])
 
@@ -70,7 +74,7 @@ export function TeamFuelWidget({ config }: WidgetProps): ReactElement {
       width="100%"
       height="100%"
       data-widget="teamFuel"
-      role="img"
+      role="img" aria-label="Team fuel status"
       style={{ display: 'block' }}
     >
       <rect

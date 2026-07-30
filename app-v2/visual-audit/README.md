@@ -114,12 +114,61 @@ Measured render defects in the shipped widgets are **recorded, not suppressed**:
 a note, the capture prints every one it observes, and a defect that grows, spreads to another
 breakpoint or appears on another element still fails closed.
 
+## RaceCon RC-09 … RC-14 dev capture
+
+RC-09 … RC-20 were implemented and merged without ever being measured against their approved
+reference images. RC-09 … RC-14 now have the same four files as RC-03 … RC-08, driven through the
+same shared harness:
+
+```bash
+npm run racecon:capture:rc12 -- --mode validate --out C:/Temp/racecon-rc12-capture
+npm run racecon:capture:test
+npm run racecon:responsive
+```
+
+Everything above about geometry, the strict type ladder, hue families and packet omissions applies
+unchanged. Three things these six artifacts made explicit that the earlier six did not:
+
+- **A hue family alone cannot always prove an alert.** RC-08 already recorded that its cold-tyre
+  info blue shares a family with the WET resting palette. Four of these six are the same shape of
+  problem, and worse: RC-09's grammar is warm end to end, so amber is resting chrome; RC-10 uses the
+  Okabe-Ito colour-vision-safe set, which collapses caution `#E69F00`, danger `#D55E00` and signature
+  `#F0E442` into ONE amber family; RC-13 keeps a standing amber signature lit at rest. For those
+  artifacts the alert is proved by the **density of the family inside the element that owns it** —
+  an alert paints a surface, resting chrome only paints a rule or a label — with both bounds
+  calibrated from the measured silent and engaged frames so the check fails closed in both
+  directions. `hueFamilyDensityInRects`, `assertHueFamilyDensityBelow` and
+  `assertHueFamilyDensityAtLeast` in the shared module exist for exactly this, and every threshold is
+  documented with the measurements it came from. RC-12 and RC-14 keep the plain absent/present/scoped
+  form, because their alert hue genuinely measures zero on a silent frame.
+- **`<output>` is not the readout contract everywhere.** RC-12's leaderboard cells and RC-14's
+  vitals, corner table and decision word are `<span>`/`<td>`; both artifacts publish no `<output>`
+  element at all. `spec.readoutSelector` lets each artifact name its own readouts, so the
+  "no readout may be blank" rule keeps meaning instead of trivially passing on an empty set.
+  Artifacts that do publish `<output>` pass no selector and behave exactly as before.
+- **Some equal ranks are governed and some are defects.** RC-09's packet declares note and support
+  as one rank, and RC-14's declares the vitals numerals equal to the decision word — asserting an
+  inequality there would invent a hierarchy the packet never claimed. Where the shipped CSS instead
+  collapses two ranks the packet DOES separate, that is recorded in a type-rank ledger which still
+  fails if the tie spreads to another breakpoint or if the rank inverts.
+
+Artifact-specific promises that are proved rather than assumed:
+
+| artifact | promise | how it is proved |
+| --- | --- | --- |
+| RC-09 Stage Time | no stage-distance channel exists | `TO FIN --.- KM` and `NO STAGE DISTANCE SOURCE` carry no digit, and the travelled fill and stage marker are asserted **absent** rather than drawn at a guessed fraction |
+| RC-10 Clear Sight | colour-vision-safe redundancy | the alert is asserted through its non-colour encoding — three neutral circles and no triangle at rest, one triangle engaged — and no Okabe-Ito token is in the red family, so a red pixel anywhere is a palette violation |
+| RC-11 Trace Room | a shared plot axis across four panels | all four plot regions are measured with `getBoundingClientRect` and asserted equal in `left` and `width`, their declared `data-rc11-plot-x0/x1` pairs are asserted identical and equal to the packet's `70/520` (native) and `88/718` (app), and the four scrub cursors are asserted to share an ordinate |
+| RC-12 On Air | driven entirely by the standings feed | the fixture supplies an eight-car field plus `relatives`; with no `drivers` the widget sits honestly on `NO TIMING SOURCE`. Every badge must read `CAR --` and the fixture's entrant names must NOT appear — the refusal is the assertion |
+| RC-13 Hold Order | a three-zone delta-window bar | the zone fractions are measured from the bar rect and checked arithmetically against the declared `0/34`, `34/66`, `66/100` within a tolerance derived from the measured 1 px border, not a magic number |
+| RC-14 Triage | six of eight zones are unmonitored | every unmonitored zone is asserted to publish `secondary`/`unmonitored`/`outline` and **never** `normal`/`ok`/`solid`, no unmonitored zone may produce a fault row, and the green density inside the union of the six zone rects is asserted at the noise floor. Unmonitored is never OK-green |
+
 ## RaceCon RC-15 … RC-20 dev capture
 
-RC-15 … RC-20 were implemented and merged without ever being measured against their approved
-reference images. Each now has the same five files plus a Playwright responsive spec, driven through
-the same `racecon-capture-shared.mjs` as RC-03 … RC-08 — the shared module was reused unchanged, so
-nothing in it was extended for these six.
+RC-15 … RC-20 close the rest of that gap. Each has the same five files plus a Playwright
+responsive spec, driven through the same `racecon-capture-shared.mjs`. RC-09 … RC-14 extended the
+shared module with `spec.readoutSelector` and the hue-density helpers above; these six needed
+neither and reuse it unchanged.
 
 ```bash
 npm run racecon:capture:rc17 -- --mode validate --out C:/Temp/racecon-rc17-capture
@@ -162,6 +211,7 @@ unmonitored may render as healthy"); RC-20's ladder can only ever light 0 or 5 b
 real start feed resolves four states and S1–S4 are never decoded
 (`startLightLadderStages`) — the approved reference image's `STAGE 3 OF 5` is not reproducible by the
 shipped decoder and is not a render-QA defect.
+
 
 ## What gets rendered
 

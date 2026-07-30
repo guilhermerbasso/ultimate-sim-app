@@ -113,7 +113,7 @@ export function StandingsWidget({ snapshot, config }: WidgetProps): ReactElement
     width: '100%',
     height: '100%',
     'data-widget': 'standings',
-    role: 'img',
+    role: 'img', 'aria-label': 'Race standings',
     style: { display: 'block' as const }
   }
 
