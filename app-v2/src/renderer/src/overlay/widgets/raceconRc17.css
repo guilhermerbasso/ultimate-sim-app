@@ -384,6 +384,20 @@
   font-size: clamp(9px, var(--rc17-type-tertiary, 1.875cqw), 15px);
 }
 
+/*
+ * A unit annotation must not make the row it annotates taller than the rows that carry none.
+ * `.rc17-unit` inherits `display: inline-block` and `overflow: hidden` from the shared type rule,
+ * and CSS gives an inline-block with a non-visible overflow the BOTTOM MARGIN EDGE as its
+ * baseline: the whole 14.30px unit box therefore sat above the strip's baseline and pushed the
+ * WATER label's line box to 16.59px against 14.30px for GEAR and RPM. That 2.29px made the WATER
+ * cell 33.98px tall in a 33px content box, which is the strip's measured 1px overrun at 759x393 in
+ * both states. As a plain inline box the unit shares the label's baseline and every cell is the
+ * same height at every canvas.
+ */
+.rc17-tertiary .rc17-unit {
+  display: inline;
+}
+
 .rc17-rev {
   display: flex;
   flex: 2 1 0;

@@ -100,9 +100,9 @@ export const RC15_PACKET_OMISSIONS = Object.freeze({
   panBeamOverlap:
     'normative override 1 — packet 11.1 puts each pan 10 x 120 px inside the beam zone: the pans move outward to x=60 and x=620, zero overlap, symmetric 60 px outer margins, every declared width preserved',
   biasZoneUndersized:
-    'normative override 2 — the 11.1 bias zone is 200 x 90 px but 11.2 asks for a 72 px numeral plus a label and an adjust hint: the 800x480 bias zone grows to 220, 212, 360, 104, mirroring the 12.1 proportion',
+    'normative override 2 — the 11.1 bias zone is 200 x 90 px but 11.2 asks for a 72 px numeral plus a label and an adjust hint: the 800x480 bias zone grows to 220, 212, 360, 104, mirroring the 12.1 proportion, and the same correction is applied to the 1024x600 zone, which 12.1 declares at 280, 252, 464, 110 and which grows to 280, 242, 464, 130 into the bare canvas the packet leaves between the beam floor and the corner map',
   biasBlockAppReflow:
-    'packet 12.1 grows the bias zone 1.058x while 11.2 grows the type ladder 1.28x, so a three-row bias stack measurably overflows 110 px at 1024x600: the block reflows to put the LAST ADJ hint beside the numeral instead of beneath it',
+    'packet 12.1 grows the bias zone 1.058x while 11.2 grows the type ladder 1.28x, so a three-row bias stack measurably overflows 110 px at 1024x600: the block reflows to put the LAST ADJ hint beside the numeral instead of beneath it, and because a centred two-row block still needed 121.98 px of the 108 px content box the app zone is grown under override 2 rather than the numeral being cut below its 11.2 step',
   typeScaleAsCapHeights:
     'normative override 3 — the 11.2 sizes are implemented as cap heights at 0.75 of the stated em, because as line boxes the beam zone would need 154.6 px inside 150 px',
   dangerSignatureSeparability:
@@ -315,11 +315,28 @@ export const RC15_PACKET_NATIVE_ZONES_PX: Rc15ZoneMapPx = Object.freeze({
 export const RC15_APP_PAN_STACK_PX: Rc15RectPx = Object.freeze({ x: 40, y: 70, width: 240, height: 180 })
 export const RC15_APP_PAN_STACK_GUTTER_PX = 4
 
+/**
+ * Packet 12.1's app rectangles, with normative override 2 extended to the app canvas.
+ *
+ * 12.1 declares the bias zone at (280, 252, 464, 110). Override 2 already grew the NATIVE bias
+ * zone because 11.1's 200x90 box cannot hold a 72px numeral plus a label and an adjust hint; the
+ * app zone was left at the packet value and hit the same wall one canvas later. Measured at
+ * 1024x600: the reflowed block's own content stands 107px tall inside a 108px content box that
+ * `align-items: center` splits, so the zone reported `scrollHeight` 115 against `clientHeight` 108
+ * — a 7px overrun in both governed states. The block is centred, so the governing inequality is
+ * `clientHeight >= 2 * content.scrollHeight - content.height` = 2 * 107 - 92.02 = 121.98px.
+ *
+ * The packet leaves 132px of bare canvas between the beam floor (y=240) and the corner-map ceiling
+ * (y=372), so the zone takes it: y=242, height=130 gives a 128px content box, 6px clear of the
+ * measured requirement, with a 2px gutter under the beam. No other zone moves and no type step
+ * changes: the type ladder still reads bias 92.16 > balanceIndex 61.44 > brakeTemp 56.32 >
+ * cornerIndex 38.4 at this canvas.
+ */
 export const RC15_APP_ZONES_PX: Rc15ZoneMapPx = Object.freeze({
   frontPan: Object.freeze({ x: 40, y: 70, width: 240, height: 88 }),
   rearPan: Object.freeze({ x: 40, y: 162, width: 240, height: 88 }),
   beam: Object.freeze({ x: 280, y: 60, width: 464, height: 180 }),
-  bias: Object.freeze({ x: 280, y: 252, width: 464, height: 110 }),
+  bias: Object.freeze({ x: 280, y: 242, width: 464, height: 130 }),
   cornerMap: Object.freeze({ x: 24, y: 372, width: 600, height: 200 }),
   brakeTrend: Object.freeze({ x: 648, y: 372, width: 352, height: 200 })
 })

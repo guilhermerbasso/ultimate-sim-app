@@ -236,38 +236,32 @@ export const RC15_SPEC = Object.freeze({
     ])
   ]),
   /**
-   * Measured render defects in the shipped RC-15 build, recorded rather than suppressed and never
-   * fixed from inside a harness PR. Each budget is the MEASURED maximum plus a small font-metric
-   * allowance — never a cap chosen to make the check pass. A defect that grows past its budget,
-   * spreads to another viewport, moves to another state or appears on another element still fails
-   * closed, which is the whole point of recording a measurement instead of a waiver.
+   * The defect ledgers are EMPTY, so every measured overflow now fails closed.
    *
-   * DEFECT 1 — the strip column header "BRAKE F / R" overflows its 70 px label column by 28 px at
-   * the 1024x600 app canvas, in both governed states. `.rc15-strip-label` sits in
-   * `.rc15-strip-labels` at `flex: 0 0 12%`, and at the app canvas the 12 % column is narrower
-   * than the longest header token, so the glyphs paint into the neighbouring corner column.
-   * "BALANCE" in the same stack overflows by 2 px. Native and both compact families are clear, so
-   * this is specific to the app reflow.
+   * `knownDefects` used to record the strip column headers overflowing their 70 px label column at
+   * the 1024x600 app canvas in both governed states — `BRAKE F / R` by 28 px and `BALANCE` by 2 px.
+   * `.rc15-strip-labels` sat at `flex: 0 0 12%` of `.rc15-strip-rows`, and the app reflow makes
+   * that row NARROWER (581.63 px against the native 753.22 px) while growing the shared 1.6cqw
+   * label step from 12.8 px to 16.38 px, so a header needing 98.27 px was given 69.78 px. The
+   * column is now sized from its own max-content (`flex: 0 0 auto`), which fits every header at
+   * every canvas by construction. Deleting the ledger is the regression guard: any recurrence, at
+   * any viewport, in any state, on any leaf, is unrecorded and fails.
    */
-  knownDefects: Object.freeze([
-    Object.freeze({
-      key: "rc15-strip-label",
-      states: Object.freeze(["silent", "brake-hot"]),
-      sizes: Object.freeze(["1024x600"]),
-      budgetPx: 30,
-      note: "strip column headers overflow their 70px label column at the app canvas: 'BRAKE F / R' by 28px and 'BALANCE' by 2px, painting into the neighbouring corner column"
-    })
-  ]),
+  knownDefects: Object.freeze([]),
   /**
-   * DEFECT 2 — the bias block's content stands 7 px taller than its 108 px app zone at 1024x600,
-   * in both governed states.
+   * `zoneOverflowDefects` used to record the bias block standing 7 px taller than its 108 px app
+   * zone at 1024x600 in both governed states.
    *
-   * `RC15_PACKET_OMISSIONS.biasBlockAppReflow` records the original of this defect — "packet 12.1
-   * grows the bias zone 1.058x while 11.2 grows the type ladder 1.28x, so a three-row bias stack
-   * measurably overflows 110 px at 1024x600" — and the fix was to reflow the LAST ADJ hint beside
-   * the numeral instead of beneath it. The reflow reduced the overrun but did not clear it: the
-   * two-row block still measures 115 px in a 108 px box. Recorded at its measured 7 px so any
-   * regression toward the original three-row overflow fails closed.
+   * `RC15_PACKET_OMISSIONS.biasBlockAppReflow` records the original — "packet 12.1 grows the bias
+   * zone 1.058x while 11.2 grows the type ladder 1.28x, so a three-row bias stack measurably
+   * overflows 110 px at 1024x600" — and the first mitigation reflowed the LAST ADJ hint beside the
+   * numeral instead of beneath it. That reduced the overrun without clearing it, because the block
+   * is CENTRED in its zone: the governing inequality is
+   * `clientHeight >= 2 * content.scrollHeight - content.height`, which measured 2 * 107 - 92.02 =
+   * 121.98 px against a 108 px content box. Override 2, which already grew the undersized NATIVE
+   * bias zone, is now extended to the app canvas as well: 12.1's (280, 252, 464, 110) becomes
+   * (280, 242, 464, 130) using the bare canvas the packet leaves between the beam floor and the
+   * corner map, giving a 128 px content box and 6.02 px of measured headroom.
    *
    * NOT recorded here, because they are the design rather than a defect: every RC-15 hero numeral
    * carries `line-height: 0.75` under normative override 3
@@ -278,15 +272,7 @@ export const RC15_SPEC = Object.freeze({
    * painted glyphs. The shared leaf sweep is HORIZONTAL only for exactly this reason, and the
    * numerals are therefore not reported: their ink fits, only their line box does not.
    */
-  zoneOverflowDefects: Object.freeze([
-    Object.freeze({
-      zone: "bias",
-      states: Object.freeze(["silent", "brake-hot"]),
-      sizes: Object.freeze(["1024x600"]),
-      budgetPx: 8,
-      note: "the reflowed two-row bias block still stands 7px taller than its 108px app zone; the biasBlockAppReflow override reduced the original three-row overflow without clearing it"
-    })
-  ]),
+  zoneOverflowDefects: Object.freeze([]),
   containmentDefects: Object.freeze([])
 })
 

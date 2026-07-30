@@ -230,12 +230,38 @@ async function readGeometry(page: Page) {
       biasOverflow: (() => {
         const element = root.querySelector<HTMLElement>('[data-testid="rc15-panel-bias"]')
         if (!element) return null
+        const main = element.querySelector<HTMLElement>('.rc15-bias-main')
         return {
           clientWidth: element.clientWidth,
           scrollWidth: element.scrollWidth,
           clientHeight: element.clientHeight,
-          scrollHeight: element.scrollHeight
+          scrollHeight: element.scrollHeight,
+          // The block is CENTRED in its zone, so the zone must satisfy
+          // `clientHeight >= 2 * content.scrollHeight - content.height` — halving the content's
+          // own overrun is what made the first mitigation look nearly sufficient.
+          contentHeight: main ? main.getBoundingClientRect().height : null,
+          contentScrollHeight: main ? main.scrollHeight : null
         }
+      })(),
+      // Every strip column header with the corner column it must not reach. The header column was
+      // a flat 12 % of a row the app reflow makes narrower, so `BRAKE F / R` painted 28 px past a
+      // 70 px box at 1024x600 in both states; it is now sized from its own max-content.
+      stripHeaders: Array.from(root.querySelectorAll<HTMLElement>('.rc15-strip-label')).map((node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        const ink = range.getBoundingClientRect()
+        const box = node.getBoundingClientRect()
+        return {
+          text: (node.textContent ?? '').trim(),
+          boxRight: box.right - rootRect.left,
+          inkRight: ink.right - rootRect.left,
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth
+        }
+      }),
+      stripColumnsLeft: (() => {
+        const columns = root.querySelector<HTMLElement>('.rc15-strip-columns')
+        return columns ? columns.getBoundingClientRect().left - rootRect.left : null
       })(),
       // Every leaf whose painted text is wider than its own box. `white-space: nowrap` defeats
       // `overflow: hidden`, so scrollWidth alone cannot see this; the range rect can.
@@ -416,35 +442,58 @@ for (const size of viewports) {
         expectContained(geometry.rearPanRect!, geometry.rearValueRect!)
         expectContained(geometry.rearPanRect!, geometry.rearBarRect!)
 
-        // The bias block's own content must fit its box. The measured overrun is compared against
-        // a RECORDED budget rather than capped: an earlier RaceCon iteration capped scrollHeight
-        // unconditionally and saw a 4 px overrun where the truth was 42 px.
+        // GUARD (defect 2) — the bias block's own content must fit its box at EVERY viewport.
         //
         // Two things are deliberately separated here. Every RC-15 hero numeral carries
         // `line-height: 0.75` under normative override 3 (`typeScaleAsCapHeights`: "the 11.2 sizes
         // are implemented as cap heights at 0.75 of the stated em"), so a sub-1 line box makes
         // `scrollHeight` structurally exceed `clientHeight` on the numerals themselves at every
         // viewport — that is the design. What is NOT the design is the bias PANEL standing taller
-        // than its own zone: `biasBlockAppReflow` records that the packet's three-row stack
-        // overflowed the 110 px app zone and was reflowed to two rows, and the reflow reduced the
-        // overrun to 7 px without clearing it. That 7 px is recorded, and anything larger, or the
-        // same overrun at any other viewport, fails.
+        // than its own zone. `biasBlockAppReflow` recorded the packet's three-row stack overflowing
+        // the 110 px app zone; the reflow to two rows left a measured 7 px overrun at 1024x600 in
+        // both states, because the block is centred and a centred block only ever halves its own
+        // overrun. Override 2 is now extended to the app canvas — 12.1's (280, 252, 464, 110)
+        // becomes (280, 242, 464, 130) — so there is no budget here any more, at any viewport.
         const bias = geometry.biasOverflow!
-        const biasBudget = isApp ? 8 : 0.5
         expect(
           bias.scrollHeight - bias.clientHeight,
           `bias block overruns its ${bias.clientHeight}px box by ${bias.scrollHeight - bias.clientHeight}px`
-        ).toBeLessThanOrEqual(biasBudget)
+        ).toBeLessThanOrEqual(0.5)
         expect(bias.scrollWidth - bias.clientWidth).toBeLessThanOrEqual(0.5)
+        // The arithmetic the zone must satisfy, asserted directly so a zone that merely happens to
+        // clear the sweep on one font stack still fails when the margin is gone.
+        expect(
+          2 * bias.contentScrollHeight! - bias.contentHeight!,
+          `the centred bias block needs ${(2 * bias.contentScrollHeight! - bias.contentHeight!).toFixed(2)}px ` +
+            `of zone against ${bias.clientHeight}px available`
+        ).toBeLessThanOrEqual(bias.clientHeight)
 
-        // No leaf may paint wider than its own box anywhere in the frame, except the ONE recorded
-        // defect: the strip column headers overflow their 70 px label column at the app canvas
-        // ("BRAKE F / R" by 28 px, "BALANCE" by 2 px), painting into the neighbouring corner
-        // column. Recorded with its measurement so a new element, a new viewport or a larger
-        // overflow still fails.
-        const unrecordedEscapes = geometry.escapingLeaves.filter(
-          (leaf) => !(isApp && leaf.key === 'rc15-strip-label' && leaf.overflowX <= 30)
-        )
+        // GUARD (defect 1) — no strip column header may paint past its own column, and none may
+        // reach the corner columns beside it. Measured with the range rect, because
+        // `white-space: nowrap` sizes the header box to its own text and `scrollWidth` then
+        // reports that a 98.27px header "fits" the 69.78px column it was clipped into.
+        expect(geometry.stripHeaders.length).toBeGreaterThan(0)
+        for (const header of geometry.stripHeaders) {
+          expect(
+            header.scrollWidth - header.clientWidth,
+            `strip header "${header.text}" overflows its ${header.clientWidth}px column`
+          ).toBeLessThanOrEqual(0)
+          expect(
+            header.inkRight - header.boxRight,
+            `strip header "${header.text}" paints past its own column`
+          ).toBeLessThanOrEqual(1)
+          if (geometry.stripColumnsLeft !== null) {
+            expect(
+              header.inkRight,
+              `strip header "${header.text}" reaches x=${header.inkRight.toFixed(2)} while the corner ` +
+                `columns begin at x=${geometry.stripColumnsLeft.toFixed(2)}`
+            ).toBeLessThanOrEqual(geometry.stripColumnsLeft + 0.5)
+          }
+        }
+
+        // No leaf may paint wider than its own box anywhere in the frame. The strip column headers
+        // used to be the one recorded exception at the app canvas; the ledger is empty now.
+        const unrecordedEscapes = geometry.escapingLeaves
         expect(
           unrecordedEscapes,
           `leaves painting past their box: ${JSON.stringify(unrecordedEscapes)}`

@@ -298,6 +298,30 @@ function nativeMetrics(state = "ready", overrides = {}) {
     },
     alertScope,
     timelineSegments: null,
+    // Five next-stint rows, each cell's painted range rect inside its own layout box. This is the
+    // guard's healthy baseline; the overrun tests replace it with the measured defect geometry.
+    nextStintRows: [
+      ["target-laps", "TARGET LAPS", "--"],
+      ["fuel-per-lap", "FUEL PER LAPL", "2.94"],
+      ["fuel-plan", "FUEL PLAN", "--"],
+      ["tire-plan", "TIRE PLAN", "--"],
+      ["weather", "WEATHER", "--"]
+    ].flatMap(([row, label, value], index) => [
+      {
+        row,
+        kind: "label",
+        text: label,
+        rect: { left: 560, top: 100 + index * 40, width: 100, height: 18 },
+        textRect: { left: 560, top: 100 + index * 40, width: 94, height: 18 }
+      },
+      {
+        row,
+        kind: "value",
+        text: value,
+        rect: { left: 668, top: 100 + index * 40, width: 60, height: 30 },
+        textRect: { left: 668, top: 100 + index * 40, width: 57, height: 30 }
+      }
+    ]),
     // nativeSize is the data-rc19-native-size attr (top-level, not in stateAttributes)
     // already set above
   }
@@ -907,8 +931,8 @@ test("readiness line-box overhang past 2 px fails closed (budget is 2 px)", () =
 })
 
 test("FAULTS occlusion at 800x480 handover has no defect waiver — fails closed immediately", () => {
-  // RC19_ALERT_FLOOR_DEFECTS records a waiver for 'confirm' only. Any FAULTS occlusion past
-  // CLEARANCE_TOLERANCE_PX (2 px) must still fail with no budget allowance.
+  // No alert-floor waiver exists at all any more. Any occlusion past CLEARANCE_TOLERANCE_PX
+  // (2 px) must fail with no budget allowance.
   assert.throws(
     () =>
       validateCaptureMetrics(
@@ -928,8 +952,30 @@ test("FAULTS occlusion at 800x480 handover has no defect waiver — fails closed
   )
 })
 
-test("confirm occlusion past the 5 px budget at 800x480 handover fails closed", () => {
-  // The waiver grants a 5 px budget; a 6 px overlap must still fail.
+test("the measured 3.47 px CONFIRM READY occlusion now fails closed at 800x480 handover", () => {
+  // The exact geometry the shipped build produced: the confirm zone ran to 460 px of a 480 px
+  // frame while the 24.50 px strip was anchored to bottom:0 and started at 455.50 px, so the
+  // strip overlapped the CONFIRM READY control by 3.47 px. The native canvas now reserves
+  // RC19_NATIVE_ALERT_FLOOR_PX for the strip, so there is no waiver left to consult and the
+  // reported failure names the reservation rather than a budget.
+  assert.throws(
+    () =>
+      validateCaptureMetrics(
+        nativeMetrics("handover", {
+          alertsClearance: {
+            alertsRect:       rect(8, 455.5, 784, 24.5),
+            faultsRect:       rect(30, 428.8, 180, 24),   // bottom = 452.8 → clear by 2.70 px
+            confirmRect:      rect(282, 410, 236, 49),    // bottom = 459 → occluded by 3.47 px
+            confirmLabelRect: rect(300, 422, 180, 24.09)  // bottom = 446.09 → clear by 9.41 px
+          }
+        }),
+        entryFor("handover")
+      ),
+    (error) =>
+      error instanceof CaptureSafetyError &&
+      /alert-floor band broken.*confirm by 3\.50px.*reservation did not prevent occlusion/su.test(error.message)
+  )
+  // And a 6 px overlap, which the old 5 px budget also rejected, still fails.
   assert.throws(
     () =>
       validateCaptureMetrics(
@@ -937,7 +983,7 @@ test("confirm occlusion past the 5 px budget at 800x480 handover fails closed", 
           alertsClearance: {
             alertsRect:       rect(8, 440, 784, 30),   // strip top = 440
             faultsRect:       NATIVE_FAULTS_RECT,       // bottom = 384 → clear ✓
-            confirmRect:      NATIVE_CONFIRM_RECT,      // bottom = 446 → overlap = 6 px > 5 px budget
+            confirmRect:      NATIVE_CONFIRM_RECT,      // bottom = 446 → overlap = 6 px
             confirmLabelRect: NATIVE_CONFIRM_LBL_RECT   // bottom = 435 → clear ✓
           }
         }),
@@ -945,7 +991,49 @@ test("confirm occlusion past the 5 px budget at 800x480 handover fails closed", 
       ),
     (error) =>
       error instanceof CaptureSafetyError &&
-      /alert-floor band broken.*confirm.*past the 5px/su.test(error.message)
+      /alert-floor band broken.*confirm by 6\.00px/su.test(error.message)
+  )
+})
+
+test("a next-stint row cell painting past its own box fails closed at every viewport", () => {
+  assert.deepEqual(RC19_SPEC.knownDefects, [])
+  // The `FUEL PER LAP` label is NOT a leaf — it carries its `L` unit as an element child — so the
+  // shared leaf sweep is structurally blind to it. Replay the exact measurement: a 110.45 px
+  // range rect in the 105 px box the flex algorithm squeezed it into.
+  const overrun = (kind, boxWidth, inkWidth) => ({
+    row: "fuel-per-lap",
+    kind,
+    text: kind === "label" ? "FUEL PER LAPL" : "2.94",
+    rect: { left: 560, top: 120, width: boxWidth, height: 18 },
+    textRect: { left: 560, top: 120, width: inkWidth, height: 18 }
+  })
+  for (const state of ["ready", "handover", "cold-mount"]) {
+    assert.throws(
+      () =>
+        validateCaptureMetrics(
+          nativeMetrics(state, { nextStintRows: [overrun("label", 105, 110.45)] }),
+          entryFor(state)
+        ),
+      (error) =>
+        error instanceof CaptureSafetyError &&
+        /the next-stint label "FUEL PER LAPL" paints 5\.45px past its own 105\.00px box/u.test(error.message)
+    )
+  }
+  // The numeral beside it, at its measured 54 px box against 56.63 px of glyphs.
+  assert.throws(
+    () =>
+      validateCaptureMetrics(
+        nativeMetrics("ready", { nextStintRows: [overrun("value", 54, 56.63)] }),
+        entryFor("ready")
+      ),
+    (error) =>
+      error instanceof CaptureSafetyError &&
+      /the next-stint value "2\.94" paints 2\.63px past its own 54\.00px box/u.test(error.message)
+  )
+  // A frame that collected no rows at all is a harness failure, not a pass.
+  assert.throws(
+    () => validateCaptureMetrics(nativeMetrics("ready", { nextStintRows: [] }), entryFor("ready")),
+    (error) => error instanceof CaptureSafetyError && /collected no next-stint row cells/u.test(error.message)
   )
 })
 

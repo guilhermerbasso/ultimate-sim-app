@@ -469,10 +469,20 @@
   gap: 0.8cqw;
 }
 
+/*
+ * The header column is exactly as wide as the longest header it must print, at whatever type step
+ * the canvas is using. A percentage cannot be: `flex: 0 0 12%` resolves against `.rc15-strip-rows`,
+ * which the app reflow makes NARROWER (581.63px) than the native strip (753.22px), while the same
+ * reflow grows the shared 1.6cqw label step from 12.8px to 16.38px. The result was a 70px column
+ * holding a header that needs 98.27px — `BRAKE F / R` painting 28px past its box and `BALANCE` 2px,
+ * measured with `getBoundingClientRect` at 1024x600 in both states. `flex: 0 0 auto` sizes the
+ * column from its own max-content instead, so the headers fit at every canvas by construction and
+ * the six corner columns absorb the difference (they carry ~40px of content in 74-115px each).
+ */
 .rc15-strip-labels {
   display: flex;
   min-width: 0;
-  flex: 0 0 12%;
+  flex: 0 0 auto;
   flex-direction: column;
   justify-content: space-between;
   padding: 0.2cqw 0;
@@ -620,10 +630,6 @@
 /* ---------------------------------------------------------------- compact grammars */
 
 @container (max-width: 640px) {
-  .rc15-strip-labels {
-    flex-basis: 16%;
-  }
-
   .rc15-beam-edge {
     display: none;
   }
