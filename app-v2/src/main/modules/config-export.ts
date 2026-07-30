@@ -32,6 +32,7 @@ import {
   type ConfigSectionImportDetail,
   type ConfigSectionReloadCallback,
   type ConfigSectionReloadResult,
+  type ConfigImportWarning,
   type ConfigSectionExport,
   type SavedSectionInfo
 } from '../../shared/config-io'
@@ -845,19 +846,22 @@ export function register(ctx: ModuleContext): void {
   // reloaded by the time any UI reacts. A module that reloads also holds FRESH
   // in-memory data, so its before-quit flush can no longer clobber the imported
   // file — the import counterpart of the reset-signal protection used by delete.
-  const reloadRgbMatrix = (): Promise<ConfigSectionReloadResult> =>
-    new Promise((resolveReload, rejectReload) => {
+  const reloadRgbMatrix = (): Promise<{ result?: ConfigSectionReloadResult; warning?: ConfigImportWarning }> =>
+    new Promise((resolveReload) => {
       let settled = false
+      const warn = (code: ConfigImportWarning['code'], message: string): void => {
+        resolveReload({ warning: { sectionId: 'rgb-matrix', code, message } })
+      }
       const finish: ConfigSectionReloadCallback = (error, result) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        if (error) rejectReload(new Error(error))
-        else if (result) resolveReload(result)
-        else rejectReload(new Error('The iFlag module did not return an import application result.'))
+        if (error) warn('reload-failed', error)
+        else if (result) resolveReload({ result })
+        else warn('reload-not-confirmed', 'The iFlag profiles were saved, but the module did not report how they were applied.')
       }
       const timer = setTimeout(() => {
-        finish('The iFlag profiles were written, but the live module did not confirm that they were applied.')
+        finish('The iFlag profiles were saved, but the live module did not confirm that they were applied.')
       }, 5000)
       timer.unref?.()
       let handled = false
@@ -871,26 +875,37 @@ export function register(ctx: ModuleContext): void {
       } catch (error) {
         settled = true
         clearTimeout(timer)
-        rejectReload(error)
+        warn('reload-failed', error instanceof Error ? error.message : String(error))
         return
       }
       if (!handled) {
         settled = true
         clearTimeout(timer)
-        rejectReload(
-          new Error('The iFlag profiles were written, but the iFlag module is not running to apply them.')
+        warn(
+          'module-not-running',
+          'The iFlag profiles were saved, but the iFlag module is not running so they could not be applied live.'
         )
       }
     })
 
+  // §24-19: the sections have ALREADY been written to disk by the time this runs.
+  // A live-apply problem is therefore a WARNING on the summary, never a thrown error —
+  // raising one here would tell the user the import failed when the data is on disk,
+  // and would also suppress the `config:imported` broadcast that refreshes the UI.
   const emitReload = async (summary: ConfigImportSummary): Promise<void> => {
+    const warnings: ConfigImportWarning[] = []
     for (const sectionId of summary.applied) {
       if (sectionId === 'accessibility-cues') continue
       if (sectionId !== 'rgb-matrix') {
         ctx.ipcMain.emit(CONFIG_SECTION_RELOAD_SIGNAL, { source: 'config-export' }, sectionId)
         continue
       }
-      const result = await reloadRgbMatrix()
+      const { result, warning } = await reloadRgbMatrix()
+      if (warning) {
+        warnings.push(warning)
+        continue
+      }
+      if (!result) continue
       summary.details ??= {}
       summary.details[sectionId] = {
         ...(summary.details[sectionId] ?? {}),
@@ -898,16 +913,20 @@ export function register(ctx: ModuleContext): void {
         unmatchedItemCount: result.unmatchedItemCount
       }
       if (result.unmatchedItemCount > 0) {
-        throw new Error(
-          `Imported ${result.itemCount} iFlag profile(s), but ${result.unmatchedItemCount} could not be matched to this computer's RGB matrix targets.`
-        )
-      }
-      if (result.itemCount > 0 && result.hotAppliedCount === 0) {
-        throw new Error(
-          `Imported ${result.itemCount} iFlag profile(s), but no local RGB matrix target was available to apply them.`
-        )
+        warnings.push({
+          sectionId,
+          code: 'unmatched-targets',
+          message: `Imported ${result.itemCount} iFlag profile(s); ${result.unmatchedItemCount} could not be matched to this computer's RGB matrix targets.`
+        })
+      } else if (result.itemCount > 0 && result.hotAppliedCount === 0) {
+        warnings.push({
+          sectionId,
+          code: 'no-local-target',
+          message: `Imported ${result.itemCount} iFlag profile(s); no local RGB matrix target was available to apply them.`
+        })
       }
     }
+    if (warnings.length > 0) summary.warnings = [...(summary.warnings ?? []), ...warnings]
   }
 
   const showSave = (opts: SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> => {

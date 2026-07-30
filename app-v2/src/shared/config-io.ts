@@ -205,6 +205,23 @@ export interface ConfigImportSummary {
   unknown: string[]
   /** Per-section item/application counts when the section has a meaningful collection shape. */
   details?: Record<string, ConfigSectionImportDetail>
+  /**
+   * Non-fatal problems observed AFTER the sections were successfully written — for
+   * example the iFlag module not running, or imported profiles that match no local RGB
+   * matrix target. These must never be reported as a failed import: the data IS on
+   * disk, and raising a global error after a successful persist tells the user their
+   * import did not happen when in fact it did (§24-19).
+   */
+  warnings?: ConfigImportWarning[]
+}
+
+export interface ConfigImportWarning {
+  /** Section the warning belongs to. */
+  sectionId: string
+  /** Machine-readable cause, so the UI can choose its own wording. */
+  code: 'module-not-running' | 'reload-not-confirmed' | 'unmatched-targets' | 'no-local-target' | 'reload-failed'
+  /** Human-readable explanation, already phrased as a warning rather than a failure. */
+  message: string
 }
 
 export interface ConfigSectionImportDetail {
