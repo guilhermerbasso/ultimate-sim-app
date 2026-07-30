@@ -398,11 +398,17 @@ function str(value: unknown, fallback: string): string {
   return safeText(value, fallback, 96)
 }
 
+/**
+ * Free-text tags on user-created and imported panels. Unlike the code-authored
+ * vocabulary in `shared/tags.ts` — which carries display casing such as `IR` and
+ * `GT3` — these are typed by hand, so they are stored lowercase to keep `Rain`
+ * and `rain` from becoming two tags.
+ */
 function safeTags(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined
   const tags = value
     .filter((tag): tag is string => typeof tag === 'string')
-    .map((tag) => tag.trim())
+    .map((tag) => tag.trim().toLowerCase())
     .filter((tag) => tag.length > 0 && tag.length <= 32)
   return tags.length > 0 ? Array.from(new Set(tags)) : undefined
 }

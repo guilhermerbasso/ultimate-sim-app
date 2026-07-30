@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { AppSettings } from '../../../shared/settings'
 import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, tt, type ResolvedLanguage } from '../i18n'
+import { normalizeTagKey } from '../../../shared/tags'
 
 export interface TagCount {
   tag: string
@@ -9,7 +10,7 @@ export interface TagCount {
 }
 
 function normalizeSelected(selectedTags: readonly string[] | ReadonlySet<string>): string[] {
-  return Array.from(selectedTags).map((tag) => tag.trim()).filter(Boolean)
+  return Array.from(selectedTags).map((tag) => normalizeTagKey(tag)).filter(Boolean)
 }
 
 export function filterByTags<T>(
@@ -20,7 +21,7 @@ export function filterByTags<T>(
   const selected = normalizeSelected(selectedTags)
   if (selected.length === 0) return [...items]
   return items.filter((item) => {
-    const itemTags = new Set((getTags(item) ?? []).map((tag) => tag.trim()).filter(Boolean))
+    const itemTags = new Set((getTags(item) ?? []).map((tag) => normalizeTagKey(tag)).filter(Boolean))
     return selected.every((tag) => itemTags.has(tag))
   })
 }
@@ -29,13 +30,21 @@ export function collectTags<T>(
   items: readonly T[],
   getTags: (item: T) => readonly string[] | undefined
 ): TagCount[] {
-  const counts = new Map<string, number>()
+  const counts = new Map<string, { tag: string; count: number }>()
   for (const item of items) {
-    const uniqueTags = new Set((getTags(item) ?? []).map((tag) => tag.trim()).filter(Boolean))
-    for (const tag of uniqueTags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    const uniqueKeys = new Map<string, string>()
+    for (const raw of getTags(item) ?? []) {
+      const tag = raw.trim()
+      const key = normalizeTagKey(tag)
+      if (key && !uniqueKeys.has(key)) uniqueKeys.set(key, tag)
+    }
+    for (const [key, tag] of uniqueKeys) {
+      const entry = counts.get(key)
+      if (entry) entry.count += 1
+      else counts.set(key, { tag, count: 1 })
+    }
   }
-  return Array.from(counts, ([tag, count]) => ({ tag, count }))
-    .sort((a, b) => a.tag.localeCompare(b.tag))
+  return Array.from(counts.values()).sort((a, b) => a.tag.localeCompare(b.tag))
 }
 
 export interface TagFilterProps<T> {
@@ -64,7 +73,7 @@ export function TagFilter<T>({
   const effectiveLanguage = language ?? fallbackLanguage
   const tagCounts = useMemo(() => collectTags(items, getTags), [items, getTags])
   const filteredItems = useMemo(() => filterByTags(items, selectedTags, getTags), [items, selectedTags, getTags])
-  const selectedSet = useMemo(() => new Set(selectedTags), [selectedTags])
+  const selectedSet = useMemo(() => new Set(selectedTags.map((tag) => normalizeTagKey(tag))), [selectedTags])
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleTags = normalizedQuery
     ? tagCounts.filter(({ tag }) => tag.toLocaleLowerCase().includes(normalizedQuery))
@@ -85,8 +94,9 @@ export function TagFilter<T>({
   }, [language])
 
   function toggleTag(tag: string): void {
-    if (selectedSet.has(tag)) {
-      onSelectedTagsChange(selectedTags.filter((selected) => selected !== tag))
+    const key = normalizeTagKey(tag)
+    if (selectedSet.has(key)) {
+      onSelectedTagsChange(selectedTags.filter((selected) => normalizeTagKey(selected) !== key))
       return
     }
     onSelectedTagsChange([...selectedTags, tag])
@@ -114,7 +124,7 @@ export function TagFilter<T>({
         {tt(effectiveLanguage, 'common.clear')}
       </button>
       {visibleTags.map(({ tag, count }) => {
-        const selected = selectedSet.has(tag)
+        const selected = selectedSet.has(normalizeTagKey(tag))
         return (
           <button
             key={tag}
