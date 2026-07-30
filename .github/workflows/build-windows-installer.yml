@@ -46,15 +46,25 @@ jobs:
         run: npm ci
 
       # Cheap gate first: a mismatched tag must never consume a 40-minute build.
+      #
+      # Read the JSON with node, not ConvertFrom-Json. An npm lockfile v2/v3 has an
+      # empty-string key in "packages" for the root package, and PowerShell rejects an
+      # empty property name — so ConvertFrom-Json throws on EVERY valid lockfile and the
+      # gate could never pass. Node is already installed by the previous steps.
       - name: Verify release version consistency
         shell: pwsh
         env:
           RELEASE_REF: ${{ github.ref }}
         run: |
-          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $lock = (Get-Content package-lock.json -Raw | ConvertFrom-Json)
-          if ($lock.version -ne $pkg) {
-            Write-Error "package-lock.json version $($lock.version) != package.json version $pkg"
+          $pkg = node -p "require('./package.json').version"
+          $lockTop = node -p "require('./package-lock.json').version"
+          $lockRoot = node -p "require('./package-lock.json').packages[''].version"
+          if ($lockTop -ne $pkg) {
+            Write-Error "package-lock.json version $lockTop != package.json version $pkg"
+            exit 1
+          }
+          if ($lockRoot -ne $pkg) {
+            Write-Error "package-lock.json packages[''] version $lockRoot != package.json version $pkg"
             exit 1
           }
           if ($env:RELEASE_REF -like 'refs/tags/*') {
@@ -63,7 +73,7 @@ jobs:
               Write-Error "tag $tag != package.json version $pkg — refusing to build a mislabelled release"
               exit 1
             }
-            Write-Output "tag, package.json and package-lock.json all declare $pkg"
+            Write-Output "tag, package.json and both package-lock.json version fields all declare $pkg"
           } else {
             Write-Output "manual dispatch — building $pkg without a tag"
           }
