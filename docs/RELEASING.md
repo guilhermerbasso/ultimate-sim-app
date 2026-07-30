@@ -40,6 +40,23 @@ npm run dist:win
 This fetches the local llama/whisper/sherpa/tts binaries, runs `electron-vite build`, then
 `electron-builder --win --publish never`. Output lands in `app-v2/dist-win/`.
 
+Every one of those downloads is pinned by **origin + version + hash** and verified before it is
+extracted or packaged, because each one puts an executable or a native addon inside the installer:
+
+| Asset | Pin |
+|---|---|
+| `cloudflared.exe` | version + SHA-256 in `scripts/fetch-win-cloudflared.sh`; re-verified at runtime before every spawn |
+| `whisper-bin-x64.zip` (`whisper-cli.exe` + ggml DLLs) | release version + SHA-256 in `scripts/fetch-win-whisper.sh`, checked before `unzip` |
+| `sherpa-onnx-win-x64` (`sherpa-onnx.node` + DLLs) | fetched with curl, so verified against the sha512 **committed in `package-lock.json`** for that exact version |
+| `vits-piper-*.tar.bz2` (espeak-ng-data) | SHA-256 in `scripts/fetch-win-sherpa.sh` — the upstream `tts-models` release tag is mutable |
+| `@node-llama-cpp/win-x64` | `npm pack` at the lockfile-resolved version, so npm's own registry integrity check applies |
+| `piper_windows_amd64.zip` (legacy) | version + SHA-256 in `scripts/fetch-piper-voices.sh`, checked before `unzip` |
+
+To refresh a pin, download the new asset, compute its SHA-256 and update the constant in the
+same commit as the version bump — never one without the other. Piper **voice models** from
+Hugging Face are still unpinned; they are data, are not executed, and are downloaded on demand
+at runtime rather than packaged.
+
 It also downloads the official Cloudflare Windows amd64 `cloudflared` asset pinned in
 `scripts/fetch-win-cloudflared.sh`. The script verifies the pinned SHA-256 before an atomic
 install and never executes the binary. An existing file is reused only when its hash matches.
@@ -56,6 +73,65 @@ Both Windows workflows run `npm run verify:win-package` before any upload. That 
 the unpacked Electron runtime, `resources/elevate.exe`, Cloudflared, Whisper CPU runtime,
 all four release artifacts, that `latest.yml` matches the package version, and that its EXE
 entry requires administrator rights.
+
+### Automated release gates (tag pushes)
+
+`.github/workflows/build-windows-installer.yml` is fail-closed and **never publishes**. On a
+`v*` tag it runs, in order:
+
+1. **Version consistency** — the tag, `app-v2/package.json` and `app-v2/package-lock.json` must
+   all declare the same version. A mismatched tag fails before the 40-minute build starts.
+2. **Typecheck + tests** — `npm run typecheck` and `npm test`.
+3. **Package** — `npm run dist:win`.
+4. **Package verification** — `npm run verify:win-package`.
+5. **Release artifact verification** — `npm run verify:release-artifacts -- --tag <ref>`
+   (`app-v2/scripts/verify-release-artifacts.mjs`). It refuses to continue unless:
+   - all four assets exist and are non-empty;
+   - no artifact from a *different* version is present in `dist-win/` (this is the exact defect
+     that shipped 2.49 assets inside the v2.50.0 release);
+   - `latest.yml` declares this version, its `path` is this installer, and every `files[]` entry
+     resolves to a real asset whose **size and sha512 match the bytes on disk**;
+   - the EXE entry still sets `isAdminRightsRequired: true`.
+
+   It then writes `dist-win/SHA256SUMS.txt` with an **independent SHA-256 per asset**, which is
+   uploaded with the release so downloads can be checked without trusting `latest.yml`.
+6. **Authenticode verification** — see below.
+7. **Provenance** — `actions/attest-build-provenance` attests the `.exe` and `.zip`.
+8. **Draft release** — assets are attached to a **draft** with `fail_on_unmatched_files: true`.
+   Publishing stays a deliberate human action (step 5 of this document).
+
+Verify a release you downloaded:
+
+```powershell
+gh release download v<version> --repo guilhermerbasso/ultimate-sim-app --pattern "SHA256SUMS.txt"
+Get-FileHash "Ultimate-Sim-App-<version>-x64.exe" -Algorithm SHA256
+gh attestation verify "Ultimate-Sim-App-<version>-x64.exe" --repo guilhermerbasso/ultimate-sim-app
+```
+
+### Code signing (human step)
+
+The installer is **unsigned** until a code-signing certificate is provisioned. The workflow
+already contains the plumbing; the private key is the only missing piece and it must never be
+committed:
+
+| Secret / variable | Kind | Purpose |
+|---|---|---|
+| `WINDOWS_SIGNING_PFX_BASE64` | repository **secret** | base64 of the `.pfx` (OV/EV code-signing certificate + private key) |
+| `WINDOWS_SIGNING_PFX_PASSWORD` | repository **secret** | password for that `.pfx` |
+| `REQUIRE_SIGNED_INSTALLER` | repository **variable** | set to `true` once signing works, to make an unsigned build a hard failure |
+
+Behaviour:
+
+- **Secret absent** — the build proceeds and warns loudly that the installer is unsigned
+  (SmartScreen will warn users). Set `REQUIRE_SIGNED_INSTALLER=true` to fail instead.
+- **Secret present** — electron-builder signs with SHA-256 and an RFC-3161 timestamp
+  (`app-v2/electron-builder.yml` → `win.signtoolOptions`), then the workflow runs
+  `Get-AuthenticodeSignature` and **fails the job** unless the status is `Valid` *and* the
+  signature is timestamped. The `.pfx` is written outside the workspace and deleted afterwards.
+
+An EV certificate on a hardware token cannot be exported to a secret; it requires either Azure
+Trusted Signing (`win.azureSignOptions`) or a self-hosted runner with the token attached.
+
 
 ### Safe updater/NSIS ordering
 
