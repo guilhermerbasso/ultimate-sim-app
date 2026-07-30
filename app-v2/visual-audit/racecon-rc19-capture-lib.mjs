@@ -241,15 +241,23 @@ export const RC19_SPEC = Object.freeze({
   ]),
 
   /**
-   * DEFECT 1 — two native-canvas labels overflow their columns, in all three governed states.
+   * DEFECT 1 — the FUEL PER LAP value overflows its native column, in all three governed states:
    *   rc19-fuel-per-lap  "2.94" paints 3 px wider than its 54 px box at 800x480
-   *   rc19-label         paints 5 px wider than its 105 px box at 800x480
-   * Both are the `white-space: nowrap` class the RaceCon harnesses exist to catch: overflow is
+   * This is the `white-space: nowrap` class the RaceCon harnesses exist to catch: the overflow is
    * clipped visually, `scrollWidth === clientWidth` on the ancestors, and jsdom sees nothing. The
-   * app and both compact families are clear, so this is specific to the 800x480 column widths.
+   * app and both compact families are clear, so it is specific to the 800x480 column widths.
    *
    * Recorded at the measured maximum plus a font-metric allowance — a budget, not a cap. Growth,
    * a spread to another viewport, or an appearance on another element still fails closed.
+   *
+   * NOT recorded, and deliberately so: a real-browser sweep also measured a next-stint row LABEL
+   * standing 5 px wider than its 105 px column at 800x480. `.rc19-label` renders as
+   * `<span class="rc19-label">{label}<span class="rc19-unit">{unit}</span></span>` wherever a unit
+   * is present, so those instances carry a child element and the shared leaf sweep — which is
+   * `childElementCount === 0` by construction — cannot see them. Recording a budget for a defect
+   * this harness structurally cannot observe would be a phantom entry that overstates the
+   * coverage, so the boundary is documented here instead. Leaf-form labels ARE swept, and an
+   * overflow on one of those still fails closed.
    */
   knownDefects:       Object.freeze([
     Object.freeze({
@@ -258,13 +266,6 @@ export const RC19_SPEC = Object.freeze({
       sizes: Object.freeze(["800x480"]),
       budgetPx: 6,
       note: "the FUEL PER LAP value overflows its 54px native column by 3px; the app and both compact families are clear"
-    }),
-    Object.freeze({
-      key: "rc19-label",
-      states: Object.freeze(["ready", "handover", "cold-mount"]),
-      sizes: Object.freeze(["800x480"]),
-      budgetPx: 8,
-      note: "a next-stint row label overflows its 105px native column by 5px; the app and both compact families are clear"
     })
   ]),
   zoneOverflowDefects: Object.freeze([]),
