@@ -2,6 +2,7 @@ import { type CSSProperties, type ReactElement, useEffect, useMemo, useState } f
 import type { ProfileSummary } from '../../../shared/ipc'
 import type { RaceProfile, RaceProfileSuggestion } from '../../../shared/raceprofiles'
 import { getLatestTelemetry } from '../lib/telemetry'
+import { applyRaceProfile, describeRaceProfileFailure } from '../lib/race-profile-runtime'
 import { SectionExportImport } from '../components/SectionExportImport'
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
@@ -30,18 +31,13 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
     [profiles, suggestion]
   )
 
+  // Auto-switch itself lives in useRaceProfileAutoSwitch (mounted in App.tsx) so it
+  // works on every screen. This view only mirrors the resulting state.
   useEffect(() => {
     void refreshAll()
     const unsubscribe = window.ipc.subscribe<RaceProfileSuggestion>('profilesv2:suggest', setSuggestion)
     return unsubscribe
   }, [])
-
-  // Auto-apply profile when autoSwitch is enabled and a new suggestion arrives.
-  useEffect(() => {
-    if (!autoSwitch || !suggestion) return
-    const profile = profiles.find((p) => p.id === suggestion.profileId)
-    if (profile) void applyRaceProfile(profile)
-  }, [suggestion, autoSwitch, profiles])
 
   async function refreshAll(): Promise<void> {
     try {
@@ -162,32 +158,24 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
     return undefined
   }
 
-  async function applyRaceProfile(profile: RaceProfile): Promise<void> {
+  async function applyProfileTransactionally(profile: RaceProfile): Promise<void> {
     setBusy(true)
     try {
-      if (profile.oled !== undefined) await window.ipc.invoke('oled:setConfig', profile.oled)
-      if (profile.overlays !== undefined) await window.ipc.invoke('overlays:setConfig', profile.overlays)
-      if (profile.alerts !== undefined) await window.ipc.invoke('alerts:setConfig', profile.alerts)
-      if (profile.bindings !== undefined) await window.ipc.invoke('actions:setBindings', profile.bindings)
-
-      if (profile.hapticsGains && Object.keys(profile.hapticsGains).length > 0) {
-        const effectsPatch: Record<string, { intensity: number }> = {}
-        for (const [id, intensity] of Object.entries(profile.hapticsGains)) {
-          effectsPatch[id] = { intensity: intensity as number }
-        }
-        await window.ipc.invoke('haptics:setConfig', { effects: effectsPatch }).catch(() => undefined)
-      }
-
-      if (profile.buttonboxProfile) {
-        if (!connectedDevice) {
-          showToast(tt(language, 'raceProfiles.appSettingsAppliedToast'), 'info')
-        } else {
-          const buttonboxProfile = await window.api.loadProfile(profile.buttonboxProfile)
+      const result = await applyRaceProfile(profile, {
+        connected: Boolean(connectedDevice),
+        applyButtonbox: async (name) => {
+          const buttonboxProfile = await window.api.loadProfile(name)
           await window.api.applyProfileToDevice({ mapping: buttonboxProfile.mapping, config: buttonboxProfile.config })
           await refreshDeviceState()
         }
+      })
+      if (!result.ok) {
+        showToast(describeRaceProfileFailure(result), 'error')
+        return
       }
-
+      if (profile.buttonboxProfile && !connectedDevice) {
+        showToast(tt(language, 'raceProfiles.appSettingsAppliedToast'), 'info')
+      }
       setSuggestion(null)
       showToast(tt(language, 'raceProfiles.appliedToast', { name: profile.name }), 'success')
     } catch (error) {
@@ -234,7 +222,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
             </p>
           </div>
           <div style={styles.row}>
-            <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(suggestedProfile)} type="button">{tt(language, 'raceProfiles.apply')}</button>
+            <button style={styles.primaryButton} disabled={busy} onClick={() => void applyProfileTransactionally(suggestedProfile)} type="button">{tt(language, 'raceProfiles.apply')}</button>
             <button style={styles.ghostButton} disabled={busy} onClick={() => setSuggestion(null)} type="button">{tt(language, 'raceProfiles.ignore')}</button>
           </div>
         </div>
@@ -328,7 +316,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
               </div>
               <div style={styles.row}>
                 <button style={styles.secondaryButton} disabled={busy} onClick={() => editProfile(profile)} type="button">{tt(language, 'raceProfiles.edit')}</button>
-                <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(profile)} type="button">{tt(language, 'raceProfiles.apply')}</button>
+                <button style={styles.primaryButton} disabled={busy} onClick={() => void applyProfileTransactionally(profile)} type="button">{tt(language, 'raceProfiles.apply')}</button>
                 <button style={styles.dangerButton} disabled={busy} onClick={() => void deleteProfile(profile.id)} type="button">{tt(language, 'raceProfiles.delete')}</button>
               </div>
             </div>

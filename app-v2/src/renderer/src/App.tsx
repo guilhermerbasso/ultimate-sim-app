@@ -8,6 +8,7 @@ import { useEngineerActionRuntime } from './lib/engineer-action-runtime'
 import { useSoundshiftRuntime } from './lib/soundshift-runtime'
 import { useSpotterRuntime } from './lib/spotter-runtime'
 import { useHapticsRuntime } from './lib/haptics-runtime'
+import { useRaceProfileAutoSwitch } from './lib/race-profile-runtime'
 import { useTtsRuntime, speakViaTts } from './lib/tts-runtime'
 import { useSpotter3DRuntime } from './lib/spotter3d-runtime'
 import { useWakeWord } from './lib/wake-word'
@@ -264,6 +265,18 @@ function App(): ReactElement {
     showToast,
     language
   }
+
+  // Race-profile auto-switch is mounted at the shell, not inside RaceProfilesView, so a
+  // suggestion applies on every screen — including during a race, which is the only
+  // moment it actually matters.
+  useRaceProfileAutoSwitch(showToast, {
+    connected: Boolean(connectedDevice),
+    applyButtonbox: async (name) => {
+      const buttonboxProfile = await window.api.loadProfile(name)
+      await window.api.applyProfileToDevice({ mapping: buttonboxProfile.mapping, config: buttonboxProfile.config })
+      await refreshDeviceState()
+    }
+  })
 
   const activateView = useCallback((id: string) => {
     setActiveId(id)
