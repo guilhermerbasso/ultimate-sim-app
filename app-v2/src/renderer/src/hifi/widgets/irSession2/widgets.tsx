@@ -1,6 +1,7 @@
 // ── irSession2 — clean iRacing session micro-readouts ────────────────────────
 // Transparent, title-less SVG widgets inspired by the generated session refs:
 // SoF outline numeral, glowing time-of-day clock, ballast weight, and power adjust.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement } from 'react'
 import { formatTimeOfDay } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
@@ -12,7 +13,7 @@ const H = 240
 
 function Root({ width, height, children }: HifiWidgetProps & { children: ReactElement | ReactElement[] }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

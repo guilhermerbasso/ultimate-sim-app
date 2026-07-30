@@ -65,7 +65,7 @@ export function RelativeWidget({ snapshot, config }: WidgetProps): ReactElement 
     width: '100%',
     height: '100%',
     'data-widget': 'relative',
-    role: 'img',
+    role: 'img', 'aria-label': 'Relative positions',
     style: { display: 'block' as const }
   }
 

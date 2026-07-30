@@ -1,6 +1,7 @@
 // ── irConditions2 — weather/track condition tell-tales (v6, gpt-image referenced) ──
 // Clean, transparent, title-less condition badges: rain state, steward wet declared,
 // and current track surface. Off/null states stay dim; active conditions glow strongly.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import { trackSurfaceMaterialLabel } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
@@ -11,7 +12,7 @@ const H = 300
 
 function Root({ width, height, children }: HifiWidgetProps & { children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

@@ -2,6 +2,7 @@
 // Transparent, title-less badges and info readouts modelled after the session
 // state and pace references. All labels are decoded through shared telemetry
 // helpers and text is fitted defensively for SSR/static rendering.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode, SVGProps } from 'react'
 import { paceFlagsList, paceModeLabel, sessionStateLabel } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
@@ -14,7 +15,7 @@ const INFO_H = 150
 
 function Root({ width, height, viewW, viewH, children }: HifiWidgetProps & { viewW: number; viewH: number; children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${viewW} ${viewH}`} width={width ?? viewW} height={height ?? viewH} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${viewW} ${viewH}`} width={width ?? viewW} height={height ?? viewH} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

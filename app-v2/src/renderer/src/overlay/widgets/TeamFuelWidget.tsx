@@ -74,7 +74,7 @@ export function TeamFuelWidget({ config }: WidgetProps): ReactElement {
       width="100%"
       height="100%"
       data-widget="teamFuel"
-      role="img"
+      role="img" aria-label="Team fuel status"
       style={{ display: 'block' }}
     >
       <rect

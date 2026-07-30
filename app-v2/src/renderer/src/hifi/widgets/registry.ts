@@ -3,6 +3,8 @@
 // union — each group owns its own folder/index, so groups build fully in parallel.
 // This file is created ONCE (foundation) and imports the per-group arrays; the group
 // agents only edit their own `<group>/index.ts`.
+import { createElement } from 'react'
+import { WidgetLabelProvider } from './a11y'
 import type { HifiWidgetModule } from './types'
 import { mergeTags } from '../../../../shared/tags'
 import {
@@ -141,7 +143,28 @@ function normalizeHifiWidget(module: HifiWidgetModule): HifiWidgetModule {
   }
 }
 
-export const HIFI_WIDGETS: HifiWidgetModule[] = RAW_HIFI_WIDGETS.map(normalizeHifiWidget)
+/**
+ * Name every widget root from the module's own title.
+ *
+ * A hi-fi widget roots itself in `<svg role="img">`, which makes that SVG a LEAF
+ * in the accessibility tree — the `<text>` carrying its numbers is pruned, so an
+ * unnamed root is not "partly readable", it is completely silent to a screen
+ * reader. Every module already declares a human `title`, so the name is applied
+ * centrally here rather than asking ~840 modules to each remember.
+ */
+function withAccessibleName(module: HifiWidgetModule): HifiWidgetModule {
+  const name = module.title.trim()
+  if (!name) return module
+  return {
+    ...module,
+    render: (props) =>
+      createElement(WidgetLabelProvider, { value: name }, module.render(props))
+  }
+}
+
+export const HIFI_WIDGETS: HifiWidgetModule[] = RAW_HIFI_WIDGETS.map(normalizeHifiWidget).map(
+  withAccessibleName
+)
 
 export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromEntries(
   HIFI_WIDGETS.map((w) => [w.id, w])

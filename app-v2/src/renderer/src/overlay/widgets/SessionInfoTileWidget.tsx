@@ -77,7 +77,7 @@ export function SessionInfoTileWidget({ snapshot, config }: WidgetProps): ReactE
       width="100%"
       height="100%"
       data-widget="sessionInfoTile"
-      role="img"
+      role="img" aria-label="Session information"
       style={{ display: 'block' }}
     >
       {s?.sessionState !== undefined ? <rect x={pad} y={pad + 2} width={10} height={12} rx={2} fill={skin.palette.accent} /> : null}

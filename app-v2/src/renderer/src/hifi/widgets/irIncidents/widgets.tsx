@@ -1,6 +1,7 @@
 // ── irIncidents — iRacing damage counters (incidents / fast repairs) ──────────
 // Clean, transparent, title-less SVG readouts inspired by ref-ir-incidents.png and
 // ref-ir-fastrepair.png. Undefined/invalid telemetry renders neutral dashes only.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, FONT_LABEL, LEGIBLE, legibleStroke, num } from '../kit'
@@ -11,7 +12,7 @@ const BAD_TOKENS_SAFE_DASH = '—'
 
 function Root({ width, height, children }: HifiWidgetProps & { children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

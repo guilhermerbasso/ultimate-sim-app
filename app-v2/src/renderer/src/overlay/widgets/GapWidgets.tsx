@@ -104,7 +104,7 @@ function GapOverlay({ kind, entry, config }: { kind: GapKind; entry: RelativeCar
       width="100%"
       height="100%"
       data-widget={`gap-${kind}`}
-      role="img"
+      role="img" aria-label="Gap to nearby car"
       style={{ display: 'block' }}
     >
       <rect
