@@ -1,4 +1,5 @@
-import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
+import { useFocusTrap } from '../../lib/useFocusTrap'
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BOARDS,
   COMPONENT_TYPES,
@@ -97,6 +98,11 @@ export function HardwareWorkspace({
   const [wizardDevice, setWizardDevice] = useState<SerialDeviceSummary | null>(null)
   const [dismissedUnknownDeviceIds, setDismissedUnknownDeviceIds] = useState<Set<string>>(() => new Set())
   const [simhubDialog, setSimhubDialog] = useState<SimHubDetectResult | null>(null)
+  const closeSimhubDialog = useCallback(() => setSimhubDialog(null), [])
+  const simhubFocusTrap = useFocusTrap<HTMLDivElement>({
+    active: simhubDialog !== null,
+    onEscape: closeSimhubDialog
+  })
   const [simhubDetectBusy, setSimhubDetectBusy] = useState(false)
   const [rightSection, setRightSection] = useState<'identity' | 'components'>('components')
 
@@ -895,7 +901,7 @@ export function HardwareWorkspace({
 
       {simhubDialog && (
         <div
-          role="dialog"
+          ref={simhubFocusTrap.containerRef} onKeyDown={simhubFocusTrap.onKeyDown} role="dialog"
           aria-modal="true"
           aria-label="Import from SimHub"
           style={{
