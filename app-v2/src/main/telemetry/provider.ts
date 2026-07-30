@@ -12,4 +12,11 @@ export interface TelemetryProvider {
   isConnected(): boolean
   // Snapshot mais recente já normalizado, ou null se indispolevel.
   poll(): TelemetrySnapshot | null
+  /**
+   * Optional. Tells the provider whether the user selected it explicitly or whether it is
+   * competing in auto-detection. Providers that share a transport with another simulator
+   * (AC and ACC both publish to `Local\acpmf_*`) must not claim an ambiguous source during
+   * auto-detection, but an explicit selection IS the user answering "which sim is this?".
+   */
+  setSelectionMode?(mode: 'auto' | 'explicit'): void
 }
