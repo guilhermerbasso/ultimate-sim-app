@@ -87,7 +87,7 @@ export function PaceRestartWidget({ snapshot, config }: WidgetProps): ReactEleme
       width="100%"
       height="100%"
       data-widget="paceRestart"
-      role="img"
+      role="img" aria-label="Pace and restart status"
       style={{ display: 'block' }}
     >
       <rect

@@ -4,6 +4,7 @@
 // position, lap, track/air temp). One generic palette-parametrized renderer × a
 // channel table × six car families, generated from a single source of truth so
 // every channel gets a consistent, NaN-safe, car-themed widget.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps, TelemetryField } from '../types'
 import { Bar, BigNum, C, FONT_LABEL, fixed, frac, gearLabel, num, signed } from '../kit'
@@ -67,7 +68,7 @@ const CHANNELS: ChannelSpec[] = [
 
 function Root({ width, height, children }: HifiWidgetProps & { children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

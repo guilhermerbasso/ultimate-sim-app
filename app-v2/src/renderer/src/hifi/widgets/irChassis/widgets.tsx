@@ -2,6 +2,7 @@
 // Clean, transparent, title-less widgets for iRacing chassis telemetry surfaced in
 // v6: pitch/roll attitude, yaw rate, steering FFB torque, vertical acceleration and
 // altitude. Built to match concepts/refs/ref-ir-*.png.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, LEGIBLE, fixed, legibleStroke, num } from '../kit'
@@ -44,7 +45,7 @@ function AttitudeInstrument({ width, height, snapshot }: HifiWidgetProps): React
   const ladder = [-20, -10, 10, 20]
 
   return (
-    <svg viewBox={`0 0 ${ROUND_W} ${ROUND_H}`} width={width ?? ROUND_W} height={height ?? ROUND_H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${ROUND_W} ${ROUND_H}`} width={width ?? ROUND_W} height={height ?? ROUND_H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <defs>
         <clipPath id={clipId}>
           <circle cx={cx} cy={cy} r={r} />
@@ -97,7 +98,7 @@ function YawRateScale({ width, height, snapshot }: HifiWidgetProps): ReactElemen
   const color = valueColor(deg, 45, 75)
 
   return (
-    <svg viewBox={`0 0 ${ROUND_W} ${ROUND_H}`} width={width ?? ROUND_W} height={height ?? ROUND_H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${ROUND_W} ${ROUND_H}`} width={width ?? ROUND_W} height={height ?? ROUND_H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <BigNum x={ROUND_W / 2} y={112} value={deg == null ? '—' : fixed(deg, 0)} unit="deg/s" color={color} size={82} />
       <GaugeArc cx={ROUND_W / 2} cy={150} r={34} thickness={5} f={0.68} color={C.cyan} />
       <path d={`M${ROUND_W / 2 + 21} 161 l18 0 l-13 13 z`} fill={C.cyan} opacity={0.95} />
@@ -132,7 +133,7 @@ function TorqueBar({ width, height, snapshot }: HifiWidgetProps): ReactElement {
   const color = pct == null ? C.dim : pct >= 92 ? C.red : pct >= 70 ? C.amber : C.cyan
 
   return (
-    <svg viewBox={`0 0 ${READOUT_W} ${READOUT_H}`} width={width ?? READOUT_W} height={height ?? READOUT_H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${READOUT_W} ${READOUT_H}`} width={width ?? READOUT_W} height={height ?? READOUT_H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <defs>
         <linearGradient id={gradId} x1={x} x2={x + w} y1="0" y2="0" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor={C.cyan} />
@@ -170,7 +171,7 @@ function CenterZeroReadout({ width, height, value, unit, min, max, digits }: Hif
   const half = 126
   const color = valueColor(value, range * 0.55, range * 0.85)
   return (
-    <svg viewBox={`0 0 ${READOUT_W} ${READOUT_H}`} width={width ?? READOUT_W} height={height ?? READOUT_H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${READOUT_W} ${READOUT_H}`} width={width ?? READOUT_W} height={height ?? READOUT_H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <text x={cx} y={125} textAnchor="middle" fill={color} fontFamily={FONT_BIG} fontWeight={800} fontSize={84} {...legibleStroke(84)}>
         {signedFixed(value, digits)}
         <tspan fill={C.dim} fontFamily={FONT_LABEL} fontSize={28}> {unit}</tspan>
@@ -193,7 +194,7 @@ function AltitudeReadout({ width, height, snapshot, unitSystem = 'metric' }: Hif
   const ex = READOUT_W - 76
   const sy = 178
   return (
-    <svg viewBox={`0 0 ${READOUT_W} ${READOUT_H}`} width={width ?? READOUT_W} height={height ?? READOUT_H} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${READOUT_W} ${READOUT_H}`} width={width ?? READOUT_W} height={height ?? READOUT_H} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       <BigNum x={READOUT_W / 2} y={126} value={reading.display} unit={reading.unit} color={altitude == null ? C.dim : C.text} size={94} />
       <Hairline x={sx} y={sy} len={ex - sx} opacity={0.28} />
       {altitude != null ? <rect x={sx + (ex - sx) * f - 1.5} y={sy - 9} width={3} height={18} rx={1} fill={C.cyan} /> : null}

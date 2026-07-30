@@ -1,6 +1,7 @@
 // ── irExtra — additional iRacing hi-fi telemetry widgets ──────────────────────
 // Clean, transparent, title-less widgets for fuel, brake pressure, skies,
 // rev-lights and spotter proximity channels surfaced from iRacing.
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import type { CarLeftRightState } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
@@ -15,7 +16,7 @@ const WIDE_H = 120
 
 function Root({ width, height, w = W, h = H, children }: HifiWidgetProps & { w?: number; h?: number; children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={width ?? w} height={height ?? h} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${w} ${h}`} width={width ?? w} height={height ?? h} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )
@@ -164,7 +165,7 @@ function RevLightsBar({ width, height, snapshot }: HifiWidgetProps): ReactElemen
       width={layout.width}
       height={layout.height}
       preserveAspectRatio="none"
-      role="img"
+      {...useSurfaceRole()}
       aria-label="rev lights"
       style={{ display: 'block', background: 'transparent' }}
     >

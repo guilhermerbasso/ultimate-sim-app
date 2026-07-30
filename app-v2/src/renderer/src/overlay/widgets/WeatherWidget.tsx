@@ -77,7 +77,7 @@ export function WeatherWidget({ snapshot, config }: WidgetProps): ReactElement {
       data-widget="weather"
       data-rain={rainLampActive ? '1' : '0'}
       data-headlight={headlightActive ? '1' : '0'}
-      role="img"
+      role="img" aria-label="Weather and track conditions"
       style={{ display: 'block' }}
     >
       <rect

@@ -2,6 +2,7 @@
 // Shared SSR-safe SVG toolkit for the per-telemetry hi-fi widgets: colour tokens,
 // NaN-safe number helpers, and small composable primitives (Frame, Bar, VBar,
 // Gauge, LedRow, BigNum, Tile). Warm hues = decoration/alert; cool/green = good.
+import { useSurfaceRole } from './a11y'
 import { arc } from 'd3-shape'
 import { type ReactElement, type ReactNode } from 'react'
 import {
@@ -146,7 +147,7 @@ export function Frame({
   accent?: string
 }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img" aria-label={label ?? 'widget'}>
+    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img" aria-label={label ?? 'Instrument tile'}>
       <rect x={0.5} y={0.5} width={w - 1} height={h - 1} rx={12} fill={C.panel} stroke={C.stroke} />
       {label ? (
         <text x={14} y={22} fill={accent ?? C.dim} fontFamily={FONT_LABEL} fontSize={13} fontWeight={700} letterSpacing={2}>
@@ -166,14 +167,28 @@ export function Frame({
 export function CleanTile({
   width = 420,
   height = 286,
+  label,
   children
 }: {
   width?: number
   height?: number
+  /** Accessible name. Without one the tile must not claim an image role. */
+  label?: string
   children: ReactNode
 }): ReactElement {
+  // An image role prunes everything inside from the accessibility tree, so it is
+  // only claimed when the tile can be named — explicitly, or from the widget the
+  // registry is rendering. Unnamed, the SVG stays a plain graphics document and
+  // its <text> content remains readable.
+  const surface = useSurfaceRole(label)
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      preserveAspectRatio="xMidYMid meet"
+      {...surface}
+    >
       {children}
     </svg>
   )

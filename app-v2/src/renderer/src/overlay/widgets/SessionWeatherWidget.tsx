@@ -94,7 +94,7 @@ export function SessionWeatherWidget({ snapshot, config }: WidgetProps): ReactEl
       data-widget="sessionWeather"
       data-rain={rainLampActive ? '1' : '0'}
       data-headlight={headlightActive ? '1' : '0'}
-      role="img"
+      role="img" aria-label="Session and weather summary"
       style={{ display: 'block' }}
     >
       <rect

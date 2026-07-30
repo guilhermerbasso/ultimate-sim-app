@@ -17,6 +17,7 @@
 //   engineTelltale   ← engineRunning + rpm             (run / off / stall lamp)
 //   spotterRaw       ← carLeftRightRaw                  (full left/right proximity)
 //   sessionTag       ← sessionUniqueId                  (unique session identity)
+import { useSurfaceRole } from '../a11y'
 import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import {
@@ -50,7 +51,7 @@ const RAD2DEG = 180 / Math.PI
 
 function Root({ width, height, w = W, h = H, children }: HifiWidgetProps & { w?: number; h?: number; children: ReactNode }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={width ?? w} height={height ?? h} preserveAspectRatio="xMidYMid meet" role="img">
+    <svg viewBox={`0 0 ${w} ${h}`} width={width ?? w} height={height ?? h} preserveAspectRatio="xMidYMid meet" {...useSurfaceRole()}>
       {children}
     </svg>
   )

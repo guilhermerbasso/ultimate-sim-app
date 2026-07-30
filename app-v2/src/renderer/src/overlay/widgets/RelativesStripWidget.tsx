@@ -61,7 +61,7 @@ export function RelativesStripWidget({ snapshot, config }: WidgetProps): ReactEl
     width: '100%',
     height: '100%',
     'data-widget': 'relativesStrip',
-    role: 'img',
+    role: 'img', 'aria-label': 'Track-relative car positions',
     style: { display: 'block' as const }
   }
 

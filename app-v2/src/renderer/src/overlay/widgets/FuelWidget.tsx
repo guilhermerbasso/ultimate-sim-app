@@ -60,7 +60,7 @@ export function FuelWidget({ snapshot, config }: WidgetProps): ReactElement {
       width="100%"
       height="100%"
       data-widget="fuel"
-      role="img"
+      role="img" aria-label="Fuel status"
       style={{ display: 'block' }}
     >
       <rect
