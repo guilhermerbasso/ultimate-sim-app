@@ -78,6 +78,7 @@ type ShellKey =
   | 'settingsSaved'
   | 'collapseSidebar'
   | 'expandSidebar'
+  | 'skipToContent'
 
 const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
   'pt-BR': {
@@ -99,7 +100,8 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     languageHelp: 'Auto segue o idioma do Windows/app. Este primeiro rollout traduz o shell, a navegação e os metadados das screens; traduções tela a tela continuam evoluindo.',
     settingsSaved: 'Configurações salvas.',
     collapseSidebar: 'Recolher barra lateral',
-    expandSidebar: 'Expandir barra lateral'
+    expandSidebar: 'Expandir barra lateral',
+    skipToContent: 'Pular para o conteúdo principal'
   },
   en: {
     mainNav: 'Main navigation',
@@ -120,7 +122,8 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     languageHelp: 'Auto follows the Windows/app language. This first rollout localizes the app shell, navigation and screen metadata; screen-by-screen translations continue to expand over time.',
     settingsSaved: 'Settings saved.',
     collapseSidebar: 'Collapse sidebar',
-    expandSidebar: 'Expand sidebar'
+    expandSidebar: 'Expand sidebar',
+    skipToContent: 'Skip to main content'
   },
   es: {
     mainNav: 'Navegación principal',
@@ -141,7 +144,8 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     languageHelp: 'Auto sigue el idioma de Windows/app. Este primer rollout traduce el shell, la navegación y los metadatos de las pantallas; las traducciones de cada pantalla seguirán ampliándose.',
     settingsSaved: 'Configuración guardada.',
     collapseSidebar: 'Contraer barra lateral',
-    expandSidebar: 'Expandir barra lateral'
+    expandSidebar: 'Expandir barra lateral',
+    skipToContent: 'Saltar al contenido principal'
   },
   fr: {
     mainNav: 'Navigation principale',
@@ -162,7 +166,8 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     languageHelp: 'Auto suit la langue de Windows/app. Cette première version traduit le shell, la navigation et les métadonnées des écrans; les traductions écran par écran continueront à s’étendre.',
     settingsSaved: 'Paramètres enregistrés.',
     collapseSidebar: 'Réduire la barre latérale',
-    expandSidebar: 'Développer la barre latérale'
+    expandSidebar: 'Développer la barre latérale',
+    skipToContent: 'Aller au contenu principal'
   },
   de: {
     mainNav: 'Hauptnavigation',
@@ -183,7 +188,8 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     languageHelp: 'Auto folgt der Windows/App-Sprache. Dieser erste Rollout lokalisiert App-Shell, Navigation und Ansichtsmetadaten; Übersetzungen pro Ansicht werden weiter ausgebaut.',
     settingsSaved: 'Einstellungen gespeichert.',
     collapseSidebar: 'Seitenleiste einklappen',
-    expandSidebar: 'Seitenleiste ausklappen'
+    expandSidebar: 'Seitenleiste ausklappen',
+    skipToContent: 'Zum Hauptinhalt springen'
   },
   zh: {
     mainNav: '主导航',
@@ -204,7 +210,8 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     languageHelp: 'Auto 跟随 Windows/应用语言。此首个版本本地化了应用外壳、导航和页面元数据；各页面的翻译将持续完善。',
     settingsSaved: '设置已保存。',
     collapseSidebar: '收起侧边栏',
-    expandSidebar: '展开侧边栏'
+    expandSidebar: '展开侧边栏',
+    skipToContent: '跳转到主要内容'
   },
   ja: {
     mainNav: 'メインナビゲーション',
@@ -225,7 +232,8 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     languageHelp: 'Auto は Windows/アプリの言語に従います。この最初のロールアウトではアプリシェル、ナビゲーション、画面メタデータをローカライズします。画面ごとの翻訳は順次拡大します。',
     settingsSaved: '設定を保存しました。',
     collapseSidebar: 'サイドバーを折りたたむ',
-    expandSidebar: 'サイドバーを展開'
+    expandSidebar: 'サイドバーを展開',
+    skipToContent: 'メインコンテンツへスキップ'
   }
 }
 

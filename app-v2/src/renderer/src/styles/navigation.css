@@ -233,6 +233,51 @@
   overflow-x: hidden;
 }
 
+/* ── Skip link (WCAG 2.2 A — 2.4.1 Bypass Blocks) ──
+ *
+ * Parked off the top of the window rather than `display: none`, because a
+ * display-hidden link is not focusable and therefore is not a skip link at all.
+ * It comes back on :focus-visible AND on :focus so it is still visible when a
+ * script moves focus to it, and it paints above the sidebar and every modal
+ * backdrop so it is never revealed underneath something else. */
+.skip-link {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 100000;
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+  color: var(--text-primary);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transform: translateY(calc(-100% - var(--space-8)));
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent-primary);
+}
+
+/* The landmark is only a focus target, never a focus ring the mouse can see. */
+.content-panel:focus {
+  outline: none;
+}
+
+.content-panel:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
 .sidebar[data-collapsed='true'] .nav-quick-group {
   padding-left: 0;
   padding-right: 0;
