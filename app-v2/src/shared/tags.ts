@@ -53,6 +53,51 @@ export function mergeTags(
   return out
 }
 
+export interface TagCount {
+  tag: string
+  count: number
+}
+
+function normalizeSelected(selectedTags: readonly string[] | ReadonlySet<string>): string[] {
+  return Array.from(selectedTags).map((tag) => normalizeTagKey(tag)).filter(Boolean)
+}
+
+/** Items carrying every selected tag, compared case-insensitively. */
+export function filterByTags<T>(
+  items: readonly T[],
+  selectedTags: readonly string[] | ReadonlySet<string>,
+  getTags: (item: T) => readonly string[] | undefined
+): T[] {
+  const selected = normalizeSelected(selectedTags)
+  if (selected.length === 0) return [...items]
+  return items.filter((item) => {
+    const itemTags = new Set((getTags(item) ?? []).map((tag) => normalizeTagKey(tag)).filter(Boolean))
+    return selected.every((tag) => itemTags.has(tag))
+  })
+}
+
+/** Distinct tags across `items` with their occurrence counts, sorted by display spelling. */
+export function collectTags<T>(
+  items: readonly T[],
+  getTags: (item: T) => readonly string[] | undefined
+): TagCount[] {
+  const counts = new Map<string, { tag: string; count: number }>()
+  for (const item of items) {
+    const uniqueKeys = new Map<string, string>()
+    for (const raw of getTags(item) ?? []) {
+      const tag = raw.trim()
+      const key = normalizeTagKey(tag)
+      if (key && !uniqueKeys.has(key)) uniqueKeys.set(key, tag)
+    }
+    for (const [key, tag] of uniqueKeys) {
+      const entry = counts.get(key)
+      if (entry) entry.count += 1
+      else counts.set(key, { tag, count: 1 })
+    }
+  }
+  return Array.from(counts.values()).sort((a, b) => a.tag.localeCompare(b.tag))
+}
+
 // ── Controlled vocabulary ─────────────────────────────────────────────────────
 export const SIM_TAGS = ['IR', 'ACC', 'AC', 'AMS2', 'LMU'] as const
 
