@@ -57,6 +57,8 @@ const FAVORITES_STORAGE_KEY = 'usa.favorites'
 const RECENTS_STORAGE_KEY = 'usa.recents'
 const ONBOARDING_STORAGE_KEY = 'usa.onboardingCompleted'
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'usa:sidebar-collapsed'
+/** Target of the skip link; also the id the <main> landmark carries. */
+export const MAIN_CONTENT_ID = 'main-content'
 const MAX_RECENTS = 5
 const SUPPORT_URL = 'https://buymeacoffee.com/bettercalllbasso'
 const DISCORD_URL = 'https://discord.gg/Wy7d5rTgwS'
@@ -451,7 +453,27 @@ function App(): ReactElement {
   return (
     <div className="app-root">
       <WakeWordIndicator />
-      <main className="app-shell">
+      {/*
+        WCAG 2.2 A — 2.4.1 Bypass Blocks. The sidebar is 94+ tab stops on every
+        one of the 47 views, and it is the FIRST thing in the tab order, so
+        without this a keyboard user re-crosses the whole navigation to reach
+        the screen they already chose. Rendered first so it is Tab #1 from load,
+        and off-screen until focused so the design is untouched.
+      */}
+      <a
+        className="skip-link"
+        href={`#${MAIN_CONTENT_ID}`}
+        onClick={(event) => {
+          event.preventDefault()
+          const main = document.getElementById(MAIN_CONTENT_ID)
+          if (!main) return
+          main.focus()
+          main.scrollIntoView({ block: 'start' })
+        }}
+      >
+        {t(language, 'skipToContent')}
+      </a>
+      <div className="app-shell">
         <aside
           id="app-sidebar"
           className="sidebar"
@@ -548,7 +570,14 @@ function App(): ReactElement {
           </div>
         </aside>
 
-        <section className="content-panel">
+        {/*
+          The <main> landmark used to wrap the sidebar as well, which made "main
+          content" mean "the entire window" and left the skip link with nowhere
+          meaningful to send focus. It now covers exactly the content region.
+          tabIndex={-1} makes it a programmatic focus target without adding a
+          tab stop of its own.
+        */}
+        <main className="content-panel" id={MAIN_CONTENT_ID} tabIndex={-1}>
           <UpdateBanner language={language} />
           <header className="content-header">
             <div>
@@ -608,10 +637,10 @@ function App(): ReactElement {
               </Suspense>
             </ErrorBoundary>
           </div>
-        </section>
+        </main>
 
         {toast && <div className={`toast toast-${toast.tone}`} role="status">{toast.message}</div>}
-      </main>
+      </div>
 
       <CommandPalette
         open={paletteOpen}
