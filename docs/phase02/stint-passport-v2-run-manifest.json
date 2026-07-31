@@ -34,7 +34,7 @@
         "src/main/passport/passport-v2-blockers.test.ts",
         "src/main/passport/acceptance-evidence.test.ts"
       ],
-      "tests": 434,
+      "tests": 437,
       "files": 15
     },
     "typecheck": {
