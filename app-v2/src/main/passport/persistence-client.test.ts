@@ -108,10 +108,16 @@ async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 5))
 }
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
+/**
+ * Waits for a condition to become true, bounded by the enclosing case's own
+ * timeout rather than by a second wall clock of its own. Callers use this to
+ * wait for the client to reach a state - restart counts, circuit transitions,
+ * work starting - none of which asserts how long the wait took. The 1s deadline
+ * this used to carry turned a starved event loop into `Client condition timed
+ * out.`, which says nothing about the behaviour under test.
+ */
+async function waitUntil(predicate: () => boolean): Promise<void> {
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error('Client condition timed out.')
     await settle()
   }
 }
@@ -327,8 +333,7 @@ describe('PassportPersistenceClient failure domain', () => {
 
       await waitUntil(
         () => client.status().state === 'open-circuit' ||
-          workers.length > expectedWorkerCount,
-        250
+          workers.length > expectedWorkerCount
       )
       const exhaustedStatus = client.status()
 
@@ -343,8 +348,7 @@ describe('PassportPersistenceClient failure domain', () => {
 
       await waitUntil(
         () => workers.every((worker) => worker.terminated) ||
-          workers.length > expectedWorkerCount,
-        250
+          workers.length > expectedWorkerCount
       )
       const observedWorkerCount = workers.length
       const observedWorkerMethods = workers.map((worker) =>
@@ -425,6 +429,14 @@ import type { PassportStoreEvent } from './persistence-engine'
 
 const phase3Directories: string[] = []
 let phase3WorkerFixture: PassportWorkerTestFixture
+
+// Every case in the real-worker section forks a Node process, loads the bundled
+// worker, opens SQLite and runs migrations before it can assert anything. That
+// is genuinely long work rather than stuck work, none of it is asserted on, and
+// this budget is the only clock those cases have - it exists to catch a wedged
+// worker, not to measure the host. Matches the constant of the same name in
+// passport-persistence-worker.test.ts, which sizes the same class of case.
+const REAL_WORKER_TIMEOUT_MS = 60_000
 
 class RealPersistenceProcess {
   private readonly child: ChildProcess
@@ -521,10 +533,10 @@ function configurePhase3Crash(
 
 // Retained for the one predicate that waits for work to *start* rather than
 // finish; readiness and quiescence are awaited through `client.whenIdle()`.
-async function waitForPhase3(predicate: () => boolean, timeoutMs = 4_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
+// Like `waitUntil`, it is bounded by the case's own timeout: nothing here
+// asserts how long the client took to pick the request up.
+async function waitForPhase3(predicate: () => boolean): Promise<void> {
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error('Phase 3 condition timed out.')
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
 }
@@ -629,14 +641,22 @@ function phase3Event(index: number): PassportStoreEvent {
 }
 
 describe('PassportPersistenceClient real worker lifecycle', () => {
+  // Building the worker fixture is a Vite SSR build, not an assertion. Vitest's
+  // default 10s hook budget leaves no room for it on a loaded runner.
   beforeAll(async () => {
     phase3WorkerFixture = await buildPassportWorkerTestFixture('client')
-  })
+  }, 120_000)
 
   afterAll(() => {
     phase3WorkerFixture.cleanup()
   })
 
+  // Same budget as every other case in this describe. This one was left on
+  // Vitest's 5s default while doing the same work they do: fork a real Node
+  // process, load the bundled worker, open SQLite and run migrations before
+  // `whenIdle()` can resolve. `whenIdle()` removed the *redundant* 4s poll this
+  // used to race, but the budget that remained still had to cover a real
+  // process launch, and 5s does not cover one on a loaded runner.
   it('[supported] keeps a healthy real worker available after repeated invalid imports', async () => {
     const path = phase3Database('domain-errors')
     const client = new PassportPersistenceClient({
@@ -657,7 +677,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
       restarts: 0
     })
     await expect(client.getConfig()).resolves.toEqual(DEFAULT_PASSPORT_CONFIG)
-  })
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[supported] rejects a lock-blocked real request, restarts, and exposes only acknowledged durable state', async () => {
     const path = phase3Database('restart')
@@ -706,7 +726,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     await expect(client.eventHeaders('client-stint')).resolves.toMatchObject([
       { sequence: 1, dedupeKey: 'client-dedupe-1', previousHash: undefined }
     ])
-  }, 15_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B10-a] real post-COMMIT roster worker exit is reconciled by operation receipt and authoritative generation', async () => {
     const path = phase3Database('roster-postcommit')
@@ -751,7 +771,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     })
     await expect(client.saveRoster(roster, 0, operationId)).resolves.toEqual(roster)
     await expect(client.getRosterMutationGeneration()).resolves.toBe(1)
-  }, 15_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B10-b] real post-COMMIT opt-out worker exit reconciles privacy, deletion, and idempotent retry', async () => {
     const path = phase3Database('privacy-postcommit')
@@ -806,7 +826,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
       identityPersistenceOptIn: false
     })
     await expect(client.getPrivacyMutationGeneration()).resolves.toBe(1)
-  }, 15_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B11-i] real post-COMMIT retention exit exposes one authoritative receipt and idempotent retry', async () => {
     const path = phase3Database('retention-postcommit')
@@ -856,7 +876,7 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
     }).results
     await expect(client.purgeRetention(retainedAt, operationId, 1)).resolves.toEqual(retained)
     await expect(client.getPrivacyMutationGeneration()).resolves.toBe(1)
-  }, 15_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[supported] ignores stale, duplicate, and future responses without resolving the wrong request', async () => {
     const { client, workers } = createClient([
