@@ -965,7 +965,11 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
   )
 }
 
-// ── Main modal ────────────────────────────────────────────────────────────────
+// ── Main modal ─────────────────────────────────────────────────────────────────
+/** Names the builder dialog: a modal with no accessible name is announced as an
+ *  anonymous "dialog", which tells the user nothing about where they are. */
+const BUILDER_TITLE_ID = 'overlay-widget-builder-title'
+
 export interface OverlayWidgetBuilderProps {
   initial: CustomOverlayDef
   editing: boolean
@@ -1122,11 +1126,11 @@ export function OverlayWidgetBuilder({
   const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onCancel })
 
   return (
-    <div className="overlay-designer-backdrop" ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true">
+    <div className="overlay-designer-backdrop" ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-labelledby={BUILDER_TITLE_ID}>
       <style>{OVERLAY_BUILDER_LAYOUT_CSS}</style>
       <div className="overlay-designer overlay-builder">
         <div className="overlay-designer-head">
-          <h4>{editing ? 'Edit widget overlay' : 'Create new overlay (dashboard widgets)'}</h4>
+          <h4 id={BUILDER_TITLE_ID}>{editing ? 'Edit widget overlay' : 'Create new overlay (dashboard widgets)'}</h4>
           <button className="ghost-action" disabled={busy} onClick={onCancel}>Close</button>
         </div>
 
