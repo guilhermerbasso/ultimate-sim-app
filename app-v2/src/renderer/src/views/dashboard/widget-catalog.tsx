@@ -12,6 +12,7 @@ import { displayUnitLabel } from '../../dashboard/binding'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { useUnitSystem } from '../../lib/units'
+import { ROVING_ITEM_ATTRIBUTE, useRovingTabIndex } from '../../lib/useRovingTabIndex'
 import { usePreviewVisible } from './use-preview-visible'
 import {
   ACCENT,
@@ -232,6 +233,15 @@ const ALL_CATEGORIES = availableCategories(ALL_VARIANTS)
 const ALL_STYLES = availableStyles(ALL_VARIANTS)
 const ALL_CLUSTERS = availableClusters(ALL_VARIANTS)
 
+const ROVING_HINT_ID = 'widget-gallery-keyboard-hint'
+
+/**
+ * Props every control inside a card carries: out of SEQUENTIAL navigation, but
+ * still focusable, still clickable, still in the accessibility tree. The single
+ * roving entry point is promoted back to `tabIndex=0` by `useRovingTabIndex`.
+ */
+const ROVING = { tabIndex: -1, [ROVING_ITEM_ATTRIBUTE]: 'true' } as const
+
 export function WidgetGallery({
   onAdd,
   busy,
@@ -303,6 +313,8 @@ export function WidgetGallery({
     })
     setSelectedIds(new Set())
   }
+
+  const roving = useRovingTabIndex<HTMLDivElement>()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -377,7 +389,28 @@ export function WidgetGallery({
       {filtered.length === 0 ? (
         <div style={emptyStyle}>No widget matches the filters.</div>
       ) : (
-        <>
+        /*
+          WCAG 2.2 A — 2.4.3 Focus Order. Every card carries a checkbox and two
+          buttons, so the card grid used to be 3,732 sequential tab stops that a
+          keyboard user had to walk past to reach the canvas behind it. The grid
+          is now ONE tab stop with a roving tabindex: arrows move between
+          controls, Home/End jump to the ends, and Tab leaves the region. Nothing
+          leaves the accessibility tree and nothing stops being clickable — only
+          sequential navigation changes.
+        */
+        <div
+          ref={roving.containerRef}
+          onKeyDown={roving.onKeyDown}
+          onFocus={roving.onFocus}
+          role="toolbar"
+          aria-label={`Widget gallery, ${filtered.length} widget${filtered.length === 1 ? '' : 's'}`}
+          aria-describedby={ROVING_HINT_ID}
+          data-widget-gallery-grid="true"
+          style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+        >
+          <div id={ROVING_HINT_ID} style={rovingHint}>
+            Arrow keys move between widgets · Home/End jump to the ends · Tab leaves the gallery
+          </div>
           {(curatedClusterSections.length > 0 || curatedFallbackSections.length > 0) && (
             <>
               <div style={featuredHeader}>
@@ -399,6 +432,7 @@ export function WidgetGallery({
             <div style={advancedWrap}>
               <button
                 type="button"
+                {...ROVING}
                 onClick={() => setAdvancedOpen((v) => !v)}
                 style={advancedToggle}
                 aria-expanded={showAdvanced}
@@ -420,20 +454,20 @@ export function WidgetGallery({
           )}
           {hiddenVariants.length > 0 && (
             <details>
-              <summary style={{ color: TEXT_FG, cursor: 'pointer', fontWeight: 800 }}>Hidden widgets ({hiddenVariants.length})</summary>
+              <summary {...ROVING} style={{ color: TEXT_FG, cursor: 'pointer', fontWeight: 800 }}>Hidden widgets ({hiddenVariants.length})</summary>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                 {hiddenVariants.map((variant) => (
                   <label key={variant.id} style={{ ...clearBtnStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input type="checkbox" checked={selectedIds.has(variant.id)} onChange={() => toggleSelected(variant.id)} />
+                    <input type="checkbox" {...ROVING} checked={selectedIds.has(variant.id)} onChange={() => toggleSelected(variant.id)} />
                     <span>{displayUnitLabel(variant.label, variant.binding, variant.style.suffix, unitSystem)}</span>
-                    <button type="button" style={clearBtnStyle} onClick={() => restoreIds([variant.id])}>Restore</button>
+                    <button type="button" {...ROVING} style={clearBtnStyle} onClick={() => restoreIds([variant.id])}>Restore</button>
                   </label>
                 ))}
               </div>
-              <button type="button" style={{ ...clearBtnStyle, marginTop: 10 }} disabled={selectedIds.size === 0} onClick={() => restoreIds(Array.from(selectedIds))}>Restore selected</button>
+              <button type="button" {...ROVING} style={{ ...clearBtnStyle, marginTop: 10 }} disabled={selectedIds.size === 0} onClick={() => restoreIds(Array.from(selectedIds))}>Restore selected</button>
             </details>
           )}
-        </>
+        </div>
       )}
     </div>
   )
@@ -472,9 +506,11 @@ function SectionGrid({
             key={v.id}
             title={v.hint ?? `Add ${displayUnitLabel(v.label, v.binding, v.style.suffix, unitSystem)}`}
             style={cardStyle}
+            role="group"
+            aria-label={displayUnitLabel(v.label, v.binding, v.style.suffix, unitSystem)}
           >
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 11, marginBottom: 6 }}>
-              <input type="checkbox" checked={selectedIds.has(v.id)} disabled={busy} onChange={() => onToggleSelected(v.id)} />
+              <input type="checkbox" {...ROVING} checked={selectedIds.has(v.id)} disabled={busy} onChange={() => onToggleSelected(v.id)} />
               Select
             </label>
             <WidgetMini
@@ -497,8 +533,8 @@ function SectionGrid({
               <div style={missingBadge} title={v.missing}>⚠ {v.missing}</div>
             )}
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button type="button" disabled={busy} onClick={() => onAdd(v)} style={miniActionBtn}>Add</button>
-              <button type="button" disabled={busy} onClick={() => onHide(v.id)} style={miniActionBtn}>Hide</button>
+              <button type="button" {...ROVING} disabled={busy} onClick={() => onAdd(v)} style={miniActionBtn}>Add</button>
+              <button type="button" {...ROVING} disabled={busy} onClick={() => onHide(v.id)} style={miniActionBtn}>Hide</button>
             </div>
           </div>
         ))}
@@ -578,10 +614,18 @@ const clearBtnStyle: CSSProperties = {
   whiteSpace: 'nowrap'
 }
 
+// Visible, not screen-reader-only: "arrows move, Tab leaves" is news to sighted
+// keyboard users too, and it is the instruction aria-describedby points at.
+const rovingHint: CSSProperties = {
+  color: TEXT_DIM,
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.03em'
+}
+
 const miniActionBtn: CSSProperties = {
   ...clearBtnStyle,
-  flex: 1,
-  textAlign: 'center'
+  flex: 1,  textAlign: 'center'
 }
 
 const chipRowLabel: CSSProperties = {

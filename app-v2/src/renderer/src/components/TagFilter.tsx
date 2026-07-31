@@ -3,6 +3,10 @@ import type { CSSProperties, ReactElement } from 'react'
 import type { AppSettings } from '../../../shared/settings'
 import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, tt, type ResolvedLanguage } from '../i18n'
 import { normalizeTagKey } from '../../../shared/tags'
+import { ROVING_ITEM_ATTRIBUTE, useRovingTabIndex } from '../lib/useRovingTabIndex'
+
+/** See useRovingTabIndex: out of sequential navigation, still focusable and clickable. */
+const ROVING = { tabIndex: -1, [ROVING_ITEM_ATTRIBUTE]: 'true' } as const
 
 export interface TagCount {
   tag: string
@@ -78,6 +82,7 @@ export function TagFilter<T>({
   const visibleTags = normalizedQuery
     ? tagCounts.filter(({ tag }) => tag.toLocaleLowerCase().includes(normalizedQuery))
     : tagCounts
+  const roving = useRovingTabIndex<HTMLDivElement>()
 
   useEffect(() => {
     if (language) return
@@ -114,31 +119,53 @@ export function TagFilter<T>({
         style={searchStyle}
       />
       <span style={countStyle}>{tt(effectiveLanguage, 'shared.tagFilter.count', { shown: filteredItems.length, total: items.length })}</span>
-      <button
-        type="button"
-        className={selectedTags.length === 0 ? 'overlay-fav is-fav' : 'overlay-fav'}
-        onClick={() => onSelectedTagsChange([])}
-        disabled={selectedTags.length === 0}
-        style={{ ...chipStyle, opacity: selectedTags.length === 0 ? 0.7 : 1 }}
+      {/*
+        WCAG 2.2 A — 2.4.3 Focus Order. The preset gallery renders 361 tags, so
+        this row was 361 tab stops between the search box and everything after
+        it. It is now one stop with a roving tabindex; the chips stay clickable,
+        stay in the accessibility tree, and are reached with the arrow keys.
+
+        `display: contents` so the chips keep flowing in the parent's wrap
+        exactly as before — this component is shared with three screens and the
+        layout must not move.
+      */}
+      <div
+        ref={roving.containerRef}
+        onKeyDown={roving.onKeyDown}
+        onFocus={roving.onFocus}
+        role="toolbar"
+        aria-label={tt(effectiveLanguage, 'shared.tagFilter.tags')}
+        data-tag-filter-chips="true"
+        style={{ display: 'contents' }}
       >
-        {tt(effectiveLanguage, 'common.clear')}
-      </button>
-      {visibleTags.map(({ tag, count }) => {
-        const selected = selectedSet.has(normalizeTagKey(tag))
-        return (
-          <button
-            key={tag}
-            type="button"
-            className={selected ? 'overlay-fav is-fav' : 'overlay-fav'}
-            aria-pressed={selected}
-            onClick={() => toggleTag(tag)}
-            style={chipStyle}
-            title={tt(effectiveLanguage, count === 1 ? 'shared.tagFilter.itemSingular' : 'shared.tagFilter.itemPlural', { count })}
-          >
-            {tag} <span style={countBubbleStyle}>{count}</span>
-          </button>
-        )
-      })}
+        <button
+          type="button"
+          {...ROVING}
+          className={selectedTags.length === 0 ? 'overlay-fav is-fav' : 'overlay-fav'}
+          onClick={() => onSelectedTagsChange([])}
+          disabled={selectedTags.length === 0}
+          style={{ ...chipStyle, opacity: selectedTags.length === 0 ? 0.7 : 1 }}
+        >
+          {tt(effectiveLanguage, 'common.clear')}
+        </button>
+        {visibleTags.map(({ tag, count }) => {
+          const selected = selectedSet.has(normalizeTagKey(tag))
+          return (
+            <button
+              key={tag}
+              type="button"
+              {...ROVING}
+              className={selected ? 'overlay-fav is-fav' : 'overlay-fav'}
+              aria-pressed={selected}
+              onClick={() => toggleTag(tag)}
+              style={chipStyle}
+              title={tt(effectiveLanguage, count === 1 ? 'shared.tagFilter.itemSingular' : 'shared.tagFilter.itemPlural', { count })}
+            >
+              {tag} <span style={countBubbleStyle}>{count}</span>
+            </button>
+          )
+        })}
+      </div>
       {visibleTags.length === 0 && <span style={countStyle}>{tt(effectiveLanguage, 'shared.tagFilter.noTags')}</span>}
     </div>
   )
