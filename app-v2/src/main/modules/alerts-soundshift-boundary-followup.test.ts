@@ -6,6 +6,17 @@ import type { ReplayContext, ReplayContextState } from '../../shared/replay'
 import { SOUNDSHIFT_CHANNELS } from '../../shared/soundshift'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 
+// Every test below re-imports `./alerts` or `./soundshift` after `vi.resetModules()`,
+// because each registration has to start from fresh module state and several of them
+// mock `node:fs/promises` first. Loading both graphs here as well makes each of those
+// in-test imports a warm one. Without this the first test in the file pays the cold
+// transform-and-serve of the whole graph inside its own body, where vitest's 5 000 ms
+// `testTimeout` is already running — and that pipeline is a single main-process
+// resource shared by every fork on the machine, so its cost is set by how busy the
+// machine is, not by anything this suite does.
+import './alerts'
+import './soundshift'
+
 vi.mock('../settings/events', () => ({
   settingsEvents: { onChanged: vi.fn() }
 }))
@@ -152,12 +163,18 @@ function moduleHarness(name: string, options: HarnessOptions = {}) {
   }
 }
 
-async function settleConfigLoad(): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, 50))
-}
-
 function callsFor(broadcast: ReturnType<typeof vi.fn>, channel: string): unknown[] {
   return broadcast.mock.calls.filter(([actual]) => actual === channel).map(([, payload]) => payload)
+}
+
+// `register` reads the persisted config asynchronously and announces the result by
+// broadcasting `alerts:config` on the same turn it flips its internal ready flag. Wait
+// for that announcement, the way the soundshift helper below already does. A fixed
+// sleep here would be a second clock racing a disk read it has no relation to.
+async function settleConfigLoad(broadcast: ReturnType<typeof vi.fn>): Promise<void> {
+  await vi.waitFor(() => {
+    expect(callsFor(broadcast, 'alerts:config')).toHaveLength(1)
+  })
 }
 
 async function settleSoundshiftConfigLoad(broadcast: ReturnType<typeof vi.fn>): Promise<void> {
@@ -190,7 +207,7 @@ describe('alerts policy persistence', () => {
     )
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
 
     expect(harness.handlers.get('alerts:getConfig')?.()).toMatchObject({
       lowFuel: { lapsThreshold: 4 },
@@ -232,7 +249,7 @@ describe('alerts policy persistence', () => {
     const { register } = await import('./alerts')
     const harness = moduleHarness('alerts-concurrent-config')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     const setConfig = harness.handlers.get('alerts:setConfig')!
 
     const lowFuelCommit = setConfig(undefined, {
@@ -456,7 +473,7 @@ describe('alerts hardware boundary cleanup', () => {
     const { register } = await import('./alerts')
     const harness = moduleHarness('alerts-neutralize')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [
@@ -519,7 +536,7 @@ describe('alerts hardware boundary cleanup', () => {
     const { register } = await import('./alerts')
     const harness = moduleHarness('alerts-seed')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [
@@ -585,7 +602,7 @@ describe('alerts hardware boundary cleanup', () => {
     const { register } = await import('./alerts')
     const harness = moduleHarness('alerts-start-leases')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 500 }]
@@ -616,7 +633,7 @@ describe('alerts hardware boundary cleanup', () => {
     const { register } = await import('./alerts')
     const harness = moduleHarness('alerts-display-leases')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'bigNum', bigNumValue: '7' }]
@@ -660,7 +677,7 @@ describe('alerts hardware boundary cleanup', () => {
     })
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 100 }]
@@ -695,7 +712,7 @@ describe('alerts hardware boundary cleanup', () => {
     })
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 100 }]
@@ -726,7 +743,7 @@ describe('alerts hardware boundary cleanup', () => {
     })
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 5_000 }]
@@ -759,7 +776,7 @@ describe('alerts hardware boundary cleanup', () => {
     })
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 500 }]
@@ -817,7 +834,7 @@ describe('alerts hardware boundary cleanup', () => {
     }
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 5_000 }]
@@ -853,7 +870,7 @@ describe('alerts hardware boundary cleanup', () => {
     const { register } = await import('./alerts')
     const harness = moduleHarness('alerts-initial-live')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [
@@ -905,7 +922,7 @@ describe('alerts hardware boundary cleanup', () => {
     })
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 5_000 }]
@@ -953,7 +970,7 @@ describe('alerts hardware boundary cleanup', () => {
     })
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 5_000 }]
@@ -982,7 +999,7 @@ describe('alerts hardware boundary cleanup', () => {
     })
     const { register } = await import('./alerts')
     register(harness.ctx)
-    await settleConfigLoad()
+    await settleConfigLoad(harness.broadcast)
     await harness.handlers.get('alerts:setConfig')?.(undefined, {
       pitLimiter: {
         outputs: [{ kind: 'buttonbox', preset: 'startLedFlash', durationMs: 5_000 }]
