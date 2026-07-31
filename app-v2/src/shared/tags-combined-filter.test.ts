@@ -1,73 +1,39 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   GT3_DENSE_50_MATRIX,
   GT3_DENSE_50_PRESETS
 } from './dashboards-gt3-dense-50'
 import {
   ALL_TAG_VOCAB,
+  filterByTags,
   isControlledTag,
   isTelemetryIdTag,
   unitTagFor
 } from './tags'
+import { filterVariants } from './widget-taxonomy'
+// The renderer registries are imported statically, the same way ten sibling suites in
+// this directory already reach them (dashboards.test.ts, dashboard-layout, dashboard-nl,
+// dashboard-render-capability, dashboards-hifi-*). They used to be pulled in by
+// `vi.importActual` inside a `beforeAll`, which put vitest's default 10 s hook budget on
+// a 136-module graph load: solo that load costs ~1.6 s, but under 2x worker
+// oversubscription it queues behind every other fork on vitest's single main-process
+// module-transform server and measures p50 19 s. The hook clock was timing machine
+// contention, not this suite's setup.
+import { HIFI_WIDGET_GROUPS, hifiWidgetTags } from '../renderer/src/hifi/widgets/registry'
+import { ALL_VARIANTS } from '../renderer/src/views/dashboard/widget-catalog-data'
 import {
-  filterVariants,
-  type WidgetTaxon
-} from './widget-taxonomy'
+  SNAPSHOT_GAP_DESCRIPTORS,
+  TELEMETRY_DESCRIPTORS
+} from '../renderer/src/hifi/widgets/variants'
 
-interface TelemetryWidget {
-  id: string
-  category: string
-  tags: string[]
+const telemetryWidgets = HIFI_WIDGET_GROUPS.telemetryVariants
+const telemetryCatalogVariants = ALL_VARIANTS.filter((variant) =>
+  variant.tags?.includes('telemetry-framework')
+)
+const descriptorUnits = new Map<string, string>()
+for (const descriptor of [...TELEMETRY_DESCRIPTORS, ...SNAPSHOT_GAP_DESCRIPTORS]) {
+  if (descriptor.unit) descriptorUnits.set(descriptor.id, descriptor.unit)
 }
-
-interface CatalogVariant extends WidgetTaxon {
-  hifiModuleId?: string
-}
-
-type FilterByTags = <T>(
-  items: readonly T[],
-  selectedTags: readonly string[] | ReadonlySet<string>,
-  getTags: (item: T) => readonly string[] | undefined
-) => T[]
-
-let telemetryWidgets: readonly TelemetryWidget[] = []
-let telemetryCatalogVariants: CatalogVariant[] = []
-let descriptorUnits = new Map<string, string>()
-let filterByTags: FilterByTags
-let hifiWidgetTags: (widget: TelemetryWidget) => string[]
-
-// Runtime imports exercise the real renderer registries without pulling them into
-// tsconfig.node's static module graph.
-beforeAll(async () => {
-  const [tagFilterModule, registryModule, catalogModule, variantsModule] = await Promise.all([
-    vi.importActual('../renderer/src/components/TagFilter'),
-    vi.importActual('../renderer/src/hifi/widgets/registry'),
-    vi.importActual('../renderer/src/views/dashboard/widget-catalog-data'),
-    vi.importActual('../renderer/src/hifi/widgets/variants')
-  ])
-  const tagFilter = tagFilterModule as { filterByTags: FilterByTags }
-  const registry = registryModule as {
-    HIFI_WIDGET_GROUPS: { telemetryVariants: readonly TelemetryWidget[] }
-    hifiWidgetTags: (widget: TelemetryWidget) => string[]
-  }
-  const catalog = catalogModule as { ALL_VARIANTS: CatalogVariant[] }
-  const variants = variantsModule as {
-    TELEMETRY_DESCRIPTORS: Array<{ id: string; unit?: string }>
-    SNAPSHOT_GAP_DESCRIPTORS: Array<{ id: string; unit?: string }>
-  }
-
-  filterByTags = tagFilter.filterByTags
-  hifiWidgetTags = registry.hifiWidgetTags
-  telemetryWidgets = registry.HIFI_WIDGET_GROUPS.telemetryVariants
-  telemetryCatalogVariants = catalog.ALL_VARIANTS.filter((variant) =>
-    variant.tags?.includes('telemetry-framework')
-  )
-  descriptorUnits = new Map(
-    [...variants.TELEMETRY_DESCRIPTORS, ...variants.SNAPSHOT_GAP_DESCRIPTORS]
-      .filter((descriptor): descriptor is { id: string; unit: string } => Boolean(descriptor.unit))
-      .map((descriptor) => [descriptor.id, descriptor.unit] as const)
-  )
-})
 
 function telemetryIdentity(widgetId: string): {
   telemetryTag: string

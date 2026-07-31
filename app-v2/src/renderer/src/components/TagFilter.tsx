@@ -2,54 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { AppSettings } from '../../../shared/settings'
 import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, tt, type ResolvedLanguage } from '../i18n'
-import { normalizeTagKey } from '../../../shared/tags'
+import { collectTags, filterByTags, normalizeTagKey } from '../../../shared/tags'
 import { ROVING_ITEM_ATTRIBUTE, useRovingTabIndex } from '../lib/useRovingTabIndex'
+
+// `filterByTags`/`collectTags` are pure tag-set operations with no React or i18n in
+// them, so they live in shared/tags.ts next to `normalizeTagKey`. Re-exported here
+// because this component is their main consumer — and so node-environment suites can
+// reach them without loading this module's 394 KB i18n dependency.
+export { collectTags, filterByTags, type TagCount } from '../../../shared/tags'
 
 /** See useRovingTabIndex: out of sequential navigation, still focusable and clickable. */
 const ROVING = { tabIndex: -1, [ROVING_ITEM_ATTRIBUTE]: 'true' } as const
-
-export interface TagCount {
-  tag: string
-  count: number
-}
-
-function normalizeSelected(selectedTags: readonly string[] | ReadonlySet<string>): string[] {
-  return Array.from(selectedTags).map((tag) => normalizeTagKey(tag)).filter(Boolean)
-}
-
-export function filterByTags<T>(
-  items: readonly T[],
-  selectedTags: readonly string[] | ReadonlySet<string>,
-  getTags: (item: T) => readonly string[] | undefined
-): T[] {
-  const selected = normalizeSelected(selectedTags)
-  if (selected.length === 0) return [...items]
-  return items.filter((item) => {
-    const itemTags = new Set((getTags(item) ?? []).map((tag) => normalizeTagKey(tag)).filter(Boolean))
-    return selected.every((tag) => itemTags.has(tag))
-  })
-}
-
-export function collectTags<T>(
-  items: readonly T[],
-  getTags: (item: T) => readonly string[] | undefined
-): TagCount[] {
-  const counts = new Map<string, { tag: string; count: number }>()
-  for (const item of items) {
-    const uniqueKeys = new Map<string, string>()
-    for (const raw of getTags(item) ?? []) {
-      const tag = raw.trim()
-      const key = normalizeTagKey(tag)
-      if (key && !uniqueKeys.has(key)) uniqueKeys.set(key, tag)
-    }
-    for (const [key, tag] of uniqueKeys) {
-      const entry = counts.get(key)
-      if (entry) entry.count += 1
-      else counts.set(key, { tag, count: 1 })
-    }
-  }
-  return Array.from(counts.values()).sort((a, b) => a.tag.localeCompare(b.tag))
-}
 
 export interface TagFilterProps<T> {
   items: readonly T[]
