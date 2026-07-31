@@ -7,6 +7,7 @@ import type { Dashboard, DashboardPreset } from '../../../../shared/dashboards'
 import { sortElementsByZ } from '../../../../shared/dashboards'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { usePreviewVisible } from './use-preview-visible'
+import { ROVING_ITEM_ATTRIBUTE, useRovingTabIndex } from '../../lib/useRovingTabIndex'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
 import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, type ResolvedLanguage } from '../../i18n'
@@ -117,7 +118,7 @@ function PresetCard({
   const isGt3 = entry.tags?.includes('GT3')
   const isAdaptive = entry.tags?.includes('adaptive')
   return (
-    <div style={cardStyle}>
+    <div style={cardStyle} role="group" aria-label={entry.name}>
       <PresetThumb
         dash={dash}
         showTriggerOnlyActive={showTriggerOnlyActive}
@@ -143,7 +144,7 @@ function PresetCard({
           ))}
         </div>
       )}
-      <button type="button" disabled={busy} onClick={() => onPick(entry.id)} style={pickBtn}>
+      <button type="button" {...ROVING} disabled={busy} onClick={() => onPick(entry.id)} style={pickBtn}>
         Duplicate and edit
       </button>
     </div>
@@ -181,6 +182,7 @@ export function PresetGallery({
     [presets]
   )
   const filtered = useMemo(() => filterByTags(orderedPresets, selectedTags, (preset) => preset.tags), [orderedPresets, selectedTags])
+  const roving = useRovingTabIndex<HTMLDivElement>()
   return (
     <div>
       <TagFilter
@@ -191,7 +193,25 @@ export function PresetGallery({
         language={language}
         style={{ marginBottom: 12 }}
       />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))', gap: 12 }}>
+      <div id={PRESET_ROVING_HINT_ID} style={rovingHint}>
+        Arrow keys move between presets · Home/End jump to the ends · Tab leaves the gallery
+      </div>
+      {/*
+        WCAG 2.2 A — 2.4.3 Focus Order. One "Duplicate and edit" button per
+        preset made the region as many tab stops as there are presets. It is now
+        one stop with a roving tabindex; every button stays clickable, stays in
+        the accessibility tree, and stays reachable with the arrow keys.
+      */}
+      <div
+        ref={roving.containerRef}
+        onKeyDown={roving.onKeyDown}
+        onFocus={roving.onFocus}
+        role="toolbar"
+        aria-label={`Preset gallery, ${filtered.length} preset${filtered.length === 1 ? '' : 's'}`}
+        aria-describedby={PRESET_ROVING_HINT_ID}
+        data-preset-gallery-grid="true"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))', gap: 12 }}
+      >
         {filtered.map((p) => (
           <PresetCard
             key={p.id}
@@ -205,6 +225,19 @@ export function PresetGallery({
       </div>
     </div>
   )
+}
+
+const PRESET_ROVING_HINT_ID = 'preset-gallery-keyboard-hint'
+
+/** See widget-catalog: out of sequential navigation, still focusable and clickable. */
+const ROVING = { tabIndex: -1, [ROVING_ITEM_ATTRIBUTE]: 'true' } as const
+
+const rovingHint: CSSProperties = {
+  color: TEXT_DIM,
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.03em',
+  marginBottom: 8
 }
 
 const cardStyle: CSSProperties = {
