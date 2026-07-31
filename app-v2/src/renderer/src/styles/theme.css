@@ -10,27 +10,39 @@
   --surface-hover:     rgba(255, 255, 255, 0.03);  /* Row/item hover tint */
   --surface-selected:  rgba(var(--accent-rgb), 0.10);   /* Selected row tint */
 
-  /* ── BORDERS ── */
+  /* ── BORDERS ──
+   * `--border-default` and `--border-strong` draw the only visible boundary of
+   * inputs, selects, chips and segmented controls: their fills differ from the
+   * page by ~1.02:1, so the border carries the whole "this is a control" signal
+   * and WCAG 2.2 SC 1.4.11 asks 3:1 of it. Both clear 3:1 against every surface
+   * they are drawn on, worst case `--surface-overlay`.
+   * `--border-subtle` is exempt: it is a decorative hairline between two
+   * same-level surfaces and never delineates a control. */
   --border-subtle:     #161616;   /* Hairline between surfaces at same level */
-  --border-default:    #252525;   /* Standard component borders */
-  --border-strong:     #383838;   /* Focused/active input borders */
+  --border-default:    #6A6A6A;   /* Standard component + control borders (3.25:1 on overlay) */
+  --border-strong:     #808080;   /* Focused/active input borders (4.42:1 on overlay) */
   --border-accent:     var(--accent-primary);   /* Orange accent border (active nav, selection) */
 
   /* ── ACCENT COLORS (Carbon Orange / Race Red system) ── */
-  --accent-primary:    #E86920;   /* Carbon Orange — CTAs, active state, links */
+  --accent-primary:    #E86B22;   /* Carbon Orange — CTAs, active state, links */
   --accent-primary-dim: rgba(var(--accent-rgb), 0.15);   /* Subtle tint */
   --accent-primary-bright: #F07830;  /* Hover state of orange */
-  --accent-danger:     #C41A1A;   /* Race Red — errors, destructive actions */
+  --accent-danger:     #E84C51;   /* Race Red — errors, destructive actions (4.67:1 on overlay) */
   --accent-danger-dim: rgba(var(--danger-rgb), 0.15);
   --accent-warning:    #D4890A;   /* Amber — warnings */
-  --accent-success:    #1A8A3A;   /* Green — success states (muted, not neon) */
+  --accent-success:    #23A64B;   /* Green — success states (muted, not neon; 5.51:1 on overlay) */
 
-  /* ── TEXT ── */
+  /* ── TEXT ──
+   * The three-step hierarchy is held on ratio, not on "one is dimmer": on
+   * `--surface-overlay` (the lightest surface, so the hardest case) primary is
+   * 14.8:1, secondary 7.2:1 and muted 4.9:1. Muted used to be 4.06:1 there and
+   * only 1.24:1 apart from secondary; raising muted alone would have merged the
+   * two, so secondary moved up with it and the gap is now 1.57:1. */
   --text-primary:      #F0EBE0;   /* Warm white — matches dashboard palette */
-  --text-secondary:    #8A8A7A;   /* Dimmed text for secondary info */
-  --text-muted:        #7A7A70;   /* Placeholders, disabled labels */
+  --text-secondary:    #A8A898;   /* Dimmed text for secondary info (7.25:1 on overlay) */
+  --text-muted:        #8C8C82;   /* Placeholders, disabled labels (5.16:1 on overlay) */
   --text-accent:       var(--accent-primary);   /* Orange for active links, highlights */
-  --text-danger:       #E03030;   /* Error messages */
+  --text-danger:       #F25A60;   /* Error messages (5.34:1 on overlay) */
   --text-on-accent:    var(--surface-base);   /* Text on orange buttons (#0A0A0A) */
   
   /* ── FOCUS RING ── */
@@ -79,11 +91,11 @@
   /* Map older generic variables used in views if necessary */
   --line: var(--border-default);
   --accent: var(--accent-primary);
-  --accent-rgb: 232, 105, 32;
+  --accent-rgb: 232, 107, 34;
   --success: var(--accent-success);
-  --success-rgb: 26, 138, 58;
+  --success-rgb: 35, 166, 75;    /* #23A64B — single tint base for success rgba() */
   --danger: var(--accent-danger);
-  --danger-rgb: 196, 26, 26;     /* #C41A1A — single tint base for danger rgba() */
+  --danger-rgb: 232, 76, 81;     /* #E84C51 — single tint base for danger rgba() */
   --warning-rgb: 212, 137, 10;   /* #D4890A — single tint base for warning rgba() */
   --muted: var(--text-muted);
   --text: var(--text-primary);
@@ -706,7 +718,9 @@ h3 {
 }
 
 .ghost-action.danger {
-  color: var(--accent-danger);
+  /* The danger TEXT token, not the danger FILL token: on the dim tint this
+   * button paints on hover the fill token only reaches 4.31:1. */
+  color: var(--text-danger);
   border-color: var(--border-strong);
 }
 .ghost-action.danger:hover {
