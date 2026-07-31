@@ -85,9 +85,14 @@ asarUnpack:
   # DLLs) must run UNPACKED so the addon and its dependent DLLs resolve at runtime.
   - "**/node_modules/sherpa-onnx-node/**"
   - "**/node_modules/sherpa-onnx-win-x64/**"
-  # @xenova/transformers loads wasm/onnx assets at runtime — unpack so they resolve.
-  - "**/node_modules/@xenova/transformers/**"
-  # sharp (pulled in by @xenova) ships a native addon + libvips — unpack so it resolves.
+  # @huggingface/transformers loads wasm/onnx assets at runtime — unpack so they resolve.
+  - "**/node_modules/@huggingface/transformers/**"
+  # It also carries its own pinned onnxruntime-node (a second native addon, nested under
+  # the package) — the broad onnxruntime-node glob above only matches the hoisted copy.
+  - "**/node_modules/@huggingface/transformers/node_modules/onnxruntime-node/**"
+  # sharp (pulled in by @huggingface/transformers) is a native addon. Since 0.33 the
+  # binary and libvips live in the platform package @img/sharp-win32-x64 rather than
+  # inside sharp/build, so BOTH must be unpacked for it to resolve.
   - "**/node_modules/sharp/**"
   - "**/node_modules/@img/**"
 

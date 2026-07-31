@@ -9,7 +9,7 @@
 //
 // Persistence is the ONLY side effect here (node:fs). Embedding itself is done by
 // the caller (see embeddings.ts) and handed back via `setVector` — this file has
-// no dependency on `@xenova/transformers`, so importing it (e.g. from a test) is
+// no dependency on `@huggingface/transformers`, so importing it (e.g. from a test) is
 // always safe and offline.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'

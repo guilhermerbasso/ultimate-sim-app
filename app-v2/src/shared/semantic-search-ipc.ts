@@ -1,8 +1,8 @@
 // Shared IPC contract for WS-K "Busca semântica" (local semantic search over
 // setups, ghosts/telemetry, driver notes, engineer/coach findings).
 //
-// Dependency-free (no node:*, electron, @xenova/transformers or React) so it can
-// be imported by main, preload, renderer AND unit tests without dragging in the
+// Dependency-free (no node:*, electron, @huggingface/transformers or React) so it
+// can be imported by main, preload, renderer AND unit tests without dragging in the
 // native ONNX runtime — same rule shared/ai.ts / shared/engineer-ipc.ts follow.
 // It carries only the channel names, the model constants and the payload shapes.
 
@@ -13,8 +13,19 @@
 // app NEVER ships it. Absent → the module falls back to deterministic keyword
 // search, so everything works 100% offline with zero downloads too.
 
-/** Hugging Face repo id loaded through `@xenova/transformers` (ONNX, CPU). */
+/** Hugging Face repo id loaded through `@huggingface/transformers` (ONNX, CPU). */
 export const SEMANTIC_MODEL_ID = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
+
+/**
+ * ONNX weight precision requested from the hub — selects `onnx/model_quantized.onnx`
+ * (~113 MB int8) instead of the fp32 export (~470 MB).
+ *
+ * This MUST be passed explicitly. Transformers.js v2 took `{ quantized: true }` and
+ * defaulted to the quantized weights; v3 replaced that flag with `dtype` and defaults
+ * to fp32, and it IGNORES the old flag rather than erroring. Omitting it therefore
+ * silently quadruples the download and the resident memory while still "working".
+ */
+export const SEMANTIC_MODEL_DTYPE = 'q8'
 
 /** Embedding dimensionality of the model above (MiniLM-L12 → 384). */
 export const SEMANTIC_MODEL_DIM = 384
@@ -139,7 +150,7 @@ export interface SemanticIndexStatus {
   modelReady: boolean
   /** True while a download/load is in flight. */
   modelDownloading: boolean
-  /** True when `@xenova/transformers` is installed (model CAN be downloaded). */
+  /** True when `@huggingface/transformers` is installed (model CAN be downloaded). */
   modelAvailable: boolean
   /** Active query mode if a search ran right now. */
   mode: SemanticSearchMode

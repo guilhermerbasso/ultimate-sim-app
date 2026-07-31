@@ -1,4 +1,4 @@
-// WS-K — Embedding engine backed by Transformers.js (`@xenova/transformers`).
+// WS-K — Embedding engine backed by Transformers.js (`@huggingface/transformers`).
 //
 // Pure-JS ONNX inference in Node, CPU-only. The multilingual MiniLM model is
 // pulled FROM HUGGING FACE ON DEMAND the first time `ensureModel` runs and cached
@@ -9,12 +9,13 @@
 //
 // Design notes:
 //  • Dynamic import via a NON-LITERAL specifier so this file type-checks and
-//    builds even when `@xenova/transformers` is absent from node_modules.
+//    builds even when `@huggingface/transformers` is absent from node_modules.
 //  • Single-flight: concurrent `ensureModel`/`embed` callers share one load.
 //  • Idle-unload: the pipeline is disposed after a quiet period to free RAM.
 
 import {
   SEMANTIC_MODEL_ID,
+  SEMANTIC_MODEL_DTYPE,
   type SemanticModelPhase,
   type SemanticModelProgress
 } from '../../shared/semantic-search-ipc'
@@ -31,7 +32,7 @@ interface TransformersModule {
   pipeline: (
     task: string,
     model: string,
-    opts?: { progress_callback?: (p: RawProgress) => void; quantized?: boolean }
+    opts?: { progress_callback?: (p: RawProgress) => void; dtype?: string }
   ) => Promise<FeatureExtractor>
   env: {
     cacheDir?: string
@@ -82,7 +83,7 @@ export class EmbeddingsEngine {
     return this.loadPromise !== null && this.extractor === null
   }
 
-  /** Whether `@xenova/transformers` is installed (the model CAN be loaded). */
+  /** Whether `@huggingface/transformers` is installed (the model CAN be loaded). */
   async isAvailable(): Promise<boolean> {
     if (this.moduleAvailable !== null) return this.moduleAvailable
     try {
@@ -127,7 +128,7 @@ export class EmbeddingsEngine {
       mod.env.allowRemoteModels = true
       this.setPhase('downloading')
       const extractor = await mod.pipeline('feature-extraction', SEMANTIC_MODEL_ID, {
-        quantized: true,
+        dtype: SEMANTIC_MODEL_DTYPE,
         progress_callback: (p) => this.emitRaw(p)
       })
       this.extractor = extractor
@@ -238,7 +239,7 @@ let cachedModule: TransformersModule | null = null
 
 async function loadTransformers(): Promise<TransformersModule> {
   if (cachedModule) return cachedModule
-  const specifier = '@xenova/transformers'
+  const specifier = '@huggingface/transformers'
   const mod = (await import(/* @vite-ignore */ specifier)) as TransformersModule
   cachedModule = mod
   return mod
