@@ -827,6 +827,10 @@ function cloneElements(elements: DashboardElement[]): DashboardElement[] {
   return JSON.parse(JSON.stringify(elements)) as DashboardElement[]
 }
 
+/** Names the frame-editor dialog: a modal with no accessible name is announced
+ *  as an anonymous "dialog", which tells the user nothing about where they are. */
+const FRAME_EDITOR_TITLE_ID = 'adaptive-frame-editor-title'
+
 function FrameEditorModal({
   dash,
   rule,
@@ -868,13 +872,12 @@ function FrameEditorModal({
 
   const focusTrap = useFocusTrap<HTMLDivElement>({ onEscape: onCancel })
 
-  return (
-    <div style={modalOverlay} ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true">
+  return (    <div style={modalOverlay} ref={focusTrap.containerRef} onKeyDown={focusTrap.onKeyDown} role="dialog" aria-modal="true" aria-labelledby={FRAME_EDITOR_TITLE_ID}>
       <div style={modalCard}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
             <span style={{ ...eyebrow, color: CHROME }}>{t('adaptive.frameEditorEyebrow')}</span>
-            <h2 style={{ margin: '2px 0 0', fontSize: 18, color: 'var(--text-primary)' }}>
+            <h2 id={FRAME_EDITOR_TITLE_ID} style={{ margin: '2px 0 0', fontSize: 18, color: 'var(--text-primary)' }}>
               {momentLabel(rule?.moment ?? '')}
             </h2>
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
