@@ -59,6 +59,10 @@ export interface AppThemeTokens {
   textPrimary?: string
   textSecondary?: string
   textMuted?: string
+  // Error copy. Separate from `danger` because `danger` also fills destructive
+  // buttons and status dots: a fill dark enough to carry near-black label text
+  // is rarely light enough to be readable AS text on the panel behind it.
+  textDanger?: string
   warning?: string
   // ── Glass / modern "feel" tokens (optional) ──
   // Themes that opt into the glassmorphism look declare these so the whole
@@ -146,16 +150,18 @@ export const APP_THEME_PRESETS: Record<Exclude<AppTheme, 'custom'>, AppThemeToke
   },
   midnight: {
     // Carbon Orange — canonical design system, mirrors styles/theme.css :root.
-    accent: '#e86920',
+    // Every value here is held at WCAG 2.2 AA by a11y/contrast-tokens.test.ts,
+    // which also asserts it has not drifted from the stylesheet.
+    accent: '#e86b22',
     bg: '#0a0a0a',
     bgDeep: '#080808',
     panel: '#111111',
     panelStrong: '#191919',
     text: '#f0ebe0',
-    muted: '#8a8a7a',
-    line: '#252525',
-    danger: '#c41a1a',
-    success: '#1a8a3a',
+    muted: '#a8a898',
+    line: '#6a6a6a',
+    danger: '#e84c51',
+    success: '#23a64b',
     surfaceCanvas: '#080808',
     surfaceBase: '#0a0a0a',
     surfaceRaised: '#111111',
@@ -163,11 +169,12 @@ export const APP_THEME_PRESETS: Record<Exclude<AppTheme, 'custom'>, AppThemeToke
     surfaceSunken: '#060606',
     surfaceHover: 'rgba(255, 255, 255, 0.03)',
     borderSubtle: '#161616',
-    borderDefault: '#252525',
-    borderStrong: '#383838',
+    borderDefault: '#6a6a6a',
+    borderStrong: '#808080',
     textPrimary: '#f0ebe0',
-    textSecondary: '#8a8a7a',
-    textMuted: '#555550',
+    textSecondary: '#a8a898',
+    textMuted: '#8c8c82',
+    textDanger: '#f25a60',
     warning: '#d4890a'
   },
   graphite: {
