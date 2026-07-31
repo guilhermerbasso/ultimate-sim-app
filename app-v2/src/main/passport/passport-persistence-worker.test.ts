@@ -459,15 +459,24 @@ let workerFixture: PassportWorkerTestFixture
 let workerFaultPreloadDirectory = ''
 let workerFaultPreloadPath = ''
 
-// Long enough that the isolation case's in-window proof can never outrun the
-// blocked worker's patience, however loaded the host is.
+// The isolation case holds a SQLite write lock across an entire independent
+// worker's fork, migration and round trip. Its blocked worker is given a busy
+// timeout long enough that "did the write survive contention?" is decided by
+// the lock being released rather than by how fast this machine finished the
+// surrounding proof.
 const ISOLATION_BUSY_TIMEOUT_MS = 120_000
-const ISOLATION_RPC_TIMEOUT_MS = 150_000
 
-// Cases here fork real worker processes and drive SQLite through them. Most of
-// this file already sizes its own watchdogs; these are the ones that were left
-// on Vitest's 5s default, which a loaded host can exceed on process startup
-// alone. Nothing here asserts on elapsed time.
+// Cases here fork real worker processes and drive SQLite through them: a fork,
+// a 240KB ESM bundle to load, a database to open and migrations to run before
+// anything can be asserted, several times over in most cases. With the
+// per-request RPC timer gone this budget is the only clock a case has, and its
+// job is to catch a wedged worker rather than to measure the host - under
+// deliberate CPU oversubscription a single round trip here was measured at 26s.
+// Every case that forks a real worker uses it, rather than the arbitrary
+// 15s/30s/40s mix that grew up while the 6s RPC timer made the case budget
+// moot. Nothing in this file asserts on elapsed time, so a generous watchdog
+// costs nothing when the code is healthy; the two cases that stay above it do
+// materially more work.
 const REAL_WORKER_TIMEOUT_MS = 60_000
 
 class PersistenceProcess {
@@ -539,6 +548,13 @@ const workers: PersistenceProcess[] = []
 const directories: string[] = []
 let requestId = 0
 
+// Building the worker fixture is a Vite SSR build, not an assertion: it must
+// finish, and how long it takes says nothing about the code under test. Vitest's
+// default 10s hook budget is the same kind of wall-clock bet the RPC timer was -
+// this build measures around 2.5s on an idle developer machine, which leaves no
+// room on a loaded CI runner.
+const WORKER_FIXTURE_BUILD_TIMEOUT_MS = 120_000
+
 beforeAll(async () => {
   workerFixture = await buildPassportWorkerTestFixture('process')
   workerFaultPreloadDirectory = mkdtempSync(
@@ -546,7 +562,7 @@ beforeAll(async () => {
   )
   workerFaultPreloadPath = join(workerFaultPreloadDirectory, 'fault-preload.cjs')
   writeFileSync(workerFaultPreloadPath, PASSPORT_WORKER_FAULT_PRELOAD, 'utf8')
-})
+}, WORKER_FIXTURE_BUILD_TIMEOUT_MS)
 
 afterAll(() => {
   workerFixture.cleanup()
@@ -558,7 +574,8 @@ afterAll(() => {
   })
 })
 
-afterEach(async () => {
+afterEach(async (context) => {
+  reportOutstandingRpcs(context)
   await Promise.all(workers.splice(0).map(async (worker) => {
     try {
       await worker.terminate()
@@ -587,26 +604,53 @@ function spawnWorker(fault?: PersistenceProcessFault, busyTimeoutMs?: number): P
   return worker
 }
 
+/**
+ * A worker RPC has no wall clock of its own.
+ *
+ * It used to arm a 6s timer per request. Every case in this file carries an
+ * explicit Vitest budget (15s-120s), so that timer was a second, strictly
+ * tighter clock racing the first: an `initialize` that needed 6.1s on a loaded
+ * runner failed the case with most of its real budget unused, and reported
+ * `Timed out waiting for worker response <n>` rather than anything about the
+ * behaviour under test. Because the RPC ids are global to the file, a
+ * different case lost that race on every run - which is why the same file kept
+ * failing under a different name. The call sites that had been individually
+ * raised to 10s/15s/30s were the same bug patched one site at a time.
+ *
+ * A request now settles only on a real event: the worker's reply, an IPC
+ * error, or the worker's exit. A worker that is genuinely wedged is caught by
+ * the enclosing case's own timeout, and `reportOutstandingRpcs` names the
+ * request that never came back so that failure stays as diagnosable as the
+ * timer made it.
+ */
 function rpc(
   worker: PersistenceProcess,
   method: string,
-  args: unknown[] = [],
-  timeoutMs = 6_000
+  args: unknown[] = []
 ): Promise<RpcResponse> {
-  return rpcRaw(worker, { id: ++requestId, method, args }, requestId, timeoutMs)
+  return rpcRaw(worker, { id: ++requestId, method, args }, requestId)
 }
+
+interface OutstandingRpc {
+  method: string
+  startedAt: number
+  settled?: Promise<unknown>
+}
+
+const outstandingRpcs = new Map<number, OutstandingRpc>()
 
 function rpcRaw(
   worker: PersistenceProcess,
   request: unknown,
-  expectedId: number,
-  timeoutMs = 6_000
+  expectedId: number
 ): Promise<RpcResponse> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup()
-      reject(new Error(`Timed out waiting for worker response ${expectedId}.`))
-    }, timeoutMs)
+  const method = (request as { method?: unknown }).method
+  const outstanding: OutstandingRpc = {
+    method: typeof method === 'string' ? method : 'malformed',
+    startedAt: Date.now()
+  }
+  outstandingRpcs.set(expectedId, outstanding)
+  const settled = new Promise<RpcResponse>((resolve, reject) => {
     const onMessage = (value: unknown) => {
       const response = value as RpcResponse
       if (response.id !== expectedId) return
@@ -622,7 +666,7 @@ function rpcRaw(
       reject(new Error(`Worker exited with code ${code} before response ${expectedId}.`))
     }
     const cleanup = () => {
-      clearTimeout(timer)
+      outstandingRpcs.delete(expectedId)
       worker.off('message', onMessage)
       worker.off('error', onError)
       worker.off('exit', onExit)
@@ -632,12 +676,45 @@ function rpcRaw(
     worker.on('exit', onExit)
     worker.postMessage(request)
   })
+  if (outstandingRpcs.get(expectedId) === outstanding) outstanding.settled = settled
+  return settled
 }
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
+/**
+ * Names any request still in flight when a case ends, so a case that really is
+ * stuck says which RPC it is stuck on instead of only `Test timed out in ...`.
+ *
+ * Teardown SIGKILLs every worker, which rejects whatever is still outstanding.
+ * Requests a case deliberately left unawaited are absorbed here so that
+ * rejection cannot surface as an unhandled rejection attributed to whichever
+ * case happens to run next. Nothing a case awaited is affected: those promises
+ * have already settled with their own result.
+ */
+function reportOutstandingRpcs(context: unknown): void {
+  const pending = [...outstandingRpcs.entries()]
+  outstandingRpcs.clear()
+  if (pending.length === 0) return
+  const now = Date.now()
+  const failed =
+    (context as { task?: { result?: { state?: string } } })?.task?.result?.state === 'fail'
+  if (failed) {
+    const described = pending
+      .map(([id, entry]) => `#${id} ${entry.method} (${now - entry.startedAt}ms)`)
+      .join(', ')
+    console.error(`[passport worker rpc] never answered before teardown: ${described}`)
+  }
+  for (const [, entry] of pending) entry.settled?.catch(() => {})
+}
+
+/**
+ * Waits for a condition to become true, bounded by the enclosing case's own
+ * timeout rather than by a second wall clock of its own. Every caller here is
+ * waiting for the parent's heartbeat to tick while a worker is deliberately
+ * blocked - "did enough real time pass?" is not an assertion, and a 3s deadline
+ * on it was one more way for a loaded host to look like a persistence defect.
+ */
+async function waitUntil(predicate: () => boolean): Promise<void> {
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error('Condition was not reached before timeout.')
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
 }
@@ -1386,7 +1463,7 @@ async function captureReceiptStagedRepairForExistingDatabase(
 
 async function finishReceiptStagedRepair(path: string): Promise<void> {
   const finisher = spawnWorker()
-  await expect(rpc(finisher, 'initialize', [path], 10_000))
+  await expect(rpc(finisher, 'initialize', [path]))
     .resolves.toMatchObject({ ok: true })
   await expect(rpc(finisher, 'getAuthoritativeState')).resolves.toMatchObject({
     ok: true,
@@ -1438,7 +1515,7 @@ async function crashCompletedJournalCleanup(
     authorityPath: `${path}.repair-authority.json`,
     tracePath
   })
-  await expect(rpc(crashing, 'initialize', [path], 10_000)).rejects.toThrow(/exited/i)
+  await expect(rpc(crashing, 'initialize', [path])).rejects.toThrow(/exited/i)
   const trace = readWorkerFaultTrace(tracePath)
   const artifactPath = [...trace].reverse()
     .find((entry) => entry.artifactPath)?.artifactPath
@@ -1525,7 +1602,7 @@ describe('packaged Passport persistence worker', () => {
     blocker.exec('BEGIN IMMEDIATE')
     const pulse = heartbeat()
     let writeSettled = false
-    const pendingWrite = rpc(blocked, 'setPrivacy', [privacy(true)], ISOLATION_RPC_TIMEOUT_MS)
+    const pendingWrite = rpc(blocked, 'setPrivacy', [privacy(true)])
     pendingWrite.then(() => { writeSettled = true }, () => { writeSettled = true })
     try {
       await waitUntil(() => pulse.count() >= 20)
@@ -1638,7 +1715,7 @@ describe('packaged Passport persistence worker', () => {
         previousHash: undefined
       }]
     })
-  }, 15_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[supported] terminates a lock-blocked worker without leaving a partial passport transaction', async () => {
     const path = tempDatabase('terminate-locked')
@@ -1713,7 +1790,7 @@ describe('packaged Passport persistence worker', () => {
       .resolves.toMatchObject({ ok: true, result: { revision: 1 } })
     await expect(rpc(recovered, 'eventHeaders', ['worker-stint']))
       .resolves.toMatchObject({ ok: true, result: [{ sequence: 1 }] })
-  }, 15_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[spec-gap] excludes privacy-deleted sentinels from repair quarantine artifacts', async () => {
     const path = tempDatabase('quarantine-erasure')
@@ -1781,7 +1858,7 @@ describe('packaged Passport persistence worker', () => {
     await replay.terminate()
 
     expect(readWorkerDatabaseSnapshot(path, 'fresh-stint')).toEqual(fresh)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B13-a] rejects replay of the final journal after its cleanup marker completed', async () => {
     const path = tempDatabase('repair-final-journal-replay')
@@ -1804,7 +1881,7 @@ describe('packaged Passport persistence worker', () => {
     })
     await replay.terminate()
     expect(readWorkerDatabaseSnapshot(path, 'fresh-final-stint')).toEqual(fresh)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B13-b] fails closed and preserves data and anchors after repair-journal tampering', async () => {
     const path = tempDatabase('repair-journal-tamper')
@@ -1827,7 +1904,7 @@ describe('packaged Passport persistence worker', () => {
     await restarted.terminate()
 
     expect(readWorkerDatabaseSnapshot(path, 'tamper-stint')).toEqual(captured.snapshot)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B13-c] rejects a structurally valid repair journal copied from another database', async () => {
     const sourcePath = tempDatabase('repair-journal-source')
@@ -1860,7 +1937,7 @@ describe('packaged Passport persistence worker', () => {
     await restarted.terminate()
 
     expect(readWorkerDatabaseSnapshot(targetPath, 'target-stint')).toEqual(target)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it.each([
     ['after-repair-journal', 'authorized'],
@@ -1903,7 +1980,7 @@ describe('packaged Passport persistence worker', () => {
       await replay.terminate()
       expect(readWorkerDatabaseSnapshot(path, `fresh-${phase}`)).toEqual(fresh)
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it('[blocker-B14-a] one current high-water copy defeats rollback of the other copy and repair pair', async () => {
@@ -1938,7 +2015,7 @@ describe('packaged Passport persistence worker', () => {
     expect(readWorkerDatabaseSnapshot(path, 'fresh-single-copy')).toEqual(fresh)
     expect(readdirSync(`${path}.repair-high-water-a`))
       .toEqual(readdirSync(`${path}.repair-high-water-b`))
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it.each([
     'after-repair-database-erased-high-water-a-temp-create',
@@ -1973,7 +2050,7 @@ describe('packaged Passport persistence worker', () => {
       expect(snapshotFiles(`${path}.repair-high-water-a`))
         .toEqual(snapshotFiles(`${path}.repair-high-water-b`))
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it.each([
@@ -2003,7 +2080,7 @@ describe('packaged Passport persistence worker', () => {
       expect(snapshotFiles(`${path}.repair-high-water-a`))
         .toEqual(snapshotFiles(`${path}.repair-high-water-b`))
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it('[blocker-B15-c] fails closed when both trailing high-water markers are torn', async () => {
@@ -2024,7 +2101,7 @@ describe('packaged Passport persistence worker', () => {
       error: expect.stringMatching(/high-water|both|incomplete|torn/i)
     })
     expect(existsSync(path)).toBe(false)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B15-d] fails closed on two authenticated divergent high-water chains', async () => {
     const path = tempDatabase('high-water-divergent')
@@ -2067,7 +2144,7 @@ describe('packaged Passport persistence worker', () => {
     })
     await replay.terminate()
     expect(readWorkerDatabaseSnapshot(path, 'high-water-divergent-fresh')).toEqual(fresh)
-  }, 40_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it.each([
     ['before-repair-database-header-write', 'readable'],
@@ -2115,7 +2192,7 @@ describe('packaged Passport persistence worker', () => {
         result: { quarantinedPath: expect.stringContaining('.quarantine-') }
       })
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it('[blocker-B14-c] rejects a tampered erasing journal without touching the partial database', async () => {
@@ -2139,7 +2216,7 @@ describe('packaged Passport persistence worker', () => {
     })
     await replay.terminate()
     expect(readFileSync(path)).toEqual(partial)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B14-d] refuses erasing-database resume against a newer populated identity', async () => {
     const path = tempDatabase('erase-wrong-identity')
@@ -2172,7 +2249,7 @@ describe('packaged Passport persistence worker', () => {
     })
     await replay.terminate()
     expect(readWorkerDatabaseSnapshot(path, 'replacement-stint')).toEqual(before)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-B15-e] rejects an arbitrary opt-out database before assigned fresh creation', async () => {
     const path = tempDatabase('creating-wrong-identity')
@@ -2210,7 +2287,7 @@ describe('packaged Passport persistence worker', () => {
       captured.repairToken,
       operationId
     ])).resolves.toMatchObject({ ok: true })
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it.each([
     'runtime-log',
@@ -2256,7 +2333,7 @@ describe('packaged Passport persistence worker', () => {
         operationId
       ])).resolves.toMatchObject({ ok: true })
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it('[blocker-B15-e] rejects a pristine database bound to another repair authority', async () => {
@@ -2312,7 +2389,7 @@ describe('packaged Passport persistence worker', () => {
       target.repairToken,
       operationId
     ])).resolves.toMatchObject({ ok: true })
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it.each([
     'runtime-log',
@@ -2357,7 +2434,7 @@ describe('packaged Passport persistence worker', () => {
         operationId
       ])).resolves.toMatchObject({ ok: true })
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it('[blocker-B11-g] retries the same repair operation after an erase COMMIT worker exit', async () => {
@@ -2403,7 +2480,7 @@ describe('packaged Passport persistence worker', () => {
           passports: []
         }
       })
-  }, 15_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it.each([
     ['after-repair-journal', 'authorized'],
@@ -2497,7 +2574,7 @@ describe('packaged Passport persistence worker', () => {
         expect(bytes.includes(Buffer.from(sentinel))).toBe(false)
       }
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it.each(bootstrapFaultCases)(
@@ -2548,7 +2625,7 @@ describe('packaged Passport persistence worker', () => {
         expect(readFileSync(keyPath, 'utf8')).toBe(priorKey)
       }
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it.each([
@@ -2597,7 +2674,7 @@ describe('packaged Passport persistence worker', () => {
         expect(readCurrentRepairHighWater(path).authorityId).toBe(originalAuthority.authorityId)
       }
     },
-    30_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it('[blocker-bootstrap] refuses bootstrap regeneration for a valid but modified database', async () => {
@@ -2629,7 +2706,7 @@ describe('packaged Passport persistence worker', () => {
     expect(existsSync(`${path}.repair-high-water-a`)).toBe(false)
     expect(existsSync(`${path}.repair-high-water-b`)).toBe(false)
     expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(modified)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-bootstrap] refuses bootstrap regeneration for an unreadable database', async () => {
     const path = tempDatabase('bootstrap-unreadable-database')
@@ -2652,7 +2729,7 @@ describe('packaged Passport persistence worker', () => {
     expect(existsSync(`${path}.repair-authority.json`)).toBe(false)
     expect(existsSync(`${path}.repair-high-water-a`)).toBe(false)
     expect(existsSync(`${path}.repair-high-water-b`)).toBe(false)
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-bootstrap] never regenerates missing security around an active repair journal', async () => {
     const path = tempDatabase('bootstrap-active-repair')
@@ -2682,7 +2759,7 @@ describe('packaged Passport persistence worker', () => {
       expect(readWorkerDatabaseSnapshot(path, 'bootstrap-active-repair')).toEqual(beforeDatabase)
       expect(readFileSync(`${path}.repair-journal.json`, 'utf8')).toBe(captured.journal)
     }
-  }, 60_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-bootstrap] never resets an active high-water revision when its journal is missing', async () => {
     const path = tempDatabase('bootstrap-active-high-water')
@@ -2732,7 +2809,7 @@ describe('packaged Passport persistence worker', () => {
     expect(snapshotRepairArtifactTree(path)).toEqual(before)
     expect(readCurrentRepairHighWater(path)).toEqual(activeHighWater)
     expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(pristine)
-  }, 60_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-bootstrap] never regenerates missing security from a completed binding or high-water history', async () => {
     const path = tempDatabase('bootstrap-completed-repair')
@@ -2813,7 +2890,7 @@ describe('packaged Passport persistence worker', () => {
     expect(existsSync(`${path}.repair-high-water-a`)).toBe(false)
     expect(existsSync(`${path}.repair-high-water-b`)).toBe(false)
     expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(completedDatabase)
-  }, 60_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it.each([
     'after-cleanup-rename',
@@ -2894,7 +2971,7 @@ describe('packaged Passport persistence worker', () => {
         databaseId: repairedDatabase.databaseId
       })
     },
-    60_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it.each([
@@ -2945,7 +3022,7 @@ describe('packaged Passport persistence worker', () => {
         .toMatchObject({ journalCleanupPending: true })
       expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(repairedDatabase)
     },
-    60_000
+    REAL_WORKER_TIMEOUT_MS
   )
 
   it('[blocker-cleanup] never erases a syntactically valid forged cleanup artifact', async () => {
@@ -2983,7 +3060,7 @@ describe('packaged Passport persistence worker', () => {
     expect(readRepairAuthorityState(path).lastCompleted)
       .toMatchObject({ journalCleanupPending: true })
     expect(readWorkerDatabaseSnapshot(path, 'none')).toEqual(repairedDatabase)
-  }, 60_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[blocker-cleanup] discards an unreadable cleanup artifact only with matching completed proof', async () => {
     const path = tempDatabase('completed-cleanup-proof')
@@ -3183,7 +3260,7 @@ async function runInitializeBoundaryOperation(
 ): Promise<RpcResponse> {
   const worker = spawnWorker(fault)
   try {
-    return await rpc(worker, 'initialize', [path], 15_000)
+    return await rpc(worker, 'initialize', [path])
   } finally {
     await worker.terminate()
   }
@@ -3196,7 +3273,7 @@ async function runRepairBoundaryOperation(
 ): Promise<RpcResponse> {
   const worker = spawnWorker(fault)
   try {
-    await expect(rpc(worker, 'initialize', [path], 15_000))
+    await expect(rpc(worker, 'initialize', [path]))
       .resolves.toMatchObject({ ok: true })
     const integrity = await rpc(worker, 'getIntegrity')
     const repairToken = (integrity.result as { repairToken?: string }).repairToken ?? ''
@@ -3204,8 +3281,7 @@ async function runRepairBoundaryOperation(
     return await rpc(
       worker,
       'repairPersistence',
-      [repairToken, operationId],
-      30_000
+      [repairToken, operationId]
     )
   } finally {
     await worker.terminate()
@@ -3679,11 +3755,11 @@ async function runParentFsyncRecoveryAttempt(path: string): Promise<{
 }> {
   const worker = spawnWorker()
   try {
-    const initialized = await rpc(worker, 'initialize', [path], 30_000)
+    const initialized = await rpc(worker, 'initialize', [path])
     if (!initialized.ok) return { initialized }
     return {
       initialized,
-      authoritative: await rpc(worker, 'getAuthoritativeState', [], 15_000)
+      authoritative: await rpc(worker, 'getAuthoritativeState')
     }
   } finally {
     await worker.terminate()
@@ -4318,7 +4394,7 @@ describe('packaged Passport persistence worker durable publication', () => {
       mode: 'observe',
       tracePath
     })
-    await expect(rpc(worker, 'initialize', [path], 15_000))
+    await expect(rpc(worker, 'initialize', [path]))
       .resolves.toMatchObject({ ok: true })
     const integrity = await rpc(worker, 'getIntegrity')
     const repairToken = (integrity.result as { repairToken?: string }).repairToken ?? ''
@@ -4326,8 +4402,7 @@ describe('packaged Passport persistence worker durable publication', () => {
     await expect(rpc(
       worker,
       'repairPersistence',
-      [repairToken, 'repair:write-through:observe'],
-      30_000
+      [repairToken, 'repair:write-through:observe']
     )).resolves.toMatchObject({ ok: true })
     await worker.terminate()
 
@@ -4353,7 +4428,7 @@ describe('packaged Passport persistence worker durable publication', () => {
       )
     )).toBe(true)
     expect(existsSync(`${path}.directory-authority.sqlite`)).toBe(false)
-  }, 60_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 
   it('[spec-gap] fails closed when the Windows write-through primitive is unavailable', async () => {
     if (process.platform !== 'win32') return
@@ -4373,5 +4448,5 @@ describe('packaged Passport persistence worker durable publication', () => {
     expect(existsSync(`${path}.directory-authority.sqlite`)).toBe(false)
     await expect(runInitializeBoundaryOperation(path))
       .resolves.toMatchObject({ ok: true })
-  }, 30_000)
+  }, REAL_WORKER_TIMEOUT_MS)
 })
