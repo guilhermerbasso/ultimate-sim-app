@@ -87,7 +87,7 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^5.1.2",
+    "@vitejs/plugin-react": "^6.0.4",
     "electron": "latest",
     "electron-builder": "latest",
     "electron-vite": "^5.0.0",
