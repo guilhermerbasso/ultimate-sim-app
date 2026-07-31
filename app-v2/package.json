@@ -54,9 +54,9 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.13.0",
+    "@huggingface/transformers": "^3.8.1",
     "@react-three/fiber": "^9.6.1",
     "@types/d3-shape": "^3.1.8",
-    "@xenova/transformers": "^2.17.2",
     "bonjour-service": "^1.4.4",
     "d3-shape": "^3.2.0",
     "electron-updater": "^6.8.9",
@@ -106,5 +106,9 @@
   "optionalDependencies": {
     "@nut-tree-fork/nut-js": "^4.2.6",
     "vigemclient": "^1.0.0"
+  },
+  "overrides": {
+    "sharp": "^0.35.3",
+    "adm-zip": "^0.6.0"
   }
 }
