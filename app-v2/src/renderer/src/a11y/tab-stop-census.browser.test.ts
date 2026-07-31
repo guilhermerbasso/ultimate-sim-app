@@ -283,7 +283,7 @@ export async function walkTabCycle(page: Page, cap = WALK_CAP): Promise<{ stops:
 
 describe('dashboard editor tab-stop census (Electron Chromium, real Tab keys)', () => {
   it('counts the sequential tab stops of the editor with the gallery open', async () => {
-    await withA11yPage({ browserEntry, optimizeInclude: CANVAS_EDITOR_DEPS }, async (page) => {
+    await withA11yPage({ browserEntry, cacheKey: 'a11y-tab-stop-census', optimizeInclude: CANVAS_EDITOR_DEPS }, async (page) => {
       const census = await runInPage<Census>(page)
       const walk = await walkTabCycle(page)
 
@@ -321,7 +321,7 @@ describe('dashboard editor tab-stop census (Electron Chromium, real Tab keys)', 
   }, 900_000)
 
   it('still reaches every card with the arrow keys, so nothing became mouse-only', async () => {
-    await withA11yPage({ browserEntry, optimizeInclude: CANVAS_EDITOR_DEPS }, async (page) => {
+    await withA11yPage({ browserEntry, cacheKey: 'a11y-tab-stop-census', optimizeInclude: CANVAS_EDITOR_DEPS }, async (page) => {
       await runInPage<Census>(page)
 
       // Enter the gallery the way a keyboard user does: Tab until focus is on a
@@ -402,7 +402,7 @@ describe('dashboard editor tab-stop census (Electron Chromium, real Tab keys)', 
   }, 900_000)
 
   it('counts the preset gallery the same way', async () => {
-    await withA11yPage({ browserEntry: presetEntry, optimizeInclude: CANVAS_EDITOR_DEPS }, async (page) => {
+    await withA11yPage({ browserEntry: presetEntry, cacheKey: 'a11y-tab-stop-census', optimizeInclude: CANVAS_EDITOR_DEPS }, async (page) => {
       const census = await runInPage<{ presets: number; cardButtons: number; regionFound: boolean; sequentialControls: number }>(page)
 
       // eslint-disable-next-line no-console

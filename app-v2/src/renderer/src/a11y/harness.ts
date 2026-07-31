@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { _electron, type ElectronApplication, type Page } from 'playwright'
 import { createServer } from 'vite'
+import { browserHarnessCacheDir } from '../testing/browser-harness-cache'
 
 /**
  * Real-browser accessibility harness.
@@ -54,6 +55,11 @@ export function imageNodes(node: A11yNode | null): A11yNode[] {
 export interface HarnessOptions {
   /** Module source evaluated in the page. Must set `window.__a11yApi = { run }`. */
   browserEntry: string
+  /**
+   * Unique per test file. Names this harness's private Vite dependency-cache directory, so
+   * parallel harnesses cannot invalidate each other's optimised dependencies mid-import.
+   */
+  cacheKey: string
   /** Extra bare imports Vite should pre-bundle instead of discovering lazily. */
   optimizeInclude?: readonly string[]
 }
@@ -65,6 +71,7 @@ export async function withA11yPage<T>(
   const appRoot = fileURLToPath(new URL('../../../../', import.meta.url))
   const server = await createServer({
     root: appRoot,
+    cacheDir: browserHarnessCacheDir(appRoot, options.cacheKey),
     configFile: false,
     logLevel: 'silent',
     plugins: [

@@ -123,7 +123,7 @@ interface Shell {
 
 describe('skip link (Electron Chromium, real Tab and Enter keys)', () => {
   it('is the first tab stop and lands focus inside the main landmark', async () => {
-    await withA11yPage({ browserEntry }, async (page) => {
+    await withA11yPage({ browserEntry, cacheKey: 'a11y-skip-link' }, async (page) => {
       const shell = await runInPage<Shell>(page)
 
       expect(shell.shellMounted, 'the real App shell must mount for this to measure anything').toBe(true)

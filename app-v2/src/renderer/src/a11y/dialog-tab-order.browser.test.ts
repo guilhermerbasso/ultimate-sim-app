@@ -541,7 +541,7 @@ const DIALOGS = [
 describe('dialog tab order follows the visual reading order (Electron Chromium, real Tab keys)', () => {
   for (const dialog of DIALOGS) {
     it(`${dialog.id} — ${dialog.where}`, async () => {
-      await withA11yPage({ browserEntry, optimizeInclude: DIALOG_DEPS }, async (page) => {
+      await withA11yPage({ browserEntry, cacheKey: 'a11y-dialog-tab-order', optimizeInclude: DIALOG_DEPS }, async (page) => {
         const mounted = await runInPage<Mounted>(page, { id: dialog.id })
         expect(
           mounted.mounted,
