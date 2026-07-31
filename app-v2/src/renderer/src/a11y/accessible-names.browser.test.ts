@@ -110,7 +110,7 @@ interface RunResult {
 describe('accessible names (Electron Chromium accessibility tree)', () => {
   it('exposes no image-role node without an accessible name', async () => {
     const { result, images } = await withA11yPage(
-      { browserEntry, optimizeInclude: ['d3-shape', 'three', '@react-three/fiber'] },
+      { browserEntry, cacheKey: 'a11y-accessible-names', optimizeInclude: ['d3-shape', 'three', '@react-three/fiber'] },
       async (page) => {
         const value = await runInPage<RunResult>(page)
         const tree = await snapshot(page)

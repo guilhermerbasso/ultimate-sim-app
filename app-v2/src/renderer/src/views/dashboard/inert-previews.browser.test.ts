@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react'
 import { _electron } from 'playwright'
 import { describe, expect, it } from 'vitest'
 import { createServer } from 'vite'
+import { browserHarnessCacheDir } from '../../testing/browser-harness-cache'
 
 const ENTRY = '/__inert-preview-entry.tsx'
 const browserEntry = String.raw`
@@ -195,7 +196,7 @@ window.__inertPreviewApi = { run }
 describe('inert gallery previews (Electron Chromium)', () => {
   it('stay at zero IPC while live widgets retain updates and cleanup', async () => {
     const appRoot = fileURLToPath(new URL('../../../../../', import.meta.url))
-    const server = await createServer({ root: appRoot, configFile: false, logLevel: 'silent', plugins: [react(), {
+    const server = await createServer({ root: appRoot, cacheDir: browserHarnessCacheDir(appRoot, 'dashboard-inert-previews'), configFile: false, logLevel: 'silent', plugins: [react(), {
       name: 'inert-preview-browser-harness',
       resolveId(id) { return id === ENTRY ? '\0inert-preview-entry.tsx' : undefined },
       load(id) { return id === '\0inert-preview-entry.tsx' ? browserEntry : undefined },
@@ -208,7 +209,9 @@ describe('inert gallery previews (Electron Chromium)', () => {
       }
     }],
     optimizeDeps: {
-      // Keep dependency discovery and concurrent test churn from reloading Electron during evaluation.
+      // Pre-bundle everything up front: a dependency discovered lazily would re-run the optimiser
+      // mid-evaluation and reload the page. The private `cacheDir` above keeps that optimiser
+      // isolated, so a parallel harness cannot invalidate these bundles either.
       noDiscovery: true,
       include: [
         '@react-three/fiber',

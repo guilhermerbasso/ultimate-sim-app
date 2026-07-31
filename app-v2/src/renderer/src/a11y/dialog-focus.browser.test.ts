@@ -68,7 +68,7 @@ const activeId = (page: Page): Promise<string> =>
 
 describe('dialog focus management (Electron Chromium, real Tab keys)', () => {
   it('traps Tab, honours Escape, and restores focus to the opener', async () => {
-    await withA11yPage({ browserEntry }, async (page) => {
+    await withA11yPage({ browserEntry, cacheKey: 'a11y-dialog-focus' }, async (page) => {
       await runInPage(page, { withTrap: true })
 
       // Open from a known element, so restoration has a target to prove.
@@ -102,7 +102,7 @@ describe('dialog focus management (Electron Chromium, real Tab keys)', () => {
   }, 240_000)
 
   it('shows the untrapped behaviour it replaces', async () => {
-    await withA11yPage({ browserEntry }, async (page) => {
+    await withA11yPage({ browserEntry, cacheKey: 'a11y-dialog-focus' }, async (page) => {
       await runInPage(page, { withTrap: false })
       await page.click('#opener')
       await page.waitForSelector('#dialog')
