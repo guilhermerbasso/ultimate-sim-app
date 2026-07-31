@@ -28,6 +28,32 @@ import { ZERO_HASH } from './constants'
 const AUTHORITY_ID = 'durable-ledger-publication'
 const ESBUILD_NODE_TARGET = `node${process.versions.node.split('.')[0]}`
 
+/**
+ * Every case in this suite pays host-owned cost that no assertion measures.
+ *
+ * The synchronous cases create a fresh authority database and commit through
+ * it, which SQLite is required to do in WAL with `synchronous = FULL` - the
+ * authority refuses to run otherwise - so their wall time is fsync latency for
+ * the whole machine, not work this suite controls. Measured in-body over 96
+ * executions of the append-CAS case with 16 concurrent runners: p50 51ms, p90
+ * 81ms, p99 115ms, max 174ms; the same case with the full suite at 4x
+ * oversubscription took 646ms, of which the fresh-database open alone was
+ * 431ms against a 14ms median in isolation - a 30x inflation with the identical
+ * instruction sequence.
+ *
+ * The cases that spawn publication workers additionally pay Node process
+ * bring-up, twice and concurrently. Measured over 375 worker starts with the
+ * suite at 16x oversubscription, from process start to module loaded: p50
+ * 126ms, p90 1666ms, p99 4225ms, max 8741ms - per process.
+ *
+ * Vitest's 5s default therefore sits inside the distribution these cases
+ * already produce under load rather than outside it, which is what let #192's
+ * bundle-rebuild fix leave them failing. This budget exists to catch a case
+ * that is stuck, and every measurement above says a case that is merely long
+ * finishes far inside it.
+ */
+const DURABLE_LEDGER_CASE_TIMEOUT_MS = 30_000
+
 function hash(value: number): string {
   return value.toString(16).padStart(64, '0')
 }
@@ -497,7 +523,9 @@ function parsedWorkerResult(result: {
   return JSON.parse(result.stdout) as { ok: boolean; message?: string }
 }
 
-describe('durable shared ledger publication authority', () => {
+describe('durable shared ledger publication authority', {
+  timeout: DURABLE_LEDGER_CASE_TIMEOUT_MS
+}, () => {
   it('poisons a rollback-error connection and confirms absence only through a fresh connection', () => {
     const directory = mkdtempSync(
       join(tmpdir(), 'visual-ledger-publication-test-')

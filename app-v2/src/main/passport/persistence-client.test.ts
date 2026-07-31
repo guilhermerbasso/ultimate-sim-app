@@ -9,6 +9,10 @@ import {
   buildPassportWorkerTestFixture,
   type PassportWorkerTestFixture
 } from './passport-worker-test-fixture'
+import {
+  PASSPORT_WORKER_BRINGUP_DEADLINE_MS,
+  PASSPORT_WORKER_INITIALIZE_DEADLINE_MS
+} from './persistence-deadlines'
 
 interface Request {
   id: number
@@ -77,6 +81,10 @@ class FakeWorker {
     queueMicrotask(() => {
       for (const listener of this.exitListeners) listener(code)
     })
+  }
+
+  announceReady(): void {
+    for (const listener of this.messageListeners) listener({ ready: true })
   }
 }
 
@@ -157,6 +165,46 @@ describe('PassportPersistenceClient failure domain', () => {
     await expect(client.getPrivacy()).resolves.toEqual(DEFAULT_PASSPORT_PRIVACY)
     expect(workers.length).toBeGreaterThanOrEqual(2)
     expect(client.status().restarts).toBeGreaterThanOrEqual(1)
+  })
+
+  it('holds a worker that has not announced itself to the bring-up budget, not the worker budget', async () => {
+    vi.useFakeTimers()
+    const { client, workers } = createClient([
+      () => {
+        // A worker the host has not finished bringing up: nothing has run in it
+        // yet, so it neither announces itself nor answers.
+      },
+      (worker, request) => {
+        if (request.method === 'initialize') worker.respond(request)
+      }
+    ])
+    await vi.advanceTimersByTimeAsync(PASSPORT_WORKER_INITIALIZE_DEADLINE_MS + 1)
+    expect(client.status()).toMatchObject({ state: 'starting', restarts: 0 })
+    expect(workers).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(
+      PASSPORT_WORKER_BRINGUP_DEADLINE_MS - PASSPORT_WORKER_INITIALIZE_DEADLINE_MS
+    )
+    expect(client.status().restarts).toBe(1)
+    expect(workers).toHaveLength(2)
+  })
+
+  it('holds a worker that has announced itself to the worker budget', async () => {
+    vi.useFakeTimers()
+    const { client, workers } = createClient([
+      () => {
+        // Announced and listening, but its own database work never completes.
+      },
+      (worker, request) => {
+        if (request.method === 'initialize') worker.respond(request)
+      }
+    ])
+    workers[0].announceReady()
+    await vi.advanceTimersByTimeAsync(PASSPORT_WORKER_INITIALIZE_DEADLINE_MS + 1)
+    expect(PASSPORT_WORKER_INITIALIZE_DEADLINE_MS)
+      .toBeLessThan(PASSPORT_WORKER_BRINGUP_DEADLINE_MS)
+    expect(client.status().restarts).toBe(1)
+    expect(workers).toHaveLength(2)
   })
 
   it('honors kill switch while allowing privacy/lifecycle bypass requests', async () => {
@@ -650,6 +698,16 @@ describe('PassportPersistenceClient real worker lifecycle', () => {
   afterAll(() => {
     phase3WorkerFixture.cleanup()
   })
+
+  it('[supported] announces a real worker is listening before it answers anything', async () => {
+    const worker = phase3Worker()
+    const first = await new Promise<unknown>((resolve, reject) => {
+      worker.on('message', resolve)
+      worker.on('error', reject)
+      worker.on('exit', (code) => reject(new Error(`Persistence process exited with code ${code}.`)))
+    })
+    expect(first).toEqual({ ready: true })
+  }, REAL_WORKER_TIMEOUT_MS)
 
   // Same budget as every other case in this describe. This one was left on
   // Vitest's 5s default while doing the same work they do: fork a real Node

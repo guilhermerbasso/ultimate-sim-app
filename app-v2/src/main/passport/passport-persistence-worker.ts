@@ -2814,3 +2814,15 @@ process.on('disconnect', () => {
     process.exit(0)
   }
 })
+
+/**
+ * Announces that this process has finished loading and is listening.
+ *
+ * Without it the client's only evidence about a starting worker is the
+ * `initialize` response, so it has to charge `fork`, `exec` and module
+ * evaluation - work owned by the host, not by this process - to the same
+ * deadline as the database work this process actually performs, and a busy
+ * machine is indistinguishable from a wedged worker. The envelope carries no
+ * request id, so every consumer that dispatches on `id` ignores it.
+ */
+if (typeof process.send === 'function') process.send({ ready: true })

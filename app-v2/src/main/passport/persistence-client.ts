@@ -27,6 +27,8 @@ import {
 } from './persistence-errors'
 import {
   PASSPORT_CLIENT_CLOSE_DEADLINE_MS,
+  PASSPORT_WORKER_BRINGUP_DEADLINE_MS,
+  PASSPORT_WORKER_INITIALIZE_DEADLINE_MS,
   PASSPORT_WORKER_TERMINATION_DEADLINE_MS
 } from './persistence-deadlines'
 
@@ -41,6 +43,17 @@ function persistenceHealthError(error: Error): Error {
   const coded = error as Error & { code?: string }
   if (!coded.code) coded.code = PASSPORT_HEALTH_ERROR_CODE
   return coded
+}
+
+/**
+ * A worker's unsolicited announcement that its bundle is loaded and its message
+ * handler is installed. It carries no request id, so every other consumer of
+ * the worker's channel - all of which dispatch on `id` - ignores it.
+ */
+function isWorkerReadySignal(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const message = value as { ready?: unknown; id?: unknown }
+  return message.ready === true && message.id === undefined
 }
 
 interface WorkerLike {
@@ -556,7 +569,7 @@ export class PassportPersistenceClient {
       this.request('initialize', [this.options.path], {
         bypassKill: true,
         bypassCircuit: true,
-        deadlineMs: 5_000,
+        deadlineMs: PASSPORT_WORKER_BRINGUP_DEADLINE_MS,
         front: true,
         allowDuringClose: true,
         bypassBackpressure: true
@@ -584,6 +597,16 @@ export class PassportPersistenceClient {
     this.queuedBytes -= entry.bytes
     this.clearQueueTimer(entry)
     this.inFlight = entry
+    this.armInFlightDeadline(entry, entry.deadlineMs)
+    try {
+      this.worker.postMessage(entry.request)
+    } catch (error) {
+      this.onWorkerFailure(this.worker, error instanceof Error ? error : new Error(String(error)))
+    }
+  }
+
+  private armInFlightDeadline(entry: QueueEntry, deadlineMs: number): void {
+    if (this.inFlightTimer) clearTimeout(this.inFlightTimer)
     this.inFlightTimer = setTimeout(() => {
       if (this.inFlight !== entry) return
       const error = persistenceHealthError(
@@ -593,16 +616,31 @@ export class PassportPersistenceClient {
       this.inFlight = null
       this.inFlightTimer = null
       this.onWorkerFailure(this.worker, error)
-    }, entry.deadlineMs)
-    try {
-      this.worker.postMessage(entry.request)
-    } catch (error) {
-      this.onWorkerFailure(this.worker, error instanceof Error ? error : new Error(String(error)))
-    }
+    }, deadlineMs)
+  }
+
+  /**
+   * Hands the startup handshake over from the host's clock to the worker's.
+   *
+   * Until this arrives the client has no evidence about the worker at all: the
+   * process may not have been scheduled yet, and the wait is `fork` plus module
+   * evaluation, which the worker neither controls nor can report on. Once it
+   * arrives the remaining wait is the worker's own work - opening SQLite and
+   * running migrations - so the deadline can be a statement about the worker
+   * rather than about how busy the host is.
+   */
+  private onWorkerReady(): void {
+    const entry = this.inFlight
+    if (!entry || entry.request.method !== 'initialize') return
+    this.armInFlightDeadline(entry, PASSPORT_WORKER_INITIALIZE_DEADLINE_MS)
   }
 
   private onMessage(worker: WorkerLike, value: unknown): void {
     if (this.worker !== worker) return
+    if (isWorkerReadySignal(value)) {
+      this.onWorkerReady()
+      return
+    }
     const response = value as RpcResponse
     const entry = this.inFlight
     if (!entry || response.id !== entry.request.id) return
