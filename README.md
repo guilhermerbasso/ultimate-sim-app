@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Release line: **Ultimate Sim App 2.55.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Release line: **Ultimate Sim App 2.58.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -27,6 +27,11 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
+
+### 2.58.0 — * fix(deps): replace @xenova/transformers with @huggingface/transformers (P0-14) by @guilh
+
+See the [v2.58.0 release notes](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.58.0) for the full list.
+
 ### 2.56.0 — managed streaming sources, responsive mobile presentations, and deterministic dashboard QA
 
 - **Control the authoritative list of dashboards and Touch Controls panels that may stream** ([#118](https://github.com/guilhermerbasso/ultimate-sim-app/pull/118)): one Manage streaming sources flow is shared by Streaming, the Mobile Stream Editor, and OBS-local, with clear added, active, missing, hidden, and ineligible states.
@@ -96,14 +101,6 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Golden rule**: an event is only flagged when no legitimate intent explains it, it **repeats lap-to-lap**, and there is real time loss; otherwise it stays **silent** or is kept as neutral **context**. Silence beats noise.
 - **Confidence per finding + a "Coach sensitivity" slider**; grounded tips cite **Turn + Sector together**, the driving dimension in plain words, the seconds lost and the discarded intent — e.g. *"Turn 13 (Sector 3): not enough steering — lost 1.0s"*.
 - **Local per-car + per-track baselines** (robust median/MAD/EMA + lap-to-lap repetition) tell the driver's **style** apart from an **error**; the local LLM only *verbalizes* the decided finding (PT-BR/EN). Research write-up in `app-v2/docs/coach-intent-research.md`.
-
-### 2.49.0 — Overlay/widget fixes, device flashing & guided setup
-
-- **Overlay/widget rendering fixes**: transparent, title-less, border-less overlays where reported; numbers no longer clipped; rev-lights/RPM strips fill the box width; the editor preview renders the real widget with simulated telemetry.
-- **New overlay style editor**: colors, fonts, background, borders + border color, and divider lines — including hi-fi widgets.
-- **Device flashing fixed**: `avrdude.exe` is bundled (with a download fallback); **iFlag** fixes (all serial ports listed, stable reconnect, persisted state, logging) plus a **guided setup wizard** for unknown devices and a **Custom serial devices** submenu.
-- **Streaming**: fixed "Test from this PC → Failed to fetch" and added a **stream target selector** to choose which dashboard to stream.
-- **Per-menu tutorials** (first-run walkthrough + a persistent "Start this menu's tutorial" button), a **Join us on Discord** button, a **Check for updates** button, and a fixed Windows taskbar/Start **app icon**.
 
 <!-- WHATS_NEW:END -->
 
